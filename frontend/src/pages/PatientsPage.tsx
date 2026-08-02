@@ -1297,14 +1297,9 @@ export default function PatientsPage() {
                           className="border border-slate-100 rounded-xl p-4"
                         >
                           <div className="flex items-start justify-between mb-2">
-                            <div>
-                              <p className="text-xs font-medium text-slate-700">
-                                {entry.changedBy.name}
-                              </p>
-                              <p className="text-xs text-slate-400">
-                                {entry.changedBy.role}
-                              </p>
-                            </div>
+                            <p className="text-xs font-medium text-slate-700">
+                              {entry.changedBy.name}
+                            </p>
                             <p className="text-xs text-slate-400">
                               {new Date(entry.changedAt).toLocaleString(
                                 "es-CL",
