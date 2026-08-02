@@ -423,23 +423,46 @@ existente (ej. HostGator) porque su Acceptable Use Policy prohíbe
 explícitamente usar el espacio de shared hosting como *"offsite storage of
 electronic files"* — ver la discusión completa en el issue #17.
 
-1. Crear cuenta gratuita en Backblaze B2 y un bucket **privado**.
-2. Instalar [`rclone`](https://rclone.org) en el servidor y configurar el
-   remote con el Application Key de B2:
-   ```bash
-   rclone config
-   ```
-3. Setear `OFFSITE_UPLOAD_CMD` en el entorno del servidor (variable de
-   infra, **nunca en el repo**):
-   ```bash
-   OFFSITE_UPLOAD_CMD="rclone copy {} b2remote:mi-bucket/umbral/"
-   ```
-   `backup.sh` reemplaza `{}` por la ruta del backup cifrado y ejecuta el
-   comando tal cual.
-4. Verificar al menos una restauración real desde la copia offsite antes de
-   dar por cerrado el punto.
+Hay dos formas de correr el backup, según dónde se ejecute:
 
-Activarlo:
+#### A) Automatizado vía GitHub Actions (producción actual)
+
+`backups/backup.sh` asume una VM persistente con cron propio — este repo
+corre el backend en Render free tier, que no tiene un proceso persistente
+para cron (issue #10 evaluó y descartó migrar a una VM por ahora). Por eso
+la copia offsite en producción corre como un workflow programado
+(`.github/workflows/backup.yml`): todos los días hace `pg_dump` contra
+Supabase, cifra igual que `backup.sh` y sube el resultado a B2 vía rclone,
+sin depender de ningún servidor propio.
+
+Setup (una sola vez):
+
+1. Crear cuenta gratuita en Backblaze B2 y un bucket **privado**.
+2. Instalar [`rclone`](https://rclone.org) en cualquier máquina (puede ser
+   tu laptop, no hace falta que sea el servidor) y correr `rclone config`
+   para generar el remote con el Application Key de B2. El archivo
+   resultante (`~/.config/rclone/rclone.conf`) es el contenido del secret
+   `RCLONE_CONFIG_CONTENT` de abajo.
+3. Cargar estos secrets en GitHub (repo → Settings → Secrets and
+   variables → Actions):
+
+   | Secret | Valor |
+   |---|---|
+   | `BACKUP_DB_URL` | El `DIRECT_URL` de Supabase (session pooler, puerto 5432 — mismo que usa Render para `prisma migrate deploy`, no el transaction pooler) |
+   | `BACKUP_PASSPHRASE` | `openssl rand -base64 48` — guardá una copia en un gestor de contraseñas, sin ella los backups son irrecuperables |
+   | `RCLONE_CONFIG_CONTENT` | Contenido completo de `rclone.conf` generado en el paso 2 |
+   | `B2_BUCKET_PATH` | `nombre-del-remote:mi-bucket/umbral/` (el remote que configuraste en `rclone config`) |
+
+4. Disparar el workflow manualmente una vez (`Actions` → `Backup offsite` →
+   `Run workflow`) y verificar que el archivo aparezca en el bucket de B2.
+5. Verificar al menos una restauración real desde la copia offsite antes de
+   dar por cerrado el punto (ver "Restaurar un backup" abajo).
+
+#### B) Manual / local (`backup.sh`)
+
+Sigue siendo útil para correr un backup puntual desde tu propia máquina, o
+si en algún momento se migra a una VM persistente (issue #10) y conviene
+volver a un cron tradicional:
 
 ```bash
 chmod +x backups/backup.sh
@@ -451,10 +474,17 @@ crontab -e
 Agregar la siguiente línea:
 
 ```
-0 2 * * * /ruta/completa/control-fichas/backups/backup.sh >> /ruta/completa/control-fichas/backups/backup.log 2>&1
+0 2 * * * /ruta/completa/umbral-personal/backups/backup.sh >> /ruta/completa/umbral-personal/backups/backup.log 2>&1
 ```
 
-Restaurar un backup:
+Para que también suba a B2, setear `OFFSITE_UPLOAD_CMD` en el entorno de
+esa máquina (nunca en el repo):
+
+```bash
+OFFSITE_UPLOAD_CMD="rclone copy {} b2remote:mi-bucket/umbral/"
+```
+
+Restaurar un backup (aplica a ambos casos, A y B):
 
 ```bash
 openssl enc -d -aes-256-cbc -pbkdf2 -pass file:"$HOME/.umbral_backup_passphrase" \

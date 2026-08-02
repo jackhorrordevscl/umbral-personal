@@ -1,0 +1,61 @@
+name: Backup offsite
+
+# Issue #8: backup.sh (backups/backup.sh) asume una VM persistente con cron
+# propio -- este repo corre en Render free tier, que no tiene un proceso
+# persistente para cron. Este workflow reemplaza esa pieza: corre pg_dump
+# contra Supabase (accesible desde cualquier lado, no requiere estar en la
+# misma red), cifra igual que backup.sh y sube el resultado a Backblaze B2
+# vía rclone. No usa backup.sh directamente porque su interfaz asume rutas
+# locales (BACKUP_DIR/ARCHIVE_DIR/NAS_DIR) que no tienen sentido en un
+# runner efímero -- acá cada backup diario se sube a B2 sin acumular
+# estado local entre corridas.
+on:
+  schedule:
+    # 05:00 UTC ~ 02:00 America/Santiago en horario de verano (UTC-3); se
+    # corre ~1h más tarde en horario de invierno (UTC-4) -- no es crítico
+    # para un backup nocturno.
+    - cron: '0 5 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Instalar rclone
+        run: curl https://rclone.org/install.sh | sudo bash
+
+      - name: Backup cifrado -> Backblaze B2
+        env:
+          # Session pooler de Supabase (DIRECT_URL en Render), no el
+          # transaction pooler: pg_dump necesita prepared statements igual
+          # que prisma migrate deploy -- ver comentario en schema.prisma.
+          BACKUP_DB_URL: ${{ secrets.BACKUP_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          RCLONE_CONFIG_CONTENT: ${{ secrets.RCLONE_CONFIG_CONTENT }}
+          B2_BUCKET_PATH: ${{ secrets.B2_BUCKET_PATH }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p ~/.config/rclone
+          printf '%s' "$RCLONE_CONFIG_CONTENT" > ~/.config/rclone/rclone.conf
+          chmod 600 ~/.config/rclone/rclone.conf
+
+          PASSPHRASE_FILE="$(mktemp)"
+          printf '%s' "$BACKUP_PASSPHRASE" > "$PASSPHRASE_FILE"
+          chmod 600 "$PASSPHRASE_FILE"
+
+          DATE="$(date -u +'%Y-%m-%d_%H-%M-%S')"
+          BACKUP_FILE="umbral_backup_${DATE}.sql.gz.enc"
+
+          # pg_dump vía docker: garantiza una versión de cliente compatible
+          # con el server de Supabase sin depender del paquete que traiga el
+          # runner de GitHub Actions.
+          docker run --rm postgres:16-alpine pg_dump "$BACKUP_DB_URL" \
+            | gzip \
+            | openssl enc -aes-256-cbc -pbkdf2 -salt -pass "file:$PASSPHRASE_FILE" \
+            > "$BACKUP_FILE"
+
+          rclone copy "$BACKUP_FILE" "$B2_BUCKET_PATH"
+
+          rm -f "$PASSPHRASE_FILE" "$BACKUP_FILE"
+          echo "✅ Backup subido a $B2_BUCKET_PATH/$BACKUP_FILE"
