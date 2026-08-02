@@ -119,6 +119,9 @@ export default function SharedFilesPage() {
       });
       const blob = new Blob([res.data], { type: file.mimetype });
       const url = window.URL.createObjectURL(blob);
+      // No se revoca acá: la pestaña nueva sigue necesitando el blob URL
+      // después de este punto (a diferencia de handleDownload, que dispara
+      // la descarga y termina en el mismo tick).
       window.open(url, '_blank');
     } catch {
       setError('Error al abrir el archivo');
@@ -137,6 +140,7 @@ export default function SharedFilesPage() {
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
     } catch {
       setError('Error al descargar el archivo');
     }

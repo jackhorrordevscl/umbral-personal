@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ShieldCheck, ShieldOff, QrCode } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
+import { getApiErrorMessage } from '../utils/api-error';
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -21,8 +22,8 @@ export default function SettingsPage() {
       setQrCode(res.data.qrCode);
       setSecret(res.data.secret);
       setStep('scan');
-    } catch {
-      setError('Error al generar el código QR');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Error al generar el código QR'));
     } finally {
       setLoading(false);
     }
@@ -35,8 +36,8 @@ export default function SettingsPage() {
       await api.post('/auth/mfa/enable', { token });
       setMessage('MFA activado correctamente. Tu cuenta ahora requiere doble factor.');
       setStep('done');
-    } catch {
-      setError('Código inválido. Intenta de nuevo.');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Código inválido. Intenta de nuevo.'));
     } finally {
       setLoading(false);
     }
@@ -50,8 +51,8 @@ export default function SettingsPage() {
       setMessage('MFA desactivado.');
       setStep('idle');
       setToken('');
-    } catch {
-      setError('Código inválido. Intenta de nuevo.');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Código inválido. Intenta de nuevo.'));
     } finally {
       setLoading(false);
     }
@@ -131,6 +132,7 @@ export default function SettingsPage() {
             </p>
             <input
               type="text"
+              aria-label="Código de verificación MFA de 6 dígitos"
               maxLength={6}
               placeholder="000000"
               value={token}
@@ -159,6 +161,7 @@ export default function SettingsPage() {
             </p>
             <input
               type="text"
+              aria-label="Código de verificación MFA de 6 dígitos para desactivar"
               maxLength={6}
               placeholder="000000"
               value={token}

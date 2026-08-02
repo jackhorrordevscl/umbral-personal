@@ -86,12 +86,28 @@ export class ConsultationsService {
       include: THERAPIST_SELECT,
     });
 
-    return Promise.all(
-      consultations.map(async (c) => ({
-        ...c,
-        history: await this.getHistory(c.groupId),
-      })),
-    );
+    // Una sola query para el historial de todas las consultas en vez de N
+    // (antes: una consulta a consultationHistory por cada fila, aunque
+    // paralelizadas con Promise.all) -- mismo patrón que
+    // PatientsService.getConsentStatusMap.
+    const historyMap = new Map<string, Awaited<ReturnType<typeof this.getHistory>>>();
+    if (consultations.length > 0) {
+      const groupIds = consultations.map((c) => c.groupId);
+      const allHistory = await this.prisma.consultationHistory.findMany({
+        where: { consultationId: { in: groupIds } },
+        orderBy: { editedAt: 'desc' },
+        include: { editedBy: { select: { name: true, email: true } } },
+      });
+      for (const groupId of groupIds) historyMap.set(groupId, []);
+      for (const entry of allHistory) {
+        historyMap.get(entry.consultationId)?.push(entry);
+      }
+    }
+
+    return consultations.map((c) => ({
+      ...c,
+      history: historyMap.get(c.groupId) ?? [],
+    }));
   }
 
   async findOne(id: string, userId: string) {

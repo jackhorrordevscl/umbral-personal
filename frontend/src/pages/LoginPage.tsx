@@ -154,6 +154,7 @@ export default function LoginPage() {
           </p>
           <input
             type="password"
+            aria-label="Nueva contraseña"
             placeholder="Nueva contraseña"
             minLength={8}
             value={newPassword}
@@ -193,6 +194,7 @@ export default function LoginPage() {
           )}
           <input
             type="text"
+            aria-label="Código de verificación MFA de 6 dígitos"
             maxLength={6}
             placeholder="000000"
             value={setupMfaCode}
@@ -226,6 +228,7 @@ export default function LoginPage() {
           </p>
           <input
             type="text"
+            aria-label="Código de verificación MFA de 6 dígitos"
             maxLength={6}
             placeholder="000000"
             value={mfaToken}
