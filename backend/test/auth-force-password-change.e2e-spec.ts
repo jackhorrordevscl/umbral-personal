@@ -26,7 +26,10 @@ import {
  * corre en local sin configuración y sin repetir el literal acá, evitando los
  * falsos positivos de secret scanning.
  */
-describe('Cambio de contraseña forzado del admin semilla (e2e)', () => {
+// Pendiente issue #7: escrito contra el modelo institucional
+// (ADMIN/SUPERVISOR/COORDINATOR/THERAPIST), que ya no existe -- reescribir
+// contra el modelo de un solo rol (PROFESSIONAL, dueño único de sus fichas).
+describe.skip('Cambio de contraseña forzado del admin semilla (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
 

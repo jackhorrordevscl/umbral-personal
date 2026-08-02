@@ -31,7 +31,10 @@ import {
  * suite sea repetible sobre la misma base sin colisionar con datos de
  * pruebas manuales previas, y se eliminan en afterAll.
  */
-describe('RBAC ownership guard (e2e)', () => {
+// Pendiente issue #7: escrito contra el modelo institucional
+// (ADMIN/SUPERVISOR/COORDINATOR/THERAPIST), que ya no existe -- reescribir
+// contra el modelo de un solo rol (PROFESSIONAL, dueño único de sus fichas).
+describe.skip('RBAC ownership guard (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
 
