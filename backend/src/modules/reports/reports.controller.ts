@@ -18,7 +18,6 @@ export class ReportsController {
     const buffer = await this.reportsService.generatePatientReport(
       patientId,
       user.id,
-      user.role,
     );
 
     res.set({

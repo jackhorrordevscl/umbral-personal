@@ -26,19 +26,19 @@ export class SharedFilesController {
   constructor(private readonly sharedFilesService: SharedFilesService) {}
 
   @Get()
-  findAll(@Query('category') category?: FileCategory) {
-    return this.sharedFilesService.findAll(category);
+  findAll(@Query('category') category: FileCategory | undefined, @Req() req: any) {
+    return this.sharedFilesService.findAll(req.user.id, category);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.sharedFilesService.findOne(id);
+  findOne(@Param('id') id: string, @Req() req: any) {
+    return this.sharedFilesService.findOne(id, req.user.id);
   }
 
   @Get(':id/download')
-  async download(@Param('id') id: string, @Res() res: Response) {
-    const file = await this.sharedFilesService.findOne(id);
-    const filePath = await this.sharedFilesService.getFilePath(id);
+  async download(@Param('id') id: string, @Req() req: any, @Res() res: Response) {
+    const file = await this.sharedFilesService.findOne(id, req.user.id);
+    const filePath = await this.sharedFilesService.getFilePath(id, req.user.id);
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="${encodeURIComponent(file.originalName)}"`,
@@ -65,16 +65,11 @@ export class SharedFilesController {
     dto: { name?: string; description?: string; category?: FileCategory },
     @Req() req: any,
   ) {
-    return this.sharedFilesService.updateFile(
-      id,
-      dto,
-      req.user.id,
-      req.user.role,
-    );
+    return this.sharedFilesService.updateFile(id, dto, req.user.id);
   }
 
   @Delete(':id')
   deleteFile(@Param('id') id: string, @Req() req: any) {
-    return this.sharedFilesService.deleteFile(id, req.user.id, req.user.role);
+    return this.sharedFilesService.deleteFile(id, req.user.id);
   }
 }

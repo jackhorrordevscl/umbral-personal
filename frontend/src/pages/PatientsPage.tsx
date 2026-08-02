@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import api from "../api/client";
 import { formatRut, normalizeRut, validateRut } from "../utils/rut";
-import { useAuth } from "../context/AuthContext";
 
 // T6.1 (issue #27): consentimiento granular por finalidad (Ley 21.719).
 // Reemplaza los booleanos consentSigned/telemedConsentSigned (sin fecha ni
@@ -97,7 +96,6 @@ const FIELD_LABELS: Record<string, string> = {
 type ModalTab = "detail" | "edit" | "history";
 
 export default function PatientsPage() {
-  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -125,21 +123,6 @@ export default function PatientsPage() {
   // History state
   const [history, setHistory] = useState<PatientHistoryEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
-
-  // T6.5 (issue #52): acceso excepcional de SUPERVISOR a una ficha sin
-  // consentimiento HEALTH_NETWORK. findAll ya excluye a esos pacientes de
-  // `patients` (T6.4), así que la única forma de llegar a uno es buscándolo
-  // por RUT exacto contra el backend (GET /patients/by-rut/:rut) -- distinto
-  // del filtro client-side de arriba, que solo opera sobre lo ya visible.
-  const [rutLookup, setRutLookup] = useState("");
-  const [rutLookupError, setRutLookupError] = useState("");
-  const [rutLookupLoading, setRutLookupLoading] = useState(false);
-  const [overridePatientId, setOverridePatientId] = useState<string | null>(
-    null,
-  );
-  const [overrideReasonInput, setOverrideReasonInput] = useState("");
-  const [overrideError, setOverrideError] = useState("");
-  const [overrideLoading, setOverrideLoading] = useState(false);
 
   const { data: patients = [] } = useQuery({
     queryKey: ["patients"],
@@ -381,66 +364,6 @@ export default function PatientsPage() {
     setSelected(p);
     setModalTab("detail");
     loadDocuments(p.id);
-  };
-
-  const handleRutLookup = async () => {
-    if (!rutLookup.trim() || !validateRut(rutLookup)) {
-      setRutLookupError("RUT inválido");
-      return;
-    }
-    setRutLookupError("");
-    setRutLookupLoading(true);
-    try {
-      const res = await api.get(
-        `/patients/by-rut/${normalizeRut(rutLookup)}`,
-      );
-      openPatientDetail(res.data);
-      setRutLookup("");
-    } catch (err: any) {
-      const patientId = err.response?.data?.patientId;
-      if (err.response?.status === 403 && patientId) {
-        // Sin consentimiento Red de Salud: se abre el modal de acceso
-        // excepcional en vez de mostrar un error genérico -- este es
-        // justamente el caso que la búsqueda por RUT existe para resolver.
-        setOverridePatientId(patientId);
-        setOverrideReasonInput("");
-        setOverrideError("");
-      } else if (err.response?.status === 404) {
-        setRutLookupError("No existe un paciente con ese RUT");
-      } else {
-        setRutLookupError(
-          err.response?.data?.message ?? "Error al buscar el paciente",
-        );
-      }
-    } finally {
-      setRutLookupLoading(false);
-    }
-  };
-
-  const handleConfirmOverride = async () => {
-    if (overrideReasonInput.trim().length < 10) {
-      setOverrideError("El motivo debe tener al menos 10 caracteres");
-      return;
-    }
-    if (!overridePatientId) return;
-    setOverrideError("");
-    setOverrideLoading(true);
-    try {
-      const res = await api.post(
-        `/patients/${overridePatientId}/access-override`,
-        { overrideReason: overrideReasonInput },
-      );
-      openPatientDetail(res.data);
-      setOverridePatientId(null);
-      setOverrideReasonInput("");
-      setRutLookup("");
-    } catch (err: any) {
-      setOverrideError(
-        err.response?.data?.message ?? "No se pudo completar el acceso excepcional",
-      );
-    } finally {
-      setOverrideLoading(false);
-    }
   };
 
   const filtered = patients.filter(
@@ -721,43 +644,6 @@ export default function PatientsPage() {
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
-
-      {/* T6.5 (issue #52): esta búsqueda golpea el backend (no filtra la
-          lista ya cargada, como la de arriba) -- es la única forma de que un
-          SUPERVISOR llegue a una ficha sin consentimiento Red de Salud, que
-          findAll ya excluye de `patients`. */}
-      {user?.role === "SUPERVISOR" && (
-        <div className="card mb-4 p-4">
-          <p className="text-xs font-medium text-slate-600 mb-2">
-            Acceso excepcional por RUT (fichas sin consentimiento de Red de
-            Salud)
-          </p>
-          <div className="flex gap-2">
-            <input
-              className="input-field flex-1"
-              placeholder="12.345.678-9"
-              value={rutLookup}
-              onChange={(e) => {
-                setRutLookup(formatRut(e.target.value));
-                setRutLookupError("");
-              }}
-              maxLength={12}
-            />
-            <button
-              onClick={handleRutLookup}
-              className="btn-secondary shrink-0"
-              disabled={rutLookupLoading}
-            >
-              {rutLookupLoading ? "Buscando..." : "Buscar"}
-            </button>
-          </div>
-          {rutLookupError && (
-            <p className="text-red-500 text-xs mt-2 flex items-center gap-1">
-              <AlertCircle size={11} /> {rutLookupError}
-            </p>
-          )}
-        </div>
-      )}
 
       {/* Tabla desktop */}
       <div className="hidden md:block card p-0 overflow-hidden">
@@ -1427,75 +1313,6 @@ export default function PatientsPage() {
           </div>
         </div>
       )}
-
-      {/* T6.5 (issue #52): modal de motivo para el acceso excepcional de
-          SUPERVISOR a una ficha sin consentimiento Red de Salud. Separado del
-          modal de detalle de arriba a propósito: en este punto todavía no se
-          tienen los datos de la ficha (recién se obtienen si el motivo se
-          confirma y el backend lo acepta). */}
-      {overridePatientId && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <div className="flex items-start justify-between mb-3">
-              <h3 className="font-display text-xl text-slate-900">
-                Acceso excepcional
-              </h3>
-              <button
-                onClick={() => setOverridePatientId(null)}
-                className="text-slate-400 hover:text-slate-600 ml-4"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2 mb-4">
-              <AlertCircle
-                size={14}
-                className="text-amber-500 shrink-0 mt-0.5"
-              />
-              <p className="text-amber-700 text-xs">
-                Este paciente no ha otorgado consentimiento de Red de Salud.
-                Acceder igual queda registrado con tu usuario, la fecha y el
-                motivo indicado abajo.
-              </p>
-            </div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              Motivo del acceso excepcional{" "}
-              <span className="text-red-500">*</span>
-            </label>
-            <textarea
-              className="input-field resize-none"
-              rows={3}
-              placeholder="Ej: Revisión por denuncia recibida el 18/07/2026"
-              value={overrideReasonInput}
-              onChange={(e) => setOverrideReasonInput(e.target.value)}
-            />
-            <p className="text-xs text-slate-400 mt-1">
-              {overrideReasonInput.length} caracteres (mínimo 10)
-            </p>
-            {overrideError && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-3 flex items-center gap-2">
-                <AlertCircle size={14} className="text-red-500 shrink-0" />
-                <p className="text-red-600 text-sm">{overrideError}</p>
-              </div>
-            )}
-            <div className="flex gap-3 mt-4">
-              <button
-                onClick={handleConfirmOverride}
-                className="btn-primary"
-                disabled={overrideLoading}
-              >
-                {overrideLoading ? "Accediendo..." : "Confirmar acceso"}
-              </button>
-              <button
-                onClick={() => setOverridePatientId(null)}
-                className="btn-secondary"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
-};
+}

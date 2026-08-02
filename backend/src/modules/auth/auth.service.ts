@@ -7,10 +7,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import * as QRCode from 'qrcode';
-import { Role, User } from '@prisma/client';
-
-// Roles administrativos: no pueden operar sin MFA (T4.1 / issue #19).
-const MFA_REQUIRED_ROLES: Role[] = [Role.ADMIN, Role.SUPERVISOR];
+import { User } from '@prisma/client';
 
 // Purpose que llevan los JWT de corta duración emitidos para forzar el
 // enrolamiento MFA. Nunca deben aceptarse como sesión (ver jwt.strategy.ts).
@@ -75,25 +72,23 @@ export class AuthService {
       };
     }
 
-    if (MFA_REQUIRED_ROLES.includes(user.role)) {
-      // Rol administrativo sin MFA: no se emite accessToken. Se entrega un
-      // JWT de corta duración con purpose 'mfa-setup', que solo sirve para
-      // beginMfaSetup/confirmMfaSetup (jwt.strategy.ts lo rechaza como
-      // Bearer token de sesión). Nunca se devuelve el userId crudo: filtra
-      // por otras rutas (editedById/changedById en el historial) y sin este
-      // token firmado cualquiera podría iniciar el enrolamiento MFA de otra
-      // cuenta sin conocer su contraseña.
-      const setupToken = this.jwtService.sign(
-        { sub: user.id, purpose: MFA_SETUP_PURPOSE },
-        { expiresIn: '10m' },
-      );
-      return {
-        requiresMfaSetup: true,
-        setupToken,
-      };
-    }
-
-    return this.generateToken(user);
+    // MFA es obligatorio para toda cuenta: el único rol de este producto
+    // maneja el 100% de los datos clínicos propios, sin el alcance acotado
+    // que tenía THERAPIST en la versión institucional (donde MFA forzado
+    // solo aplicaba a roles administrativos). Sin accessToken hasta enrolar:
+    // se entrega un JWT de corta duración con purpose 'mfa-setup', que solo
+    // sirve para beginMfaSetup/confirmMfaSetup (jwt.strategy.ts lo rechaza
+    // como Bearer token de sesión). Nunca se devuelve el userId crudo: sin
+    // este token firmado cualquiera podría iniciar el enrolamiento MFA de
+    // otra cuenta sin conocer su contraseña.
+    const setupToken = this.jwtService.sign(
+      { sub: user.id, purpose: MFA_SETUP_PURPOSE },
+      { expiresIn: '10m' },
+    );
+    return {
+      requiresMfaSetup: true,
+      setupToken,
+    };
   }
 
   /**

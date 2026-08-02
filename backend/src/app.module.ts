@@ -9,7 +9,7 @@ import { ConsultationsModule } from './modules/consultations/consultations.modul
 import { ReportsModule } from './modules/reports/reports.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { DocumentsModule } from './modules/documents/documents.module';
-import { UsersModule } from './modules/users/users.module';
+import { ProfileModule } from './modules/profile/profile.module';
 import { SharedFilesModule } from './shared-files/shared-files.module';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { AppController } from './app.controller';
@@ -24,7 +24,7 @@ import { AppService } from './app.service';
     PrismaModule,
     AuditModule,
     AuthModule,
-    UsersModule,
+    ProfileModule,
     PatientsModule,
     ConsultationsModule,
     ReportsModule,

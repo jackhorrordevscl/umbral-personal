@@ -24,15 +24,7 @@ export class AuditInterceptor implements NestInterceptor {
 
     const method = request.method;
     const url = request.url;
-    // T6.5 (issue #52): GET /patients/by-rut/:rut no tiene :id ni
-    // :patientId -- sin este fallback, cualquier búsqueda por RUT quedaba
-    // auditada con resourceId='N/A', perdiendo trazabilidad de qué RUT se
-    // consultó.
-    const resourceId =
-      request.params?.id ??
-      request.params?.patientId ??
-      request.params?.rut ??
-      'N/A';
+    const resourceId = request.params?.id ?? request.params?.patientId ?? 'N/A';
     const ipAddress = request.ip;
     const userAgent = request.headers['user-agent'];
 
@@ -46,15 +38,6 @@ export class AuditInterceptor implements NestInterceptor {
 
     const action = actionMap[method] ?? 'VIEW';
     const resource = getResourceFromUrl(url);
-
-    // T6.5 (issue #52): si el request trae `overrideReason` (body o query),
-    // se adjunta al mismo log automático de esta acción -- genérico, no
-    // acoplado a la ruta de acceso excepcional en particular. Cualquier
-    // otro endpoint que en el futuro necesite el mismo patrón de "acción
-    // excepcional con motivo auditado" lo obtiene gratis con solo mandar
-    // ese campo.
-    const overrideReason: string | undefined =
-      request.body?.overrideReason ?? request.query?.overrideReason;
 
     return next.handle().pipe(
       tap(() => {
@@ -71,7 +54,6 @@ export class AuditInterceptor implements NestInterceptor {
             detail: `${method} ${url}`,
             ipAddress,
             userAgent,
-            overrideReason,
           })
           .catch((err) => {
             this.logger.error(

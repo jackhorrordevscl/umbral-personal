@@ -27,8 +27,8 @@ async function main() {
     create: {
       email: adminEmail,
       passwordHash,
-      name: 'Administrador Umbral',
-      role: 'ADMIN',
+      name: 'Profesional Umbral',
+      role: 'PROFESSIONAL',
       mfaEnabled: false,
       mustChangePassword: true,
     },

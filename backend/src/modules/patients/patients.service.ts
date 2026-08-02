@@ -27,15 +27,7 @@ export class PatientsService {
     private auditService: AuditService,
   ) {}
 
-  // T6.4 (issue #51): ADMIN no tiene acceso a datos clínicos bajo ningún
-  // escenario -- ni siquiera pudiendo crear un paciente y quedar como su
-  // therapistId, que de todos modos no podría ver después (findOne lo
-  // bloquea de forma incondicional, sin importar ownership). Se corta acá
-  // en vez de dejar que cree registros huérfanos que nadie puede gestionar.
-  async create(dto: CreatePatientDto, therapistId: string, userRole: string) {
-    if (userRole === 'ADMIN') {
-      throw new ForbiddenException('El rol ADMIN no tiene acceso a fichas clínicas');
-    }
+  async create(dto: CreatePatientDto, therapistId: string) {
     return this.prisma.patient.create({
       data: {
         ...dto,
@@ -76,51 +68,20 @@ export class PatientsService {
     return map;
   }
 
-  // T6.4 (issue #51): ADMIN es un rol operativo/técnico sin base clínica
-  // para ver datos de pacientes -- perdió el acceso irrestricto que tenía
-  // antes junto con DIRECTOR/SUPERVISOR. SUPERVISOR (ex-DIRECTOR) conserva
-  // visión ampliada, pero ahora condicionada al consentimiento HEALTH_NETWORK
-  // del paciente (ver findOne) salvo que sea además el terapeuta tratante.
-  async findAll(userId: string, userRole: string) {
-    if (userRole === 'ADMIN') {
-      throw new ForbiddenException('El rol ADMIN no tiene acceso a fichas clínicas');
-    }
-
-    let patients;
-    if (userRole === 'SUPERVISOR') {
-      patients = await this.prisma.patient.findMany({
-        where: { deletedAt: null },
-        include: { therapist: { select: { id: true, name: true } } },
-        orderBy: { createdAt: 'desc' },
-      });
-    } else {
-      patients = await this.prisma.patient.findMany({
-        where: { therapistId: userId, deletedAt: null },
-        orderBy: { createdAt: 'desc' },
-      });
-    }
+  async findAll(userId: string) {
+    const patients = await this.prisma.patient.findMany({
+      where: { therapistId: userId, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
 
     const consentMap = await this.getConsentStatusMap(patients.map((p) => p.id));
 
-    // COORDINATOR/THERAPIST ya vienen filtrados a los propios por el query
-    // de arriba (isOwner siempre true para ellos acá), así que este filtro
-    // solo tiene efecto real sobre SUPERVISOR.
-    const visible = patients.filter((p) => {
-      if (p.therapistId === userId) return true;
-      const consents = consentMap.get(p.id) ?? emptyConsentStatus();
-      return userRole === 'SUPERVISOR' && consents.HEALTH_NETWORK;
-    });
-
-    return visible.map((p) => ({
+    return patients.map((p) => ({
       ...p,
       consents: consentMap.get(p.id) ?? emptyConsentStatus(),
     }));
   }
 
-  // Fetch compartido por findOne y accessOverride (T6.5, #52): misma forma
-  // de datos (paciente + consultas vigentes + documentos + consentimientos),
-  // sin decidir todavía si el llamante tiene permiso -- eso es
-  // responsabilidad de cada método, que aplica su propia regla de acceso.
   private async fetchPatientWithConsents(id: string) {
     const patient = await this.prisma.patient.findFirst({
       where: { id, deletedAt: null },
@@ -142,143 +103,18 @@ export class PatientsService {
     return { patient, consents };
   }
 
-  async findOne(id: string, userId: string, userRole: string) {
+  async findOne(id: string, userId: string) {
     const { patient, consents } = await this.fetchPatientWithConsents(id);
 
-    if (userRole === 'ADMIN') {
-      throw new ForbiddenException('El rol ADMIN no tiene acceso a fichas clínicas');
-    }
-
-    const isOwner = patient.therapistId === userId;
-
-    // La relación de tratamiento directa (isOwner) siempre da acceso, sin
-    // importar el consentimiento de Red de Salud -- ese consentimiento
-    // regula compartir la ficha con terceros FUERA de esa relación (Ley
-    // 21.719), no la relación en sí, que se sostiene por otra base legal
-    // (Ley 20.584).
-    if (!isOwner) {
-      if (userRole === 'COORDINATOR') {
-        throw new ForbiddenException(
-          'Como Coordinador solo puedes ver la ficha clínica de tus propios pacientes',
-        );
-      }
-      if (userRole !== 'SUPERVISOR') {
-        throw new ForbiddenException('Acceso denegado a este paciente');
-      }
-    }
-
-    // T6.4 (issue #51): SUPERVISOR sin relación de tratamiento directa queda
-    // sujeto al consentimiento HEALTH_NETWORK -- antes veía cualquier ficha
-    // sin restricción, igual que ADMIN. accessOverride (T6.5, #52) es la
-    // única vía para sortear este bloqueo, y deja motivo auditado -- esta
-    // ruta nunca lo hace de forma implícita.
-    if (!isOwner && userRole === 'SUPERVISOR' && !consents.HEALTH_NETWORK) {
-      throw new ForbiddenException(
-        'Acceso denegado: el paciente no ha otorgado consentimiento de Red de Salud',
-      );
+    if (patient.therapistId !== userId) {
+      throw new ForbiddenException('Acceso denegado a este paciente');
     }
 
     return { ...patient, consents };
   }
 
-  // T6.5 (issue #52): única vía para que SUPERVISOR acceda a una ficha sin
-  // relación de tratamiento directa y sin consentimiento HEALTH_NETWORK
-  // vigente -- pensada para supervisión clínica legítima (incidentes,
-  // auditorías internas, denuncias) que findOne bloquearía de otro modo.
-  //
-  // No repite el chequeo de ADMIN/COORDINATOR/THERAPIST de findOne a
-  // propósito: el guard del controller (@Roles('SUPERVISOR')) ya garantiza
-  // que solo SUPERVISOR llega acá. Si algún otro rol necesitara esta vía en
-  // el futuro, el chequeo de rol tendría que agregarse acá también, no solo
-  // en el guard.
-  async accessOverride(
-    id: string,
-    userId: string,
-    userRole: string,
-    overrideReason: string,
-  ) {
-    // Verifica que el override realmente correspondía: si findOne ya le
-    // daría acceso normal a este userId (dueño, o SUPERVISOR con
-    // consentimiento ya otorgado), no se otorga por esta vía -- una fila de
-    // auditoría con motivo en una ficha a la que igual se accedía sin
-    // excepción le resta valor probatorio al trail entero ante una revisión
-    // real. NotFoundException se deja propagar tal cual (404, no 403): el
-    // problema ahí no es el gate de consentimiento.
-    let alreadyAccessible = true;
-    try {
-      await this.findOne(id, userId, userRole);
-    } catch (err) {
-      if (err instanceof NotFoundException) throw err;
-      alreadyAccessible = false;
-    }
-    if (alreadyAccessible) {
-      throw new ForbiddenException(
-        'Ya tenés acceso normal a esta ficha; el acceso excepcional no corresponde acá',
-      );
-    }
-
-    const { patient, consents } = await this.fetchPatientWithConsents(id);
-
-    // Escritura de auditoría SÍNCRONA y bloqueante, a diferencia del log
-    // automático de AuditInterceptor (fail-open por diseño: la atención al
-    // paciente no depende de la disponibilidad del log, ver
-    // audit.interceptor.ts). Acá el cálculo es al revés -- esta acción ES
-    // saltarse un gate de consentimiento, así que sin trail persistido no
-    // hay excepción auditada, solo un bypass silencioso. Si falla, se corta
-    // el acceso en vez de entregarlo igual.
-    await this.auditService.log({
-      userId,
-      action: 'VIEW',
-      resource: 'patient',
-      resourceId: id,
-      detail:
-        'Acceso excepcional de SUPERVISOR sin consentimiento HEALTH_NETWORK (T6.5, issue #52)',
-      overrideReason,
-    });
-
-    return { ...patient, consents };
-  }
-
-  // T6.5 (issue #52): única vía para que SUPERVISOR ubique una ficha que no
-  // aparece en su findAll (excluida por falta de consentimiento
-  // HEALTH_NETWORK) y así pueda disparar accessOverride sobre su id. Resuelve
-  // el RUT a un id y delega el resto por completo en findOne -- misma regla
-  // de acceso, ningún atajo nuevo. Restringido a SUPERVISOR (guard del
-  // controller) a propósito: THERAPIST/COORDINATOR ya tienen su búsqueda
-  // funcionando sobre la lista que su propio findAll les devuelve, y
-  // exponerles esta ruta agregaría una forma de confirmar si un RUT
-  // cualquiera pertenece a algún paciente de la clínica, sin necesitarlo.
-  async findByRut(rut: string, userId: string, userRole: string) {
-    const patient = await this.prisma.patient.findFirst({
-      where: { rut: normalizeRut(rut), deletedAt: null },
-      select: { id: true },
-    });
-    if (!patient) throw new NotFoundException('Paciente no encontrado');
-
-    try {
-      return await this.findOne(patient.id, userId, userRole);
-    } catch (err) {
-      // Esta ruta es SUPERVISOR-only (guard del controller): a diferencia
-      // de findOne llamado desde cualquier otro lado, acá el único motivo
-      // posible de un 403 es el gate de consentimiento HEALTH_NETWORK (un
-      // SUPERVISOR nunca cae en las ramas de COORDINATOR/THERAPIST/ADMIN de
-      // findOne). Se re-lanza con el id incluido para que el frontend pueda
-      // ofrecer el acceso excepcional (accessOverride, T6.5/#52) sin tener
-      // que adivinar el id -- el RUT que el usuario tipeó no alcanza por sí
-      // solo para eso.
-      if (err instanceof ForbiddenException) {
-        throw new ForbiddenException({
-          message:
-            'Acceso denegado: el paciente no ha otorgado consentimiento de Red de Salud',
-          patientId: patient.id,
-        });
-      }
-      throw err;
-    }
-  }
-
-  async update(id: string, dto: UpdatePatientDto, userId: string, userRole?: string) {
-    const current = await this.findOne(id, userId, userRole ?? 'THERAPIST');
+  async update(id: string, dto: UpdatePatientDto, userId: string) {
+    const current = await this.findOne(id, userId);
 
     const { reason, ...fields } = dto;
 
@@ -313,16 +149,16 @@ export class PatientsService {
     // findOne desde el ledger PatientConsent, no una columna real de Patient)
     const { therapist, consultations, documents, consents, ...snapshot } = current as any;
 
-   return this.prisma.$transaction(async (tx) => {
-  await tx.patientHistory.create({
-    data: {
-      patientId: id,
-      changedById: userId,
-      reason,
-      snapshot: JSON.parse(JSON.stringify(snapshot)),
-      diff: JSON.parse(JSON.stringify(diff)),
-    },
-  });
+    return this.prisma.$transaction(async (tx) => {
+      await tx.patientHistory.create({
+        data: {
+          patientId: id,
+          changedById: userId,
+          reason,
+          snapshot: JSON.parse(JSON.stringify(snapshot)),
+          diff: JSON.parse(JSON.stringify(diff)),
+        },
+      });
 
       return tx.patient.update({
         where: { id },
@@ -335,16 +171,16 @@ export class PatientsService {
     });
   }
 
-  async softDelete(id: string, userId: string, userRole?: string) {
-    await this.findOne(id, userId, userRole ?? 'THERAPIST');
+  async softDelete(id: string, userId: string) {
+    await this.findOne(id, userId);
     return this.prisma.patient.update({
       where: { id },
       data: { deletedAt: new Date() },
     });
   }
 
-  async getHistory(id: string, userId: string, userRole: string) {
-    await this.findOne(id, userId, userRole);
+  async getHistory(id: string, userId: string) {
+    await this.findOne(id, userId);
 
     return this.prisma.patientHistory.findMany({
       where: { patientId: id },
@@ -356,24 +192,9 @@ export class PatientsService {
   }
 
   // T6.1 (issue #27): registra un evento de otorgamiento/revocación para una
-  // finalidad puntual. findOne aplica el mismo control de acceso que el
-  // resto de las mutaciones del módulo (dueño, o SUPERVISOR si el
-  // consentimiento HEALTH_NETWORK ya está otorgado -- T6.4, issue #51).
-  //
-  // Caso borde conocido, sin resolver acá: un SUPERVISOR sin relación
-  // directa no puede usar esta ruta para otorgar el primer HEALTH_NETWORK de
-  // un paciente que todavía no lo tiene, porque findOne lo bloquea antes de
-  // llegar a este método. En la práctica quien registra consentimiento casi
-  // siempre es el terapeuta tratante (isOwner=true, sin este problema); el
-  // acceso excepcional de T6.5 (#52) es la vía prevista para el caso
-  // contrario.
-  async recordConsent(
-    id: string,
-    dto: RecordConsentDto,
-    userId: string,
-    userRole: string,
-  ) {
-    await this.findOne(id, userId, userRole);
+  // finalidad puntual.
+  async recordConsent(id: string, dto: RecordConsentDto, userId: string) {
+    await this.findOne(id, userId);
 
     return this.prisma.patientConsent.create({
       data: {
@@ -386,8 +207,8 @@ export class PatientsService {
     });
   }
 
-  async getConsentLedger(id: string, userId: string, userRole: string) {
-    await this.findOne(id, userId, userRole);
+  async getConsentLedger(id: string, userId: string) {
+    await this.findOne(id, userId);
 
     return this.prisma.patientConsent.findMany({
       where: { patientId: id },
@@ -398,12 +219,8 @@ export class PatientsService {
     });
   }
 
-  async getCurrentConsentStatus(
-    id: string,
-    userId: string,
-    userRole: string,
-  ): Promise<ConsentStatusMap> {
-    await this.findOne(id, userId, userRole);
+  async getCurrentConsentStatus(id: string, userId: string): Promise<ConsentStatusMap> {
+    await this.findOne(id, userId);
 
     const status = emptyConsentStatus();
     const latestEvents = await this.prisma.patientConsent.findMany({
@@ -416,5 +233,4 @@ export class PatientsService {
     }
     return status;
   }
-
 }

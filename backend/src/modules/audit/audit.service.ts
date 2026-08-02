@@ -9,9 +9,6 @@ interface CreateAuditLogDto {
   detail?: string;
   ipAddress?: string;
   userAgent?: string;
-  // T6.5 (issue #52): motivo de un acceso excepcional (SUPERVISOR sin
-  // consentimiento HEALTH_NETWORK). undefined/null en cualquier log normal.
-  overrideReason?: string;
 }
 
 @Injectable()
@@ -29,7 +26,6 @@ export class AuditService {
         detail: data.detail,
         ipAddress: data.ipAddress,
         userAgent: data.userAgent,
-        overrideReason: data.overrideReason,
       },
     });
   }

@@ -7,15 +7,10 @@ import api from "../api/client";
 export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  // T6.4 (issue #51): ADMIN ya no tiene acceso a fichas clínicas -- GET
-  // /patients le responde 403. Sin este `enabled`, el dashboard le rompería
-  // apenas loguea (es la primera pantalla, no un caso límite).
-  const hasPatientAccess = user?.role !== "ADMIN";
 
   const { data: patients = [] } = useQuery({
     queryKey: ["patients"],
     queryFn: () => api.get("/patients").then((r) => r.data),
-    enabled: hasPatientAccess,
   });
 
   const { data: consultations = [] } = useQuery({
@@ -29,7 +24,6 @@ export default function DashboardPage() {
         );
         return all.flat();
       }),
-    enabled: hasPatientAccess,
   });
 
   const stats = [
@@ -91,24 +85,8 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {!hasPatientAccess ? (
-        <div className="card p-6 md:p-8 text-center">
-          <p className="text-slate-500 text-sm">
-            El rol Administrador no tiene acceso a datos clínicos de pacientes.
-            Gestioná cuentas de usuario desde el módulo{" "}
-            <button
-              onClick={() => navigate("/users")}
-              className="text-sage-600 hover:underline font-medium"
-            >
-              Usuarios
-            </button>
-            .
-          </p>
-        </div>
-      ) : (
-        <>
-          {/* Stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5 mb-6 md:mb-8">
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5 mb-6 md:mb-8">
             {stats.map((stat) => (
               <div
                 key={stat.label}
@@ -174,9 +152,7 @@ export default function DashboardPage() {
                 ))}
               </div>
             )}
-          </div>
-        </>
-      )}
+      </div>
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router';
 import {
   LayoutDashboard, Users, ClipboardList,
-  LogOut, ShieldCheck, Menu, X, UserCog, FolderOpen
+  LogOut, ShieldCheck, Menu, X, FolderOpen
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -16,20 +16,13 @@ export default function Layout() {
     navigate('/login');
   };
 
-  // T6.4 (issue #51): ADMIN no tiene acceso a fichas clínicas ni consultas
-  // (GET /patients y lo que delega en él responden 403 para ese rol). Sin
-  // este filtro, el link seguiría visible y llevaría a una pantalla rota.
-  const allNavLinks = [
+  const navLinks = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { to: '/patients', icon: Users, label: 'Pacientes', hideForAdmin: true },
-    { to: '/consultations', icon: ClipboardList, label: 'Consultas', hideForAdmin: true },
+    { to: '/patients', icon: Users, label: 'Pacientes' },
+    { to: '/consultations', icon: ClipboardList, label: 'Consultas' },
     { to: '/archivos', icon: FolderOpen, label: 'Repositorio' },
     { to: '/settings', icon: ShieldCheck, label: 'Seguridad' },
-    { to: '/users', icon: UserCog, label: 'Usuarios' },
   ];
-  const navLinks = allNavLinks.filter(
-    (link) => !(link.hideForAdmin && user?.role === 'ADMIN'),
-  );
 
   return (
     <div className="flex h-screen bg-cream-100">

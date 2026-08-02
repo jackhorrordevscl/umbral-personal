@@ -27,7 +27,7 @@ model User {
   email         String    @unique
   passwordHash  String
   name          String
-  role          Role      @default(THERAPIST)
+  role          Role      @default(PROFESSIONAL)
   mfaSecret     String?
   mfaEnabled    Boolean   @default(false)
   mustChangePassword Boolean @default(false)
@@ -44,11 +44,11 @@ model User {
   patientConsentEvents PatientConsent[] @relation("PatientConsentEvents")
 }
 
+// Un solo rol: el profesional dueño de todas sus fichas. Se mantiene como
+// enum (en vez de eliminar el campo) por si en el futuro se agrega un rol
+// de alcance acotado (p. ej. ASSISTANT de secretaría).
 enum Role {
-  SUPERVISOR
-  COORDINATOR
-  THERAPIST
-  ADMIN
+  PROFESSIONAL
 }
 
 model Patient {
@@ -146,11 +146,6 @@ model AuditLog {
   detail     String?
   ipAddress  String?
   userAgent  String?
-  // T6.5 (issue #52): motivo obligatorio de un acceso excepcional de
-  // SUPERVISOR a una ficha sin consentimiento HEALTH_NETWORK vigente. Null
-  // en cualquier fila de auditoría normal -- distingue el acceso excepción
-  // de uno común sin depender de parsear texto libre de `detail`.
-  overrideReason String?
   createdAt  DateTime    @default(now())
 }
 

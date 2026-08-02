@@ -22,14 +22,13 @@ export class DocumentsService {
   async uploadDocument(
     patientId: string,
     userId: string,
-    userRole: string,
     file: Express.Multer.File,
     type: string,
   ) {
     // Lanza NotFoundException/ForbiddenException si el paciente no existe
     // o el usuario no tiene acceso a él -- se valida ANTES de escribir nada
     // a disco, así no queda un archivo huérfano que limpiar.
-    await this.patientsService.findOne(patientId, userId, userRole);
+    await this.patientsService.findOne(patientId, userId);
 
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
@@ -52,17 +51,17 @@ export class DocumentsService {
 
   // Devuelve el contenido ya descifrado, listo para servir. La validación de
   // acceso ya la hace `getDocument` (vía `patientsService.findOne`).
-  async getDecryptedFile(id: string, userId: string, userRole: string) {
-    const doc = await this.getDocument(id, userId, userRole);
+  async getDecryptedFile(id: string, userId: string) {
+    const doc = await this.getDocument(id, userId);
     const encrypted = fs.readFileSync(
       path.join(process.cwd(), doc.storagePath),
     );
     return { doc, buffer: this.encryption.decrypt(encrypted) };
   }
 
-  async findByPatient(patientId: string, userId: string, userRole: string) {
+  async findByPatient(patientId: string, userId: string) {
     // Lanza NotFoundException/ForbiddenException si el usuario no tiene acceso a este paciente
-    await this.patientsService.findOne(patientId, userId, userRole);
+    await this.patientsService.findOne(patientId, userId);
 
     return this.prisma.patientDocument.findMany({
       where: { patientId },
@@ -70,7 +69,7 @@ export class DocumentsService {
     });
   }
 
-  async getDocument(id: string, userId: string, userRole: string) {
+  async getDocument(id: string, userId: string) {
     const doc = await this.prisma.patientDocument.findUnique({
       where: { id },
     });
@@ -78,7 +77,7 @@ export class DocumentsService {
     if (!doc) throw new NotFoundException('Documento no encontrado');
 
     // Lanza ForbiddenException si el usuario no tiene acceso al paciente dueño del documento
-    await this.patientsService.findOne(doc.patientId, userId, userRole);
+    await this.patientsService.findOne(doc.patientId, userId);
 
     return doc;
   }

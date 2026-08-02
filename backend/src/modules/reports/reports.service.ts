@@ -13,10 +13,9 @@ export class ReportsService {
   async generatePatientReport(
     patientId: string,
     userId: string,
-    userRole: string,
   ): Promise<Buffer> {
     // Lanza NotFoundException/ForbiddenException si el usuario no tiene acceso a este paciente
-    await this.patientsService.findOne(patientId, userId, userRole);
+    await this.patientsService.findOne(patientId, userId);
 
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },
@@ -43,7 +42,6 @@ export class ReportsService {
     const consentStatus = await this.patientsService.getCurrentConsentStatus(
       patientId,
       userId,
-      userRole,
     );
 
     return new Promise((resolve, reject) => {

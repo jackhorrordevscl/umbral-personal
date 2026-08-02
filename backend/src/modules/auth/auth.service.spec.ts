@@ -21,7 +21,7 @@ function buildUser(overrides: Partial<User> = {}): User {
     email: 'user@example.com',
     name: 'Test User',
     passwordHash: 'hashed-password',
-    role: Role.THERAPIST,
+    role: Role.PROFESSIONAL,
     mustChangePassword: false,
     mfaEnabled: false,
     mfaSecret: null,
@@ -116,44 +116,8 @@ describe('AuthService', () => {
       );
     });
 
-    it('delega en completeLogin (camino normal) devolviendo accessToken', async () => {
+    it('devuelve requiresMfaSetup si el usuario no tiene MFA habilitado (obligatorio para toda cuenta)', async () => {
       prisma.user.findUnique.mockResolvedValue(buildUser());
-      mockArgon2.verify.mockResolvedValue(true as never);
-
-      const result = await service.login({
-        email: 'user@example.com',
-        password: 'password1',
-      });
-
-      expect(result).toEqual({
-        accessToken: 'signed-token',
-        user: {
-          id: 'user-1',
-          email: 'user@example.com',
-          role: Role.THERAPIST,
-          name: 'Test User',
-        },
-      });
-    });
-
-    it('devuelve requiresMfa si el usuario ya tiene MFA habilitado', async () => {
-      prisma.user.findUnique.mockResolvedValue(
-        buildUser({ mfaEnabled: true }),
-      );
-      mockArgon2.verify.mockResolvedValue(true as never);
-
-      const result = await service.login({
-        email: 'user@example.com',
-        password: 'password1',
-      });
-
-      expect(result).toEqual({ requiresMfa: true, userId: 'user-1' });
-    });
-
-    it('devuelve requiresMfaSetup si el rol es administrativo (ADMIN/SUPERVISOR) sin MFA', async () => {
-      prisma.user.findUnique.mockResolvedValue(
-        buildUser({ role: Role.ADMIN, mfaEnabled: false }),
-      );
       mockArgon2.verify.mockResolvedValue(true as never);
 
       const result = await service.login({
@@ -169,6 +133,20 @@ describe('AuthService', () => {
         { sub: 'user-1', purpose: 'mfa-setup' },
         { expiresIn: '10m' },
       );
+    });
+
+    it('devuelve requiresMfa si el usuario ya tiene MFA habilitado', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaEnabled: true }),
+      );
+      mockArgon2.verify.mockResolvedValue(true as never);
+
+      const result = await service.login({
+        email: 'user@example.com',
+        password: 'password1',
+      });
+
+      expect(result).toEqual({ requiresMfa: true, userId: 'user-1' });
     });
   });
 
@@ -237,7 +215,7 @@ describe('AuthService', () => {
       ).rejects.toThrow('La contraseña ya fue actualizada anteriormente');
     });
 
-    it('cambia la contraseña, limpia el flag y delega en completeLogin', async () => {
+    it('cambia la contraseña, limpia el flag y delega en completeLogin (MFA obligatorio: requiresMfaSetup)', async () => {
       jwtService.verify.mockReturnValue({
         sub: 'user-1',
         purpose: 'password-change',
@@ -263,13 +241,8 @@ describe('AuthService', () => {
         },
       });
       expect(result).toEqual({
-        accessToken: 'signed-token',
-        user: {
-          id: 'user-1',
-          email: 'user@example.com',
-          role: Role.THERAPIST,
-          name: 'Test User',
-        },
+        requiresMfaSetup: true,
+        setupToken: 'signed-token',
       });
     });
   });
@@ -380,7 +353,7 @@ describe('AuthService', () => {
         user: {
           id: 'user-1',
           email: 'user@example.com',
-          role: Role.THERAPIST,
+          role: Role.PROFESSIONAL,
           name: 'Test User',
         },
       });
@@ -429,7 +402,7 @@ describe('AuthService', () => {
         user: {
           id: 'user-1',
           email: 'user@example.com',
-          role: Role.THERAPIST,
+          role: Role.PROFESSIONAL,
           name: 'Test User',
         },
       });

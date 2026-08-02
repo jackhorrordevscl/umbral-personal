@@ -61,7 +61,6 @@ export default function SharedFilesPage() {
   const [error, setError] = useState('');
   const [uploadError, setUploadError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   const [form, setForm] = useState({
     name: '',
@@ -181,20 +180,12 @@ export default function SharedFilesPage() {
     f.uploadedBy?.name?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const canEdit = (file: SharedFile) =>
-    ['SUPERVISOR', 'ADMIN'].includes(user?.role) ||
-    file.uploadedBy?.name === user?.name;
-
-  const canDelete = (file: SharedFile) =>
-    ['SUPERVISOR', 'ADMIN'].includes(user?.role) ||
-    file.uploadedBy?.name === user?.name;
-
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Repositorio de Archivos</h1>
-          <p className="text-slate-500 text-sm mt-1">Recursos compartidos para todos los terapeutas</p>
+          <p className="text-slate-500 text-sm mt-1">Tus plantillas, formularios y protocolos</p>
         </div>
         <button
           onClick={() => { setShowUpload(true); setUploadError(''); }}
@@ -263,7 +254,7 @@ export default function SharedFilesPage() {
                   )}
                 </p>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  {file.originalName} · {formatSize(file.size)} · Subido por {file.uploadedBy?.name ?? 'Desconocido'}
+                  {file.originalName} · {formatSize(file.size)}
                 </p>
                 {file.description && (
                   <p className="text-xs text-slate-500 mt-1 truncate">{file.description}</p>
@@ -273,22 +264,18 @@ export default function SharedFilesPage() {
                 {CATEGORIES.find(c => c.value === file.category)?.label ?? file.category}
               </span>
               <div className="flex items-center gap-1 shrink-0">
-                {canEdit(file) && (
-                  <button onClick={() => handleOpenEdit(file)}
-                    className="p-2 rounded-lg hover:bg-blue-50 text-blue-400 transition-colors" title="Editar">
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                )}
+                <button onClick={() => handleOpenEdit(file)}
+                  className="p-2 rounded-lg hover:bg-blue-50 text-blue-400 transition-colors" title="Editar">
+                  <Pencil className="w-4 h-4" />
+                </button>
                 <button onClick={() => handleDownload(file)}
                   className="p-2 rounded-lg hover:bg-indigo-50 text-indigo-600 transition-colors" title="Descargar">
                   <Download className="w-4 h-4" />
                 </button>
-                {canDelete(file) && (
-                  <button onClick={() => handleDelete(file.id)}
-                    className="p-2 rounded-lg hover:bg-red-50 text-red-500 transition-colors" title="Eliminar">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
+                <button onClick={() => handleDelete(file.id)}
+                  className="p-2 rounded-lg hover:bg-red-50 text-red-500 transition-colors" title="Eliminar">
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
             </div>
           ))}

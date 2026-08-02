@@ -1,6 +1,5 @@
 import {
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -28,13 +27,7 @@ export class ConsultationsService {
     private patientsService: PatientsService,
   ) {}
 
-  // T6.4 (issue #51): mismo motivo que PatientsService.create -- ADMIN no
-  // tiene acceso a datos clínicos bajo ningún escenario, ni siquiera
-  // creando una consulta que de todos modos no podría ver después.
-  async create(dto: CreateConsultationDto, therapistId: string, userRole: string) {
-    if (userRole === 'ADMIN') {
-      throw new ForbiddenException('El rol ADMIN no tiene acceso a fichas clínicas');
-    }
+  async create(dto: CreateConsultationDto, therapistId: string) {
     let patientRut = dto.patientRut ?? '';
     if (!patientRut && dto.patientId) {
       const patient = await this.prisma.patient.findUnique({
@@ -84,9 +77,9 @@ export class ConsultationsService {
     });
   }
 
-  async findByPatient(patientId: string, userId: string, userRole: string) {
+  async findByPatient(patientId: string, userId: string) {
     // Lanza NotFoundException/ForbiddenException si el usuario no tiene acceso a este paciente
-    await this.patientsService.findOne(patientId, userId, userRole);
+    await this.patientsService.findOne(patientId, userId);
 
     // Solo la versión vigente de cada consulta (correctedBy: null = nadie la corrigió después)
     const consultations = await this.prisma.consultation.findMany({
@@ -103,7 +96,7 @@ export class ConsultationsService {
     );
   }
 
-  async findOne(id: string, userId: string, userRole: string) {
+  async findOne(id: string, userId: string) {
     const consultation = await this.prisma.consultation.findFirst({
       where: { id, deletedAt: null },
       include: THERAPIST_SELECT,
@@ -111,7 +104,7 @@ export class ConsultationsService {
     if (!consultation) throw new NotFoundException('Consulta no encontrada');
 
     // Lanza ForbiddenException si el usuario no tiene acceso al paciente dueño de esta consulta
-    await this.patientsService.findOne(consultation.patientId, userId, userRole);
+    await this.patientsService.findOne(consultation.patientId, userId);
 
     const history = await this.getHistory(consultation.groupId);
 
@@ -122,9 +115,8 @@ export class ConsultationsService {
     id: string,
     dto: CorrectConsultationDto,
     therapistId: string,
-    userRole: string,
   ) {
-    const original = await this.findOne(id, therapistId, userRole);
+    const original = await this.findOne(id, therapistId);
 
     const alreadySuperseded = await this.prisma.consultation.findFirst({
       where: { correctsId: id },

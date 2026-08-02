@@ -49,7 +49,6 @@ export class DocumentsController {
     return this.documentsService.uploadDocument(
       patientId,
       user.id,
-      user.role,
       file,
       type,
     );
@@ -60,7 +59,7 @@ export class DocumentsController {
     @Param('patientId') patientId: string,
     @CurrentUser() user: any,
   ) {
-    return this.documentsService.findByPatient(patientId, user.id, user.role);
+    return this.documentsService.findByPatient(patientId, user.id);
   }
 
   @Get(':id/download')
@@ -72,7 +71,6 @@ export class DocumentsController {
     const { doc, buffer } = await this.documentsService.getDecryptedFile(
       id,
       user.id,
-      user.role,
     );
     res.set({
       'Content-Type': 'application/octet-stream',
