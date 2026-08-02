@@ -11,6 +11,8 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { useIdleTimeout } from "./hooks/useIdleTimeout";
 import IdleWarningModal from "./components/IdleWarningModal";
 import LoginPage from "./pages/LoginPage";
+import SignupPage from "./pages/SignupPage";
+import VerifyEmailPage from "./pages/VerifyEmailPage";
 import DashboardPage from "./pages/DashboardPage";
 import PatientsPage from "./pages/PatientsPage";
 import ConsultationsPage from "./pages/ConsultationsPage";
@@ -62,6 +64,8 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/signup" element={<SignupPage />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
 
       <Route
         element={

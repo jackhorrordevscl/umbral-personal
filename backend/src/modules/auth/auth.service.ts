@@ -1,9 +1,12 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 import { LoginDto } from './dto/login.dto';
 import { VerifyMfaDto } from './dto/verify-mfa.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { SignupDto } from './dto/signup.dto';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import * as QRCode from 'qrcode';
@@ -18,12 +21,89 @@ const MFA_SETUP_PURPOSE = 'mfa-setup';
 // operar con la contraseña semilla conocida hasta cambiarla.
 const PASSWORD_CHANGE_PURPOSE = 'password-change';
 
+// Idem para la verificación de email del signup propio (issue #5): el link
+// que llega por correo lleva este token, nunca un userId crudo.
+const EMAIL_VERIFY_PURPOSE = 'email-verify';
+const EMAIL_VERIFY_EXPIRES_IN = '24h';
+
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private config: ConfigService,
+    private mailService: MailService,
   ) {}
+
+  // Issue #5: único componente genuinamente nuevo del MVP -- en la versión
+  // institucional las cuentas las creaba un ADMIN (POST /users, eliminado en
+  // b0354c0), pero sin jerarquía no hay quién las cree. La cuenta queda
+  // creada con emailVerified=false y sin poder loguear (ver login()) hasta
+  // que el dueño del email confirme el link enviado acá.
+  async signup(dto: SignupDto) {
+    const existing = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+    if (existing) {
+      throw new ConflictException('El email ya está registrado');
+    }
+
+    const passwordHash = await argon2.hash(dto.password);
+    const user = await this.prisma.user.create({
+      data: {
+        email: dto.email,
+        passwordHash,
+        name: dto.name,
+        emailVerified: false,
+      },
+    });
+
+    const token = this.jwtService.sign(
+      { sub: user.id, purpose: EMAIL_VERIFY_PURPOSE },
+      { expiresIn: EMAIL_VERIFY_EXPIRES_IN },
+    );
+    const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
+    const verifyUrl = `${frontendUrl}/verify-email?token=${token}`;
+
+    await this.mailService.sendVerificationEmail(user.email, user.name, verifyUrl);
+
+    return {
+      message: 'Cuenta creada. Revisá tu email para verificarla antes de iniciar sesión.',
+    };
+  }
+
+  async verifyEmail(token: string) {
+    let payload: { sub: string; purpose?: string };
+    try {
+      payload = this.jwtService.verify(token);
+    } catch {
+      throw new UnauthorizedException('Token de verificación inválido o expirado');
+    }
+
+    if (payload.purpose !== EMAIL_VERIFY_PURPOSE) {
+      throw new UnauthorizedException('Token de verificación inválido');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException('Usuario no válido');
+    }
+
+    // Un token de verificación es un JWT sin estado, válido hasta que expira
+    // (24h) — sin este chequeo, reutilizarlo no haría daño funcional (ya
+    // dejaría emailVerified=true), pero mismo patrón de replay guard que el
+    // resto de los tokens de propósito único de este archivo.
+    if (user.emailVerified) {
+      throw new UnauthorizedException('Este email ya fue verificado');
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: true },
+    });
+
+    return { message: 'Email verificado. Ya podés iniciar sesión.' };
+  }
 
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({
@@ -37,6 +117,13 @@ export class AuthService {
     const passwordValid = await argon2.verify(user.passwordHash, dto.password);
     if (!passwordValid) {
       throw new UnauthorizedException('Credenciales inválidas');
+    }
+
+    // Se verifica ANTES que mustChangePassword/MFA: una cuenta de signup
+    // propio sin verificar no debería poder avanzar a ningún paso posterior
+    // del login, ni siquiera a enrolar MFA.
+    if (!user.emailVerified) {
+      throw new UnauthorizedException('Debés verificar tu email antes de iniciar sesión');
     }
 
     if (user.mustChangePassword) {

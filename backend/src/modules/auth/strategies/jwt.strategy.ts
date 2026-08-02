@@ -19,14 +19,19 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: { sub: string; email: string; role: string; purpose?: string }) {
     // Los JWT de corta duración emitidos para forzar el enrolamiento MFA
-    // (purpose: 'mfa-setup', ver AuthService.login/verifySetupToken) o el
+    // (purpose: 'mfa-setup', ver AuthService.login/verifySetupToken), el
     // cambio de contraseña (purpose: 'password-change', ver
-    // AuthService.login/verifyPasswordChangeToken) NUNCA deben aceptarse
-    // como Bearer token de sesión: solo sirven para sus propios endpoints,
-    // que los verifican manualmente con jwtService.verify. Sin este
-    // chequeo, esos tokens de 10 minutos podrían usarse para acceder a
-    // cualquier ruta protegida por JwtAuthGuard.
-    if (payload.purpose === 'mfa-setup' || payload.purpose === 'password-change') {
+    // AuthService.login/verifyPasswordChangeToken) o la verificación de
+    // email del signup propio (purpose: 'email-verify', issue #5) NUNCA
+    // deben aceptarse como Bearer token de sesión: solo sirven para sus
+    // propios endpoints, que los verifican manualmente con
+    // jwtService.verify. Sin este chequeo, esos tokens podrían usarse para
+    // acceder a cualquier ruta protegida por JwtAuthGuard.
+    if (
+      payload.purpose === 'mfa-setup' ||
+      payload.purpose === 'password-change' ||
+      payload.purpose === 'email-verify'
+    ) {
       throw new UnauthorizedException('Token no autorizado para esta operación');
     }
 

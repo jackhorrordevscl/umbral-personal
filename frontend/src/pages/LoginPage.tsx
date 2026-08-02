@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, Link } from 'react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
+import { getApiErrorMessage } from '../utils/api-error';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -13,22 +13,6 @@ const loginSchema = z.object({
 });
 
 type LoginForm = z.infer<typeof loginSchema>;
-
-function getApiErrorMessage(error: unknown, fallback: string): string {
-  if (axios.isAxiosError(error)) {
-    const message = error.response?.data?.message;
-
-    if (typeof message === 'string' && message.trim()) {
-      return message;
-    }
-
-    if (!error.response) {
-      return 'No se pudo conectar con el servidor. Intenta nuevamente.';
-    }
-  }
-
-  return fallback;
-}
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -335,6 +319,13 @@ export default function LoginPage() {
             >
               {loading ? 'Ingresando...' : 'Ingresar'}
             </button>
+
+            <p className="text-center text-sm text-slate-500">
+              ¿No tenés cuenta?{' '}
+              <Link to="/signup" className="text-slate-900 font-medium hover:underline">
+                Registrate
+              </Link>
+            </p>
           </form>
         </div>
       </div>

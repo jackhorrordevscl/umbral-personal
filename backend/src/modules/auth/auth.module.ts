@@ -6,6 +6,7 @@ import { ThrottlerModule, ThrottlerModuleOptions } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { MailModule } from '../mail/mail.module';
 
 /**
  * Config de los throttlers de auth (T4.2, issue #20; hallazgo de code
@@ -135,6 +136,19 @@ export function buildAuthThrottlerOptions(
     60000,
   );
 
+  // Issue #5: signup propio es la única ruta no autenticada que dispara un
+  // envío de email real (Resend) y crea filas en la base -- sin su propio
+  // throttler nombrado, alguien podría spamear cuentas/emails de verificación
+  // sin límite. Mismo límite conservador que login por defecto.
+  const signupLimit = parsePositiveInt(
+    config.get<string>('SIGNUP_THROTTLE_LIMIT'),
+    isTest ? 1000 : 5,
+  );
+  const signupTtl = parsePositiveInt(
+    config.get<string>('SIGNUP_THROTTLE_TTL_MS'),
+    60000,
+  );
+
   const trustedProxyHops = parsePositiveInt(
     config.get<string>('TRUSTED_PROXY_HOPS'),
     1,
@@ -144,6 +158,7 @@ export function buildAuthThrottlerOptions(
     throttlers: [
       { name: 'login', limit: loginLimit, ttl: loginTtl },
       { name: 'mfa-verify', limit: mfaVerifyLimit, ttl: mfaVerifyTtl },
+      { name: 'signup', limit: signupLimit, ttl: signupTtl },
     ],
     getTracker: (req: Record<string, any>) =>
       getLoginTracker(req as Parameters<typeof getLoginTracker>[0], trustedProxyHops),
@@ -153,6 +168,7 @@ export function buildAuthThrottlerOptions(
 @Module({
   imports: [
     PassportModule,
+    MailModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

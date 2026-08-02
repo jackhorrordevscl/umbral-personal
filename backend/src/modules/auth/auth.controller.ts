@@ -6,6 +6,8 @@ import { VerifyMfaDto } from './dto/verify-mfa.dto';
 import { MfaSetupBeginDto } from './dto/mfa-setup-begin.dto';
 import { MfaSetupConfirmDto } from './dto/mfa-setup-confirm.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { SignupDto } from './dto/signup.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -14,14 +16,15 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   // T4.2 (issue #20): rate limiting en login y en mfa/verify, con throttlers
-  // nombrados independientes ('login' / 'mfa-verify', ver buildAuthThrottlerOptions
-  // en AuthModule) para que subir el límite de uno no relaje sin querer el
-  // del otro. @nestjs/throttler aplica TODOS los throttlers registrados a
-  // toda ruta guardada por defecto, así que cada ruta saltea el que no le
-  // corresponde con @SkipThrottle — sin esto, login también consumiría cupo
-  // del throttler 'mfa-verify' (y viceversa) además del propio.
+  // nombrados independientes ('login' / 'mfa-verify' / 'signup', ver
+  // buildAuthThrottlerOptions en AuthModule) para que subir el límite de uno
+  // no relaje sin querer los otros. @nestjs/throttler aplica TODOS los
+  // throttlers registrados a toda ruta guardada por defecto, así que cada
+  // ruta saltea los que no le corresponden con @SkipThrottle — sin esto,
+  // login también consumiría cupo de 'mfa-verify'/'signup' (y viceversa)
+  // además del propio.
   @UseGuards(ThrottlerGuard)
-  @SkipThrottle({ 'mfa-verify': true })
+  @SkipThrottle({ 'mfa-verify': true, signup: true })
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
@@ -33,10 +36,29 @@ export class AuthController {
   // fuerza bruta sobre el TOTP de 6 dígitos (window:1, ~3 códigos válidos)
   // emitía un JWT real sin ningún límite de intentos.
   @UseGuards(ThrottlerGuard)
-  @SkipThrottle({ login: true })
+  @SkipThrottle({ login: true, signup: true })
   @Post('mfa/verify')
   verifyMfa(@Body() dto: VerifyMfaDto) {
     return this.authService.verifyMfa(dto);
+  }
+
+  // Issue #5: signup propio, la única ruta no autenticada que crea una
+  // cuenta y dispara un envío de email real. Throttler propio ('signup')
+  // para no compartir presupuesto con login/mfa-verify.
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({ login: true, 'mfa-verify': true })
+  @Post('signup')
+  signup(@Body() dto: SignupDto) {
+    return this.authService.signup(dto);
+  }
+
+  // Sin JwtAuthGuard a propósito, mismo motivo que mfa/setup/*: el usuario
+  // todavía no tiene sesión (la cuenta ni siquiera puede loguear hasta
+  // verificar). El token firmado (purpose 'email-verify') es lo que protege
+  // esta ruta, no el guard.
+  @Post('verify-email')
+  verifyEmail(@Body() dto: VerifyEmailDto) {
+    return this.authService.verifyEmail(dto.token);
   }
 
   // Sin JwtAuthGuard a propósito: el usuario todavía no tiene sesión en el

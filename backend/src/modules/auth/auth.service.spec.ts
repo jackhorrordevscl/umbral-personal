@@ -1,11 +1,13 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import * as QRCode from 'qrcode';
 import { Role, User } from '@prisma/client';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 
 jest.mock('argon2');
 jest.mock('speakeasy');
@@ -25,6 +27,7 @@ function buildUser(overrides: Partial<User> = {}): User {
     mustChangePassword: false,
     mfaEnabled: false,
     mfaSecret: null,
+    emailVerified: true,
     deletedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -34,30 +37,147 @@ function buildUser(overrides: Partial<User> = {}): User {
 
 describe('AuthService', () => {
   let service: AuthService;
-  let prisma: { user: { findUnique: jest.Mock; update: jest.Mock } };
+  let prisma: { user: { findUnique: jest.Mock; update: jest.Mock; create: jest.Mock } };
   let jwtService: { sign: jest.Mock; verify: jest.Mock };
+  let config: { get: jest.Mock };
+  let mailService: { sendVerificationEmail: jest.Mock };
 
   beforeEach(() => {
     prisma = {
       user: {
         findUnique: jest.fn(),
         update: jest.fn(),
+        create: jest.fn(),
       },
     };
     jwtService = {
       sign: jest.fn().mockReturnValue('signed-token'),
       verify: jest.fn(),
     };
+    config = {
+      get: jest.fn(),
+    };
+    mailService = {
+      sendVerificationEmail: jest.fn().mockResolvedValue(undefined),
+    };
 
     service = new AuthService(
       prisma as unknown as PrismaService,
       jwtService as unknown as JwtService,
+      config as unknown as ConfigService,
+      mailService as unknown as MailService,
     );
 
     // clearAllMocks() solo limpia historial de llamadas (calls/instances/
     // results), no implementations ni mockReturnValue — por eso no hace
     // falta re-declarar jwtService.sign.mockReturnValue después de esto.
     jest.clearAllMocks();
+  });
+
+  describe('signup', () => {
+    it('lanza 409 si el email ya está registrado', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser());
+
+      await expect(
+        service.signup({
+          email: 'user@example.com',
+          password: 'password1',
+          name: 'Nueva Cuenta',
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('crea la cuenta con emailVerified=false y envía el email de verificación', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+      prisma.user.create.mockResolvedValue(
+        buildUser({ emailVerified: false }),
+      );
+      config.get.mockImplementation((key: string) =>
+        key === 'FRONTEND_URL' ? 'http://localhost:5173' : undefined,
+      );
+
+      const result = await service.signup({
+        email: 'user@example.com',
+        password: 'password1',
+        name: 'Test User',
+      });
+
+      expect(prisma.user.create).toHaveBeenCalledWith({
+        data: {
+          email: 'user@example.com',
+          passwordHash: 'hashed-password',
+          name: 'Test User',
+          emailVerified: false,
+        },
+      });
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        { sub: 'user-1', purpose: 'email-verify' },
+        { expiresIn: '24h' },
+      );
+      expect(mailService.sendVerificationEmail).toHaveBeenCalledWith(
+        'user@example.com',
+        'Test User',
+        'http://localhost:5173/verify-email?token=signed-token',
+      );
+      expect(result).toEqual({
+        message: 'Cuenta creada. Revisá tu email para verificarla antes de iniciar sesión.',
+      });
+    });
+  });
+
+  describe('verifyEmail', () => {
+    it('lanza 401 si el token es inválido o expiró', async () => {
+      jwtService.verify.mockImplementation(() => {
+        throw new Error('jwt expired');
+      });
+
+      await expect(service.verifyEmail('bad-token')).rejects.toThrow(
+        'Token de verificación inválido o expirado',
+      );
+    });
+
+    it('lanza 401 si el purpose del token no es email-verify', async () => {
+      jwtService.verify.mockReturnValue({ sub: 'user-1', purpose: 'other' });
+
+      await expect(service.verifyEmail('token')).rejects.toThrow(
+        'Token de verificación inválido',
+      );
+    });
+
+    it('lanza 401 (replay guard) si el email ya estaba verificado', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'email-verify',
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ emailVerified: true }),
+      );
+
+      await expect(service.verifyEmail('token')).rejects.toThrow(
+        'Este email ya fue verificado',
+      );
+    });
+
+    it('marca emailVerified=true en el camino feliz', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'email-verify',
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ emailVerified: false }),
+      );
+
+      const result = await service.verifyEmail('token');
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { emailVerified: true },
+      });
+      expect(result).toEqual({
+        message: 'Email verificado. Ya podés iniciar sesión.',
+      });
+    });
   });
 
   describe('login', () => {
@@ -93,6 +213,17 @@ describe('AuthService', () => {
         'hashed-password',
         'wrong-pass',
       );
+    });
+
+    it('lanza 401 si el email no está verificado (signup propio, issue #5)', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ emailVerified: false }),
+      );
+      mockArgon2.verify.mockResolvedValue(true as never);
+
+      await expect(
+        service.login({ email: 'user@example.com', password: 'password1' }),
+      ).rejects.toThrow('Debés verificar tu email antes de iniciar sesión');
     });
 
     it('devuelve requiresPasswordChange sin loguear si mustChangePassword=true', async () => {
