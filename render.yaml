@@ -22,8 +22,14 @@ services:
       # Secretos/config específicos de esta instancia: se cargan a mano en
       # el dashboard de Render la primera vez (nunca en este archivo, que es
       # público en el repo). Ver checklist en README.md.
+      # Transaction pooler (puerto 6543, con ?pgbouncer=true). Ver checklist
+      # en README.md para la string exacta de Supabase.
       - key: DATABASE_URL
         sync: false
+      # Session pooler (puerto 5432), NO el host "Direct connection" de
+      # Supabase -- ese resuelve solo por IPv6 y Render no tiene salida
+      # IPv6, así que prisma migrate deploy nunca lo alcanza (issue #11).
+      # El Session pooler es IPv4 y soporta prepared statements.
       - key: DIRECT_URL
         sync: false
       - key: JWT_SECRET

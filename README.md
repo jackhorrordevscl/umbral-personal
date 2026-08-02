@@ -179,9 +179,20 @@ transacción), copia offsite de backups en **Backblaze B2** (ver
 
 ### Orden de setup
 
-1. **Supabase**: crear proyecto → copiar `DATABASE_URL` (pooled, puerto
-   `6543`, `?pgbouncer=true`) y `DIRECT_URL` (directa, puerto `5432`, la que
-   necesita `prisma migrate`) desde Project Settings → Database.
+1. **Supabase**: crear proyecto → copiar desde Project Settings → Database:
+   - `DATABASE_URL` = **Transaction pooler** (host
+     `aws-0-<región>.pooler.supabase.com`, puerto `6543`, agregar
+     `?pgbouncer=true` al final).
+   - `DIRECT_URL` = **Session pooler** (mismo host que el de arriba, puerto
+     `5432` -- NO el host "Direct connection"
+     `db.<ref>.supabase.co:5432` que muestra el dashboard). El host directo
+     real resuelve solo por IPv6 desde hace un tiempo (salvo que se pague el
+     add-on de IPv4 de Supabase), y la mayoría de las PaaS (Render incluido)
+     no tienen salida IPv6 -- la conexión nunca llega a establecerse, no es
+     un problema de credenciales (issue #11). El Session pooler sí es IPv4 y
+     soporta prepared statements, que es lo que necesita `prisma migrate
+     deploy`; el Transaction pooler (6543) no lo garantiza, por eso no sirve
+     para `DIRECT_URL`.
 2. **Backend en Render**: conectar el repo, Render detecta `render.yaml`
    (Blueprint) en la raíz — define el servicio, build/start command y qué
    env vars hay que cargar a mano (`sync: false` en el archivo). Cargar ahí
