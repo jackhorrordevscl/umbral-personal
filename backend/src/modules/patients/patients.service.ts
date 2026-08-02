@@ -17,7 +17,7 @@ function isDate(val: unknown): val is Date {
 type ConsentStatusMap = Record<ConsentPurpose, boolean>;
 
 function emptyConsentStatus(): ConsentStatusMap {
-  return { TREATMENT: false, TELEMEDICINE: false, HEALTH_NETWORK: false };
+  return { TREATMENT: false, TELEMEDICINE: false };
 }
 
 @Injectable()

@@ -23,19 +23,17 @@ import { formatRut, normalizeRut, validateRut } from "../utils/rut";
 // Reemplaza los booleanos consentSigned/telemedConsentSigned (sin fecha ni
 // autor) por el estado vigente derivado del ledger PatientConsent, que el
 // backend calcula en findAll/findOne vía PatientsService.getConsentStatusMap.
-type ConsentPurpose = "TREATMENT" | "TELEMEDICINE" | "HEALTH_NETWORK";
+type ConsentPurpose = "TREATMENT" | "TELEMEDICINE";
 type ConsentStatus = Record<ConsentPurpose, boolean>;
 
 const CONSENT_PURPOSE_LABELS: Record<ConsentPurpose, string> = {
   TREATMENT: "Tratamiento",
   TELEMEDICINE: "Telemedicina",
-  HEALTH_NETWORK: "Red de salud",
 };
 
 const EMPTY_CONSENTS: ConsentStatus = {
   TREATMENT: false,
   TELEMEDICINE: false,
-  HEALTH_NETWORK: false,
 };
 
 interface Patient {

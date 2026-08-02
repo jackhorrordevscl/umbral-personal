@@ -9,12 +9,14 @@ import { PrismaService } from '../src/prisma/prisma.service';
 
 /**
  * T6.1 (issue #27): consentimiento granular por finalidad (Ley 21.719).
- * Verifica que cada finalidad (TREATMENT, TELEMEDICINE, HEALTH_NETWORK) se
- * pueda otorgar/revocar de forma independiente, que cada evento quede
- * registrado en el ledger append-only PatientConsent con actor y fecha, y
- * que el control de acceso sea el mismo que el resto de las mutaciones del
- * módulo: dueño único (Patient.therapistId === userId), sin ramas
- * ADMIN/SUPERVISOR tras el colapso de roles (b0354c0, issue #7).
+ * Verifica que cada finalidad (TREATMENT, TELEMEDICINE) se pueda
+ * otorgar/revocar de forma independiente, que cada evento quede registrado
+ * en el ledger append-only PatientConsent con actor y fecha, y que el
+ * control de acceso sea el mismo que el resto de las mutaciones del módulo:
+ * dueño único (Patient.therapistId === userId), sin ramas ADMIN/SUPERVISOR
+ * tras el colapso de roles (b0354c0, issue #7). HEALTH_NETWORK se eliminó
+ * del enum (issue #6): era la finalidad exclusiva del acceso excepcional de
+ * SUPERVISOR a la red de salud, que ya no existe.
  *
  * No existe POST /users tras el colapso de roles (era CRUD institucional,
  * reemplazado por ProfileModule): los fixtures se crean directo vía Prisma
@@ -198,16 +200,16 @@ describe('Patient consent ledger (e2e)', () => {
         .expect(403);
     });
 
-    it('el terapeuta dueño otorga HEALTH_NETWORK (2xx)', async () => {
-      await request(app.getHttpServer())
+    it('rechaza purpose HEALTH_NETWORK, eliminado del enum (issue #6) (400)', () => {
+      return request(app.getHttpServer())
         .post(`/api/v1/patients/${patientId}/consents`)
         .set('Authorization', `Bearer ${therapistAToken}`)
         .send({
           purpose: 'HEALTH_NETWORK',
           action: 'GRANT',
-          evidence: 'Paciente autoriza compartir con la red de salud',
+          evidence: 'Finalidad que ya no existe en este producto',
         })
-        .expect(201);
+        .expect(400);
     });
 
     it('rechaza evidence menor a 10 caracteres (400)', () => {
@@ -227,7 +229,6 @@ describe('Patient consent ledger (e2e)', () => {
     it('refleja estado independiente por finalidad tras una mezcla de grants/revokes', async () => {
       // Estado esperado según los eventos previos:
       // TREATMENT: GRANT luego REVOKE -> false
-      // HEALTH_NETWORK: GRANT -> true
       // TELEMEDICINE: sin eventos exitosos -> false
       const res = await request(app.getHttpServer())
         .get(`/api/v1/patients/${patientId}/consents/status`)
@@ -237,7 +238,6 @@ describe('Patient consent ledger (e2e)', () => {
       expect(res.body).toEqual({
         TREATMENT: false,
         TELEMEDICINE: false,
-        HEALTH_NETWORK: true,
       });
 
       // Otorgar TELEMEDICINE de forma independiente no debe alterar los demás
@@ -259,7 +259,6 @@ describe('Patient consent ledger (e2e)', () => {
       expect(res2.body).toEqual({
         TREATMENT: false,
         TELEMEDICINE: true,
-        HEALTH_NETWORK: true,
       });
     });
 
@@ -279,7 +278,7 @@ describe('Patient consent ledger (e2e)', () => {
         .expect(200);
 
       expect(Array.isArray(res.body)).toBe(true);
-      expect(res.body.length).toBeGreaterThanOrEqual(4);
+      expect(res.body.length).toBeGreaterThanOrEqual(3);
       expect(res.body[0].recordedBy).toBeDefined();
       expect(res.body[0].recordedBy.id).toBeDefined();
     });

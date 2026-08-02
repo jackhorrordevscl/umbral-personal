@@ -236,7 +236,6 @@ model PatientConsent {
 enum ConsentPurpose {
   TREATMENT
   TELEMEDICINE
-  HEALTH_NETWORK
 }
 
 enum ConsentAction {
