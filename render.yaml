@@ -17,7 +17,9 @@ services:
     # cuyo Start Command no las corriera por su cuenta -- acá sí las corre,
     # así que RUN_MIGRATIONS puede quedar en false.
     startCommand: npx prisma migrate deploy && npm run start:prod
-    healthCheckPath: /
+    # setGlobalPrefix('api/v1') en main.ts hace que "/" no tenga ninguna ruta
+    # registrada (404) -- el health check debe pegarle al prefijo real.
+    healthCheckPath: /api/v1
     envVars:
       # Secretos/config específicos de esta instancia: se cargan a mano en
       # el dashboard de Render la primera vez (nunca en este archivo, que es
