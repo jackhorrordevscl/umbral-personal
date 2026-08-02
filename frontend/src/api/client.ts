@@ -1,7 +1,22 @@
 import axios from 'axios';
 
+// Sin VITE_API_URL: en dev cae a localhost (mismo puerto que main.ts usa por
+// defecto); en un build de producción es un error de configuración real, así
+// que se avisa fuerte en vez de apuntar en silencio a una IP hardcodeada
+// (antes 192.168.1.183, una LAN privada que no existe fuera de esa red -- issue #19).
+const fallbackApiUrl = 'http://localhost:3001/api/v1';
+const apiUrl = import.meta.env.VITE_API_URL;
+if (!apiUrl) {
+  const message = 'VITE_API_URL no está configurada.';
+  if (import.meta.env.DEV) {
+    console.warn(`${message} Usando fallback de desarrollo: ${fallbackApiUrl}`);
+  } else {
+    console.error(`${message} La app no podrá comunicarse con el backend.`);
+  }
+}
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://192.168.1.183:3001/api/v1',
+  baseURL: apiUrl || fallbackApiUrl,
   headers: {
     'Content-Type': 'application/json',
   },
