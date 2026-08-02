@@ -1,9 +1,26 @@
-// Construye un ISO string con offset de Chile (-03:00 o -04:00 según horario de verano)
+// Construye un ISO string con offset de Chile (-03:00 o -04:00 según horario de verano).
+// Calcula el offset real de America/Santiago para esa fecha/hora en vez de usar
+// dt.getTimezoneOffset() (zona horaria del dispositivo) -- si el profesional usa
+// el sistema desde otro huso horario, las fechas de sesión clínica quedaban
+// desfasadas (issue #13).
 export function buildLocalISO(date: string, time: string): string {
   if (!date) return '';
-  // Detectar offset real del navegador en el momento
-  const dt = new Date(`${date}T${time}:00`);
-  const offsetMin = dt.getTimezoneOffset(); // minutos detrás de UTC (ej: 180 para UTC-3)
+  const asUTC = new Date(`${date}T${time}:00Z`);
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Santiago',
+    hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const parts: Record<string, string> = {};
+  for (const p of dtf.formatToParts(asUTC)) {
+    if (p.type !== 'literal') parts[p.type] = p.value;
+  }
+  const zonedAsUTC = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour), Number(parts.minute), Number(parts.second),
+  );
+  const offsetMin = (asUTC.getTime() - zonedAsUTC) / 60000; // minutos detrás de UTC (positivo en Chile)
   const sign = offsetMin <= 0 ? '+' : '-';
   const abs = Math.abs(offsetMin);
   const hh = String(Math.floor(abs / 60)).padStart(2, '0');
