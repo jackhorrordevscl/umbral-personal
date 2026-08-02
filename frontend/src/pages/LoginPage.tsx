@@ -49,10 +49,10 @@ export default function LoginPage() {
       setMfaRequired(true);
       setUserId(data.userId ?? '');
     } else if (data.requiresMfaSetup) {
-      // Rol administrativo sin MFA: el backend no entrega accessToken,
-      // solo un setupToken de corta duración. Se arranca el enrolamiento
-      // automáticamente para traer el QR y no dejar al usuario con una
-      // sesión activa sin MFA.
+      // Cuenta sin MFA configurado (obligatorio para todas): el backend no
+      // entrega accessToken, solo un setupToken de corta duración. Se
+      // arranca el enrolamiento automáticamente para traer el QR y no dejar
+      // al usuario con una sesión activa sin MFA.
       setMfaSetupRequired(true);
       setSetupToken(data.setupToken ?? '');
       void beginMfaSetup(data.setupToken ?? '');

@@ -29,12 +29,12 @@ export class MailService {
     const { error } = await this.resend.emails.send({
       from: this.from,
       to,
-      subject: 'Verificá tu cuenta en Umbral SpA',
+      subject: 'Verifica tu cuenta en Umbral SpA',
       html: `
         <p>Hola ${name},</p>
-        <p>Creá tu cuenta en Umbral SpA haciendo clic en el siguiente enlace:</p>
+        <p>Crea tu cuenta en Umbral SpA haciendo clic en el siguiente enlace:</p>
         <p><a href="${verifyUrl}">${verifyUrl}</a></p>
-        <p>Si no creaste esta cuenta, podés ignorar este email.</p>
+        <p>Si no creaste esta cuenta, puedes ignorar este email.</p>
       `,
     });
 

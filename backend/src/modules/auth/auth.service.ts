@@ -68,7 +68,7 @@ export class AuthService {
     await this.mailService.sendVerificationEmail(user.email, user.name, verifyUrl);
 
     return {
-      message: 'Cuenta creada. Revisá tu email para verificarla antes de iniciar sesión.',
+      message: 'Cuenta creada. Revisa tu email para verificarla antes de iniciar sesión.',
     };
   }
 
@@ -102,7 +102,7 @@ export class AuthService {
       data: { emailVerified: true },
     });
 
-    return { message: 'Email verificado. Ya podés iniciar sesión.' };
+    return { message: 'Email verificado. Ya puedes iniciar sesión.' };
   }
 
   async login(dto: LoginDto) {
@@ -123,7 +123,7 @@ export class AuthService {
     // propio sin verificar no debería poder avanzar a ningún paso posterior
     // del login, ni siquiera a enrolar MFA.
     if (!user.emailVerified) {
-      throw new UnauthorizedException('Debés verificar tu email antes de iniciar sesión');
+      throw new UnauthorizedException('Debes verificar tu email antes de iniciar sesión');
     }
 
     if (user.mustChangePassword) {
@@ -237,7 +237,9 @@ export class AuthService {
   }
 
   /**
-   * Enrolamiento MFA forzado (paso 1) para roles administrativos sin MFA.
+   * Enrolamiento MFA forzado (paso 1) para cualquier cuenta sin MFA
+   * configurado -- MFA es obligatorio para toda cuenta, no solo para un rol
+   * en particular (ver completeLogin más abajo).
    * Recibe el setupToken de corta duración emitido por login(), nunca un
    * userId crudo. Reusa generateMfaSecret, que ya hace exactamente lo que
    * necesitamos: busca el user, genera+persiste el secreto TOTP y devuelve

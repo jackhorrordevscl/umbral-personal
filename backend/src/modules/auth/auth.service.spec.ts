@@ -121,7 +121,7 @@ describe('AuthService', () => {
         'http://localhost:5173/verify-email?token=signed-token',
       );
       expect(result).toEqual({
-        message: 'Cuenta creada. Revisá tu email para verificarla antes de iniciar sesión.',
+        message: 'Cuenta creada. Revisa tu email para verificarla antes de iniciar sesión.',
       });
     });
   });
@@ -175,7 +175,7 @@ describe('AuthService', () => {
         data: { emailVerified: true },
       });
       expect(result).toEqual({
-        message: 'Email verificado. Ya podés iniciar sesión.',
+        message: 'Email verificado. Ya puedes iniciar sesión.',
       });
     });
   });
@@ -223,7 +223,7 @@ describe('AuthService', () => {
 
       await expect(
         service.login({ email: 'user@example.com', password: 'password1' }),
-      ).rejects.toThrow('Debés verificar tu email antes de iniciar sesión');
+      ).rejects.toThrow('Debes verificar tu email antes de iniciar sesión');
     });
 
     it('devuelve requiresPasswordChange sin loguear si mustChangePassword=true', async () => {

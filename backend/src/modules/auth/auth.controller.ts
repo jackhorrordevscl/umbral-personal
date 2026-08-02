@@ -61,11 +61,11 @@ export class AuthController {
     return this.authService.verifyEmail(dto.token);
   }
 
-  // Sin JwtAuthGuard a propósito: el usuario todavía no tiene sesión en el
-  // enrolamiento MFA forzado (rol administrativo sin MFA). El setupToken
-  // (verificado a mano en AuthService) es lo que protege estas rutas, no
-  // el guard — ver auth.service.ts para el detalle del hueco de seguridad
-  // que esto evita.
+  // Sin JwtAuthGuard a propósito: el usuario todavía no tiene sesión durante
+  // el enrolamiento MFA forzado (obligatorio para toda cuenta sin MFA
+  // configurado). El setupToken (verificado a mano en AuthService) es lo
+  // que protege estas rutas, no el guard — ver auth.service.ts para el
+  // detalle del hueco de seguridad que esto evita.
   @Post('mfa/setup/begin')
   beginMfaSetup(@Body() dto: MfaSetupBeginDto) {
     return this.authService.beginMfaSetup(dto.setupToken);
