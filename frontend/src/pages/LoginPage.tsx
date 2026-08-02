@@ -150,7 +150,7 @@ export default function LoginPage() {
         <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md">
           <h2 className="font-display text-3xl text-slate-900 mb-2">Cambio de contraseña requerido</h2>
           <p className="text-slate-500 text-sm mb-6">
-            Esta cuenta todavía usa la contraseña inicial. Elegí una nueva contraseña para continuar.
+            Esta cuenta todavía usa la contraseña inicial. Elige una nueva contraseña para continuar.
           </p>
           <input
             type="password"
@@ -183,7 +183,7 @@ export default function LoginPage() {
         <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md">
           <h2 className="font-display text-3xl text-slate-900 mb-2">Activación de MFA requerida</h2>
           <p className="text-slate-500 text-sm mb-6">
-            Como ADMIN/SUPERVISOR, necesitás activar MFA para continuar. Escaneá este código con tu
+            Tu cuenta requiere activar MFA para continuar. Escanea este código con tu
             app autenticadora.
           </p>
           {setupQrCode && (
@@ -321,7 +321,7 @@ export default function LoginPage() {
             </button>
 
             <p className="text-center text-sm text-slate-500">
-              ¿No tenés cuenta?{' '}
+              ¿No tienes cuenta?{' '}
               <Link to="/signup" className="text-slate-900 font-medium hover:underline">
                 Registrate
               </Link>

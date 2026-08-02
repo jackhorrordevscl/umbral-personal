@@ -172,7 +172,7 @@ export default function PatientsPage() {
         failedPurposes.length > 0
           ? `Paciente creado, pero no se pudo registrar el consentimiento de: ${failedPurposes
               .map((p: ConsentPurpose) => CONSENT_PURPOSE_LABELS[p])
-              .join(", ")}. Podés otorgarlo desde la edición de la ficha.`
+              .join(", ")}. Puedes otorgarlo desde la edición de la ficha.`
           : "",
       );
     },
@@ -228,7 +228,7 @@ export default function PatientsPage() {
         setEditError(
           `Los datos del paciente se guardaron, pero no se pudo registrar el consentimiento de: ${failed
             .map((c) => CONSENT_PURPOSE_LABELS[c.purpose])
-            .join(", ")}. Volvé a intentarlo.`,
+            .join(", ")}. Vuelve a intentarlo.`,
         );
       } else {
         setModalTab("detail");

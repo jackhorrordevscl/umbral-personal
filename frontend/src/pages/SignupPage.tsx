@@ -44,9 +44,9 @@ export default function SignupPage() {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
         <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md text-center">
-          <h2 className="font-display text-2xl text-slate-900 mb-2">Revisá tu email</h2>
+          <h2 className="font-display text-2xl text-slate-900 mb-2">Revisa tu email</h2>
           <p className="text-slate-500 text-sm mb-6">
-            Te enviamos un enlace de verificación. Hacé clic en él para poder iniciar sesión.
+            Te enviamos un enlace de verificación. Haz clic en él para poder iniciar sesión.
           </p>
           <Link to="/login" className="text-slate-900 font-medium hover:underline text-sm">
             Volver a iniciar sesión
@@ -112,7 +112,7 @@ export default function SignupPage() {
           </button>
 
           <p className="text-center text-sm text-slate-500">
-            ¿Ya tenés cuenta?{' '}
+            ¿Ya tienes cuenta?{' '}
             <Link to="/login" className="text-slate-900 font-medium hover:underline">
               Iniciar sesión
             </Link>

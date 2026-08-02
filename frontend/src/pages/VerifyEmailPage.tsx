@@ -47,7 +47,7 @@ export default function VerifyEmailPage() {
         {status === 'success' && (
           <>
             <h2 className="font-display text-2xl text-slate-900 mb-2">Email verificado</h2>
-            <p className="text-slate-500 text-sm mb-6">Ya podés iniciar sesión.</p>
+            <p className="text-slate-500 text-sm mb-6">Ya puedes iniciar sesión.</p>
           </>
         )}
 
