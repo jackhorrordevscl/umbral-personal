@@ -2,28 +2,28 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
-import {
-  SEED_ADMIN_EMAIL_DEFAULT,
-  SEED_ADMIN_PASSWORD_DEFAULT,
-} from '../prisma/seed-admin.defaults';
 
 /**
  * T8.1 (issue #58): cifrado de documentos clínicos en reposo con `crypto`
  * nativo de Node (AES-256-GCM). Verifica que (a) el archivo que queda en
  * disco NO es el contenido original en texto plano, (b) la descarga devuelve
  * exactamente el contenido original ya descifrado, y (c) el control de
- * acceso de siempre (ownership vía patients.service.findOne) sigue aplicando
- * antes de servir el archivo.
+ * acceso de siempre (ownership vía patients.service.findOne, dueño único
+ * tras el colapso de roles en b0354c0, issue #7) sigue aplicando antes de
+ * servir el archivo.
+ *
+ * No existe POST /users tras el colapso de roles (era CRUD institucional,
+ * reemplazado por ProfileModule): los fixtures se crean directo vía Prisma
+ * con argon2, y pasan por el enrolamiento MFA forzado (obligatorio para toda
+ * cuenta) antes de tener un accessToken de sesión.
  */
-// Pendiente issue #7: escrito contra el modelo institucional
-// (ADMIN/SUPERVISOR/COORDINATOR/THERAPIST), que ya no existe -- reescribir
-// contra el modelo de un solo rol (PROFESSIONAL, dueño único de sus fichas).
-describe.skip('Documents encryption at rest (e2e)', () => {
+describe('Documents encryption at rest (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
 
@@ -32,13 +32,42 @@ describe.skip('Documents encryption at rest (e2e)', () => {
   const PLAINTEXT_MARKER =
     'contenido-clinico-sensible-no-deberia-verse-en-disco';
 
-  let adminToken: string;
   let therapistAToken: string;
   let therapistBToken: string;
   let therapistAId: string;
   let therapistBId: string;
   let patientId: string;
   let documentId: string;
+
+  async function createProfessionalAndLogin(email: string, name: string): Promise<{ id: string; token: string }> {
+    const passwordHash = await argon2.hash(TEST_PASSWORD);
+    const user = await prisma.user.create({
+      data: { email, passwordHash, name },
+    });
+
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: TEST_PASSWORD })
+      .expect(201);
+    expect(login.body.requiresMfaSetup).toBe(true);
+
+    const beginSetup = await request(app.getHttpServer())
+      .post('/api/v1/auth/mfa/setup/begin')
+      .send({ setupToken: login.body.setupToken })
+      .expect(201);
+
+    const totp = speakeasy.totp({
+      secret: beginSetup.body.secret,
+      encoding: 'base32',
+    });
+
+    const confirmSetup = await request(app.getHttpServer())
+      .post('/api/v1/auth/mfa/setup/confirm')
+      .send({ setupToken: login.body.setupToken, token: totp })
+      .expect(201);
+
+    return { id: user.id, token: confirmSetup.body.accessToken };
+  }
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -58,73 +87,19 @@ describe.skip('Documents encryption at rest (e2e)', () => {
 
     prisma = app.get(PrismaService);
 
-    const ADMIN_EMAIL =
-      process.env.SEED_ADMIN_EMAIL ?? SEED_ADMIN_EMAIL_DEFAULT;
-    const ADMIN_PASSWORD =
-      process.env.SEED_ADMIN_PASSWORD ?? SEED_ADMIN_PASSWORD_DEFAULT;
+    const therapistA = await createProfessionalAndLogin(
+      `docs.therapist.a.${runId}@umbral.cl`,
+      'Documents Therapist A',
+    );
+    therapistAId = therapistA.id;
+    therapistAToken = therapistA.token;
 
-    await prisma.user.updateMany({
-      where: { email: ADMIN_EMAIL },
-      data: { mfaEnabled: false, mfaSecret: null, mustChangePassword: false },
-    });
-
-    const adminLogin = await request(app.getHttpServer())
-      .post('/api/v1/auth/login')
-      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
-      .expect(201);
-
-    const beginSetup = await request(app.getHttpServer())
-      .post('/api/v1/auth/mfa/setup/begin')
-      .send({ setupToken: adminLogin.body.setupToken })
-      .expect(201);
-    const adminTotp = speakeasy.totp({
-      secret: beginSetup.body.secret,
-      encoding: 'base32',
-    });
-    const confirmSetup = await request(app.getHttpServer())
-      .post('/api/v1/auth/mfa/setup/confirm')
-      .send({ setupToken: adminLogin.body.setupToken, token: adminTotp })
-      .expect(201);
-    adminToken = confirmSetup.body.accessToken;
-
-    const therapistAEmail = `docs.therapist.a.${runId}@umbral.cl`;
-    const therapistBEmail = `docs.therapist.b.${runId}@umbral.cl`;
-
-    const therapistACreate = await request(app.getHttpServer())
-      .post('/api/v1/users')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        email: therapistAEmail,
-        password: TEST_PASSWORD,
-        name: 'Documents Therapist A',
-        role: 'THERAPIST',
-      })
-      .expect(201);
-    therapistAId = therapistACreate.body.id;
-
-    const therapistBCreate = await request(app.getHttpServer())
-      .post('/api/v1/users')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        email: therapistBEmail,
-        password: TEST_PASSWORD,
-        name: 'Documents Therapist B',
-        role: 'THERAPIST',
-      })
-      .expect(201);
-    therapistBId = therapistBCreate.body.id;
-
-    const loginA = await request(app.getHttpServer())
-      .post('/api/v1/auth/login')
-      .send({ email: therapistAEmail, password: TEST_PASSWORD })
-      .expect(201);
-    therapistAToken = loginA.body.accessToken;
-
-    const loginB = await request(app.getHttpServer())
-      .post('/api/v1/auth/login')
-      .send({ email: therapistBEmail, password: TEST_PASSWORD })
-      .expect(201);
-    therapistBToken = loginB.body.accessToken;
+    const therapistB = await createProfessionalAndLogin(
+      `docs.therapist.b.${runId}@umbral.cl`,
+      'Documents Therapist B',
+    );
+    therapistBId = therapistB.id;
+    therapistBToken = therapistB.token;
 
     const patientCreate = await request(app.getHttpServer())
       .post('/api/v1/patients')
@@ -160,13 +135,6 @@ describe.skip('Documents encryption at rest (e2e)', () => {
           data: { deletedAt: new Date() },
         });
       }
-
-      const ADMIN_EMAIL =
-        process.env.SEED_ADMIN_EMAIL ?? SEED_ADMIN_EMAIL_DEFAULT;
-      await prisma.user.updateMany({
-        where: { email: ADMIN_EMAIL },
-        data: { mfaEnabled: false, mfaSecret: null },
-      });
     } finally {
       await app.close();
     }

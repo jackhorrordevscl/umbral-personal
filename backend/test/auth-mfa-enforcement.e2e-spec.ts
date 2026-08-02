@@ -4,27 +4,27 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
-import {
-  SEED_ADMIN_EMAIL_DEFAULT,
-  SEED_ADMIN_PASSWORD_DEFAULT,
-} from '../prisma/seed-admin.defaults';
 
 /**
- * T4.1 (issue #19): un usuario ADMIN/SUPERVISOR sin MFA habilitado no puede
- * quedarse con una sesión activa sin MFA. login() ya no le entrega un
- * accessToken directo: entrega un setupToken de corta duración (purpose
- * 'mfa-setup') que solo sirve para /auth/mfa/setup/begin y
- * /auth/mfa/setup/confirm — nunca el userId crudo, y nunca utilizable como
- * Bearer token de sesión (jwt.strategy.ts lo rechaza explícitamente).
+ * T4.1 (issue #19), reescrito para el modelo de un solo rol (issue #7): tras
+ * colapsar los roles a un único PROFESSIONAL (b0354c0), MFA es obligatorio
+ * para TODA cuenta, no solo para roles administrativos -- el único rol de
+ * este producto maneja el 100% de los datos clínicos propios. login() no le
+ * entrega un accessToken directo a nadie sin MFA: entrega un setupToken de
+ * corta duración (purpose 'mfa-setup') que solo sirve para
+ * /auth/mfa/setup/begin y /auth/mfa/setup/confirm — nunca el userId crudo, y
+ * nunca utilizable como Bearer token de sesión (jwt.strategy.ts lo rechaza
+ * explícitamente).
  *
- * Los fixtures se crean con emails únicos por corrida (sufijo Date.now())
- * para que la suite sea repetible sobre la misma base, y se limpian en
- * afterAll.
+ * No existe POST /users tras el colapso de roles (era CRUD institucional,
+ * reemplazado por ProfileModule): el fixture PROFESSIONAL se crea directo
+ * vía Prisma con argon2, igual que hace seed.ts.
  *
- * ADMIN_EMAIL/ADMIN_PASSWORD son las credenciales del ADMIN seedeado por
+ * ADMIN_EMAIL/ADMIN_PASSWORD son las credenciales del admin seedeado por
  * prisma/seed.ts. Se leen de env (SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD, que
  * CI fija explícitamente) y caen al MISMO default que usa el seed cuando no
  * están seteadas — así la suite corre en local sin configuración previa y
@@ -32,9 +32,12 @@ import {
  * prisma/seed-admin.defaults.ts (no acá) para no disparar el secret scanning
  * (GitGuardian) en cada PR que toque este spec.
  */
-// Pendiente issue #7: MFA ahora es obligatorio para toda cuenta (no solo
-// ADMIN/SUPERVISOR) -- reescribir contra el modelo de un solo rol.
-describe.skip('MFA enforcement para roles administrativos (e2e)', () => {
+import {
+  SEED_ADMIN_EMAIL_DEFAULT,
+  SEED_ADMIN_PASSWORD_DEFAULT,
+} from '../prisma/seed-admin.defaults';
+
+describe('MFA enforcement obligatorio (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
 
@@ -45,10 +48,9 @@ describe.skip('MFA enforcement para roles administrativos (e2e)', () => {
   const TEST_PASSWORD = 'TestPass123!';
 
   let adminSetupToken: string;
-  let bootstrapAdminToken: string;
 
-  let therapistId: string;
-  let therapistEmail: string;
+  let secondUserId: string;
+  let secondUserEmail: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -68,65 +70,34 @@ describe.skip('MFA enforcement para roles administrativos (e2e)', () => {
 
     prisma = app.get(PrismaService);
 
-    // Se resetea el estado MFA y mustChangePassword del ADMIN seedeado para
-    // que esta suite sea determinística sin importar corridas previas — esta
-    // suite prueba el enrolamiento MFA forzado (T4.1), no el cambio de
-    // contraseña forzado (T4.4, ver auth-force-password-change.e2e-spec.ts).
+    // Se resetea el estado MFA y mustChangePassword del admin seedeado para
+    // que esta suite sea determinística sin importar corridas previas.
     await prisma.user.updateMany({
       where: { email: ADMIN_EMAIL },
       data: { mfaEnabled: false, mfaSecret: null, mustChangePassword: false },
     });
 
-    // Se necesita un accessToken de ADMIN para crear el fixture THERAPIST
-    // vía POST /users. Se completa el enrolamiento forzado una vez acá,
-    // fuera de los `it` que prueban el flujo en sí mismos.
-    const adminLogin = await request(app.getHttpServer())
-      .post('/api/v1/auth/login')
-      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
-      .expect(201);
-
-    const beginSetup = await request(app.getHttpServer())
-      .post('/api/v1/auth/mfa/setup/begin')
-      .send({ setupToken: adminLogin.body.setupToken })
-      .expect(201);
-
-    const adminTotp = speakeasy.totp({
-      secret: beginSetup.body.secret,
-      encoding: 'base32',
+    // Fixture PROFESSIONAL: creado directo vía Prisma (no existe POST /users
+    // tras el colapso de roles), sirve para probar que el segundo usuario de
+    // la suite sufre exactamente la misma fricción de MFA que el admin
+    // seedeado -- ya no hay ningún rol exento.
+    secondUserEmail = `mfa.second.${runId}@umbral.cl`;
+    const passwordHash = await argon2.hash(TEST_PASSWORD);
+    const secondUser = await prisma.user.create({
+      data: { email: secondUserEmail, passwordHash, name: 'MFA Second User' },
     });
-
-    const confirmSetup = await request(app.getHttpServer())
-      .post('/api/v1/auth/mfa/setup/confirm')
-      .send({ setupToken: adminLogin.body.setupToken, token: adminTotp })
-      .expect(201);
-    bootstrapAdminToken = confirmSetup.body.accessToken;
-
-    // Fixture THERAPIST: no debería sufrir la fricción de MFA obligatorio.
-    therapistEmail = `mfa.therapist.${runId}@umbral.cl`;
-    const therapistCreate = await request(app.getHttpServer())
-      .post('/api/v1/users')
-      .set('Authorization', `Bearer ${bootstrapAdminToken}`)
-      .send({
-        email: therapistEmail,
-        password: TEST_PASSWORD,
-        name: 'MFA Therapist',
-        role: 'THERAPIST',
-      })
-      .expect(201);
-    therapistId = therapistCreate.body.id;
+    secondUserId = secondUser.id;
   });
 
   afterAll(async () => {
     try {
       // Guard explícito: si beforeAll falló antes de crear el fixture,
-      // therapistId queda undefined. Un `where: { id: undefined }` en
+      // secondUserId queda undefined. Un `where: { id: undefined }` en
       // Prisma NO significa "no matchear nada" — significa "sin filtro en
       // ese campo", así que updateMany() afectaría a TODOS los usuarios.
-      // Sin este guard, un beforeAll fallido soft-borra la tabla User
-      // entera (incluido el ADMIN seedeado).
-      if (therapistId) {
+      if (secondUserId) {
         await prisma.user.updateMany({
-          where: { id: therapistId },
+          where: { id: secondUserId },
           data: { deletedAt: new Date() },
         });
       }
@@ -134,12 +105,7 @@ describe.skip('MFA enforcement para roles administrativos (e2e)', () => {
       // El último test de la suite deja al admin con mfaEnabled=true (y un
       // mfaSecret generado por speakeasy, inservible fuera del test). Sin
       // este reset, esa suite deja el admin seedeado inutilizable para
-      // cualquiera que loguee después con una app autenticadora real —
-      // tanto en un dev local haciendo login manual como en otra suite que
-      // asuma MFA deshabilitado por defecto (rbac-ownership.e2e-spec.ts, por
-      // ejemplo, ya lo resetea por su cuenta antes de usarlo, así que este
-      // reset no le hace falta a ella — es para dejar la base consistente
-      // después de correr esta suite).
+      // cualquiera que loguee después con una app autenticadora real.
       await prisma.user.updateMany({
         where: { email: ADMIN_EMAIL },
         data: { mfaEnabled: false, mfaSecret: null },
@@ -149,15 +115,8 @@ describe.skip('MFA enforcement para roles administrativos (e2e)', () => {
     }
   });
 
-  describe('login de ADMIN/SUPERVISOR sin MFA', () => {
-    it('responde requiresMfaSetup con setupToken y NO devuelve accessToken', async () => {
-      // Se resetea de nuevo: el beforeAll ya dejó al admin con mfaEnabled=true
-      // al completar el bootstrap.
-      await prisma.user.updateMany({
-        where: { email: ADMIN_EMAIL },
-        data: { mfaEnabled: false, mfaSecret: null },
-      });
-
+  describe('login sin MFA habilitado', () => {
+    it('responde requiresMfaSetup con setupToken y NO devuelve accessToken (admin seedeado)', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
         .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
@@ -170,6 +129,17 @@ describe.skip('MFA enforcement para roles administrativos (e2e)', () => {
 
       adminSetupToken = res.body.setupToken;
     });
+
+    it('responde requiresMfaSetup también para una cuenta recién creada, sin excepción de rol', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: secondUserEmail, password: TEST_PASSWORD })
+        .expect(201);
+
+      expect(res.body.requiresMfaSetup).toBe(true);
+      expect(typeof res.body.setupToken).toBe('string');
+      expect(res.body.accessToken).toBeUndefined();
+    });
   });
 
   describe('/auth/mfa/setup/begin con setupToken inválido', () => {
@@ -177,15 +147,6 @@ describe.skip('MFA enforcement para roles administrativos (e2e)', () => {
       return request(app.getHttpServer())
         .post('/api/v1/auth/mfa/setup/begin')
         .send({ setupToken: 'esto-no-es-un-jwt-valido' })
-        .expect(401);
-    });
-
-    it('un accessToken normal (purpose distinto) devuelve 401', async () => {
-      // El bootstrapAdminToken es un accessToken de sesión real, no un
-      // setupToken: no debe servir para (re)iniciar el enrolamiento.
-      return request(app.getHttpServer())
-        .post('/api/v1/auth/mfa/setup/begin')
-        .send({ setupToken: bootstrapAdminToken })
         .expect(401);
     });
   });
@@ -236,31 +197,11 @@ describe.skip('MFA enforcement para roles administrativos (e2e)', () => {
     });
   });
 
-  describe('login de THERAPIST/COORDINATOR sin MFA', () => {
-    it('sigue funcionando sin fricción: accessToken directo', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/auth/login')
-        .send({ email: therapistEmail, password: TEST_PASSWORD })
-        .expect(201);
-
-      expect(typeof res.body.accessToken).toBe('string');
-      expect(res.body.requiresMfaSetup).toBeUndefined();
-      expect(res.body.requiresMfa).toBeUndefined();
-    });
-  });
-
   describe('setupToken usado como Bearer token de sesión', () => {
     it('GET /patients con setupToken como Bearer devuelve 401', async () => {
-      // Se genera un setupToken fresco (el usado arriba ya se consumió
-      // implícitamente al dejar mfaEnabled=true en el usuario).
-      await prisma.user.updateMany({
-        where: { email: ADMIN_EMAIL },
-        data: { mfaEnabled: false, mfaSecret: null },
-      });
-
       const loginRes = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
-        .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
+        .send({ email: secondUserEmail, password: TEST_PASSWORD })
         .expect(201);
 
       const freshSetupToken = loginRes.body.setupToken;
@@ -270,20 +211,6 @@ describe.skip('MFA enforcement para roles administrativos (e2e)', () => {
         .get('/api/v1/patients')
         .set('Authorization', `Bearer ${freshSetupToken}`)
         .expect(401);
-
-      // Se deja al admin enrolado de nuevo para ejercitar setupToken/Bearer
-      // en el estado que el test anterior dejaba (mfaEnabled=true): el
-      // afterAll de la suite es quien se encarga de la limpieza final para
-      // quien use este usuario seedeado después.
-      const beginRes = await request(app.getHttpServer())
-        .post('/api/v1/auth/mfa/setup/begin')
-        .send({ setupToken: freshSetupToken })
-        .expect(201);
-      const totp = speakeasy.totp({ secret: beginRes.body.secret, encoding: 'base32' });
-      await request(app.getHttpServer())
-        .post('/api/v1/auth/mfa/setup/confirm')
-        .send({ setupToken: freshSetupToken, token: totp })
-        .expect(201);
     });
   });
 });

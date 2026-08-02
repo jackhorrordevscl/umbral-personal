@@ -5,6 +5,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import * as argon2 from 'argon2';
+import * as speakeasy from 'speakeasy';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import {
@@ -26,10 +27,7 @@ import {
  * corre en local sin configuración y sin repetir el literal acá, evitando los
  * falsos positivos de secret scanning.
  */
-// Pendiente issue #7: escrito contra el modelo institucional
-// (ADMIN/SUPERVISOR/COORDINATOR/THERAPIST), que ya no existe -- reescribir
-// contra el modelo de un solo rol (PROFESSIONAL, dueño único de sus fichas).
-describe.skip('Cambio de contraseña forzado del admin semilla (e2e)', () => {
+describe('Cambio de contraseña forzado del admin semilla (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
 
@@ -105,33 +103,50 @@ describe.skip('Cambio de contraseña forzado del admin semilla (e2e)', () => {
   });
 
   it('POST /auth/password/change con un accessToken normal (purpose distinto) devuelve 401', async () => {
-    // Un accessToken de sesión real (de un THERAPIST, que no requiere MFA ni
-    // cambio de contraseña) no debe servir para forzar un cambio de
-    // contraseña: nunca tuvo purpose 'password-change'.
-    const therapistEmail = `force-password.therapist.${Date.now()}@umbral.cl`;
-    const therapistPasswordHash = await argon2.hash('TestPass123!');
+    // Un accessToken de sesión real (de una cuenta ya enrolada en MFA, sin
+    // mustChangePassword pendiente) no debe servir para forzar un cambio de
+    // contraseña: nunca tuvo purpose 'password-change'. MFA es obligatorio
+    // para toda cuenta, así que el fixture pasa por el enrolamiento forzado
+    // antes de tener un accessToken real.
+    const otherEmail = `force-password.other.${Date.now()}@umbral.cl`;
+    const otherPasswordHash = await argon2.hash('TestPass123!');
     await prisma.user.create({
       data: {
-        email: therapistEmail,
-        passwordHash: therapistPasswordHash,
-        name: 'Force Password Test Therapist',
-        role: 'THERAPIST',
+        email: otherEmail,
+        passwordHash: otherPasswordHash,
+        name: 'Force Password Test User',
       },
     });
 
-    const therapistLogin = await request(app.getHttpServer())
+    const otherLogin = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
-      .send({ email: therapistEmail, password: 'TestPass123!' })
+      .send({ email: otherEmail, password: 'TestPass123!' })
       .expect(201);
-    expect(typeof therapistLogin.body.accessToken).toBe('string');
+    expect(otherLogin.body.requiresMfaSetup).toBe(true);
+
+    const beginSetup = await request(app.getHttpServer())
+      .post('/api/v1/auth/mfa/setup/begin')
+      .send({ setupToken: otherLogin.body.setupToken })
+      .expect(201);
+
+    const totp = speakeasy.totp({
+      secret: beginSetup.body.secret,
+      encoding: 'base32',
+    });
+
+    const confirmSetup = await request(app.getHttpServer())
+      .post('/api/v1/auth/mfa/setup/confirm')
+      .send({ setupToken: otherLogin.body.setupToken, token: totp })
+      .expect(201);
+    expect(typeof confirmSetup.body.accessToken).toBe('string');
 
     await request(app.getHttpServer())
       .post('/api/v1/auth/password/change')
-      .send({ passwordChangeToken: therapistLogin.body.accessToken, newPassword: NEW_PASSWORD })
+      .send({ passwordChangeToken: confirmSetup.body.accessToken, newPassword: NEW_PASSWORD })
       .expect(401);
 
     await prisma.user.updateMany({
-      where: { email: therapistEmail },
+      where: { email: otherEmail },
       data: { deletedAt: new Date() },
     });
   });

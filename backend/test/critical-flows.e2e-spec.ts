@@ -2,13 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import * as argon2 from 'argon2';
 import speakeasy from 'speakeasy';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
-import {
-  SEED_ADMIN_EMAIL_DEFAULT,
-  SEED_ADMIN_PASSWORD_DEFAULT,
-} from '../prisma/seed-admin.defaults';
 
 /**
  * T7.2 (issue #31): cobertura e2e de los flujos críticos exigidos por el
@@ -21,21 +18,20 @@ import {
  * normal de login (éxito y fallos) y la creación de ficha (éxito y
  * validaciones), que hasta ahora solo se usaban como setup de otros tests,
  * nunca como flujo propio verificado.
+ *
+ * Reescrito para el modelo de un solo rol (issue #7): no existe POST /users
+ * tras el colapso de roles (era CRUD institucional, reemplazado por
+ * ProfileModule), y MFA es obligatorio para toda cuenta -- el fixture se
+ * crea directo vía Prisma y pasa por el enrolamiento forzado antes de tener
+ * un accessToken de sesión.
  */
-// Pendiente issue #7: escrito contra el modelo institucional
-// (ADMIN/SUPERVISOR/COORDINATOR/THERAPIST), que ya no existe -- reescribir
-// contra el modelo de un solo rol (PROFESSIONAL, dueño único de sus fichas).
-describe.skip('Critical flows (e2e)', () => {
+describe('Critical flows (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
 
   const runId = Date.now();
-  const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? SEED_ADMIN_EMAIL_DEFAULT;
-  const ADMIN_PASSWORD =
-    process.env.SEED_ADMIN_PASSWORD ?? SEED_ADMIN_PASSWORD_DEFAULT;
   const TEST_PASSWORD = 'TestPass123!';
 
-  let adminToken: string;
   let therapistEmail: string;
   let therapistToken: string;
   let therapistId: string;
@@ -60,48 +56,40 @@ describe.skip('Critical flows (e2e)', () => {
 
     prisma = app.get(PrismaService);
 
-    // T4.1 (issue #19): ADMIN/SUPERVISOR quedan forzados a enrolar MFA en su
-    // primer login sin MFA. Se resetea el estado MFA del ADMIN seedeado
-    // antes de loguear, igual que en el resto de los e2e-specs.
-    await prisma.user.updateMany({
-      where: { email: ADMIN_EMAIL },
-      data: { mfaEnabled: false, mfaSecret: null, mustChangePassword: false },
+    therapistEmail = `critical-flows.therapist.${runId}@umbral.cl`;
+    const passwordHash = await argon2.hash(TEST_PASSWORD);
+    const therapist = await prisma.user.create({
+      data: {
+        email: therapistEmail,
+        passwordHash,
+        name: 'Critical Flows Therapist',
+      },
     });
+    therapistId = therapist.id;
 
-    const adminLogin = await request(app.getHttpServer())
+    // MFA es obligatorio para toda cuenta: se completa el enrolamiento
+    // forzado una vez acá, fuera del describe de login (que ejercita el
+    // flujo de login en sí mismo con un login POSTERIOR, ya con MFA activo).
+    const bootstrapLogin = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
-      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
+      .send({ email: therapistEmail, password: TEST_PASSWORD })
       .expect(201);
-    expect(adminLogin.body.requiresMfaSetup).toBe(true);
+    expect(bootstrapLogin.body.requiresMfaSetup).toBe(true);
 
     const beginSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/begin')
-      .send({ setupToken: adminLogin.body.setupToken })
+      .send({ setupToken: bootstrapLogin.body.setupToken })
       .expect(201);
 
-    const adminTotp = speakeasy.totp({
+    const totp = speakeasy.totp({
       secret: beginSetup.body.secret,
       encoding: 'base32',
     });
 
-    const confirmSetup = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/confirm')
-      .send({ setupToken: adminLogin.body.setupToken, token: adminTotp })
+      .send({ setupToken: bootstrapLogin.body.setupToken, token: totp })
       .expect(201);
-    adminToken = confirmSetup.body.accessToken;
-
-    therapistEmail = `critical-flows.therapist.${runId}@umbral.cl`;
-    const therapistCreate = await request(app.getHttpServer())
-      .post('/api/v1/users')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        email: therapistEmail,
-        password: TEST_PASSWORD,
-        name: 'Critical Flows Therapist',
-        role: 'THERAPIST',
-      })
-      .expect(201);
-    therapistId = therapistCreate.body.id;
   });
 
   afterAll(async () => {
@@ -121,36 +109,49 @@ describe.skip('Critical flows (e2e)', () => {
           data: { deletedAt: new Date() },
         });
       }
-
-      // El beforeAll enrola MFA en el admin seedeado; ningún test posterior
-      // lo deshace. Mismo patrón que auth-mfa-enforcement/rbac-ownership: sin
-      // este reset, el admin queda con un mfaSecret de test inservible para
-      // cualquiera que loguee después.
-      await prisma.user.updateMany({
-        where: { email: ADMIN_EMAIL },
-        data: { mfaEnabled: false, mfaSecret: null },
-      });
     } finally {
       await app.close();
     }
   });
 
   describe('POST /auth/login', () => {
-    it('login exitoso de un THERAPIST sin MFA devuelve accessToken y datos del usuario', async () => {
+    it('login exitoso con MFA ya enrolado responde requiresMfa con userId, sin accessToken directo', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
         .send({ email: therapistEmail, password: TEST_PASSWORD })
         .expect(201);
 
-      expect(res.body.accessToken).toBeDefined();
-      expect(res.body.user).toEqual({
+      expect(res.body.requiresMfa).toBe(true);
+      expect(res.body.userId).toBe(therapistId);
+      expect(res.body.accessToken).toBeUndefined();
+    });
+
+    it('login + mfa/verify con TOTP válido entrega accessToken y datos del usuario', async () => {
+      const loginRes = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: therapistEmail, password: TEST_PASSWORD })
+        .expect(201);
+
+      const user = await prisma.user.findUnique({ where: { id: therapistId } });
+      const totp = speakeasy.totp({
+        secret: user!.mfaSecret!,
+        encoding: 'base32',
+      });
+
+      const verifyRes = await request(app.getHttpServer())
+        .post('/api/v1/auth/mfa/verify')
+        .send({ userId: loginRes.body.userId, token: totp })
+        .expect(201);
+
+      expect(verifyRes.body.accessToken).toBeDefined();
+      expect(verifyRes.body.user).toEqual({
         id: therapistId,
         email: therapistEmail,
-        role: 'THERAPIST',
+        role: 'PROFESSIONAL',
         name: 'Critical Flows Therapist',
       });
 
-      therapistToken = res.body.accessToken;
+      therapistToken = verifyRes.body.accessToken;
     });
 
     it('rechaza con 401 una contraseña incorrecta', () => {
@@ -181,6 +182,8 @@ describe.skip('Critical flows (e2e)', () => {
     });
 
     it('crea la ficha con los datos mínimos requeridos (2xx) y queda asociada al terapeuta autenticado', async () => {
+      expect(therapistToken).toBeDefined();
+
       const res = await request(app.getHttpServer())
         .post('/api/v1/patients')
         .set('Authorization', `Bearer ${therapistToken}`)

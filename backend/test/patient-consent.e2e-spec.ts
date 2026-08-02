@@ -2,13 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
-import {
-  SEED_ADMIN_EMAIL_DEFAULT,
-  SEED_ADMIN_PASSWORD_DEFAULT,
-} from '../prisma/seed-admin.defaults';
 
 /**
  * T6.1 (issue #27): consentimiento granular por finalidad (Ley 21.719).
@@ -16,29 +13,57 @@ import {
  * pueda otorgar/revocar de forma independiente, que cada evento quede
  * registrado en el ledger append-only PatientConsent con actor y fecha, y
  * que el control de acceso sea el mismo que el resto de las mutaciones del
- * módulo (findOne: dueño, o SUPERVISOR si HEALTH_NETWORK ya está otorgado --
- * T6.4, issue #51. ADMIN ya no tiene acceso, ni siquiera para registrar).
+ * módulo: dueño único (Patient.therapistId === userId), sin ramas
+ * ADMIN/SUPERVISOR tras el colapso de roles (b0354c0, issue #7).
+ *
+ * No existe POST /users tras el colapso de roles (era CRUD institucional,
+ * reemplazado por ProfileModule): los fixtures se crean directo vía Prisma
+ * con argon2, y pasan por el enrolamiento MFA forzado (obligatorio para toda
+ * cuenta) antes de tener un accessToken de sesión.
  */
-// Pendiente issue #7: escrito contra el modelo institucional
-// (ADMIN/SUPERVISOR/COORDINATOR/THERAPIST), que ya no existe -- reescribir
-// contra el modelo de un solo rol (PROFESSIONAL, dueño único de sus fichas).
-describe.skip('Patient consent ledger (e2e)', () => {
+describe('Patient consent ledger (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
 
   const runId = Date.now();
-  const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? SEED_ADMIN_EMAIL_DEFAULT;
-  const ADMIN_PASSWORD =
-    process.env.SEED_ADMIN_PASSWORD ?? SEED_ADMIN_PASSWORD_DEFAULT;
   const TEST_PASSWORD = 'TestPass123!';
 
-  let adminToken: string;
   let therapistAToken: string;
   let therapistBToken: string;
   let therapistAId: string;
   let therapistBId: string;
 
   let patientId: string;
+
+  async function createProfessionalAndLogin(email: string, name: string): Promise<{ id: string; token: string }> {
+    const passwordHash = await argon2.hash(TEST_PASSWORD);
+    const user = await prisma.user.create({
+      data: { email, passwordHash, name },
+    });
+
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: TEST_PASSWORD })
+      .expect(201);
+    expect(login.body.requiresMfaSetup).toBe(true);
+
+    const beginSetup = await request(app.getHttpServer())
+      .post('/api/v1/auth/mfa/setup/begin')
+      .send({ setupToken: login.body.setupToken })
+      .expect(201);
+
+    const totp = speakeasy.totp({
+      secret: beginSetup.body.secret,
+      encoding: 'base32',
+    });
+
+    const confirmSetup = await request(app.getHttpServer())
+      .post('/api/v1/auth/mfa/setup/confirm')
+      .send({ setupToken: login.body.setupToken, token: totp })
+      .expect(201);
+
+    return { id: user.id, token: confirmSetup.body.accessToken };
+  }
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -58,74 +83,19 @@ describe.skip('Patient consent ledger (e2e)', () => {
 
     prisma = app.get(PrismaService);
 
-    // T4.1 (issue #19): ADMIN/SUPERVISOR quedan forzados a enrolar MFA en su
-    // primer login sin MFA. Se resetea el estado MFA del ADMIN seedeado
-    // antes de loguear, igual que en rbac-ownership.e2e-spec.ts.
-    await prisma.user.updateMany({
-      where: { email: ADMIN_EMAIL },
-      data: { mfaEnabled: false, mfaSecret: null, mustChangePassword: false },
-    });
+    const therapistA = await createProfessionalAndLogin(
+      `consent.therapist.a.${runId}@umbral.cl`,
+      'Consent Therapist A',
+    );
+    therapistAId = therapistA.id;
+    therapistAToken = therapistA.token;
 
-    const adminLogin = await request(app.getHttpServer())
-      .post('/api/v1/auth/login')
-      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
-      .expect(201);
-    expect(adminLogin.body.requiresMfaSetup).toBe(true);
-
-    const beginSetup = await request(app.getHttpServer())
-      .post('/api/v1/auth/mfa/setup/begin')
-      .send({ setupToken: adminLogin.body.setupToken })
-      .expect(201);
-
-    const adminTotp = speakeasy.totp({
-      secret: beginSetup.body.secret,
-      encoding: 'base32',
-    });
-
-    const confirmSetup = await request(app.getHttpServer())
-      .post('/api/v1/auth/mfa/setup/confirm')
-      .send({ setupToken: adminLogin.body.setupToken, token: adminTotp })
-      .expect(201);
-    adminToken = confirmSetup.body.accessToken;
-
-    const therapistAEmail = `consent.therapist.a.${runId}@umbral.cl`;
-    const therapistBEmail = `consent.therapist.b.${runId}@umbral.cl`;
-
-    const therapistACreate = await request(app.getHttpServer())
-      .post('/api/v1/users')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        email: therapistAEmail,
-        password: TEST_PASSWORD,
-        name: 'Consent Therapist A',
-        role: 'THERAPIST',
-      })
-      .expect(201);
-    therapistAId = therapistACreate.body.id;
-
-    const therapistBCreate = await request(app.getHttpServer())
-      .post('/api/v1/users')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        email: therapistBEmail,
-        password: TEST_PASSWORD,
-        name: 'Consent Therapist B',
-        role: 'THERAPIST',
-      })
-      .expect(201);
-    therapistBId = therapistBCreate.body.id;
-
-    const loginA = await request(app.getHttpServer())
-      .post('/api/v1/auth/login')
-      .send({ email: therapistAEmail, password: TEST_PASSWORD })
-      .expect(201);
-    therapistAToken = loginA.body.accessToken;
-
-    const loginB = await request(app.getHttpServer())
-      .post('/api/v1/auth/login')
-      .send({ email: therapistBEmail, password: TEST_PASSWORD })
-      .expect(201);
-    therapistBToken = loginB.body.accessToken;
+    const therapistB = await createProfessionalAndLogin(
+      `consent.therapist.b.${runId}@umbral.cl`,
+      'Consent Therapist B',
+    );
+    therapistBId = therapistB.id;
+    therapistBToken = therapistB.token;
 
     const patientCreate = await request(app.getHttpServer())
       .post('/api/v1/patients')
@@ -153,15 +123,6 @@ describe.skip('Patient consent ledger (e2e)', () => {
           data: { deletedAt: new Date() },
         });
       }
-
-      // El beforeAll enrola MFA en el admin seedeado; ningún test posterior
-      // lo deshace. Mismo patrón que auth-mfa-enforcement/rbac-ownership: sin
-      // este reset, el admin queda con un mfaSecret de test inservible para
-      // cualquiera que loguee después.
-      await prisma.user.updateMany({
-        where: { email: ADMIN_EMAIL },
-        data: { mfaEnabled: false, mfaSecret: null },
-      });
     } finally {
       await app.close();
     }
@@ -249,18 +210,6 @@ describe.skip('Patient consent ledger (e2e)', () => {
         .expect(201);
     });
 
-    it('ADMIN recibe 403 al intentar registrar consentimiento (T6.4, issue #51)', () => {
-      return request(app.getHttpServer())
-        .post(`/api/v1/patients/${patientId}/consents`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          purpose: 'HEALTH_NETWORK',
-          action: 'GRANT',
-          evidence: 'ADMIN ya no tiene acceso a datos clínicos de pacientes',
-        })
-        .expect(403);
-    });
-
     it('rechaza evidence menor a 10 caracteres (400)', () => {
       return request(app.getHttpServer())
         .post(`/api/v1/patients/${patientId}/consents`)
@@ -278,7 +227,7 @@ describe.skip('Patient consent ledger (e2e)', () => {
     it('refleja estado independiente por finalidad tras una mezcla de grants/revokes', async () => {
       // Estado esperado según los eventos previos:
       // TREATMENT: GRANT luego REVOKE -> false
-      // HEALTH_NETWORK: GRANT (por el terapeuta dueño) -> true
+      // HEALTH_NETWORK: GRANT -> true
       // TELEMEDICINE: sin eventos exitosos -> false
       const res = await request(app.getHttpServer())
         .get(`/api/v1/patients/${patientId}/consents/status`)
