@@ -69,7 +69,6 @@ export default function Layout() {
         <div className="px-3 py-4 border-t border-slate-800">
           <div className="px-4 py-2 mb-2">
             <p className="text-white text-sm font-medium truncate">{user?.email}</p>
-            <p className="text-slate-400 text-xs">{user?.role}</p>
           </div>
           <button
             onClick={handleLogout}
