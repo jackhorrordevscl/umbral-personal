@@ -5,7 +5,7 @@ import {
   Route,
   Navigate,
   useNavigate,
-} from "react-router-dom";
+} from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { useIdleTimeout } from "./hooks/useIdleTimeout";

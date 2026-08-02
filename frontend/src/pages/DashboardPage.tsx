@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Users, ClipboardList, FileText, Calendar } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import api from "../api/client";
 
 export default function DashboardPage() {
