@@ -48,7 +48,7 @@ de Protección de Datos Personales) de Chile.
 
 - Node.js v22+ (versión usada en CI; v20+ también funciona)
 - PostgreSQL 16 (en producción, Supabase gestiona la base — ver sección
-  [Producción](#producción-actual))
+  [Despliegue](#despliegue-issue-8))
 - npm
 
 ---
@@ -161,21 +161,45 @@ Password:  Umbral2024!
 
 ---
 
-## Producción actual
+## Despliegue (issue #8)
 
-El despliegue vigente corre en **Render** (backend + frontend) detrás de
-**Cloudflare**, con **Supabase** como base de datos gestionada (Postgres
-detrás de Supavisor/PgBouncer en modo transacción). Por eso:
+Todavía **no está desplegado**. Stack objetivo: **backend en Render**
+(free tier, ver limitación de cold start más abajo), **frontend en
+Vercel**, **Postgres gestionado en Supabase** (Supavisor/PgBouncer en modo
+transacción), copia offsite de backups en **Backblaze B2** (ver
+[Configuración de Backups](#configuración-de-backups)).
 
-- `DATABASE_URL` en producción es la conexión **pooled** de Supabase (puerto
-  `6543`, `?pgbouncer=true`); `DIRECT_URL` es la conexión **directa** (puerto
-  `5432`) que necesita `prisma migrate` — ver el comentario en
-  `backend/prisma/schema.prisma`.
-- `TRUSTED_PROXY_HOPS=3` en producción (Render detrás de Cloudflare); en
-  local/sin CDN delante es `1`.
-- `RUN_MIGRATIONS=true` corre `prisma migrate deploy` de forma asíncrona
-  después de levantar el server, pensado para plataformas cuyo Start Command
-  no corre migraciones por su cuenta (caso Render) — ver `main.ts`.
+> **Cold start de Render (free tier):** el proceso duerme a los 15 minutos
+> de inactividad y tarda 30-60s+ en despertar. Para el patrón de uso real
+> (un profesional abriendo la app entre pacientes, sesiones de 45-50 min —
+> más que el timeout de Render) esto va a notarse en casi cada apertura. Se
+> acepta para el MVP mientras se prueba con el terapeuta; la migración a
+> una VM Oracle Cloud Always Free (always-on real, sin cold start) queda
+> planificada en el issue #10 para cuando el uso real lo confirme necesario.
+
+### Orden de setup
+
+1. **Supabase**: crear proyecto → copiar `DATABASE_URL` (pooled, puerto
+   `6543`, `?pgbouncer=true`) y `DIRECT_URL` (directa, puerto `5432`, la que
+   necesita `prisma migrate`) desde Project Settings → Database.
+2. **Backend en Render**: conectar el repo, Render detecta `render.yaml`
+   (Blueprint) en la raíz — define el servicio, build/start command y qué
+   env vars hay que cargar a mano (`sync: false` en el archivo). Cargar ahí
+   mismo: `DATABASE_URL`/`DIRECT_URL` del paso 1, `DOCUMENT_ENCRYPTION_KEY`
+   (`openssl rand -base64 32`), `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`
+   (nunca el default del README), `RESEND_API_KEY`/`MAIL_FROM` (issue #5) y
+   `FRONTEND_URL` (se completa después del paso 3, se puede editar y
+   redeployar). `JWT_SECRET` se autogenera vía `generateValue: true`.
+3. **Frontend en Vercel**: importar el repo con root directory `frontend/`
+   (usa `vercel.json` para el rewrite de rutas del SPA). Variable
+   `VITE_API_URL` apuntando a la URL pública del backend de Render + `/api/v1`.
+   Con la URL final de Vercel, volver al paso 2 y setear `FRONTEND_URL` en
+   Render (lo usa `main.ts` para CORS).
+4. Correr `npm run seed` una vez contra la base de Supabase (con
+   `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` de producción en el entorno) para
+   crear el usuario semilla.
+5. Configurar backups offsite — ver
+   [Copia offsite real](#copia-offsite-real-backblaze-b2--rclone).
 
 ---
 
@@ -467,6 +491,8 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `TRUSTED_PROXY_HOPS` | Cantidad de proxies confiables delante de la app, para identificar la IP real del cliente en el rate-limit de login (ver comentario en `auth.module.ts`) | `1` (un único proxy de edge, sin CDN delante). Con Render detrás de Cloudflare (deploy actual): `3` |
 | `SEED_ADMIN_EMAIL` | Email del admin creado por `prisma db seed` (`npm run seed`) | `admin@umbral.cl` (default, ver `prisma/seed-admin.defaults.ts`) |
 | `SEED_ADMIN_PASSWORD` | Contraseña inicial del admin creado por el seed | Ver advertencia abajo — **nunca dejar el default en un entorno alcanzable** |
+| `RESEND_API_KEY` | API key de [Resend](https://resend.com) (free tier) para el email de verificación del signup propio (issue #5). Sin setear, `MailService` saltea el envío con un warning en logs — no bloquea signup en dev/test | Conseguir en el dashboard de Resend |
+| `MAIL_FROM` | Remitente del email de verificación | `Umbral SpA <onboarding@resend.dev>` (default) |
 
 > ⚠️ Si el comando de arranque del hosting ya corre `prisma migrate deploy` antes de iniciar el server (recomendado), **no** setees `RUN_MIGRATIONS=true` también — no rompe nada (la migración es idempotente), pero la corre dos veces innecesariamente.
 

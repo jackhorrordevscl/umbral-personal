@@ -45,12 +45,12 @@ async function bootstrap() {
 
     // `prisma` (el CLI, no solo @prisma/client) debe permanecer en
     // "dependencies" de package.json, no en devDependencies: el Start Command
-    // configurado en el dashboard de Render (npm run prisma:migrate:deploy
-    // && npm run start:prod) también invoca `prisma migrate deploy`, y este
-    // exec la corre de nuevo acá. Si algún futuro cleanup de dependencias lo
-    // mueve a devDependencies asumiendo que es "solo una CLI de build", esto
-    // rompe en producción si el entorno de deploy alguna vez podara
-    // devDependencies antes del arranque.
+    // de Render (ver render.yaml: `npx prisma migrate deploy && npm run
+    // start:prod`) también invoca `prisma migrate deploy`, y este exec la
+    // corre de nuevo acá. Si algún futuro cleanup de dependencias lo mueve a
+    // devDependencies asumiendo que es "solo una CLI de build", esto rompe en
+    // producción si el entorno de deploy alguna vez podara devDependencies
+    // antes del arranque.
     exec(
       'npx prisma migrate deploy',
       { cwd: backendRoot },

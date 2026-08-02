@@ -1,0 +1,50 @@
+services:
+  - type: web
+    name: umbral-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npx prisma generate && npm run build
+    # prisma migrate deploy corre ANTES de levantar el server (nunca contra
+    # tráfico real en el medio); main.ts además corre migraciones de forma
+    # async si RUN_MIGRATIONS=true, como red de seguridad para plataformas
+    # cuyo Start Command no las corriera por su cuenta -- acá sí las corre,
+    # así que RUN_MIGRATIONS puede quedar en false.
+    startCommand: npx prisma migrate deploy && npm run start:prod
+    healthCheckPath: /
+    envVars:
+      # Secretos/config específicos de esta instancia: se cargan a mano en
+      # el dashboard de Render la primera vez (nunca en este archivo, que es
+      # público en el repo). Ver checklist en README.md.
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DOCUMENT_ENCRYPTION_KEY
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      # Config no secreta, con el mismo valor en cada deploy: fija acá para
+      # no tener que repetirla a mano en el dashboard.
+      - key: NODE_ENV
+        value: production
+      - key: JWT_EXPIRES_IN
+        value: 8h
+      - key: MFA_APP_NAME
+        value: Umbral SpA
+      - key: RUN_MIGRATIONS
+        value: "false"
+      # 3 = Render detrás de Cloudflare (ver comentario en auth.module.ts).
+      # Si el deploy real no tiene Cloudflare delante, esto debe bajar a 1.
+      - key: TRUSTED_PROXY_HOPS
+        value: "3"
