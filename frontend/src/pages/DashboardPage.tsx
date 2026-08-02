@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Users, ClipboardList, FileText, Calendar } from "lucide-react";
+import { Users, ClipboardList, FileText, Calendar, AlertCircle } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router";
 import api from "../api/client";
@@ -8,7 +8,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const { data: patients = [] } = useQuery({
+  const { data: patients = [], isError: patientsError } = useQuery({
     queryKey: ["patients"],
     queryFn: () => api.get("/patients").then((r) => r.data),
   });
@@ -17,7 +17,7 @@ export default function DashboardPage() {
   // (issue #21): antes esta query traía la lista de pacientes por su cuenta,
   // duplicando la llamada de arriba.
   const patientIds = patients.map((p: any) => p.id);
-  const { data: consultations = [] } = useQuery({
+  const { data: consultations = [], isError: consultationsError } = useQuery({
     queryKey: ["consultations-all", patientIds],
     queryFn: async () => {
       const all = await Promise.all(
@@ -29,6 +29,10 @@ export default function DashboardPage() {
     },
     enabled: patientIds.length > 0,
   });
+
+  // Un fetch fallido no debe verse igual que "todavía no hay datos" -- son
+  // estadísticas clínicas, no un estado vacío benigno (issue #23).
+  const hasLoadError = patientsError || consultationsError;
 
   const stats = [
     {
@@ -88,6 +92,15 @@ export default function DashboardPage() {
           })}
         </p>
       </div>
+
+      {hasLoadError && (
+        <div className="mb-6 flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          <AlertCircle size={14} className="text-red-500 shrink-0" />
+          <p className="text-red-600 text-sm">
+            No se pudieron cargar algunas estadísticas. Reintenta más tarde.
+          </p>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5 mb-6 md:mb-8">

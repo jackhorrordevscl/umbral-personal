@@ -75,11 +75,15 @@ export default function SharedFilesPage() {
   const [editError, setEditError] = useState('');
   const [editSaving, setEditSaving] = useState(false);
 
-  const { data: files = [], isLoading } = useQuery<SharedFile[]>({
+  const { data: files = [], isLoading, isError: filesError } = useQuery<SharedFile[]>({
     queryKey: ['shared-files', category],
     queryFn: () =>
       api.get(`/shared-files${category ? `?category=${category}` : ''}`).then(r => r.data),
   });
+
+  // Un fetch fallido no debe verse igual que "sin archivos" -- se avisa con
+  // el mismo banner que ya usan las acciones de descarga/borrado (issue #23).
+  const displayError = error || (filesError ? 'No se pudo cargar el repositorio de archivos. Reintenta más tarde.' : '');
 
   const handleUpload = async () => {
     setUploadError('');
@@ -195,10 +199,12 @@ export default function SharedFilesPage() {
         </button>
       </div>
 
-      {error && (
+      {displayError && (
         <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-lg flex justify-between items-center">
-          <p className="text-red-600 text-sm">{error}</p>
-          <button onClick={() => setError('')}><X className="w-4 h-4 text-red-400" /></button>
+          <p className="text-red-600 text-sm">{displayError}</p>
+          {error && (
+            <button onClick={() => setError('')}><X className="w-4 h-4 text-red-400" /></button>
+          )}
         </div>
       )}
 

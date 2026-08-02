@@ -62,12 +62,12 @@ export default function ConsultationsPage() {
   });
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
 
-  const { data: patients = [] } = useQuery({
+  const { data: patients = [], isError: patientsError } = useQuery({
     queryKey: ['patients'],
     queryFn: () => api.get('/patients').then(r => r.data),
   });
 
-  const { data: consultations = [] } = useQuery({
+  const { data: consultations = [], isError: consultationsError } = useQuery({
     queryKey: ['consultations', selectedPatientId],
     queryFn: () => selectedPatientId
       ? api.get(`/consultations/patient/${selectedPatientId}`).then(r => r.data)
@@ -182,6 +182,15 @@ export default function ConsultationsPage() {
           <span className="sm:hidden">Nueva</span>
         </button>
       </div>
+
+      {(patientsError || consultationsError) && (
+        <div className="mb-6 flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          <AlertCircle size={14} className="text-red-500 shrink-0" />
+          <p className="text-red-600 text-sm">
+            No se pudieron cargar {patientsError ? 'los pacientes' : 'las consultas'}. Reintenta más tarde.
+          </p>
+        </div>
+      )}
 
       {/* Formulario nueva consulta */}
       {showForm && (

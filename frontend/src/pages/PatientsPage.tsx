@@ -125,7 +125,7 @@ export default function PatientsPage() {
   const [history, setHistory] = useState<PatientHistoryEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  const { data: patients = [] } = useQuery({
+  const { data: patients = [], isError: patientsError } = useQuery({
     queryKey: ["patients"],
     queryFn: () => api.get("/patients").then((r) => r.data),
   });
@@ -476,10 +476,12 @@ export default function PatientsPage() {
         </button>
       </div>
 
-      {listError && (
+      {(listError || patientsError) && (
         <div className="mb-4 flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
           <AlertCircle size={14} className="text-red-500 shrink-0" />
-          <p className="text-red-600 text-sm">{listError}</p>
+          <p className="text-red-600 text-sm">
+            {listError || "No se pudo cargar la lista de pacientes. Reintenta más tarde."}
+          </p>
         </div>
       )}
 
