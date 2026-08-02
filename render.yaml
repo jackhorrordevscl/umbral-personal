@@ -4,7 +4,13 @@ services:
     runtime: node
     plan: free
     rootDir: backend
-    buildCommand: npm install && npx prisma generate && npm run build
+    # --include=dev es necesario a pesar de NODE_ENV=production (env var de
+    # abajo): Render aplica esa env var también durante el build, y con
+    # NODE_ENV=production npm salta devDependencies por defecto -- ahí vive
+    # @nestjs/cli, que provee el comando `nest` que usa `npm run build`. Sin
+    # este flag, el build falla con "nest: not found" aunque en local (sin
+    # NODE_ENV seteada) funcione perfecto.
+    buildCommand: npm install --include=dev && npx prisma generate && npm run build
     # prisma migrate deploy corre ANTES de levantar el server (nunca contra
     # tráfico real en el medio); main.ts además corre migraciones de forma
     # async si RUN_MIGRATIONS=true, como red de seguridad para plataformas
