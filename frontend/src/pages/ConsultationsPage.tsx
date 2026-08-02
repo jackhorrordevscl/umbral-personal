@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle } from 'lucide-react';
 import api from '../api/client';
 import { buildLocalISO, formatChileDateTime, formatChileDate } from '../utils/datetime';
+import { normalizeRut } from '../utils/rut';
 
 interface ConsultationHistory {
   id: string;
@@ -163,7 +164,7 @@ export default function ConsultationsPage() {
 
   const filteredPatients = patients.filter((p: Patient) =>
     p.fullName.toLowerCase().includes(search.toLowerCase()) ||
-    p.rut.includes(search)
+    normalizeRut(p.rut).includes(normalizeRut(search))
   );
 
   const selectedPatient = patients.find((p: Patient) => p.id === selectedPatientId);

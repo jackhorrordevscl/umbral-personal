@@ -377,7 +377,7 @@ export default function PatientsPage() {
   const filtered = patients.filter(
     (p: Patient) =>
       p.fullName.toLowerCase().includes(search.toLowerCase()) ||
-      p.rut.toLowerCase().includes(search.toLowerCase().replace(/\./g, "")),
+      normalizeRut(p.rut).includes(normalizeRut(search)),
   );
 
   const handleDownload = async (id: string) => {
