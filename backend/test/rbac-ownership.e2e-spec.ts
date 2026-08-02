@@ -260,6 +260,21 @@ describe('RBAC ownership guard (e2e)', () => {
     });
   });
 
+  describe('POST /consultations', () => {
+    it('un terapeuta sin relación con el paciente recibe 403 (issue #12)', () => {
+      return request(app.getHttpServer())
+        .post('/api/v1/consultations')
+        .set('Authorization', `Bearer ${therapistBToken}`)
+        .send({
+          patientId,
+          sessionDate: '2026-01-02',
+          consultReason: 'Intento no autorizado',
+          intervention: 'Intento no autorizado',
+        })
+        .expect(403);
+    });
+  });
+
   describe('GET /consultations/patient/:patientId', () => {
     it('el terapeuta dueño accede (2xx)', () => {
       return request(app.getHttpServer())

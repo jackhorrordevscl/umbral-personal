@@ -28,14 +28,12 @@ export class ConsultationsService {
   ) {}
 
   async create(dto: CreateConsultationDto, therapistId: string) {
-    let patientRut = dto.patientRut ?? '';
-    if (!patientRut && dto.patientId) {
-      const patient = await this.prisma.patient.findUnique({
-        where: { id: dto.patientId },
-        select: { rut: true },
-      });
-      patientRut = patient?.rut ?? '';
-    }
+    // findOne lanza ForbiddenException/NotFoundException si el paciente no
+    // existe o no pertenece al profesional autenticado -- sin este chequeo,
+    // cualquier usuario podía crear una consulta sobre un paciente ajeno
+    // conociendo su id (issue #12).
+    const patient = await this.patientsService.findOne(dto.patientId, therapistId);
+    const patientRut = dto.patientRut || patient.rut;
 
     // Se genera el id de antemano para que groupId (el identificador de la
     // cadena de versiones) sea igual al id de esta primera versión.
