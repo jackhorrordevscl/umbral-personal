@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import api from "../api/client";
 import { formatRut, normalizeRut, validateRut } from "../utils/rut";
+import { getApiErrorMessage } from "../utils/api-error";
 
 // T6.1 (issue #27): consentimiento granular por finalidad (Ley 21.719).
 // Reemplaza los booleanos consentSigned/telemedConsentSigned (sin fecha ni
@@ -96,6 +97,7 @@ type ModalTab = "detail" | "edit" | "history";
 export default function PatientsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [listError, setListError] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [selected, setSelected] = useState<Patient | null>(null);
   const [modalTab, setModalTab] = useState<ModalTab>("detail");
@@ -106,6 +108,7 @@ export default function PatientsPage() {
   const [formError, setFormError] = useState("");
   const [documents, setDocuments] = useState<any[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
+  const [docError, setDocError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [docType, setDocType] = useState("INFORMED_CONSENT");
 
@@ -247,7 +250,13 @@ export default function PatientsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/patients/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["patients"] }),
+    onSuccess: () => {
+      setListError("");
+      queryClient.invalidateQueries({ queryKey: ["patients"] });
+    },
+    onError: (err) => {
+      setListError(getApiErrorMessage(err, "No se pudo eliminar el paciente"));
+    },
   });
 
   const handleRutChange = (value: string) => {
@@ -361,6 +370,7 @@ export default function PatientsPage() {
   const openPatientDetail = (p: Patient) => {
     setSelected(p);
     setModalTab("detail");
+    setDocError("");
     loadDocuments(p.id);
   };
 
@@ -371,14 +381,19 @@ export default function PatientsPage() {
   );
 
   const handleDownload = async (id: string) => {
-    const res = await api.get(`/reports/patient/${id}`, {
-      responseType: "blob",
-    });
-    const url = window.URL.createObjectURL(new Blob([res.data]));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `ficha-${id}.pdf`;
-    a.click();
+    try {
+      const res = await api.get(`/reports/patient/${id}`, {
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ficha-${id}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setDocError(getApiErrorMessage(err, "No se pudo descargar la ficha"));
+    }
   };
 
   const loadDocuments = async (patientId: string) => {
@@ -394,25 +409,35 @@ export default function PatientsPage() {
   };
 
   const handleUpload = async (file: File, patientId: string) => {
+    setDocError("");
     const formData = new FormData();
     formData.append("file", file);
     formData.append("patientId", patientId);
     formData.append("type", docType);
-    await api.post("/documents/upload", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    loadDocuments(patientId);
+    try {
+      await api.post("/documents/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      loadDocuments(patientId);
+    } catch (err) {
+      setDocError(getApiErrorMessage(err, "No se pudo subir el documento"));
+    }
   };
 
   const handleDownloadDoc = async (docId: string, fileName: string) => {
-    const res = await api.get(`/documents/${docId}/download`, {
-      responseType: "blob",
-    });
-    const url = window.URL.createObjectURL(new Blob([res.data]));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    a.click();
+    try {
+      const res = await api.get(`/documents/${docId}/download`, {
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setDocError(getApiErrorMessage(err, "No se pudo descargar el documento"));
+    }
   };
 
   const displayRut = (rut: string) => formatRut(rut.replace(/\./g, ""));
@@ -450,6 +475,13 @@ export default function PatientsPage() {
           <span className="sm:hidden">Nuevo</span>
         </button>
       </div>
+
+      {listError && (
+        <div className="mb-4 flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          <AlertCircle size={14} className="text-red-500 shrink-0" />
+          <p className="text-red-600 text-sm">{listError}</p>
+        </div>
+      )}
 
       {showForm && (
         <div className="card mb-6">
@@ -929,6 +961,11 @@ export default function PatientsPage() {
                     <p className="font-medium text-slate-700 text-sm mb-3">
                       Documentos legales
                     </p>
+                    {docError && (
+                      <p className="text-red-500 text-xs mb-3 flex items-center gap-1">
+                        <AlertCircle size={11} /> {docError}
+                      </p>
+                    )}
                     {loadingDocs ? (
                       <p className="text-xs text-slate-400">Cargando...</p>
                     ) : documents.length === 0 ? (
