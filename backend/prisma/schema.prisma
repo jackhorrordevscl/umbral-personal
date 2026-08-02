@@ -1,0 +1,250 @@
+
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Supabase sirve Postgres detrás de Supavisor (PgBouncer) en modo
+// transaction: no soporta prepared statements ni las transacciones de
+// sesión que usa el Schema Engine de Prisma Migrate. Por eso el runtime de
+// la app usa DATABASE_URL (la conexión pooled, puerto 6543,
+// `?pgbouncer=true`) y `prisma migrate`/`db execute` usan DIRECT_URL (la
+// conexión directa, puerto 5432) — ver
+// https://www.prisma.io/docs/orm/prisma-client/setup-and-configuration/databases-connections/pgbouncer
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  name          String
+  role          Role      @default(THERAPIST)
+  mfaSecret     String?
+  mfaEnabled    Boolean   @default(false)
+  mustChangePassword Boolean @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+  
+  patients      Patient[]
+  consultations Consultation[]
+  auditLogs     AuditLog[]
+  patientEdits  PatientHistory[] @relation("PatientEdits")
+  sharedFiles   SharedFile[] @relation("UploadedFiles")
+  consultationEdits ConsultationHistory[] @relation("ConsultationEdits")
+  patientConsentEvents PatientConsent[] @relation("PatientConsentEvents")
+}
+
+enum Role {
+  SUPERVISOR
+  COORDINATOR
+  THERAPIST
+  ADMIN
+}
+
+model Patient {
+  id                    String    @id @default(uuid())
+  fullName              String
+  rut                   String    @unique
+  birthDate             DateTime
+  occupation            String?
+  address               String?
+  phone                 String?
+  email                 String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  treatingPsychiatrist  String?
+  treatingDoctor        String?
+  isActive              Boolean   @default(true)
+  deletedAt             DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  notificationsConsent  Boolean   @default(false)
+
+  therapistId    String
+  therapist      User               @relation(fields: [therapistId], references: [id])
+  consultations  Consultation[]
+  documents      PatientDocument[]
+  history        PatientHistory[]
+  consents       PatientConsent[]
+}
+
+model PatientDocument {
+  id          String       @id @default(uuid())
+  patientId   String
+  patient     Patient      @relation(fields: [patientId], references: [id])
+  type        DocumentType
+  fileName    String
+  storagePath String
+  uploadedAt  DateTime     @default(now())
+  uploadedBy  String
+}
+
+enum DocumentType {
+  INFORMED_CONSENT
+  TELEMED_AGREEMENT
+  PATIENT_REPORT
+  OTHER
+}
+
+model Consultation {
+  id              String      @id @default(uuid())
+  // Comparte el mismo valor entre todas las versiones (original + correcciones)
+  // de una misma consulta clínica. En la primera versión, groupId === id.
+  groupId         String
+  patientId       String
+  patient         Patient     @relation(fields: [patientId], references: [id])
+  therapistId     String
+  therapist       User        @relation(fields: [therapistId], references: [id])
+  sessionDate     DateTime
+  consultReason   String
+  intervention    String
+  agreements      String?
+  nextSessionDate DateTime?
+  sessionType     SessionType @default(IN_PERSON)
+  createdAt       DateTime    @default(now())
+  scheduledAt     DateTime
+  reminderSent    Boolean     @default(false)
+  patientRut      String
+  // Paridad con Patient: ninguna ruta expone un delete físico hoy, pero el
+  // modelo ya queda listo para soft delete si alguna vez se agrega esa
+  // funcionalidad, en vez de tentar a alguien a usar .delete().
+  deletedAt       DateTime?
+
+  // Versionado inmutable: corregir una consulta nunca modifica la fila
+  // original, crea una fila nueva que apunta correctsId a la anterior.
+  correctsId      String?       @unique
+  corrects        Consultation? @relation("ConsultationVersion", fields: [correctsId], references: [id])
+  correctedBy     Consultation? @relation("ConsultationVersion")
+
+  history         ConsultationHistory[]
+
+  @@index([groupId])
+}
+
+enum SessionType {
+  IN_PERSON
+  TELEMED
+}
+
+model AuditLog {
+  id         String      @id @default(uuid())
+  userId     String?
+  user       User?       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  action     AuditAction
+  resource   String
+  resourceId String
+  detail     String?
+  ipAddress  String?
+  userAgent  String?
+  // T6.5 (issue #52): motivo obligatorio de un acceso excepcional de
+  // SUPERVISOR a una ficha sin consentimiento HEALTH_NETWORK vigente. Null
+  // en cualquier fila de auditoría normal -- distingue el acceso excepción
+  // de uno común sin depender de parsear texto libre de `detail`.
+  overrideReason String?
+  createdAt  DateTime    @default(now())
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  VIEW
+  CREATE
+  UPDATE
+  SOFT_DELETE
+  EXPORT_PDF
+  DOCUMENT_UPLOAD
+  MFA_ENABLED
+  MFA_FAILED
+  UNAUTHORIZED_ATTEMPT
+}
+
+model SharedFile {
+  id          String   @id @default(cuid())
+  name        String                          // Nombre descriptivo del archivo
+  originalName String                         // Nombre original del archivo
+  filename    String                          // Nombre en disco
+  path        String                          // Ruta en servidor
+  mimetype    String
+  size        Int
+  category    FileCategory @default(GENERAL)
+  description String?
+  uploadedBy  User     @relation("UploadedFiles", fields: [uploadedById], references: [id])
+  uploadedById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  isActive    Boolean  @default(true)
+
+  @@map("shared_files")
+}
+
+enum FileCategory {
+  LIBRO
+  PLANTILLA
+  IMAGEN
+  FORMULARIO
+  PROTOCOLO
+  GENERAL
+}
+
+model PatientHistory {
+  id          String   @id @default(uuid())
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id])
+  changedById String
+  changedBy   User     @relation("PatientEdits", fields: [changedById], references: [id])
+  changedAt   DateTime @default(now())
+  reason      String
+  snapshot    Json
+  diff        Json
+}
+
+model ConsultationHistory {
+  id             String      @id @default(uuid())
+  consultationId String
+  consultation   Consultation @relation(fields: [consultationId], references: [id])
+  editedById     String
+  editedBy       User        @relation("ConsultationEdits", fields: [editedById], references: [id])
+  editedAt       DateTime    @default(now())
+  snapshot       Json
+}
+
+// T6.1 (issue #27): ledger append-only de consentimientos por finalidad
+// (Ley 21.719). Cada fila es un evento de otorgamiento o revocación de una
+// finalidad puntual; nunca se actualiza ni se borra una fila existente, se
+// agrega una nueva. El estado vigente de cada finalidad se deriva tomando la
+// última fila (por recordedAt) por (patientId, purpose) — ver
+// PatientsService.getCurrentConsentStatus.
+model PatientConsent {
+  id           String         @id @default(uuid())
+  patientId    String
+  patient      Patient        @relation(fields: [patientId], references: [id])
+  purpose      ConsentPurpose
+  action       ConsentAction
+  recordedById String
+  recordedBy   User           @relation("PatientConsentEvents", fields: [recordedById], references: [id])
+  recordedAt   DateTime       @default(now())
+  evidence     String
+
+  @@index([patientId, purpose])
+}
+
+enum ConsentPurpose {
+  TREATMENT
+  TELEMEDICINE
+  HEALTH_NETWORK
+}
+
+enum ConsentAction {
+  GRANT
+  REVOKE
+}

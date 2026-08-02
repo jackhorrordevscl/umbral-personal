@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: umbral_ci
+          POSTGRES_PASSWORD: umbral_ci
+          POSTGRES_DB: umbral_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://umbral_ci:umbral_ci@localhost:5432/umbral_ci
+      # El service container de Postgres no tiene pooler (a diferencia de
+      # Supabase en producción), así que DIRECT_URL apunta a la misma
+      # conexión que DATABASE_URL — ver el comentario en schema.prisma.
+      DIRECT_URL: postgresql://umbral_ci:umbral_ci@localhost:5432/umbral_ci
+      JWT_SECRET: ci-only-jwt-secret-never-used-outside-github-actions
+      JWT_EXPIRES_IN: 8h
+      MFA_APP_NAME: Umbral SpA (CI)
+      DOCUMENT_ENCRYPTION_KEY: MoDh8f3G8V0hR0m5wq8V0hR0m5wq8V0hR0m5wq8V0h8=
+      SEED_ADMIN_EMAIL: admin@umbral.cl
+      SEED_ADMIN_PASSWORD: Umbral2024!
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+
+      # T7.3 (issue #32): el repo tiene deuda de lint preexistente en casi
+      # todos los archivos (mayormente @typescript-eslint/no-unsafe-* por el
+      # uso extendido de `any` en NestJS/supertest), no introducida por este
+      # cambio. Corre en cada PR para que sea visible, pero no bloquea el
+      # merge hasta que se decida encarar esa deuda aparte.
+      - name: Lint (no bloqueante)
+        continue-on-error: true
+        run: npx eslint "{src,apps,libs,test}/**/*.ts"
+
+      - name: Migrar base de datos de CI
+        run: npx prisma migrate deploy
+
+      - name: Generar Prisma Client
+        run: npx prisma generate
+
+      - name: Seed (usuario admin de test)
+        run: npm run seed
+
+      - name: Tests unitarios
+        run: npx jest
+
+      - name: Tests e2e
+        run: npx jest --config ./test/jest-e2e.json
+
+      - name: npm audit (producción)
+        run: npm audit --omit=dev --audit-level=high
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Lint (no bloqueante)
+        continue-on-error: true
+        run: npx eslint .
+
+      - name: Typecheck + build
+        run: npm run build
+
+      - name: npm audit (producción)
+        run: npm audit --omit=dev --audit-level=high
