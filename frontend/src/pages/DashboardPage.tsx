@@ -13,17 +13,21 @@ export default function DashboardPage() {
     queryFn: () => api.get("/patients").then((r) => r.data),
   });
 
+  // Reusa los pacientes ya cargados en vez de volver a pedir GET /patients
+  // (issue #21): antes esta query traía la lista de pacientes por su cuenta,
+  // duplicando la llamada de arriba.
+  const patientIds = patients.map((p: any) => p.id);
   const { data: consultations = [] } = useQuery({
-    queryKey: ["consultations-all"],
-    queryFn: () =>
-      api.get("/patients").then(async (r) => {
-        const all = await Promise.all(
-          r.data.map((p: any) =>
-            api.get(`/consultations/patient/${p.id}`).then((c) => c.data),
-          ),
-        );
-        return all.flat();
-      }),
+    queryKey: ["consultations-all", patientIds],
+    queryFn: async () => {
+      const all = await Promise.all(
+        patientIds.map((id: string) =>
+          api.get(`/consultations/patient/${id}`).then((c) => c.data),
+        ),
+      );
+      return all.flat();
+    },
+    enabled: patientIds.length > 0,
   });
 
   const stats = [
