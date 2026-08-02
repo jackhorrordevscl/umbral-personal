@@ -14,6 +14,10 @@ export interface UploadFileDto {
   category?: FileCategory;
 }
 
+// "Shared" es el nombre heredado de la versión institucional multi-
+// profesional: hoy cada método filtra por uploadedById === userId, es una
+// biblioteca 100% privada por usuario, no se comparte nada entre
+// profesionales (ver comentario en el modelo SharedFile de schema.prisma).
 @Injectable()
 export class SharedFilesService {
   constructor(private prisma: PrismaService) {}

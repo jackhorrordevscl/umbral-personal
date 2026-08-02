@@ -168,6 +168,14 @@ enum AuditAction {
   UNAUTHORIZED_ATTEMPT
 }
 
+// El nombre (modelo y @@map) viene de la versión institucional multi-
+// profesional (control-fichas), donde estos archivos se compartían entre
+// profesionales de una misma red. Tras el colapso a un solo rol PROFESSIONAL,
+// SharedFilesService filtra estrictamente por uploadedById === userId: hoy es
+// una biblioteca 100% privada por usuario, nada se comparte con nadie. Se
+// documenta acá en vez de renombrar (issue #20) porque el rename implica
+// migración de la tabla real en producción -- no se justifica solo por
+// claridad de naming.
 model SharedFile {
   id          String   @id @default(cuid())
   name        String                          // Nombre descriptivo del archivo
