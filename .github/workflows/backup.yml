@@ -81,7 +81,12 @@ jobs:
             | openssl enc -aes-256-cbc -pbkdf2 -salt -pass "file:$PASSPHRASE_FILE" \
             > "$BACKUP_FILE"
 
-          rclone copy "$BACKUP_FILE" "$B2_BUCKET_PATH"
+          # --no-check-dest: la key de B2 usada acá es write-only (solo
+          # listFiles+writeFiles, sin readFiles) por diseño (issue #58) --
+          # sin este flag, rclone intenta un HEAD al endpoint de descarga
+          # para chequear si el destino ya existe, y esa key no tiene
+          # permiso para eso (401).
+          rclone copy --no-check-dest "$BACKUP_FILE" "$B2_BUCKET_PATH"
 
           rm -f "$PASSPHRASE_FILE" "$BACKUP_FILE"
           echo "✅ Backup subido a $B2_BUCKET_PATH/$BACKUP_FILE"

@@ -484,24 +484,36 @@ sin depender de ningún servidor propio.
 Setup (una sola vez):
 
 1. Crear cuenta gratuita en Backblaze B2 y un bucket **privado**.
-2. Instalar [`rclone`](https://rclone.org) en cualquier máquina (puede ser
+2. Crear una Application Key **restringida al bucket** con capabilities
+   `listFiles` + `writeFiles` únicamente (sin `deleteFiles` ni
+   `readFiles`) — es la key que va a vivir en el secret de CI. El
+   workflow de GitHub Actions solo necesita subir backups nuevos
+   (`rclone copy`), nunca leerlos ni borrarlos, así que aunque el secret
+   `RCLONE_CONFIG_CONTENT` se filtre (ej. una vulnerabilidad en una
+   Action de terceros), un atacante no puede borrar el historial de
+   backups existente — el escenario de ransomware que el offsite
+   debería mitigar (issue #58). Para restaurar o listar backups desde tu
+   propia máquina, generá una segunda key aparte con `readFiles` +
+   `listFiles` (sin `writeFiles`) y usala solo local, nunca en un secret
+   de CI.
+3. Instalar [`rclone`](https://rclone.org) en cualquier máquina (puede ser
    tu laptop, no hace falta que sea el servidor) y correr `rclone config`
-   para generar el remote con el Application Key de B2. El archivo
-   resultante (`~/.config/rclone/rclone.conf`) es el contenido del secret
-   `RCLONE_CONFIG_CONTENT` de abajo.
-3. Cargar estos secrets en GitHub (repo → Settings → Secrets and
+   para generar el remote con la Application Key de CI del paso 2. El
+   archivo resultante (`~/.config/rclone/rclone.conf`) es el contenido
+   del secret `RCLONE_CONFIG_CONTENT` de abajo.
+4. Cargar estos secrets en GitHub (repo → Settings → Secrets and
    variables → Actions):
 
    | Secret | Valor |
    |---|---|
    | `BACKUP_DB_URL` | El `DIRECT_URL` de Supabase (session pooler, puerto 5432 — mismo que usa Render para `prisma migrate deploy`, no el transaction pooler) |
    | `BACKUP_PASSPHRASE` | `openssl rand -base64 48` — guarda una copia en un gestor de contraseñas, sin ella los backups son irrecuperables |
-   | `RCLONE_CONFIG_CONTENT` | Contenido completo de `rclone.conf` generado en el paso 2 |
+   | `RCLONE_CONFIG_CONTENT` | Contenido completo de `rclone.conf` generado en el paso 3 |
    | `B2_BUCKET_PATH` | `nombre-del-remote:mi-bucket/umbral/` (el remote que configuraste en `rclone config`) |
 
-4. Disparar el workflow manualmente una vez (`Actions` → `Backup offsite` →
+5. Disparar el workflow manualmente una vez (`Actions` → `Backup offsite` →
    `Run workflow`) y verificar que el archivo aparezca en el bucket de B2.
-5. Verificar al menos una restauración real desde la copia offsite antes de
+6. Verificar al menos una restauración real desde la copia offsite antes de
    dar por cerrado el punto (ver "Restaurar un backup" abajo). **Hecho y
    verificado el 2026-08-03** (issue #56): se bajó el `.sql.gz.enc` real de
    B2, se desencriptó y restauró contra un Postgres local descartable. Las
