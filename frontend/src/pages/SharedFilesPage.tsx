@@ -197,7 +197,7 @@ export default function SharedFilesPage() {
         </div>
         <button
           onClick={() => { setShowUpload(true); setUploadError(''); }}
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          className="btn-primary flex items-center gap-2"
         >
           <Plus className="w-4 h-4" /> Subir archivo
         </button>
@@ -220,7 +220,7 @@ export default function SharedFilesPage() {
             placeholder="Buscar archivos..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            className="input-field pl-9"
           />
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -230,7 +230,7 @@ export default function SharedFilesPage() {
               onClick={() => setCategory(c.value)}
               className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
                 category === c.value
-                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  ? 'bg-sage-600 text-white border-sage-600'
                   : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
               }`}
             >
@@ -250,14 +250,14 @@ export default function SharedFilesPage() {
       ) : (
         <div className="grid gap-3">
           {filtered.map(file => (
-            <div key={file.id} className="flex items-center gap-4 bg-white border border-slate-100 rounded-xl p-4 hover:shadow-sm transition-shadow">
+            <div key={file.id} className="card p-4 flex items-center gap-4 hover:shadow-md transition-shadow">
               <div className="flex-shrink-0">{categoryIcon(file.category)}</div>
               <div
                 className="flex-1 min-w-0 cursor-pointer"
                 onClick={() => handlePreview(file)}
                 title="Clic para abrir en nueva pestaña"
               >
-                <p className="font-medium text-slate-800 truncate hover:text-indigo-600 transition-colors flex items-center gap-1">
+                <p className="font-medium text-slate-800 truncate hover:text-sage-600 transition-colors flex items-center gap-1">
                   {file.name}
                   {isPreviewable(file.mimetype) && (
                     <ExternalLink className="w-3 h-3 text-slate-300 inline shrink-0" />
@@ -279,7 +279,7 @@ export default function SharedFilesPage() {
                   <Pencil className="w-4 h-4" />
                 </button>
                 <button onClick={() => handleDownload(file)}
-                  className="p-2 rounded-lg hover:bg-indigo-50 text-indigo-600 transition-colors" title="Descargar">
+                  className="p-2 rounded-lg hover:bg-sage-50 text-sage-600 transition-colors" title="Descargar">
                   <Download className="w-4 h-4" />
                 </button>
                 <button onClick={() => handleDelete(file.id)}
@@ -304,11 +304,11 @@ export default function SharedFilesPage() {
             </div>
 
             <div
-              className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center cursor-pointer hover:border-indigo-300 transition-colors mb-4"
+              className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center cursor-pointer hover:border-sage-300 transition-colors mb-4"
               onClick={() => fileInputRef.current?.click()}
             >
               {form.file ? (
-                <p className="text-sm text-indigo-600 font-medium">{form.file.name}</p>
+                <p className="text-sm text-sage-600 font-medium">{form.file.name}</p>
               ) : (
                 <>
                   <Upload className="w-8 h-8 text-slate-300 mx-auto mb-2" />
@@ -354,13 +354,13 @@ export default function SharedFilesPage() {
                   placeholder="Ej: Protocolo de atención 2026"
                   value={form.name}
                   onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  className="input-field"
                 />
               </div>
               <select
                 value={form.category}
                 onChange={e => setForm(prev => ({ ...prev, category: e.target.value }))}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="input-field"
               >
                 {CATEGORIES.filter(c => c.value).map(c => (
                   <option key={c.value} value={c.value}>{c.label}</option>
@@ -371,7 +371,7 @@ export default function SharedFilesPage() {
                 value={form.description}
                 onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))}
                 rows={2}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+                className="input-field resize-none"
               />
             </div>
 
@@ -385,14 +385,14 @@ export default function SharedFilesPage() {
             <div className="flex gap-3 mt-5">
               <button
                 onClick={() => setShowUpload(false)}
-                className="flex-1 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
+                className="btn-secondary flex-1"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleUpload}
                 disabled={uploading}
-                className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                className="btn-primary flex-1 disabled:opacity-50"
               >
                 {uploading ? 'Subiendo...' : 'Subir archivo'}
               </button>
@@ -421,7 +421,7 @@ export default function SharedFilesPage() {
                   type="text"
                   value={editForm.name}
                   onChange={e => setEditForm(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  className="input-field"
                 />
               </div>
               <div>
@@ -429,7 +429,7 @@ export default function SharedFilesPage() {
                 <select
                   value={editForm.category}
                   onChange={e => setEditForm(prev => ({ ...prev, category: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  className="input-field"
                 >
                   {CATEGORIES.filter(c => c.value).map(c => (
                     <option key={c.value} value={c.value}>{c.label}</option>
@@ -442,7 +442,7 @@ export default function SharedFilesPage() {
                   value={editForm.description}
                   onChange={e => setEditForm(prev => ({ ...prev, description: e.target.value }))}
                   rows={3}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+                  className="input-field resize-none"
                 />
               </div>
             </div>
@@ -457,14 +457,14 @@ export default function SharedFilesPage() {
             <div className="flex gap-3 mt-5">
               <button
                 onClick={() => setEditingFile(null)}
-                className="flex-1 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
+                className="btn-secondary flex-1"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleSaveEdit}
                 disabled={editSaving}
-                className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                className="btn-primary flex-1 disabled:opacity-50"
               >
                 {editSaving ? 'Guardando...' : 'Guardar cambios'}
               </button>
