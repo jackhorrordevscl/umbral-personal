@@ -1,17 +1,25 @@
-# Umbral SpA — Sistema de Gestión Clínica
+# Umbral — Sistema de Gestión Clínica
 
-![CI](https://github.com/jackhorrordevscl/control-fichas/actions/workflows/ci.yml/badge.svg?branch=main)
+![CI](https://github.com/jackhorrordevscl/umbral-personal/actions/workflows/ci.yml/badge.svg?branch=main)
 
-Sistema de gestión de fichas clínicas para consulta psicológica, desarrollado
-para cumplir con la **Ley 20.584** (Derechos y Deberes de los Pacientes), la
-**Ley 19.628** (Protección de la Vida Privada) y la **Ley 21.719** (nueva Ley
-de Protección de Datos Personales) de Chile.
+Umbral es un sistema de fichas clínicas para un profesional de salud mental
+que atiende por su cuenta (psicólogo/a, terapeuta) — cada cuenta es dueña
+exclusiva de sus propios pacientes, sin roles jerárquicos ni panel
+administrativo: quien se registra es quien usa el sistema. Nace como
+evolución de un proyecto institucional multi-profesional (`control-fichas`)
+que se simplificó a este modelo de una sola cuenta por profesional (issue
+#2/#7), y sigue desarrollado para cumplir con la **Ley 20.584** (Derechos y
+Deberes de los Pacientes), la **Ley 19.628** (Protección de la Vida Privada)
+y la **Ley 21.719** (nueva Ley de Protección de Datos Personales) de Chile.
+
+Si sos terapeuta y solo querés saber cómo usar la app (sin instalar nada),
+andá directo al [Manual de uso](docs/manual-terapeutas.md).
 
 ## Documentación relacionada
 
 - [`docs/manual-terapeutas.md`](docs/manual-terapeutas.md) — manual funcional
-  para terapeutas: primer acceso/MFA, roles, pacientes, consultas,
-  documentos, archivos compartidos y reportes PDF.
+  para terapeutas: crear tu cuenta, MFA obligatorio, recuperación de cuenta,
+  pacientes, consultas, documentos, archivos personales y reportes PDF.
 - [`docs/caso-de-uso-testing.md`](docs/caso-de-uso-testing.md) — guía
   narrativa de testing manual/UAT paso a paso para voluntarios que prueban la
   app antes de que la usen pacientes reales.
@@ -26,7 +34,7 @@ de Protección de Datos Personales) de Chile.
 **Frontend**
 - React 19 + TypeScript
 - Tailwind CSS
-- React Router v7
+- React Router v8
 - TanStack Query (React Query)
 - React Hook Form + Zod
 - Axios
@@ -58,8 +66,8 @@ de Protección de Datos Personales) de Chile.
 ### 1. Clonar el repositorio
 
 ```bash
-git clone https://github.com/jackhorrordevscl/control-fichas.git
-cd control-fichas
+git clone https://github.com/jackhorrordevscl/umbral-personal.git
+cd umbral-personal
 ```
 
 ### 2. Configurar la base de datos
@@ -147,26 +155,49 @@ npm run dev
 # App en http://localhost:5173
 ```
 
-### Credenciales por defecto
+### Cómo entrar la primera vez
+
+No hay usuarios predefinidos por rol — cada profesional crea su propia
+cuenta:
+
+- **Alta normal**: `POST /auth/signup` (o el botón "Registrate" del login)
+  crea la cuenta con `emailVerified: false`. Sin `RESEND_API_KEY` configurada
+  en local, el email de verificación no se envía de verdad — `MailService`
+  lo saltea con un warning en el log del backend (revisalo ahí para sacar el
+  link mientras probás en dev).
+- **Cuenta semilla** (`npm run seed`, ver más abajo): crea una única cuenta
+  de prueba para no tener que pasar por signup+verificación en cada corrida
+  local.
 
 ```
 Email:     admin@umbral.cl
 Password:  Umbral2024!
 ```
 
-> ⚠️ Cambia estas credenciales inmediatamente después de la primera
-> instalación. El usuario admin fuerza cambio de contraseña en su primer
-> login (`mustChangePassword`), pero eso solo protege si cambiás la clave
-> **antes** de que alguien más la use con el valor conocido.
+> ⚠️ Cambiá estas credenciales inmediatamente después de instalar en un
+> entorno alcanzable por otras personas (ver `SEED_ADMIN_EMAIL`/
+> `SEED_ADMIN_PASSWORD` en Variables de Entorno). La cuenta semilla fuerza
+> cambio de contraseña en su primer login (`mustChangePassword`), pero eso
+> solo protege si cambiás la clave **antes** de que alguien más la use con
+> el valor conocido — es público, está en este repo.
+>
+> Si perdiste tu contraseña o el dispositivo MFA de una cuenta ya
+> existente, no hace falta tocar la base de datos: ver
+> [Recuperación de cuenta](#recuperación-de-cuenta-issue-50).
 
 ---
 
 ## Despliegue (issue #8)
 
-Todavía **no está desplegado**. Stack objetivo: **backend en Render**
-(free tier, ver limitación de cold start más abajo), **frontend en
-Vercel**, **Postgres gestionado en Supabase** (Supavisor/PgBouncer en modo
-transacción), copia offsite de backups en **Backblaze B2** (ver
+**Backend ya desplegado y en producción** en Render:
+https://umbral-backend-uces.onrender.com/api/v1 (servicio `umbral-backend`,
+deploy automático en cada push a `main`). Stack: **backend en Render** (free
+tier, ver limitación de cold start más abajo), **frontend pensado para
+Vercel** (`vercel.json` ya en el repo, `rootDir: frontend/`), **Postgres
+gestionado en Supabase** (Supavisor/PgBouncer en modo transacción — la
+`DATABASE_URL` de producción necesita `?pgbouncer=true` al final, o el
+runtime choca con "prepared statement already exists" en cada reinicio),
+copia offsite de backups en **Backblaze B2** (ver
 [Configuración de Backups](#configuración-de-backups)).
 
 > **Cold start de Render (free tier):** el proceso duerme a los 15 minutos
@@ -217,33 +248,36 @@ transacción), copia offsite de backups en **Backblaze B2** (ver
 ## Estructura del Proyecto
 
 ```
-control-fichas/
+umbral-personal/
 ├── backend/
 │   ├── prisma/
-│   │   ├── schema.prisma         # Modelos de base de datos
+│   │   ├── schema.prisma         # Modelos de base de datos (un solo Role: PROFESSIONAL)
 │   │   └── migrations/           # Historial de migraciones
 │   ├── src/
 │   │   ├── common/
-│   │   │   ├── guards/           # JWT Guard, Roles Guard
-│   │   │   ├── decorators/       # CurrentUser, Roles
+│   │   │   ├── guards/           # JwtAuthGuard (sin guard de roles -- ownership por therapistId)
+│   │   │   ├── decorators/       # CurrentUser
 │   │   │   └── interceptors/     # Audit Interceptor
 │   │   ├── modules/
-│   │   │   ├── auth/             # Login, JWT, MFA, cambio de contraseña forzado
-│   │   │   ├── patients/         # CRUD, consentimientos e historial de pacientes
+│   │   │   ├── auth/             # Signup, login, JWT, MFA obligatorio, recuperación de cuenta
+│   │   │   ├── patients/         # CRUD, consentimientos e historial de pacientes propios
 │   │   │   ├── consultations/    # Registro clínico versionado
 │   │   │   ├── documents/        # Documentos adjuntos por paciente
-│   │   │   ├── users/            # Gestión de usuarios (ADMIN/SUPERVISOR/COORDINATOR)
+│   │   │   ├── profile/          # Ver/editar los propios datos de cuenta
+│   │   │   ├── mail/             # Envío de emails transaccionales (Resend)
 │   │   │   ├── reports/          # Generación de PDF
 │   │   │   └── audit/            # Bitácora inmutable (interceptor global)
-│   │   ├── shared-files/         # Biblioteca interna (plantillas, protocolos)
+│   │   ├── shared-files/         # Biblioteca personal (plantillas, protocolos) -- privada por usuario
 │   │   └── prisma/               # Servicio Prisma
 │   └── .env.example
 ├── frontend/
 │   └── src/
 │       ├── api/                  # Cliente HTTP (Axios)
 │       ├── context/              # AuthContext
-│       ├── components/           # Layout, Sidebar
-│       └── pages/                # Login, Dashboard, Pacientes, Consultas, Seguridad
+│       ├── components/           # Layout, Sidebar, RecoveryCodesReveal
+│       └── pages/                # Login, Signup, VerifyEmail, ForgotPassword,
+│                                  # ResetPassword, MfaRecover, Dashboard, Patients,
+│                                  # Consultations, Settings (MFA), SharedFiles
 ├── docs/                         # Manual de uso, caso de testing, RAT
 ├── backups/
 │   └── backup.sh                 # Script de backup automático
@@ -255,22 +289,30 @@ control-fichas/
 ## Funcionalidades
 
 ### Autenticación y Seguridad
+- Alta propia (self-signup) con verificación de email — no hay un admin que
+  cree cuentas, cada profesional se registra solo (issue #5)
 - Login con email y contraseña (hash Argon2)
 - Tokens JWT con expiración configurable
-- MFA obligatorio para roles administrativos, opcional para el resto (TOTP,
-  compatible con Google Authenticator y Authy)
-- Cambio de contraseña forzado en el primer login del admin semilla
-- Guards de autenticación y control de roles (RBAC)
-- Rate limiting en login (`@nestjs/throttler`)
+- **MFA obligatorio para toda cuenta** (TOTP, compatible con Google
+  Authenticator y Authy) — se enrola forzosamente en el primer login exitoso,
+  no es opcional ni depende de un rol
+- Recuperación de cuenta self-service sin intervención manual en la base de
+  datos: contraseña olvidada por email, y 10 códigos de recuperación de un
+  solo uso para desactivar MFA si se pierde el dispositivo (issue #50, ver
+  [Recuperación de cuenta](#recuperación-de-cuenta-issue-50))
+- Ownership estricto por `therapistId` en cada consulta — sin roles ni
+  jerarquías: cada cuenta ve y administra únicamente sus propios pacientes
+- Rate limiting con throttlers independientes por endpoint sensible (login,
+  mfa/verify, signup, mfa/setup, password/change, password/reset,
+  mfa/recover — `@nestjs/throttler`)
 - Headers HTTP seguros con Helmet.js
 
 ### Gestión de Pacientes (Ley 20.584)
-- Ficha completa con datos de identificación, contacto de emergencia y red de salud
-- Consentimiento granular por finalidad (`TREATMENT`, `TELEMEDICINE`,
-  `HEALTH_NETWORK`) como ledger append-only (Ley 21.719)
-- Acceso a fichas condicionado a consentimiento vigente y rol; acceso
-  excepcional de `SUPERVISOR` sin consentimiento `HEALTH_NETWORK`, siempre
-  con motivo auditado
+- Ficha completa con datos de identificación y contacto de emergencia
+- Consentimiento granular por finalidad (`TREATMENT`, `TELEMEDICINE`) como
+  ledger append-only (Ley 21.719) — otorgar o revocar no borra el historial
+- Acceso a fichas siempre restringido al profesional dueño (`therapistId`) —
+  sin excepciones ni accesos de terceros
 - Soft delete — los registros nunca se eliminan físicamente
 - Búsqueda por nombre o RUT, historial de cambios (`PatientHistory`)
 
@@ -284,12 +326,14 @@ control-fichas/
 ### Documentos y Archivos
 - Documentos clínicos por paciente (consentimiento informado, informes,
   otros), PDF/imágenes hasta 10MB
-- Biblioteca interna de archivos compartidos (plantillas, protocolos,
-  formularios) para todo el staff, no ligada a pacientes
+- Biblioteca personal de archivos (plantillas, protocolos, formularios) —
+  privada por cuenta, no se comparte entre profesionales ni está ligada a
+  pacientes
 
-### Gestión de Usuarios
-- CRUD de usuarios reservado a `ADMIN`, `SUPERVISOR` y `COORDINATOR`
-- Soft delete de usuarios
+### Perfil
+- Cada cuenta puede ver y editar sus propios datos (email, nombre,
+  contraseña) vía `GET`/`PATCH /profile` — sin panel de administración de
+  terceros, porque no hay terceros que administrar
 
 ### Exportación PDF
 - Generación de ficha clínica completa en PDF
@@ -298,8 +342,8 @@ control-fichas/
 
 ### Auditoría (Bitácora Inmutable)
 - Registro automático de todas las acciones del sistema vía interceptor global
-- Campos: usuario, acción, recurso, IP, user-agent, timestamp y motivo de
-  acceso excepcional (`overrideReason`) cuando aplica
+- Campos: usuario, acción, recurso, IP, user-agent, timestamp y detalle
+  libre (`detail`) cuando aplica
 - Tabla append-only — ningún registro puede modificarse ni eliminarse
 
 ### Backups Automáticos
@@ -322,6 +366,8 @@ Todas las rutas usan el prefijo global `/api/v1`.
 
 ### Autenticación
 ```
+POST /api/v1/auth/signup
+POST /api/v1/auth/verify-email
 POST /api/v1/auth/login
 POST /api/v1/auth/mfa/verify
 POST /api/v1/auth/mfa/generate         🔒
@@ -335,11 +381,16 @@ POST /api/v1/auth/password/forgot      (issue #50)
 POST /api/v1/auth/password/reset       (resetToken, issue #50)
 ```
 
+### Perfil
+```
+GET   /api/v1/profile    🔒
+PATCH /api/v1/profile    🔒
+```
+
 ### Pacientes
 ```
 POST   /api/v1/patients                        🔒
 GET    /api/v1/patients                        🔒
-GET    /api/v1/patients/by-rut/:rut            🔒 SUPERVISOR
 GET    /api/v1/patients/:id/history            🔒
 GET    /api/v1/patients/:id                    🔒
 PATCH  /api/v1/patients/:id                    🔒
@@ -347,13 +398,13 @@ DELETE /api/v1/patients/:id                    🔒
 POST   /api/v1/patients/:id/consents           🔒
 GET    /api/v1/patients/:id/consents/status    🔒
 GET    /api/v1/patients/:id/consents           🔒
-POST   /api/v1/patients/:id/access-override    🔒 SUPERVISOR
 ```
 
 ### Consultas
 ```
 POST  /api/v1/consultations                        🔒
 GET   /api/v1/consultations/patient/:patientId     🔒
+GET   /api/v1/consultations/stats                  🔒
 GET   /api/v1/consultations/:id                    🔒
 PATCH /api/v1/consultations/:id/correct            🔒
 ```
@@ -365,16 +416,7 @@ GET  /api/v1/documents/patient/:patientId 🔒
 GET  /api/v1/documents/:id/download       🔒
 ```
 
-### Usuarios
-```
-GET    /api/v1/users        🔒 ADMIN/SUPERVISOR/COORDINATOR
-GET    /api/v1/users/:id    🔒 ADMIN/SUPERVISOR/COORDINATOR
-POST   /api/v1/users        🔒 ADMIN/SUPERVISOR/COORDINATOR
-PATCH  /api/v1/users/:id    🔒 ADMIN/SUPERVISOR/COORDINATOR
-DELETE /api/v1/users/:id    🔒 ADMIN/SUPERVISOR/COORDINATOR
-```
-
-### Archivos compartidos
+### Archivos personales
 ```
 GET    /api/v1/shared-files              🔒
 GET    /api/v1/shared-files/:id          🔒
@@ -461,6 +503,12 @@ Setup (una sola vez):
 5. Verificar al menos una restauración real desde la copia offsite antes de
    dar por cerrado el punto (ver "Restaurar un backup" abajo).
 
+> Mientras estos 4 secrets no estén cargados, el workflow no falla: corta
+> antes de instalar nada y termina en success con un aviso en el step
+> summary de la corrida ("Backup offsite salteado: faltan uno o más
+> secrets de B2"). No hace falta desactivar el cron a mano mientras B2
+> todavía no está configurado.
+
 #### B) Manual / local (`backup.sh`)
 
 Sigue siendo útil para correr un backup puntual desde tu propia máquina, o
@@ -507,8 +555,8 @@ openssl enc -d -aes-256-cbc -pbkdf2 -pass file:"$HOME/.umbral_backup_passphrase"
 | Derecho del paciente a su ficha | Exportación PDF bajo demanda |
 | Inalterabilidad de registros | Versionado en consultas + soft delete en pacientes |
 | Bitácora de accesos | Audit Log inmutable con registro de todas las acciones |
-| Consentimiento granular por finalidad (Ley 21.719) | Ledger append-only `PatientConsent` por `TREATMENT`/`TELEMEDICINE`/`HEALTH_NETWORK` |
-| Acceso excepcional auditado | `SUPERVISOR` puede acceder sin consentimiento `HEALTH_NETWORK` vigente, con motivo obligatorio registrado |
+| Consentimiento granular por finalidad (Ley 21.719) | Ledger append-only `PatientConsent` por `TREATMENT`/`TELEMEDICINE` |
+| Sin acceso de terceros a fichas ajenas | Ownership estricto por `therapistId` — no existe ningún rol ni excepción que permita ver pacientes de otra cuenta |
 | Inventario de tratamiento (RAT) | Ver [`docs/registro-actividades-tratamiento.md`](docs/registro-actividades-tratamiento.md) |
 | Disponibilidad de la ficha ante pérdida de credenciales (Ley 20.584 art. 12, Ley 21.719) | Recuperación de cuenta self-service — ver abajo |
 

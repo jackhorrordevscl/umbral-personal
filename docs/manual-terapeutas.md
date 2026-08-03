@@ -2,17 +2,38 @@
 
 > Este manual describe el comportamiento real de la aplicación, derivado directamente del código (validaciones, permisos y reglas de negocio), no de una revisión visual de las pantallas. Cada sección tiene un espacio `> 📝 Observaciones UX` para que anotes diferencias entre lo que describe este documento y lo que realmente experimentás usando la app.
 
+Umbral es una app **individual**: no hay roles, jerarquías ni panel de
+administración. La cuenta que creás es tuya y solo tuya — vos ves y
+administrás únicamente tus propios pacientes, nadie más tiene acceso a
+tu información ni vos a la de otro profesional que también use la app.
+
 ---
 
-## 1. Primer acceso
+## 1. Crear tu cuenta y primer acceso
 
-Al ingresar por primera vez con una cuenta nueva, pueden pasar hasta tres pasos antes de llegar al panel principal — no todos ocurren siempre, dependen del estado de tu cuenta:
+No hay un administrador que te dé de alta: te registrás vos mismo/a.
 
-1. **Cambio de contraseña obligatorio** (solo si tu cuenta se creó con una contraseña provisoria). No vas a poder hacer nada más hasta cambiarla.
-2. **Activación de MFA obligatoria** (solo para roles `ADMIN` y `SUPERVISOR`). Se te muestra un código QR para escanear con una app autenticadora (Google Authenticator, Authy, etc.). Sin esto, esas cuentas no pueden operar — es una exigencia de seguridad para roles administrativos, no opcional.
-3. **Verificación MFA** (en logins posteriores, si ya tenés MFA activado): se te pide el código de 6 dígitos de tu app autenticadora antes de entrar.
-
-Los roles `THERAPIST` y `COORDINATOR` no están obligados a activar MFA, aunque pueden hacerlo desde Configuración si quieren.
+1. **Registro** — desde la pantalla de login, "Registrate". Pedís nombre,
+   email y contraseña (mínimo 8 caracteres). La cuenta queda creada pero
+   **no podés loguear todavía**.
+2. **Verificación de email** — te llega un correo con un enlace. Hacé clic
+   ahí para activar la cuenta. Sin esto, un intento de login rechaza con
+   "Debes verificar tu email antes de iniciar sesión", aunque la
+   contraseña sea correcta.
+3. **Activación de MFA obligatoria** — en tu primer login exitoso (con
+   email ya verificado), la app te muestra un código QR para escanear con
+   una app autenticadora (Google Authenticator, Authy, o similar). Esto
+   **no es opcional**: toda cuenta lo necesita, no depende de ningún rol —
+   es la única puerta de entrada a fichas clínicas, así que se exige desde
+   el primer momento.
+4. **Guardá tus 10 códigos de recuperación** — apenas confirmás el código
+   de tu app autenticadora, la pantalla te muestra 10 códigos de un solo
+   uso. **Se muestran una única vez.** Guardalos en un gestor de
+   contraseñas o impresos en un lugar seguro antes de continuar — son tu
+   único camino para recuperar el acceso si alguna vez perdés el celular
+   con la app autenticadora (ver sección 2).
+5. **Logins posteriores** — con MFA ya activo, cada login te pide primero
+   email + contraseña, y después el código de 6 dígitos de tu app.
 
 > 📝 Observaciones UX:
 >
@@ -20,28 +41,36 @@ Los roles `THERAPIST` y `COORDINATOR` no están obligados a activar MFA, aunque 
 
 ---
 
-## 2. Roles: qué puede ver y hacer cada uno
+## 2. Si perdés la contraseña o el dispositivo MFA
 
-La app tiene cuatro roles. Esto determina qué pacientes ves, no es solo un tema de menú:
+No hace falta pedirle a nadie que te desbloquee la cuenta a mano — hay dos
+caminos self-service, según qué perdiste:
 
-| Rol | Pacientes que ve | Notas |
-|---|---|---|
-| `THERAPIST` | Solo los propios (de los que es terapeuta a cargo) | Intentar acceder a la ficha de un paciente ajeno da error de acceso denegado (403), no un error genérico |
-| `COORDINATOR` | Solo los propios, igual que `THERAPIST` | A pesar del nombre del rol, **no tiene visión ampliada** de pacientes — es una restricción deliberada del sistema |
-| `SUPERVISOR` | Los propios siempre; el resto de la institución **solo si el paciente otorgó consentimiento de Red de Salud (`HEALTH_NETWORK`)** | Sin ese consentimiento, la ficha no aparece en su listado. Puede acceder de todos modos con **acceso excepcional auditado** (ver más abajo), dejando motivo obligatorio registrado |
-| `ADMIN` | **Ninguno** — no tiene acceso a fichas clínicas bajo ningún escenario | Es un rol operativo/técnico sin base clínica para ver datos de pacientes; administra usuarios, no fichas |
+### Olvidaste la contraseña
 
-La gestión de usuarios (crear, editar, desactivar) está reservada a `ADMIN`, `SUPERVISOR` y `COORDINATOR` — un `THERAPIST` no ve esa sección.
+Desde el login, "¿Olvidaste tu contraseña?" → ingresás tu email → te llega
+un enlace (válido 30 minutos) para elegir una contraseña nueva. Por
+seguridad, la respuesta es la misma exista o no una cuenta con ese email
+("si el email está registrado, vas a recibir un enlace..."), así que no te
+alarmes si no distingue el caso. Este camino **no** te salta el MFA: si tu
+cuenta lo tiene activo, lo va a seguir pidiendo en el próximo login.
 
-### Acceso excepcional de SUPERVISOR (T6.5)
+### Perdiste el dispositivo con tu app autenticadora
 
-Cuando un `SUPERVISOR` necesita ver una ficha sin relación de tratamiento directa y sin que el paciente haya otorgado consentimiento `HEALTH_NETWORK` (por ejemplo, ante una supervisión clínica, un incidente o una auditoría interna), tiene una vía separada de acceso excepcional. A diferencia del acceso normal:
+Desde el login, en la pantalla donde te pide el código de 6 dígitos, hay un
+link "¿Perdiste el dispositivo MFA?". Ahí ingresás tu email, tu contraseña
+**y uno de los 10 códigos de recuperación** que guardaste al activar MFA
+(paso 4 de la sección anterior). Si es válido, MFA queda desactivado y
+podés volver a loguear con email + contraseña; en ese login vas a tener que
+enrolar MFA de nuevo (nuevo QR, nueva tanda de 10 códigos).
 
-- Exige un **motivo obligatorio**, que queda en la bitácora de auditoría (`overrideReason`) junto con la acción.
-- Solo está disponible cuando el acceso normal realmente estaría bloqueado — si el `SUPERVISOR` ya tendría acceso por otra vía (dueño de la ficha, o consentimiento ya otorgado), el sistema rechaza el uso de esta vía para no restarle valor probatorio al registro de auditoría.
-- No es un bypass silencioso: si la escritura de auditoría falla, el acceso se corta en vez de otorgarse igual.
+**Si perdiste la contraseña Y los 10 códigos de recuperación al mismo
+tiempo**, no queda ningún camino self-service — necesitás pedir una
+intervención manual (ver `README.md`, sección "Recuperación de cuenta",
+para quien administre el servidor). Por eso conviene guardar los códigos
+de recuperación apenas se generan, no "para después".
 
-> 📝 Observaciones UX: (¿el menú realmente oculta las opciones que no te corresponden, o solo bloquea al hacer clic?)
+> 📝 Observaciones UX: (¿el link de "olvidaste tu contraseña" es fácil de encontrar? ¿el mensaje genérico del email confunde?)
 >
 >
 
@@ -61,16 +90,13 @@ Cada edición queda registrada con **motivo del cambio** y un diff (qué campo c
 
 ### Consentimientos (Ley 21.719)
 
-Hay tres finalidades de consentimiento, independientes entre sí:
+Hay dos finalidades de consentimiento, independientes entre sí:
 - **Tratamiento**: consentir el tratamiento clínico en sí.
 - **Telemedicina**: consentir la modalidad de atención remota.
-- **Red de salud** (finalidad de interconexión y comunicación): autoriza compartir, derivar o comunicar la ficha del paciente con terceros del ecosistema sanitario — otros profesionales de la institución, laboratorios, centros de derivación, aseguradoras. Bajo la Ley 21.719 esto es una transferencia de datos que no se puede asumir por defecto: sin este consentimiento explícito, la ficha **no debería** compartirse fuera del círculo terapeuta-paciente directo, aunque sea a otro profesional de la misma institución.
 
 Cada una se otorga o revoca por separado. Al registrar cualquier consentimiento, **la evidencia es obligatoria** (mínimo 10 caracteres — ej. "firma en papel escaneada, sesión del 12/03") y queda con fecha y quién lo registró.
 
 Importante: revocar un consentimiento **no borra el evento anterior**. El historial completo (otorgamientos y revocaciones) queda visible siempre — es un registro tipo bitácora, no un simple check on/off.
-
-El consentimiento `HEALTH_NETWORK` **condiciona el acceso efectivo, no es solo informativo** (T6.4/T6.5, issues #51/#52): el terapeuta tratante (`therapistId`) siempre conserva acceso a su propia ficha por la relación de tratamiento directa (Ley 20.584), pero un `SUPERVISOR` sin esa relación pierde el acceso normal a la ficha en cuanto el consentimiento de Red de Salud se revoca — la única vía que le queda es el acceso excepcional auditado descrito más arriba, que deja motivo obligatorio en la bitácora. `ADMIN` no tiene acceso a fichas clínicas bajo ningún escenario, con o sin consentimiento.
 
 ### Eliminar una ficha
 
@@ -105,9 +131,9 @@ En la práctica: si te equivocaste en algo, corregilo con confianza — no se "p
 Cada ficha de paciente permite subir documentos asociados (ej. informes, exámenes). Reglas:
 - Solo se aceptan **PDF e imágenes** — cualquier otro tipo de archivo se rechaza.
 - **10 MB máximo** por archivo.
-- Solo podés subir documentos a pacientes a los que tenés acceso (misma regla de ownership que el resto de la ficha).
+- Solo podés subir documentos a pacientes propios (mismos que ves en tu listado).
 
-Esto es distinto de "Archivos compartidos" (ver sección 6) — los documentos de paciente están ligados a una ficha específica, no son de uso general.
+Esto es distinto de "Archivos personales" (ver sección 6) — los documentos de paciente están ligados a una ficha específica, no son de uso general.
 
 > 📝 Observaciones UX:
 >
@@ -115,9 +141,11 @@ Esto es distinto de "Archivos compartidos" (ver sección 6) — los documentos d
 
 ---
 
-## 6. Archivos compartidos
+## 6. Archivos personales (Repositorio)
 
-Es una biblioteca institucional, no ligada a un paciente en particular — pensada para libros, plantillas, protocolos, formularios, material general. Categorías: Libros, Plantillas, Imágenes, Formularios, Protocolos, General.
+Es tu biblioteca privada, no ligada a un paciente en particular — pensada para libros, plantillas, protocolos, formularios, material general de tu propia práctica. Categorías: Libros, Plantillas, Imágenes, Formularios, Protocolos, General.
+
+Es **privada por cuenta**: nada de lo que subís acá se comparte con otros profesionales que también usen Umbral, aunque el nombre "Repositorio" pueda sonar a algo institucional.
 
 > 📝 Observaciones UX: (¿quedó claro para vos la diferencia entre esto y "Documentos" dentro de una ficha de paciente?)
 >
@@ -138,8 +166,8 @@ Desde la ficha de un paciente se puede exportar un PDF con la ficha clínica com
 ## 8. Sesión y seguridad
 
 - **Cierre de sesión por inactividad**: después de 8 minutos sin actividad (mover el mouse, tipear, hacer clic, scrollear), aparece un aviso con una cuenta regresiva de 2 minutos. Si no hacés nada en ese lapso, la sesión se cierra sola. "Continuar sesión" en ese aviso reinicia el contador.
-- **Límite de intentos de login**: después de varios intentos fallidos seguidos, el sistema bloquea temporalmente nuevos intentos (rate limiting) — es intencional, no un error, y se libera solo pasado un tiempo.
-- **Bitácora de auditoría**: toda acción relevante (login, creación/edición de fichas, descarga de documentos, etc.) queda registrada de forma inmutable — no visible para roles no-administrativos, pero existe y no se puede alterar ni borrar.
+- **Límite de intentos de login**: después de varios intentos fallidos seguidos, el sistema bloquea temporalmente nuevos intentos (rate limiting) — es intencional, no un error, y se libera solo pasado un tiempo. Aplica también a los intentos de código MFA, de restablecimiento de contraseña y de recuperación con código MFA.
+- **Bitácora de auditoría**: toda acción relevante (login, creación/edición de fichas, descarga de documentos, etc.) queda registrada de forma inmutable en el servidor — no hay una pantalla para verla dentro de la app (no hay panel administrativo), pero existe y no se puede alterar ni borrar.
 
 > 📝 Observaciones UX: (¿el aviso de sesión por expirar se nota a tiempo, o es fácil perderlo de vista y que la sesión se cierre sin querer?)
 >
