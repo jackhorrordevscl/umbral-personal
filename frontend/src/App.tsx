@@ -7,7 +7,8 @@ import {
   useNavigate,
 } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AuthProvider, useAuth } from "./context/AuthContext";
+import { AuthProvider } from "./context/AuthContext";
+import { useAuth } from "./context/useAuth";
 import { useIdleTimeout } from "./hooks/useIdleTimeout";
 import IdleWarningModal from "./components/IdleWarningModal";
 import Layout from "./components/Layout";

@@ -8,15 +8,13 @@ type Status = 'verifying' | 'success' | 'error';
 export default function VerifyEmailPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
-  const [status, setStatus] = useState<Status>('verifying');
-  const [error, setError] = useState('');
+  const [status, setStatus] = useState<Status>(() => (token ? 'verifying' : 'error'));
+  const [error, setError] = useState(() =>
+    token ? '' : 'Enlace de verificación inválido: falta el token.',
+  );
 
   useEffect(() => {
-    if (!token) {
-      setStatus('error');
-      setError('Enlace de verificación inválido: falta el token.');
-      return;
-    }
+    if (!token) return;
 
     // No hay dependencia real más allá de `token`: este efecto verifica una
     // sola vez por token, no en cada render.

@@ -1,16 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import type { KeyboardEvent } from "react";
 import { Users, ClipboardList, FileText, Calendar, AlertCircle } from "lucide-react";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../context/useAuth";
 import { useNavigate } from "react-router";
 import api from "../api/client";
 import { getConsultationStats } from "../api/consultations";
+import type { Patient } from "../types/patient";
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const { data: patients = [], isError: patientsError } = useQuery({
+  const { data: patients = [], isError: patientsError } = useQuery<Patient[]>({
     queryKey: ["patients"],
     queryFn: () => api.get("/patients").then((r) => r.data),
   });
@@ -62,7 +63,7 @@ export default function DashboardPage() {
       // del ledger PatientConsent) en la misma respuesta de GET /patients,
       // así que este stat sigue sin necesitar llamadas extra.
       label: "Consentimientos firmados",
-      value: patients.filter((p: any) => p.consents?.TREATMENT).length,
+      value: patients.filter((p) => p.consents?.TREATMENT).length,
       icon: FileText,
       color: "text-emerald-600",
       bg: "bg-emerald-50",
@@ -147,7 +148,7 @@ export default function DashboardPage() {
               </p>
             ) : (
               <div className="divide-y divide-slate-100">
-                {patients.slice(0, 5).map((p: any) => (
+                {patients.slice(0, 5).map((p) => (
                   <div
                     key={p.id}
                     role="button"

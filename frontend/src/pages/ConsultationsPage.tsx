@@ -4,6 +4,7 @@ import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle }
 import api from '../api/client';
 import { buildLocalISO, formatChileDateTime, formatChileDate } from '../utils/datetime';
 import { normalizeRut } from '../utils/rut';
+import { getApiErrorMessage } from '../utils/api-error';
 
 interface ConsultationHistory {
   id: string;
@@ -36,6 +37,19 @@ interface Patient {
   id: string;
   fullName: string;
   rut: string;
+}
+
+interface ConsultationPayload {
+  sessionDate: string;
+  consultReason: string;
+  intervention: string;
+  agreements: string;
+  nextSessionDate?: string;
+  sessionType: string;
+}
+
+interface CreateConsultationPayload extends ConsultationPayload {
+  patientId: string;
 }
 
 const emptyForm = {
@@ -77,30 +91,30 @@ export default function ConsultationsPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: any) => api.post('/consultations', data),
+    mutationFn: (data: CreateConsultationPayload) => api.post('/consultations', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['consultations'] });
       setShowForm(false);
       setForm(emptyForm);
       setFormError('');
     },
-    onError: (err: any) => {
-      setFormError(err.response?.data?.message ?? 'Error al guardar sesión');
+    onError: (err: unknown) => {
+      setFormError(getApiErrorMessage(err, 'Error al guardar sesión'));
     },
   });
 
   const correctMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: any }) =>
+    mutationFn: ({ id, data }: { id: string; data: ConsultationPayload }) =>
       api.patch(`/consultations/${id}/correct`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['consultations'] });
       setEditingConsultation(null);
       setEditError('');
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       // Issue #41: banner rojo del propio formulario en vez de alert()
       // nativo, mismo patrón que formError arriba.
-      setEditError(err.response?.data?.message ?? 'Error al corregir sesión');
+      setEditError(getApiErrorMessage(err, 'Error al corregir sesión'));
     },
   });
 
@@ -162,7 +176,11 @@ export default function ConsultationsPage() {
   const toggleHistory = (id: string) => {
     setExpandedHistory(prev => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
   };

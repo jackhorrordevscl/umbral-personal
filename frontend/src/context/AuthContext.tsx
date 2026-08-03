@@ -1,55 +1,40 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
+import { AuthContext, type User } from './useAuth';
 
-interface User {
-  id: string;
-  email: string;
-  role: string;
-  name: string;
+// Leído una sola vez, como inicializador perezoso de useState en vez de un
+// useEffect: evita el re-render en cascada de setState-en-efecto (issue
+// #60) y de paso hace que el usuario ya esté disponible en el primer render
+// en vez de aparecer un instante después.
+function readStoredAuth(): { user: User | null; token: string | null } {
+  const storedToken = localStorage.getItem('token');
+  const storedUser = localStorage.getItem('user');
+  if (!storedToken || !storedUser) return { user: null, token: null };
+
+  try {
+    return { user: JSON.parse(storedUser), token: storedToken };
+  } catch {
+    // localStorage.user corrupto: tratar como no autenticado en vez de
+    // romper el render inicial de toda la app (issue #15).
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    return { user: null, token: null };
+  }
 }
-
-interface AuthContextType {
-  user: User | null;
-  token: string | null;
-  login: (token: string, user: User) => void;
-  logout: () => void;
-  isAuthenticated: boolean;
-}
-
-const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-
-  useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
-    if (storedToken && storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-        setToken(storedToken);
-      } catch {
-        // localStorage.user corrupto: tratar como no autenticado en vez de
-        // romper el render inicial de toda la app (issue #15).
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-      }
-    }
-  }, []);
+  const [{ user, token }, setAuth] = useState(readStoredAuth);
 
   const login = (newToken: string, newUser: User) => {
     localStorage.setItem('token', newToken);
     localStorage.setItem('user', JSON.stringify(newUser));
-    setToken(newToken);
-    setUser(newUser);
+    setAuth({ token: newToken, user: newUser });
   };
 
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    setToken(null);
-    setUser(null);
+    setAuth({ token: null, user: null });
   };
 
   return (
@@ -65,10 +50,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth debe usarse dentro de AuthProvider');
-  return context;
 }

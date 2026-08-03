@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ShieldCheck, ShieldOff, QrCode } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
 import RecoveryCodesReveal from '../components/RecoveryCodesReveal';
