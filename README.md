@@ -600,6 +600,13 @@ hasta que pueda volver a entrar. Tres mecanismos, del menos al más invasivo:
    INSERT INTO "AuditLog" ("id", "userId", "action", "resource", "resourceId", "detail")
    VALUES (gen_random_uuid(), '<id de la cuenta>', 'MANUAL_ACCOUNT_RECOVERY', 'User', '<id de la cuenta>',
            'Reset manual en DB: contraseña y recovery codes perdidos a la vez. Autorizado por <quién/ticket>.');
+
+   -- 4. Verificar en la MISMA sesión que el INSERT del paso 3 quedó escrito
+   --    antes de cerrar la conexión (no asumir que "corrió sin error" =
+   --    "quedó guardado" si hubo un rollback implícito de la transacción):
+   SELECT id, "createdAt" FROM "AuditLog"
+   WHERE "userId" = '<id de la cuenta>' AND action = 'MANUAL_ACCOUNT_RECOVERY'
+   ORDER BY "createdAt" DESC LIMIT 1;
    ```
 
    `mustChangePassword=true` reusa el mismo flujo forzado que el admin
@@ -607,6 +614,45 @@ hasta que pueda volver a entrar. Tres mecanismos, del menos al más invasivo:
    cambiar la contraseña temporal antes de emitir cualquier token, y como
    `mfaEnabled` queda en `false`, ese mismo login fuerza un nuevo
    enrolamiento MFA con recovery codes frescos.
+
+   🔒 **Issue #52 — el trigger append-only por sí solo no alcanza.**
+   `trg_audit_log_append_only` impide modificar o borrar una fila ya
+   escrita, pero no impedía que las mismas credenciales usadas para este
+   procedimiento manual deshabiliten el trigger (`ALTER TABLE ... DISABLE
+   TRIGGER` o `DROP TRIGGER`), hagan el reset sin dejar el paso 3, y lo
+   reactiven después sin rastro — porque el rol de runtime de la app ERA el
+   dueño de la tabla, y el dueño tiene esos permisos implícitos sin importar
+   los GRANT/REVOKE.
+
+   Primer intento descartado: un *event trigger* a nivel de base que
+   bloqueara ese DDL sin importar el rol. `CREATE EVENT TRIGGER` requiere
+   privilegios de superusuario en Postgres — verificado contra el rol real
+   de producción (`SELECT rolsuper FROM pg_roles WHERE rolname =
+   current_user`) que da `false`. No es viable en Supabase, ni en staging ni
+   en producción: no es un problema de ambiente, es un techo de la
+   plataforma.
+
+   Fix real, migración `20260803060000_restrict_audit_log_owner_privileges`:
+   se transfiere la ownership de `"AuditLog"` a un rol nuevo sin login
+   (`audit_log_owner`), y el rol de runtime queda con `SELECT`/`INSERT`
+   explícitos únicamente — sin `ALTER`/`TRIGGER`/`UPDATE`/`DELETE`. No
+   necesita superusuario, solo que el rol que corre la migración tenga
+   `CREATEROLE` (verificado con `SELECT rolcreaterole, rolcreatedb FROM
+   pg_roles WHERE rolname = current_user` -> `true`). Probado
+   end-to-end contra un cluster Postgres local descartable con un rol sin
+   superusuario pero con ese mismo perfil de privilegios: `ALTER TABLE ...
+   DISABLE TRIGGER` y `DROP TRIGGER` fallan por no ser dueño, `SET ROLE
+   audit_log_owner` falla por no tener membership (no hay forma de asumir
+   los privilegios del dueño), `UPDATE`/`DELETE` quedan bloqueados por
+   permisos (ni siquiera llegan a evaluar el trigger), e `INSERT`/`SELECT`
+   (lo único que usa `AuditService.log()`) siguen funcionando sin fricción.
+
+   Nota operativa: una futura migración legítima que necesite alterar la
+   estructura de `"AuditLog"` (ej. agregar una columna) va a fallar con este
+   mismo rol porque ya no es el dueño — requiere un paso manual documentado
+   (otorgar membership de `audit_log_owner` temporalmente, aplicar el
+   cambio, revocarla de nuevo), no un `prisma migrate deploy` automático sin
+   intervención.
 
 Pendiente de proveedor externo (no depende de código): firma electrónica
 avanzada Ley 19.799 (issues #24-#26). La copia offsite de backups ya tiene
