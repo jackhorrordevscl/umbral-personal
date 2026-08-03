@@ -72,8 +72,11 @@ jobs:
 
           # pg_dump vía docker: garantiza una versión de cliente compatible
           # con el server de Supabase sin depender del paquete que traiga el
-          # runner de GitHub Actions.
-          docker run --rm postgres:16-alpine pg_dump "$BACKUP_DB_URL" \
+          # runner de GitHub Actions. pg_dump rechaza volcar un server MÁS
+          # NUEVO que su propia versión ("aborting because of server version
+          # mismatch") -- Supabase corre Postgres 17.x, así que el cliente
+          # tiene que ser >= 17, no 16.
+          docker run --rm postgres:17-alpine pg_dump "$BACKUP_DB_URL" \
             | gzip \
             | openssl enc -aes-256-cbc -pbkdf2 -salt -pass "file:$PASSPHRASE_FILE" \
             > "$BACKUP_FILE"
