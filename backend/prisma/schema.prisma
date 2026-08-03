@@ -22,22 +22,30 @@ datasource db {
 }
 
 model User {
-  id                 String    @id @default(uuid())
-  email              String    @unique
-  passwordHash       String
-  name               String
-  role               Role      @default(PROFESSIONAL)
-  mfaSecret          String?
-  mfaEnabled         Boolean   @default(false)
-  mustChangePassword Boolean   @default(false)
+  id                         String    @id @default(uuid())
+  email                      String    @unique
+  passwordHash               String
+  name                       String
+  role                       Role      @default(PROFESSIONAL)
+  mfaSecret                  String?
+  mfaEnabled                 Boolean   @default(false)
+  mustChangePassword         Boolean   @default(false)
   // Issue #5: signup propio. Default true (no false) para que las cuentas ya
   // existentes -- seedeadas o creadas directo vía Prisma, nunca vía
   // POST /auth/signup -- no queden bloqueadas al login por una migración
   // retroactiva. AuthService.signup es el único lugar que la crea en false.
-  emailVerified      Boolean   @default(true)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  deletedAt          DateTime?
+  emailVerified              Boolean   @default(true)
+  // Issue #50: replay guard del flujo self-service de forgot/reset password,
+  // mismo patrón que mustChangePassword para el purpose 'password-change'.
+  // Un JWT de purpose 'password-reset' es sin estado (válido hasta expirar),
+  // así que el token firmado lleva el mismo timestamp acá guardado
+  // (resetIssuedAt); resetPassword solo acepta el token si ambos coinciden.
+  // Se limpia a null al usarlo (o al pedir un reset nuevo, invalidando
+  // cualquier link previo sin usar).
+  passwordResetTokenIssuedAt DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+  deletedAt                  DateTime?
 
   patients             Patient[]
   consultations        Consultation[]
@@ -46,6 +54,7 @@ model User {
   sharedFiles          SharedFile[]          @relation("UploadedFiles")
   consultationEdits    ConsultationHistory[] @relation("ConsultationEdits")
   patientConsentEvents PatientConsent[]      @relation("PatientConsentEvents")
+  mfaRecoveryCodes     MfaRecoveryCode[]
 }
 
 // Un solo rol: el profesional dueño de todas sus fichas. Se mantiene como
@@ -53,6 +62,26 @@ model User {
 // de alcance acotado (p. ej. ASSISTANT de secretaría).
 enum Role {
   PROFESSIONAL
+}
+
+// Issue #50: códigos de recuperación de un solo uso para desactivar MFA sin
+// el TOTP -- antes de esto, disableMfa exigía un TOTP válido del mismo
+// secreto para desactivarlo (círculo cerrado si se pierde el dispositivo).
+// Se generan 10 en texto plano cada vez que se habilita MFA (AuthService.
+// enableMfa), se muestran una única vez al usuario, y solo se persiste el
+// hash argon2 -- igual que passwordHash, nunca el texto plano. onDelete:
+// Cascade porque no tiene valor de auditoría propio fuera del lifecycle de
+// MFA del usuario (a diferencia de AuditLog, que sí usa onDelete: Restrict).
+model MfaRecoveryCode {
+  id       String    @id @default(uuid())
+  userId   String
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash String
+  usedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Patient {
@@ -171,6 +200,11 @@ enum AuditAction {
   MFA_ENABLED
   MFA_FAILED
   UNAUTHORIZED_ATTEMPT
+  PASSWORD_RESET_REQUESTED
+  PASSWORD_RESET_COMPLETED
+  MFA_RECOVERY_CODES_GENERATED
+  MFA_DISABLED_VIA_RECOVERY
+  MANUAL_ACCOUNT_RECOVERY
 }
 
 // El nombre (modelo y @@map) viene de la versión institucional multi-

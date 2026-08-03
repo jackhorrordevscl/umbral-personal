@@ -8,6 +8,9 @@ import { MfaSetupConfirmDto } from './dto/mfa-setup-confirm.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SignupDto } from './dto/signup.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { MfaRecoverDto } from './dto/mfa-recover.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -30,6 +33,8 @@ export class AuthController {
     'mfa-setup': true,
     'password-change': true,
     'verify-email': true,
+    'password-reset': true,
+    'mfa-recover': true,
   })
   @Post('login')
   login(@Body() dto: LoginDto) {
@@ -48,6 +53,8 @@ export class AuthController {
     'mfa-setup': true,
     'password-change': true,
     'verify-email': true,
+    'password-reset': true,
+    'mfa-recover': true,
   })
   @Post('mfa/verify')
   verifyMfa(@Body() dto: VerifyMfaDto) {
@@ -64,6 +71,8 @@ export class AuthController {
     'mfa-setup': true,
     'password-change': true,
     'verify-email': true,
+    'password-reset': true,
+    'mfa-recover': true,
   })
   @Post('signup')
   signup(@Body() dto: SignupDto) {
@@ -83,6 +92,8 @@ export class AuthController {
     signup: true,
     'mfa-setup': true,
     'password-change': true,
+    'password-reset': true,
+    'mfa-recover': true,
   })
   @Post('verify-email')
   verifyEmail(@Body() dto: VerifyEmailDto) {
@@ -104,6 +115,8 @@ export class AuthController {
     signup: true,
     'password-change': true,
     'verify-email': true,
+    'password-reset': true,
+    'mfa-recover': true,
   })
   @Post('mfa/setup/begin')
   beginMfaSetup(@Body() dto: MfaSetupBeginDto) {
@@ -117,6 +130,8 @@ export class AuthController {
     signup: true,
     'password-change': true,
     'verify-email': true,
+    'password-reset': true,
+    'mfa-recover': true,
   })
   @Post('mfa/setup/confirm')
   confirmMfaSetup(@Body() dto: MfaSetupConfirmDto) {
@@ -134,10 +149,69 @@ export class AuthController {
     signup: true,
     'mfa-setup': true,
     'verify-email': true,
+    'password-reset': true,
+    'mfa-recover': true,
   })
   @Post('password/change')
   changePassword(@Body() dto: ChangePasswordDto) {
     return this.authService.changePassword(dto);
+  }
+
+  // Issue #50: forgot/reset password self-service. Sin JwtAuthGuard, mismo
+  // motivo que verify-email/mfa/setup/*: el usuario todavía no tiene sesión
+  // (justo lo que este flujo existe para resolver sin acceso manual a la
+  // base de datos). Throttler propio ('password-reset'), mismo criterio que
+  // el resto de las rutas sin sesión de este controller.
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({
+    login: true,
+    'mfa-verify': true,
+    signup: true,
+    'mfa-setup': true,
+    'password-change': true,
+    'verify-email': true,
+    'mfa-recover': true,
+  })
+  @Post('password/forgot')
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({
+    login: true,
+    'mfa-verify': true,
+    signup: true,
+    'mfa-setup': true,
+    'password-change': true,
+    'verify-email': true,
+    'mfa-recover': true,
+  })
+  @Post('password/reset')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
+  }
+
+  // Issue #50: círculo cerrado de disableMfa (más abajo) -- ahí se exige un
+  // TOTP válido del mismo secreto para desactivar MFA, así que perder el
+  // dispositivo lo bloqueaba sin salida. Sin JwtAuthGuard a propósito, mismo
+  // motivo que password/forgot: el usuario todavía no tiene sesión (MFA
+  // deshabilitado bloqueaba justo el paso de mfa/verify). Throttler propio
+  // ('mfa-recover'): expone un chequeo de código de recuperación + password,
+  // necesita el mismo tipo de límite de intentos que login/mfa-verify.
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({
+    login: true,
+    'mfa-verify': true,
+    signup: true,
+    'mfa-setup': true,
+    'password-change': true,
+    'verify-email': true,
+    'password-reset': true,
+  })
+  @Post('mfa/recover')
+  recoverMfa(@Body() dto: MfaRecoverDto) {
+    return this.authService.recoverMfa(dto);
   }
 
   @UseGuards(JwtAuthGuard)

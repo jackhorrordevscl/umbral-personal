@@ -3,13 +3,18 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { AuditService } from '../audit/audit.service';
 import { LoginDto } from './dto/login.dto';
 import { VerifyMfaDto } from './dto/verify-mfa.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SignupDto } from './dto/signup.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { MfaRecoverDto } from './dto/mfa-recover.dto';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import * as QRCode from 'qrcode';
+import * as crypto from 'crypto';
 import { User } from '@prisma/client';
 
 // Purpose que llevan los JWT de corta duración emitidos para forzar el
@@ -26,6 +31,25 @@ const PASSWORD_CHANGE_PURPOSE = 'password-change';
 const EMAIL_VERIFY_PURPOSE = 'email-verify';
 const EMAIL_VERIFY_EXPIRES_IN = '24h';
 
+// Idem para el flujo self-service de forgot/reset password (issue #50):
+// única puerta de recuperación de cuenta que no depende de una intervención
+// manual en la base de datos.
+const PASSWORD_RESET_PURPOSE = 'password-reset';
+const PASSWORD_RESET_EXPIRES_IN = '30m';
+
+// Mensaje de forgotPassword: siempre el mismo exista o no la cuenta, para no
+// filtrar (vía diferencia de respuesta) qué emails están registrados.
+const FORGOT_PASSWORD_GENERIC_MESSAGE = {
+  message:
+    'Si el email está registrado, vas a recibir un enlace para restablecer tu contraseña.',
+};
+
+// Issue #50: cantidad de códigos de recuperación de MFA generados por
+// enableMfa. 10 es el estándar de facto (GitHub, Google) -- suficiente para
+// varios extravíos del dispositivo TOTP sin ser tantos que degrade la
+// seguridad de tenerlos impresos/guardados.
+const MFA_RECOVERY_CODES_COUNT = 10;
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -33,6 +57,7 @@ export class AuthService {
     private jwtService: JwtService,
     private config: ConfigService,
     private mailService: MailService,
+    private auditService: AuditService,
   ) {}
 
   // Issue #5: único componente genuinamente nuevo del MVP -- en la versión
@@ -237,6 +262,101 @@ export class AuthService {
   }
 
   /**
+   * Issue #50: paso 1 del flujo self-service de recuperación de cuenta.
+   * Respuesta genérica SIEMPRE (exista o no el email, esté o no soft-
+   * deleted) para no filtrar qué cuentas están registradas vía diferencia
+   * de respuesta/tiempo. Solo si el usuario existe se persiste el timestamp
+   * y se dispara el email; en cualquier otro caso es un no-op silencioso.
+   */
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+    if (!user || user.deletedAt) {
+      return FORGOT_PASSWORD_GENERIC_MESSAGE;
+    }
+
+    // Se guarda el timestamp además de firmarlo en el JWT: un token de reset
+    // es un JWT sin estado, válido hasta que expira (30 min). Sin este
+    // replay guard, un link filtrado (logs, bandeja compartida) seguiría
+    // sirviendo para resetear la contraseña después de que el usuario ya
+    // hubiera cambiado la suya. También invalida cualquier link previo sin
+    // usar: pedir un reset nuevo pisa el timestamp anterior.
+    const issuedAt = new Date();
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordResetTokenIssuedAt: issuedAt },
+    });
+
+    const resetToken = this.jwtService.sign(
+      { sub: user.id, purpose: PASSWORD_RESET_PURPOSE, resetIssuedAt: issuedAt.getTime() },
+      { expiresIn: PASSWORD_RESET_EXPIRES_IN },
+    );
+    const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
+    const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
+
+    await this.mailService.sendPasswordResetEmail(user.email, user.name, resetUrl);
+    await this.auditService.log({
+      userId: user.id,
+      action: 'PASSWORD_RESET_REQUESTED',
+      resource: 'User',
+      resourceId: user.id,
+    });
+
+    return FORGOT_PASSWORD_GENERIC_MESSAGE;
+  }
+
+  /**
+   * Issue #50: paso 2. No delega en completeLogin ni emite accessToken a
+   * propósito -- a diferencia de changePassword (cambio forzado dentro de un
+   * login ya en curso), este es un reset self-service iniciado sin sesión;
+   * el usuario vuelve a pasar por login normal (y por MFA si lo tiene
+   * habilitado) con la contraseña nueva, sin bypasear ningún factor.
+   */
+  async resetPassword(dto: ResetPasswordDto) {
+    let payload: { sub: string; purpose?: string; resetIssuedAt?: number };
+    try {
+      payload = this.jwtService.verify(dto.resetToken);
+    } catch {
+      throw new UnauthorizedException('Token de restablecimiento inválido o expirado');
+    }
+
+    if (payload.purpose !== PASSWORD_RESET_PURPOSE) {
+      throw new UnauthorizedException('Token de restablecimiento inválido');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException('Usuario no válido');
+    }
+
+    if (
+      !user.passwordResetTokenIssuedAt ||
+      user.passwordResetTokenIssuedAt.getTime() !== payload.resetIssuedAt
+    ) {
+      throw new UnauthorizedException('Token de restablecimiento inválido o ya utilizado');
+    }
+
+    const newPasswordHash = await argon2.hash(dto.newPassword);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: newPasswordHash,
+        passwordResetTokenIssuedAt: null,
+      },
+    });
+
+    await this.auditService.log({
+      userId: user.id,
+      action: 'PASSWORD_RESET_COMPLETED',
+      resource: 'User',
+      resourceId: user.id,
+    });
+
+    return { message: 'Contraseña actualizada. Ya puedes iniciar sesión.' };
+  }
+
+  /**
    * Enrolamiento MFA forzado (paso 1) para cualquier cuenta sin MFA
    * configurado -- MFA es obligatorio para toda cuenta, no solo para un rol
    * en particular (ver completeLogin más abajo).
@@ -261,12 +381,12 @@ export class AuthService {
   async confirmMfaSetup(setupToken: string, token: string) {
     const payload = this.verifySetupToken(setupToken);
     await this.rejectIfAlreadyEnrolled(payload.sub);
-    await this.enableMfa(payload.sub, token);
+    const { recoveryCodes } = await this.enableMfa(payload.sub, token);
 
     const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user) throw new UnauthorizedException('Usuario no válido');
 
-    return this.generateToken(user);
+    return { ...this.generateToken(user), recoveryCodes };
   }
 
   /**
@@ -372,7 +492,19 @@ export class AuthService {
       data: { mfaEnabled: true },
     });
 
-    return { message: 'MFA activado correctamente' };
+    // Issue #50: se generan acá (no en un endpoint separado) porque este es
+    // el único momento en que sabemos que el usuario probó control real del
+    // dispositivo TOTP -- mismo motivo por el que confirmMfaSetup reusa este
+    // método en vez de duplicar la lógica de habilitación.
+    const recoveryCodes = await this.generateAndPersistRecoveryCodes(userId);
+    await this.auditService.log({
+      userId,
+      action: 'MFA_RECOVERY_CODES_GENERATED',
+      resource: 'User',
+      resourceId: userId,
+    });
+
+    return { message: 'MFA activado correctamente', recoveryCodes };
   }
 
   async disableMfa(userId: string, token: string) {
@@ -398,6 +530,111 @@ export class AuthService {
     });
 
     return { message: 'MFA desactivado correctamente' };
+  }
+
+  /**
+   * Issue #50: círculo cerrado que dejaba disableMfa (arriba) sin salida --
+   * exigía un TOTP válido del mismo secreto, así que perder el dispositivo
+   * MFA bloqueaba la cuenta sin acceso manual a la base de datos. Exige
+   * password (no solo el código de recuperación) a propósito: un recovery
+   * code filtrado por sí solo no debe bastar para tomar el segundo factor de
+   * una cuenta, mismo nivel de defensa en profundidad que login().
+   *
+   * Mismo mensaje 401 genérico que login() si el email/password no matchean,
+   * para no filtrar qué cuentas existen. Una vez usado, MFA queda
+   * deshabilitado -- reusar otro código sobrante de la misma tanda falla
+   * limpio en el chequeo de mfaEnabled de más abajo, sin necesidad de borrar
+   * el resto (enableMfa los reemplaza igual la próxima vez que se habilite).
+   */
+  async recoverMfa(dto: MfaRecoverDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException('Credenciales inválidas');
+    }
+
+    const passwordValid = await argon2.verify(user.passwordHash, dto.password);
+    if (!passwordValid) {
+      throw new UnauthorizedException('Credenciales inválidas');
+    }
+
+    if (!user.mfaEnabled) {
+      throw new UnauthorizedException('MFA no está configurado');
+    }
+
+    // Los códigos se guardan hasheados (igual que passwordHash): no hay
+    // forma de buscarlos por igualdad directa, así que se recorren los no
+    // usados y se verifica cada hash contra el código recibido. La tanda es
+    // acotada (MFA_RECOVERY_CODES_COUNT), sin impacto de performance real.
+    const unusedCodes = await this.prisma.mfaRecoveryCode.findMany({
+      where: { userId: user.id, usedAt: null },
+    });
+
+    let matchedCodeId: string | null = null;
+    for (const candidate of unusedCodes) {
+      if (await argon2.verify(candidate.codeHash, dto.recoveryCode)) {
+        matchedCodeId = candidate.id;
+        break;
+      }
+    }
+
+    if (!matchedCodeId) {
+      throw new UnauthorizedException('Código de recuperación inválido');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.mfaRecoveryCode.update({
+        where: { id: matchedCodeId },
+        data: { usedAt: new Date() },
+      }),
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: { mfaEnabled: false, mfaSecret: null },
+      }),
+    ]);
+
+    await this.auditService.log({
+      userId: user.id,
+      action: 'MFA_DISABLED_VIA_RECOVERY',
+      resource: 'User',
+      resourceId: user.id,
+    });
+
+    return {
+      message: 'MFA desactivado con el código de recuperación. Vuelve a habilitarlo cuanto antes.',
+    };
+  }
+
+  /**
+   * Genera MFA_RECOVERY_CODES_COUNT códigos en texto plano (para mostrar UNA
+   * vez al usuario) y persiste solo su hash argon2 -- nunca el texto plano,
+   * mismo criterio que passwordHash. Reemplaza cualquier tanda previa: una
+   * cuenta solo puede tener una tanda de recovery codes vigente a la vez,
+   * así que volver a habilitar MFA invalida los códigos de una habilitación
+   * anterior.
+   */
+  private async generateAndPersistRecoveryCodes(userId: string): Promise<string[]> {
+    const codes = Array.from({ length: MFA_RECOVERY_CODES_COUNT }, () =>
+      this.generateRecoveryCode(),
+    );
+    const hashedCodes = await Promise.all(codes.map((code) => argon2.hash(code)));
+
+    await this.prisma.$transaction([
+      this.prisma.mfaRecoveryCode.deleteMany({ where: { userId } }),
+      this.prisma.mfaRecoveryCode.createMany({
+        data: hashedCodes.map((codeHash) => ({ userId, codeHash })),
+      }),
+    ]);
+
+    return codes;
+  }
+
+  private generateRecoveryCode(): string {
+    // 10 bytes -> 20 chars hex, formateados en grupos de 4 para legibilidad
+    // (ej. a1b2-c3d4-e5f6-a7b8-c9d0).
+    const raw = crypto.randomBytes(10).toString('hex');
+    return raw.match(/.{1,4}/g)!.join('-');
   }
 
   private generateToken(user: { id: string; email: string; role: string, name: string }) {

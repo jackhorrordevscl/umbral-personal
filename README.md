@@ -329,7 +329,10 @@ POST /api/v1/auth/mfa/enable           🔒
 POST /api/v1/auth/mfa/disable          🔒
 POST /api/v1/auth/mfa/setup/begin      (setupToken)
 POST /api/v1/auth/mfa/setup/confirm    (setupToken)
+POST /api/v1/auth/mfa/recover          (email + password + recoveryCode, issue #50)
 POST /api/v1/auth/password/change      (passwordChangeToken)
+POST /api/v1/auth/password/forgot      (issue #50)
+POST /api/v1/auth/password/reset       (resetToken, issue #50)
 ```
 
 ### Pacientes
@@ -507,6 +510,54 @@ openssl enc -d -aes-256-cbc -pbkdf2 -pass file:"$HOME/.umbral_backup_passphrase"
 | Consentimiento granular por finalidad (Ley 21.719) | Ledger append-only `PatientConsent` por `TREATMENT`/`TELEMEDICINE`/`HEALTH_NETWORK` |
 | Acceso excepcional auditado | `SUPERVISOR` puede acceder sin consentimiento `HEALTH_NETWORK` vigente, con motivo obligatorio registrado |
 | Inventario de tratamiento (RAT) | Ver [`docs/registro-actividades-tratamiento.md`](docs/registro-actividades-tratamiento.md) |
+| Disponibilidad de la ficha ante pérdida de credenciales (Ley 20.584 art. 12, Ley 21.719) | Recuperación de cuenta self-service — ver abajo |
+
+### Recuperación de cuenta (issue #50)
+
+Sistema single-tenant: si el único usuario pierde su contraseña y/o el
+dispositivo MFA, las fichas clínicas quedan inaccesibles vía la aplicación
+hasta que pueda volver a entrar. Tres mecanismos, del menos al más invasivo:
+
+1. **Contraseña olvidada** — `POST /api/v1/auth/password/forgot` con el
+   email envía un link de un solo uso (30 min) vía Resend. `POST
+   /api/v1/auth/password/reset` con ese token cambia la contraseña. No
+   bypasea MFA: si la cuenta lo tiene habilitado, el siguiente login lo
+   sigue exigiendo igual.
+2. **MFA perdido (dispositivo extraviado)** — al habilitar MFA (`POST
+   /api/v1/auth/mfa/enable`, o el paso 2 del enrolamiento forzado en `POST
+   /api/v1/auth/mfa/setup/confirm`) se generan 10 códigos de recuperación de
+   un solo uso, mostrados una única vez en la respuesta. `POST
+   /api/v1/auth/mfa/recover` con email + contraseña + uno de esos códigos
+   desactiva MFA sin necesitar el TOTP; el siguiente login vuelve a exigir
+   enrolarlo. **Guardar esos 10 códigos en un gestor de contraseñas o
+   impresos en un lugar seguro apenas se generan** — no hay forma de volver
+   a verlos después.
+3. **Último recurso: contraseña Y los 10 códigos de recuperación perdidos a
+   la vez** — sin eso, no queda ningún camino self-service. Reset manual
+   directo en base de datos, siempre dejando constancia en `AuditLog`:
+
+   ```sql
+   -- 1. Generar un hash argon2 nuevo para la contraseña temporal (fuera de
+   --    la base, ej. con node -e "require('argon2').hash('...').then(console.log)")
+   -- 2. Forzar el cambio en el próximo login, igual que el admin semilla:
+   UPDATE "User"
+   SET "passwordHash" = '<hash argon2 generado>',
+       "mustChangePassword" = true,
+       "mfaEnabled" = false,
+       "mfaSecret" = NULL
+   WHERE email = '<email de la cuenta>';
+
+   -- 3. Dejar constancia auditable de la intervención manual (obligatorio):
+   INSERT INTO "AuditLog" ("id", "userId", "action", "resource", "resourceId", "detail")
+   VALUES (gen_random_uuid(), '<id de la cuenta>', 'MANUAL_ACCOUNT_RECOVERY', 'User', '<id de la cuenta>',
+           'Reset manual en DB: contraseña y recovery codes perdidos a la vez. Autorizado por <quién/ticket>.');
+   ```
+
+   `mustChangePassword=true` reusa el mismo flujo forzado que el admin
+   semilla (`POST /api/v1/auth/password/change`): el próximo login exige
+   cambiar la contraseña temporal antes de emitir cualquier token, y como
+   `mfaEnabled` queda en `false`, ese mismo login fuerza un nuevo
+   enrolamiento MFA con recovery codes frescos.
 
 Pendiente de proveedor externo (no depende de código): firma electrónica
 avanzada Ley 19.799 (issues #24-#26). La copia offsite de backups ya tiene

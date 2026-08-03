@@ -8,6 +8,7 @@ import { Role, User } from '@prisma/client';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { AuditService } from '../audit/audit.service';
 
 jest.mock('argon2');
 jest.mock('speakeasy');
@@ -37,10 +38,15 @@ function buildUser(overrides: Partial<User> = {}): User {
 
 describe('AuthService', () => {
   let service: AuthService;
-  let prisma: { user: { findUnique: jest.Mock; update: jest.Mock; create: jest.Mock } };
+  let prisma: {
+    user: { findUnique: jest.Mock; update: jest.Mock; create: jest.Mock };
+    mfaRecoveryCode: { findMany: jest.Mock; deleteMany: jest.Mock; createMany: jest.Mock; update: jest.Mock };
+    $transaction: jest.Mock;
+  };
   let jwtService: { sign: jest.Mock; verify: jest.Mock };
   let config: { get: jest.Mock };
-  let mailService: { sendVerificationEmail: jest.Mock };
+  let mailService: { sendVerificationEmail: jest.Mock; sendPasswordResetEmail: jest.Mock };
+  let auditService: { log: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -49,6 +55,16 @@ describe('AuthService', () => {
         update: jest.fn(),
         create: jest.fn(),
       },
+      mfaRecoveryCode: {
+        findMany: jest.fn(),
+        deleteMany: jest.fn(),
+        createMany: jest.fn(),
+        update: jest.fn(),
+      },
+      // $transaction([...]) real ejecuta cada operación y devuelve sus
+      // resultados; acá alcanza con resolver el array de promesas ya creadas
+      // (los mocks individuales de arriba ya devuelven promesas resueltas).
+      $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     };
     jwtService = {
       sign: jest.fn().mockReturnValue('signed-token'),
@@ -59,6 +75,10 @@ describe('AuthService', () => {
     };
     mailService = {
       sendVerificationEmail: jest.fn().mockResolvedValue(undefined),
+      sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
+    };
+    auditService = {
+      log: jest.fn().mockResolvedValue(undefined),
     };
 
     service = new AuthService(
@@ -66,6 +86,7 @@ describe('AuthService', () => {
       jwtService as unknown as JwtService,
       config as unknown as ConfigService,
       mailService as unknown as MailService,
+      auditService as unknown as AuditService,
     );
 
     // clearAllMocks() solo limpia historial de llamadas (calls/instances/
@@ -378,6 +399,159 @@ describe('AuthService', () => {
     });
   });
 
+  describe('forgotPassword', () => {
+    it('responde el mensaje genérico sin tocar prisma si el email no existe', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      const result = await service.forgotPassword({ email: 'no@example.com' });
+
+      expect(result).toEqual({
+        message:
+          'Si el email está registrado, vas a recibir un enlace para restablecer tu contraseña.',
+      });
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(mailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+    });
+
+    it('responde el mismo mensaje genérico si el usuario está soft-deleted (no filtra existencia)', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser({ deletedAt: new Date() }));
+
+      const result = await service.forgotPassword({ email: 'user@example.com' });
+
+      expect(result).toEqual({
+        message:
+          'Si el email está registrado, vas a recibir un enlace para restablecer tu contraseña.',
+      });
+      expect(mailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+    });
+
+    it('persiste el timestamp, firma el token y envía el email en el camino feliz', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser());
+      config.get.mockImplementation((key: string) =>
+        key === 'FRONTEND_URL' ? 'http://localhost:5173' : undefined,
+      );
+
+      const result = await service.forgotPassword({ email: 'user@example.com' });
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { passwordResetTokenIssuedAt: expect.any(Date) },
+      });
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'user-1', purpose: 'password-reset' }),
+        { expiresIn: '30m' },
+      );
+      expect(mailService.sendPasswordResetEmail).toHaveBeenCalledWith(
+        'user@example.com',
+        'Test User',
+        'http://localhost:5173/reset-password?token=signed-token',
+      );
+      expect(auditService.log).toHaveBeenCalledWith({
+        userId: 'user-1',
+        action: 'PASSWORD_RESET_REQUESTED',
+        resource: 'User',
+        resourceId: 'user-1',
+      });
+      expect(result).toEqual({
+        message:
+          'Si el email está registrado, vas a recibir un enlace para restablecer tu contraseña.',
+      });
+    });
+  });
+
+  describe('resetPassword', () => {
+    it('lanza 401 si el token es inválido o expiró', async () => {
+      jwtService.verify.mockImplementation(() => {
+        throw new Error('jwt expired');
+      });
+
+      await expect(
+        service.resetPassword({ resetToken: 'bad-token', newPassword: 'newpassword1' }),
+      ).rejects.toThrow('Token de restablecimiento inválido o expirado');
+    });
+
+    it('lanza 401 si el purpose del token no es password-reset', async () => {
+      jwtService.verify.mockReturnValue({ sub: 'user-1', purpose: 'other' });
+
+      await expect(
+        service.resetPassword({ resetToken: 'token', newPassword: 'newpassword1' }),
+      ).rejects.toThrow('Token de restablecimiento inválido');
+    });
+
+    it('lanza 401 si el usuario no existe o está soft-deleted', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'password-reset',
+        resetIssuedAt: 1000,
+      });
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.resetPassword({ resetToken: 'token', newPassword: 'newpassword1' }),
+      ).rejects.toThrow('Usuario no válido');
+    });
+
+    it('lanza 401 (replay guard) si el timestamp no coincide con el guardado', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'password-reset',
+        resetIssuedAt: 1000,
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ passwordResetTokenIssuedAt: new Date(2000) } as any),
+      );
+
+      await expect(
+        service.resetPassword({ resetToken: 'token', newPassword: 'newpassword1' }),
+      ).rejects.toThrow('Token de restablecimiento inválido o ya utilizado');
+    });
+
+    it('lanza 401 (replay guard) si ya no hay ningún reset pendiente (token ya usado)', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'password-reset',
+        resetIssuedAt: 1000,
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ passwordResetTokenIssuedAt: null } as any),
+      );
+
+      await expect(
+        service.resetPassword({ resetToken: 'token', newPassword: 'newpassword1' }),
+      ).rejects.toThrow('Token de restablecimiento inválido o ya utilizado');
+    });
+
+    it('resetea la contraseña, limpia el timestamp y no emite accessToken en el camino feliz', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'password-reset',
+        resetIssuedAt: 1000,
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ passwordResetTokenIssuedAt: new Date(1000) } as any),
+      );
+      mockArgon2.hash.mockResolvedValue('new-hashed-password' as never);
+
+      const result = await service.resetPassword({
+        resetToken: 'token',
+        newPassword: 'newpassword1',
+      });
+
+      expect(mockArgon2.hash).toHaveBeenCalledWith('newpassword1');
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { passwordHash: 'new-hashed-password', passwordResetTokenIssuedAt: null },
+      });
+      expect(auditService.log).toHaveBeenCalledWith({
+        userId: 'user-1',
+        action: 'PASSWORD_RESET_COMPLETED',
+        resource: 'User',
+        resourceId: 'user-1',
+      });
+      expect(result).toEqual({ message: 'Contraseña actualizada. Ya puedes iniciar sesión.' });
+    });
+  });
+
   describe('beginMfaSetup / confirmMfaSetup', () => {
     const setupToken = 'setup-token';
 
@@ -487,7 +661,9 @@ describe('AuthService', () => {
           role: Role.PROFESSIONAL,
           name: 'Test User',
         },
+        recoveryCodes: expect.arrayContaining([expect.any(String)]),
       });
+      expect(result.recoveryCodes).toHaveLength(10);
     });
   });
 
@@ -596,11 +772,12 @@ describe('AuthService', () => {
       );
     });
 
-    it('activa MFA en el camino feliz', async () => {
+    it('activa MFA, genera 10 recovery codes y audita en el camino feliz', async () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ mfaSecret: 'BASE32SECRET' }),
       );
       (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+      mockArgon2.hash.mockResolvedValue('hashed-code' as never);
 
       const result = await service.enableMfa('user-1', '123456');
 
@@ -608,7 +785,21 @@ describe('AuthService', () => {
         where: { id: 'user-1' },
         data: { mfaEnabled: true },
       });
-      expect(result).toEqual({ message: 'MFA activado correctamente' });
+      expect(prisma.mfaRecoveryCode.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1' },
+      });
+      expect(prisma.mfaRecoveryCode.createMany).toHaveBeenCalledWith({
+        data: Array(10).fill({ userId: 'user-1', codeHash: 'hashed-code' }),
+      });
+      expect(auditService.log).toHaveBeenCalledWith({
+        userId: 'user-1',
+        action: 'MFA_RECOVERY_CODES_GENERATED',
+        resource: 'User',
+        resourceId: 'user-1',
+      });
+      expect(result.message).toBe('MFA activado correctamente');
+      expect(result.recoveryCodes).toHaveLength(10);
+      expect(new Set(result.recoveryCodes).size).toBe(10);
     });
   });
 
@@ -645,6 +836,79 @@ describe('AuthService', () => {
         data: { mfaEnabled: false, mfaSecret: null },
       });
       expect(result).toEqual({ message: 'MFA desactivado correctamente' });
+    });
+  });
+
+  describe('recoverMfa', () => {
+    const dto = { email: 'user@example.com', password: 'password1', recoveryCode: 'a1b2-c3d4' };
+
+    it('lanza 401 genérico si el usuario no existe o está soft-deleted', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.recoverMfa(dto)).rejects.toThrow('Credenciales inválidas');
+    });
+
+    it('lanza 401 genérico si la contraseña es incorrecta', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser({ mfaEnabled: true }));
+      mockArgon2.verify.mockResolvedValue(false as never);
+
+      await expect(service.recoverMfa(dto)).rejects.toThrow('Credenciales inválidas');
+    });
+
+    it('lanza 401 si la cuenta no tiene MFA habilitado', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser({ mfaEnabled: false }));
+      mockArgon2.verify.mockResolvedValue(true as never);
+
+      await expect(service.recoverMfa(dto)).rejects.toThrow('MFA no está configurado');
+    });
+
+    it('lanza 401 si ningún código sin usar matchea', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser({ mfaEnabled: true }));
+      mockArgon2.verify
+        .mockResolvedValueOnce(true as never) // password
+        .mockResolvedValueOnce(false as never) // recovery code candidate #1
+        .mockResolvedValueOnce(false as never); // recovery code candidate #2
+      prisma.mfaRecoveryCode.findMany.mockResolvedValue([
+        { id: 'code-1', codeHash: 'hash-1' },
+        { id: 'code-2', codeHash: 'hash-2' },
+      ]);
+
+      await expect(service.recoverMfa(dto)).rejects.toThrow('Código de recuperación inválido');
+      expect(prisma.mfaRecoveryCode.findMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', usedAt: null },
+      });
+    });
+
+    it('camino feliz: consume el código, desactiva MFA y audita', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser({ mfaEnabled: true }));
+      mockArgon2.verify
+        .mockResolvedValueOnce(true as never) // password
+        .mockResolvedValueOnce(false as never) // recovery code candidate #1 (no matchea)
+        .mockResolvedValueOnce(true as never); // recovery code candidate #2 (matchea)
+      prisma.mfaRecoveryCode.findMany.mockResolvedValue([
+        { id: 'code-1', codeHash: 'hash-1' },
+        { id: 'code-2', codeHash: 'hash-2' },
+      ]);
+
+      const result = await service.recoverMfa(dto);
+
+      expect(prisma.mfaRecoveryCode.update).toHaveBeenCalledWith({
+        where: { id: 'code-2' },
+        data: { usedAt: expect.any(Date) },
+      });
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { mfaEnabled: false, mfaSecret: null },
+      });
+      expect(auditService.log).toHaveBeenCalledWith({
+        userId: 'user-1',
+        action: 'MFA_DISABLED_VIA_RECOVERY',
+        resource: 'User',
+        resourceId: 'user-1',
+      });
+      expect(result).toEqual({
+        message: 'MFA desactivado con el código de recuperación. Vuelve a habilitarlo cuanto antes.',
+      });
     });
   });
 });

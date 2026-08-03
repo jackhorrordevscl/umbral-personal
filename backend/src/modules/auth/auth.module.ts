@@ -183,6 +183,31 @@ export function buildAuthThrottlerOptions(
     60000,
   );
 
+  // Issue #50: password/forgot y password/reset, mismo criterio que
+  // verify-email/mfa-setup (rutas sin sesión, throttler propio para no
+  // compartir presupuesto con login/mfa-verify/signup). Comparten un único
+  // throttler nombrado por ser dos pasos de un mismo flujo.
+  const passwordResetLimit = parsePositiveInt(
+    config.get<string>('PASSWORD_RESET_THROTTLE_LIMIT'),
+    isTest ? 1000 : 5,
+  );
+  const passwordResetTtl = parsePositiveInt(
+    config.get<string>('PASSWORD_RESET_THROTTLE_TTL_MS'),
+    60000,
+  );
+
+  // Issue #50: mfa/recover, mismo criterio que password-reset -- ruta sin
+  // sesión que valida password + código de recuperación, necesita su propio
+  // presupuesto de intentos.
+  const mfaRecoverLimit = parsePositiveInt(
+    config.get<string>('MFA_RECOVER_THROTTLE_LIMIT'),
+    isTest ? 1000 : 5,
+  );
+  const mfaRecoverTtl = parsePositiveInt(
+    config.get<string>('MFA_RECOVER_THROTTLE_TTL_MS'),
+    60000,
+  );
+
   const trustedProxyHops = parsePositiveInt(
     config.get<string>('TRUSTED_PROXY_HOPS'),
     1,
@@ -196,6 +221,8 @@ export function buildAuthThrottlerOptions(
       { name: 'mfa-setup', limit: mfaSetupLimit, ttl: mfaSetupTtl },
       { name: 'password-change', limit: passwordChangeLimit, ttl: passwordChangeTtl },
       { name: 'verify-email', limit: verifyEmailLimit, ttl: verifyEmailTtl },
+      { name: 'password-reset', limit: passwordResetLimit, ttl: passwordResetTtl },
+      { name: 'mfa-recover', limit: mfaRecoverLimit, ttl: mfaRecoverTtl },
     ],
     getTracker: (req: Record<string, any>) =>
       getLoginTracker(req as Parameters<typeof getLoginTracker>[0], trustedProxyHops),

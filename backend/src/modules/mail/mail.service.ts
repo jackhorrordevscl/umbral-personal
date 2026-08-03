@@ -46,4 +46,31 @@ export class MailService {
       this.logger.error(`Falló el envío del email de verificación a ${to}: ${error.message}`);
     }
   }
+
+  async sendPasswordResetEmail(to: string, name: string, resetUrl: string): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn(
+        `RESEND_API_KEY no configurada: se salteó el envío del email de restablecimiento a ${to}.`,
+      );
+      return;
+    }
+
+    const { error } = await this.resend.emails.send({
+      from: this.from,
+      to,
+      subject: 'Restablece tu contraseña en Umbral SpA',
+      html: `
+        <p>Hola ${name},</p>
+        <p>Restablece tu contraseña haciendo clic en el siguiente enlace (válido por 30 minutos):</p>
+        <p><a href="${resetUrl}">${resetUrl}</a></p>
+        <p>Si no solicitaste este cambio, puedes ignorar este email; tu contraseña actual sigue siendo válida.</p>
+      `,
+    });
+
+    if (error) {
+      // Mismo motivo que sendVerificationEmail: no se relanza como excepción
+      // HTTP, forgotPassword ya respondió el mensaje genérico al cliente.
+      this.logger.error(`Falló el envío del email de restablecimiento a ${to}: ${error.message}`);
+    }
+  }
 }
