@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import {
   AlertCircle,
   ChevronRight,
@@ -181,15 +181,33 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
   const documents = documentsQuery.data ?? [];
   const history = historyQuery.data ?? [];
 
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Escape") onClose();
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+    <div
+      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+      onKeyDown={handleKeyDown}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="patient-modal-title"
+        className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col"
+      >
         <div className="flex items-start justify-between p-6 pb-0">
           <div>
-            <h3 className="font-display text-2xl text-slate-900">{selected.fullName}</h3>
+            <h3 id="patient-modal-title" className="font-display text-2xl text-slate-900">
+              {selected.fullName}
+            </h3>
             <p className="text-slate-400 text-sm font-mono">{displayRut(selected.rut)}</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 ml-4">
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600 ml-4"
+            aria-label="Cerrar"
+          >
             <X size={20} />
           </button>
         </div>
@@ -314,6 +332,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                         <button
                           onClick={() => handleDownloadDoc(doc.id, doc.fileName)}
                           className="p-1.5 hover:bg-sage-50 rounded-lg text-sage-600 shrink-0"
+                          aria-label={`Descargar ${doc.fileName}`}
                         >
                           <Download size={13} />
                         </button>
@@ -326,6 +345,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                     value={docType}
                     onChange={(e) => setDocType(e.target.value)}
                     className="input-field text-xs py-1.5 flex-1"
+                    aria-label="Tipo de documento a subir"
                   >
                     <option value="INFORMED_CONSENT">Consentimiento informado</option>
                     <option value="TELEMED_AGREEMENT">Acuerdo telemedicina</option>
@@ -372,26 +392,33 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                  <label htmlFor="edit-fullName" className="block text-xs font-medium text-slate-600 mb-1">
                     Nombre completo
                   </label>
                   <input
+                    id="edit-fullName"
                     className="input-field"
                     value={editForm.fullName ?? ""}
                     onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Teléfono</label>
+                  <label htmlFor="edit-phone" className="block text-xs font-medium text-slate-600 mb-1">
+                    Teléfono
+                  </label>
                   <input
+                    id="edit-phone"
                     className="input-field"
                     value={editForm.phone ?? ""}
                     onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Email</label>
+                  <label htmlFor="edit-email" className="block text-xs font-medium text-slate-600 mb-1">
+                    Email
+                  </label>
                   <input
+                    id="edit-email"
                     type="email"
                     className="input-field"
                     value={editForm.email ?? ""}
@@ -399,26 +426,36 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Ocupación</label>
+                  <label htmlFor="edit-occupation" className="block text-xs font-medium text-slate-600 mb-1">
+                    Ocupación
+                  </label>
                   <input
+                    id="edit-occupation"
                     className="input-field"
                     value={editForm.occupation ?? ""}
                     onChange={(e) => setEditForm({ ...editForm, occupation: e.target.value })}
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Dirección</label>
+                  <label htmlFor="edit-address" className="block text-xs font-medium text-slate-600 mb-1">
+                    Dirección
+                  </label>
                   <input
+                    id="edit-address"
                     className="input-field"
                     value={editForm.address ?? ""}
                     onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                  <label
+                    htmlFor="edit-emergencyContactName"
+                    className="block text-xs font-medium text-slate-600 mb-1"
+                  >
                     Contacto emergencia
                   </label>
                   <input
+                    id="edit-emergencyContactName"
                     className="input-field"
                     value={editForm.emergencyContactName ?? ""}
                     onChange={(e) =>
@@ -427,10 +464,14 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                  <label
+                    htmlFor="edit-emergencyContactPhone"
+                    className="block text-xs font-medium text-slate-600 mb-1"
+                  >
                     Teléfono emergencia
                   </label>
                   <input
+                    id="edit-emergencyContactPhone"
                     className="input-field"
                     value={editForm.emergencyContactPhone ?? ""}
                     onChange={(e) =>
@@ -439,10 +480,14 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                  <label
+                    htmlFor="edit-treatingPsychiatrist"
+                    className="block text-xs font-medium text-slate-600 mb-1"
+                  >
                     Psiquiatra tratante
                   </label>
                   <input
+                    id="edit-treatingPsychiatrist"
                     className="input-field"
                     value={editForm.treatingPsychiatrist ?? ""}
                     onChange={(e) =>
@@ -451,10 +496,14 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                  <label
+                    htmlFor="edit-treatingDoctor"
+                    className="block text-xs font-medium text-slate-600 mb-1"
+                  >
                     Médico tratante
                   </label>
                   <input
+                    id="edit-treatingDoctor"
                     className="input-field"
                     value={editForm.treatingDoctor ?? ""}
                     onChange={(e) => setEditForm({ ...editForm, treatingDoctor: e.target.value })}
@@ -485,10 +534,11 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
               </p>
 
               <div className="pt-2 border-t border-slate-100">
-                <label className="block text-xs font-medium text-slate-700 mb-1">
+                <label htmlFor="edit-reason" className="block text-xs font-medium text-slate-700 mb-1">
                   Motivo de la modificación <span className="text-red-500">*</span>
                 </label>
                 <textarea
+                  id="edit-reason"
                   className="input-field resize-none"
                   rows={3}
                   placeholder="Ej: Corrección de número telefónico a solicitud del paciente en consulta del 09/03/2026"

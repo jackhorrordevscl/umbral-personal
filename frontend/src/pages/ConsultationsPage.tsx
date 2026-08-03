@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle } from 'lucide-react';
 import api from '../api/client';
@@ -54,6 +54,7 @@ export default function ConsultationsPage() {
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState('');
   const [editingConsultation, setEditingConsultation] = useState<Consultation | null>(null);
+  const [editError, setEditError] = useState('');
   const [editForm, setEditForm] = useState({
     sessionDate: '', sessionTime: '09:00',
     consultReason: '', intervention: '', agreements: '',
@@ -94,9 +95,12 @@ export default function ConsultationsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['consultations'] });
       setEditingConsultation(null);
+      setEditError('');
     },
     onError: (err: any) => {
-      alert(err.response?.data?.message ?? 'Error al corregir sesión');
+      // Issue #41: banner rojo del propio formulario en vez de alert()
+      // nativo, mismo patrón que formError arriba.
+      setEditError(err.response?.data?.message ?? 'Error al corregir sesión');
     },
   });
 
@@ -135,6 +139,7 @@ export default function ConsultationsPage() {
       sessionType: c.sessionType,
     });
     setEditingConsultation(c);
+    setEditError('');
   };
 
   const handleEditSubmit = () => {
@@ -197,14 +202,14 @@ export default function ConsultationsPage() {
         <div className="card mb-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-display text-xl text-slate-900">Registrar Sesión</h3>
-            <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600">
+            <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600" aria-label="Cerrar">
               <X size={20} />
             </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-600 mb-1">Paciente *</label>
-              <select className="input-field" value={form.patientId}
+              <label htmlFor="consult-patientId" className="block text-xs font-medium text-slate-600 mb-1">Paciente *</label>
+              <select id="consult-patientId" className="input-field" value={form.patientId}
                 onChange={e => setForm({ ...form, patientId: e.target.value })}>
                 <option value="">Seleccionar paciente...</option>
                 {patients.map((p: Patient) => (
@@ -213,52 +218,52 @@ export default function ConsultationsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Fecha de sesión *</label>
-              <input type="date" className="input-field" value={form.sessionDate}
+              <label htmlFor="consult-sessionDate" className="block text-xs font-medium text-slate-600 mb-1">Fecha de sesión *</label>
+              <input id="consult-sessionDate" type="date" className="input-field" value={form.sessionDate}
                 onChange={e => setForm({ ...form, sessionDate: e.target.value })} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Hora de sesión *</label>
-              <input type="time" className="input-field" value={form.sessionTime}
+              <label htmlFor="consult-sessionTime" className="block text-xs font-medium text-slate-600 mb-1">Hora de sesión *</label>
+              <input id="consult-sessionTime" type="time" className="input-field" value={form.sessionTime}
                 onChange={e => setForm({ ...form, sessionTime: e.target.value })} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Tipo de sesión</label>
-              <select className="input-field" value={form.sessionType}
+              <label htmlFor="consult-sessionType" className="block text-xs font-medium text-slate-600 mb-1">Tipo de sesión</label>
+              <select id="consult-sessionType" className="input-field" value={form.sessionType}
                 onChange={e => setForm({ ...form, sessionType: e.target.value })}>
                 <option value="IN_PERSON">Presencial</option>
                 <option value="TELEMED">Telemedicina</option>
               </select>
             </div>
             <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-600 mb-1">Motivo de consulta *</label>
-              <textarea rows={2} className="input-field resize-none text-slate-800 placeholder-slate-400"
+              <label htmlFor="consult-consultReason" className="block text-xs font-medium text-slate-600 mb-1">Motivo de consulta *</label>
+              <textarea id="consult-consultReason" rows={2} className="input-field resize-none text-slate-800 placeholder-slate-400"
                 placeholder="Describe el motivo principal de la sesión..."
                 value={form.consultReason}
                 onChange={e => setForm({ ...form, consultReason: e.target.value })} />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-600 mb-1">Intervención realizada / Registro de evolución clínica *</label>
-              <textarea rows={3} className="input-field resize-none text-slate-800 placeholder-slate-400"
+              <label htmlFor="consult-intervention" className="block text-xs font-medium text-slate-600 mb-1">Intervención realizada / Registro de evolución clínica *</label>
+              <textarea id="consult-intervention" rows={3} className="input-field resize-none text-slate-800 placeholder-slate-400"
                 placeholder="Describe las técnicas e intervenciones realizadas durante la sesión..."
                 value={form.intervention}
                 onChange={e => setForm({ ...form, intervention: e.target.value })} />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-600 mb-1">Tareas y acuerdos</label>
-              <textarea rows={2} className="input-field resize-none text-slate-800 placeholder-slate-400"
+              <label htmlFor="consult-agreements" className="block text-xs font-medium text-slate-600 mb-1">Tareas y acuerdos</label>
+              <textarea id="consult-agreements" rows={2} className="input-field resize-none text-slate-800 placeholder-slate-400"
                 placeholder="Tareas asignadas, acuerdos terapéuticos, compromisos del paciente..."
                 value={form.agreements}
                 onChange={e => setForm({ ...form, agreements: e.target.value })} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Próxima sesión — Fecha</label>
-              <input type="date" className="input-field" value={form.nextSessionDate}
+              <label htmlFor="consult-nextSessionDate" className="block text-xs font-medium text-slate-600 mb-1">Próxima sesión — Fecha</label>
+              <input id="consult-nextSessionDate" type="date" className="input-field" value={form.nextSessionDate}
                 onChange={e => setForm({ ...form, nextSessionDate: e.target.value })} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Próxima sesión — Hora</label>
-              <input type="time" className="input-field" value={form.nextSessionTime}
+              <label htmlFor="consult-nextSessionTime" className="block text-xs font-medium text-slate-600 mb-1">Próxima sesión — Hora</label>
+              <input id="consult-nextSessionTime" type="time" className="input-field" value={form.nextSessionTime}
                 onChange={e => setForm({ ...form, nextSessionTime: e.target.value })} />
             </div>
           </div>
@@ -279,16 +284,31 @@ export default function ConsultationsPage() {
 
       {/* Modal edición */}
       {editingConsultation && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-auto">
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
+            if (e.key === 'Escape') { setEditingConsultation(null); setEditError(''); }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="correct-consultation-title"
+            className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-auto"
+          >
             <div className="flex items-start justify-between mb-2">
               <div>
-                <h3 className="font-display text-xl text-slate-900">Corregir Sesión</h3>
+                <h3 id="correct-consultation-title" className="font-display text-xl text-slate-900">
+                  Corregir Sesión
+                </h3>
                 <p className="text-xs text-slate-400 mt-1">
                   La versión actual quedará guardada en el historial de esta sesión.
                 </p>
               </div>
-              <button onClick={() => setEditingConsultation(null)} className="text-slate-400 hover:text-slate-600">
+              <button
+                onClick={() => { setEditingConsultation(null); setEditError(''); }}
+                className="text-slate-400 hover:text-slate-600"
+              >
                 <X size={20} />
               </button>
             </div>
@@ -300,57 +320,68 @@ export default function ConsultationsPage() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Fecha de sesión</label>
-                <input type="date" className="input-field" value={editForm.sessionDate}
+                <label htmlFor="correct-sessionDate" className="block text-xs font-medium text-slate-600 mb-1">Fecha de sesión</label>
+                <input id="correct-sessionDate" type="date" className="input-field" value={editForm.sessionDate}
                   onChange={e => setEditForm({ ...editForm, sessionDate: e.target.value })} />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Hora de sesión</label>
-                <input type="time" className="input-field" value={editForm.sessionTime}
+                <label htmlFor="correct-sessionTime" className="block text-xs font-medium text-slate-600 mb-1">Hora de sesión</label>
+                <input id="correct-sessionTime" type="time" className="input-field" value={editForm.sessionTime}
                   onChange={e => setEditForm({ ...editForm, sessionTime: e.target.value })} />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Tipo de sesión</label>
-                <select className="input-field" value={editForm.sessionType}
+                <label htmlFor="correct-sessionType" className="block text-xs font-medium text-slate-600 mb-1">Tipo de sesión</label>
+                <select id="correct-sessionType" className="input-field" value={editForm.sessionType}
                   onChange={e => setEditForm({ ...editForm, sessionType: e.target.value })}>
                   <option value="IN_PERSON">Presencial</option>
                   <option value="TELEMED">Telemedicina</option>
                 </select>
               </div>
               <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-slate-600 mb-1">Motivo de consulta</label>
-                <textarea rows={2} className="input-field resize-none text-slate-800 placeholder-slate-400"
+                <label htmlFor="correct-consultReason" className="block text-xs font-medium text-slate-600 mb-1">Motivo de consulta</label>
+                <textarea id="correct-consultReason" rows={2} className="input-field resize-none text-slate-800 placeholder-slate-400"
                   value={editForm.consultReason}
                   onChange={e => setEditForm({ ...editForm, consultReason: e.target.value })} />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-slate-600 mb-1">Intervención realizada</label>
-                <textarea rows={3} className="input-field resize-none text-slate-800 placeholder-slate-400"
+                <label htmlFor="correct-intervention" className="block text-xs font-medium text-slate-600 mb-1">Intervención realizada</label>
+                <textarea id="correct-intervention" rows={3} className="input-field resize-none text-slate-800 placeholder-slate-400"
                   value={editForm.intervention}
                   onChange={e => setEditForm({ ...editForm, intervention: e.target.value })} />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-slate-600 mb-1">Tareas y acuerdos</label>
-                <textarea rows={2} className="input-field resize-none text-slate-800 placeholder-slate-400"
+                <label htmlFor="correct-agreements" className="block text-xs font-medium text-slate-600 mb-1">Tareas y acuerdos</label>
+                <textarea id="correct-agreements" rows={2} className="input-field resize-none text-slate-800 placeholder-slate-400"
                   value={editForm.agreements}
                   onChange={e => setEditForm({ ...editForm, agreements: e.target.value })} />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Próxima sesión — Fecha</label>
-                <input type="date" className="input-field" value={editForm.nextSessionDate}
+                <label htmlFor="correct-nextSessionDate" className="block text-xs font-medium text-slate-600 mb-1">Próxima sesión — Fecha</label>
+                <input id="correct-nextSessionDate" type="date" className="input-field" value={editForm.nextSessionDate}
                   onChange={e => setEditForm({ ...editForm, nextSessionDate: e.target.value })} />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Próxima sesión — Hora</label>
-                <input type="time" className="input-field" value={editForm.nextSessionTime}
+                <label htmlFor="correct-nextSessionTime" className="block text-xs font-medium text-slate-600 mb-1">Próxima sesión — Hora</label>
+                <input id="correct-nextSessionTime" type="time" className="input-field" value={editForm.nextSessionTime}
                   onChange={e => setEditForm({ ...editForm, nextSessionTime: e.target.value })} />
               </div>
             </div>
+            {editError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-4 flex items-center gap-2">
+                <AlertCircle size={14} className="text-red-500 shrink-0" />
+                <p className="text-red-600 text-sm">{editError}</p>
+              </div>
+            )}
             <div className="flex gap-3 mt-6">
               <button onClick={handleEditSubmit} className="btn-primary" disabled={correctMutation.isPending}>
                 {correctMutation.isPending ? 'Guardando...' : 'Guardar corrección'}
               </button>
-              <button onClick={() => setEditingConsultation(null)} className="btn-secondary">Cancelar</button>
+              <button
+                onClick={() => { setEditingConsultation(null); setEditError(''); }}
+                className="btn-secondary"
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         </div>

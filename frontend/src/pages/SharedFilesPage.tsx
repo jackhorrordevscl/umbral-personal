@@ -1,10 +1,11 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, type KeyboardEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Upload, Download, Trash2, FileText, Image,
   BookOpen, File, Search, X, Plus, AlertCircle, Pencil, ExternalLink,
 } from 'lucide-react';
 import api from '../api/client';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
 
 const CATEGORIES = [
   { value: '', label: 'Todos' },
@@ -60,6 +61,7 @@ export default function SharedFilesPage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [uploadError, setUploadError] = useState('');
+  const [fileToDelete, setFileToDelete] = useState<SharedFile | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
@@ -146,8 +148,10 @@ export default function SharedFilesPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('¿Eliminar este archivo del repositorio?')) return;
+  const handleConfirmDelete = async () => {
+    if (!fileToDelete) return;
+    const id = fileToDelete.id;
+    setFileToDelete(null);
     try {
       await api.delete(`/shared-files/${id}`);
       queryClient.invalidateQueries({ queryKey: ['shared-files'] });
@@ -253,8 +257,16 @@ export default function SharedFilesPage() {
             <div key={file.id} className="card p-4 flex items-center gap-4 hover:shadow-md transition-shadow">
               <div className="flex-shrink-0">{categoryIcon(file.category)}</div>
               <div
+                role="button"
+                tabIndex={0}
                 className="flex-1 min-w-0 cursor-pointer"
                 onClick={() => handlePreview(file)}
+                onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handlePreview(file);
+                  }
+                }}
                 title="Clic para abrir en nueva pestaña"
               >
                 <p className="font-medium text-slate-800 truncate hover:text-sage-600 transition-colors flex items-center gap-1">
@@ -275,15 +287,18 @@ export default function SharedFilesPage() {
               </span>
               <div className="flex items-center gap-1 shrink-0">
                 <button onClick={() => handleOpenEdit(file)}
-                  className="p-2 rounded-lg hover:bg-blue-50 text-blue-400 transition-colors" title="Editar">
+                  className="p-2 rounded-lg hover:bg-blue-50 text-blue-400 transition-colors" title="Editar"
+                  aria-label={`Editar ${file.name}`}>
                   <Pencil className="w-4 h-4" />
                 </button>
                 <button onClick={() => handleDownload(file)}
-                  className="p-2 rounded-lg hover:bg-sage-50 text-sage-600 transition-colors" title="Descargar">
+                  className="p-2 rounded-lg hover:bg-sage-50 text-sage-600 transition-colors" title="Descargar"
+                  aria-label={`Descargar ${file.name}`}>
                   <Download className="w-4 h-4" />
                 </button>
-                <button onClick={() => handleDelete(file.id)}
-                  className="p-2 rounded-lg hover:bg-red-50 text-red-500 transition-colors" title="Eliminar">
+                <button onClick={() => setFileToDelete(file)}
+                  className="p-2 rounded-lg hover:bg-red-50 text-red-500 transition-colors" title="Eliminar"
+                  aria-label={`Eliminar ${file.name}`}>
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
@@ -294,11 +309,23 @@ export default function SharedFilesPage() {
 
       {/* Modal subir archivo */}
       {showUpload && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl p-6">
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
+            if (e.key === 'Escape') setShowUpload(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="upload-file-title"
+            className="bg-white rounded-2xl w-full max-w-md shadow-xl p-6"
+          >
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-slate-800">Subir archivo</h2>
-              <button onClick={() => setShowUpload(false)}>
+              <h2 id="upload-file-title" className="text-lg font-semibold text-slate-800">
+                Subir archivo
+              </h2>
+              <button onClick={() => setShowUpload(false)} aria-label="Cerrar">
                 <X className="w-5 h-5 text-slate-400 hover:text-slate-600" />
               </button>
             </div>
@@ -346,10 +373,11 @@ export default function SharedFilesPage() {
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
+                <label htmlFor="upload-name" className="block text-xs font-medium text-slate-600 mb-1">
                   Nombre del archivo <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="upload-name"
                   type="text"
                   placeholder="Ej: Protocolo de atención 2026"
                   value={form.name}
@@ -361,6 +389,7 @@ export default function SharedFilesPage() {
                 value={form.category}
                 onChange={e => setForm(prev => ({ ...prev, category: e.target.value }))}
                 className="input-field"
+                aria-label="Categoría del archivo"
               >
                 {CATEGORIES.filter(c => c.value).map(c => (
                   <option key={c.value} value={c.value}>{c.label}</option>
@@ -372,6 +401,7 @@ export default function SharedFilesPage() {
                 onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))}
                 rows={2}
                 className="input-field resize-none"
+                aria-label="Descripción del archivo"
               />
             </div>
 
@@ -403,21 +433,34 @@ export default function SharedFilesPage() {
 
       {/* Modal editar archivo */}
       {editingFile && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl p-6">
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
+            if (e.key === 'Escape') setEditingFile(null);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-file-title"
+            className="bg-white rounded-2xl w-full max-w-md shadow-xl p-6"
+          >
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-slate-800">Editar archivo</h2>
-              <button onClick={() => setEditingFile(null)}>
+              <h2 id="edit-file-title" className="text-lg font-semibold text-slate-800">
+                Editar archivo
+              </h2>
+              <button onClick={() => setEditingFile(null)} aria-label="Cerrar">
                 <X className="w-5 h-5 text-slate-400 hover:text-slate-600" />
               </button>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
+                <label htmlFor="edit-file-name" className="block text-xs font-medium text-slate-600 mb-1">
                   Nombre <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="edit-file-name"
                   type="text"
                   value={editForm.name}
                   onChange={e => setEditForm(prev => ({ ...prev, name: e.target.value }))}
@@ -425,8 +468,9 @@ export default function SharedFilesPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Categoría</label>
+                <label htmlFor="edit-file-category" className="block text-xs font-medium text-slate-600 mb-1">Categoría</label>
                 <select
+                  id="edit-file-category"
                   value={editForm.category}
                   onChange={e => setEditForm(prev => ({ ...prev, category: e.target.value }))}
                   className="input-field"
@@ -437,8 +481,9 @@ export default function SharedFilesPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Descripción</label>
+                <label htmlFor="edit-file-description" className="block text-xs font-medium text-slate-600 mb-1">Descripción</label>
                 <textarea
+                  id="edit-file-description"
                   value={editForm.description}
                   onChange={e => setEditForm(prev => ({ ...prev, description: e.target.value }))}
                   rows={3}
@@ -471,6 +516,15 @@ export default function SharedFilesPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {fileToDelete && (
+        <ConfirmDialog
+          title="Eliminar archivo"
+          message={`¿Eliminar "${fileToDelete.name}" del repositorio?`}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setFileToDelete(null)}
+        />
       )}
     </div>
   );

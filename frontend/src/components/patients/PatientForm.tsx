@@ -48,24 +48,28 @@ export default function PatientForm({
     <div className="card mb-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-display text-xl text-slate-900">Nueva Ficha</h3>
-        <button onClick={onCancel} className="text-slate-400 hover:text-slate-600">
+        <button onClick={onCancel} className="text-slate-400 hover:text-slate-600" aria-label="Cerrar">
           <X size={20} />
         </button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
+          <label htmlFor="patient-fullName" className="block text-xs font-medium text-slate-600 mb-1">
             Nombre completo *
           </label>
           <input
+            id="patient-fullName"
             className="input-field"
             value={form.fullName}
             onChange={(e) => onChange({ ...form, fullName: e.target.value })}
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">RUT *</label>
+          <label htmlFor="patient-rut" className="block text-xs font-medium text-slate-600 mb-1">
+            RUT *
+          </label>
           <input
+            id="patient-rut"
             className={`input-field ${rutError ? "border-red-300 focus:ring-red-200" : ""}`}
             placeholder="12.345.678-9"
             value={form.rut}
@@ -79,10 +83,11 @@ export default function PatientForm({
           )}
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
+          <label htmlFor="patient-birthDate" className="block text-xs font-medium text-slate-600 mb-1">
             Fecha de nacimiento *
           </label>
           <input
+            id="patient-birthDate"
             type="date"
             className="input-field"
             value={form.birthDate}
@@ -90,24 +95,33 @@ export default function PatientForm({
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Ocupación</label>
+          <label htmlFor="patient-occupation" className="block text-xs font-medium text-slate-600 mb-1">
+            Ocupación
+          </label>
           <input
+            id="patient-occupation"
             className="input-field"
             value={form.occupation}
             onChange={(e) => onChange({ ...form, occupation: e.target.value })}
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Teléfono</label>
+          <label htmlFor="patient-phone" className="block text-xs font-medium text-slate-600 mb-1">
+            Teléfono
+          </label>
           <input
+            id="patient-phone"
             className="input-field"
             value={form.phone}
             onChange={(e) => onChange({ ...form, phone: e.target.value })}
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Email</label>
+          <label htmlFor="patient-email" className="block text-xs font-medium text-slate-600 mb-1">
+            Email
+          </label>
           <input
+            id="patient-email"
             type="email"
             className="input-field"
             value={form.email}
@@ -115,38 +129,53 @@ export default function PatientForm({
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Dirección</label>
+          <label htmlFor="patient-address" className="block text-xs font-medium text-slate-600 mb-1">
+            Dirección
+          </label>
           <input
+            id="patient-address"
             className="input-field"
             value={form.address}
             onChange={(e) => onChange({ ...form, address: e.target.value })}
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
+          <label
+            htmlFor="patient-emergencyContactName"
+            className="block text-xs font-medium text-slate-600 mb-1"
+          >
             Contacto emergencia
           </label>
           <input
+            id="patient-emergencyContactName"
             className="input-field"
             value={form.emergencyContactName}
             onChange={(e) => onChange({ ...form, emergencyContactName: e.target.value })}
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
+          <label
+            htmlFor="patient-emergencyContactPhone"
+            className="block text-xs font-medium text-slate-600 mb-1"
+          >
             Teléfono emergencia
           </label>
           <input
+            id="patient-emergencyContactPhone"
             className="input-field"
             value={form.emergencyContactPhone}
             onChange={(e) => onChange({ ...form, emergencyContactPhone: e.target.value })}
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
+          <label
+            htmlFor="patient-treatingPsychiatrist"
+            className="block text-xs font-medium text-slate-600 mb-1"
+          >
             Psiquiatra tratante
           </label>
           <input
+            id="patient-treatingPsychiatrist"
             className="input-field"
             value={form.treatingPsychiatrist}
             onChange={(e) => onChange({ ...form, treatingPsychiatrist: e.target.value })}

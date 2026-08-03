@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
+import type { KeyboardEvent } from "react";
 import { Users, ClipboardList, FileText, Calendar, AlertCircle } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router";
 import api from "../api/client";
+import { getConsultationStats } from "../api/consultations";
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -13,26 +15,29 @@ export default function DashboardPage() {
     queryFn: () => api.get("/patients").then((r) => r.data),
   });
 
-  // Reusa los pacientes ya cargados en vez de volver a pedir GET /patients
-  // (issue #21): antes esta query traía la lista de pacientes por su cuenta,
-  // duplicando la llamada de arriba.
-  const patientIds = patients.map((p: any) => p.id);
-  const { data: consultations = [], isError: consultationsError } = useQuery({
-    queryKey: ["consultations-all", patientIds],
-    queryFn: async () => {
-      const all = await Promise.all(
-        patientIds.map((id: string) =>
-          api.get(`/consultations/patient/${id}`).then((c) => c.data),
-        ),
-      );
-      return all.flat();
-    },
-    enabled: patientIds.length > 0,
+  // Issue #40: antes esto era un GET /consultations/patient/:id por cada
+  // paciente vía Promise.all (N+1) solo para contar filas. El backend ahora
+  // agrega el conteo en una sola consulta.
+  const {
+    data: consultationStats = { total: 0, upcoming: 0 },
+    isError: consultationsError,
+  } = useQuery({
+    queryKey: ["consultation-stats"],
+    queryFn: getConsultationStats,
   });
 
   // Un fetch fallido no debe verse igual que "todavía no hay datos" -- son
   // estadísticas clínicas, no un estado vacío benigno (issue #23).
   const hasLoadError = patientsError || consultationsError;
+
+  // Issue #42: las tarjetas/filas clickeables eran <div onClick> sin rol ni
+  // manejo de teclado, inalcanzables navegando solo con Tab/Enter.
+  const activateOnKey = (fn: () => void) => (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      fn();
+    }
+  };
 
   const stats = [
     {
@@ -45,7 +50,7 @@ export default function DashboardPage() {
     },
     {
       label: "Consultas registradas",
-      value: consultations.length,
+      value: consultationStats.total,
       icon: ClipboardList,
       color: "text-blue-600",
       bg: "bg-blue-50",
@@ -65,10 +70,7 @@ export default function DashboardPage() {
     },
     {
       label: "Próximas sesiones",
-      value: consultations.filter(
-        (c: any) =>
-          c.nextSessionDate && new Date(c.nextSessionDate) >= new Date(),
-      ).length,
+      value: consultationStats.upcoming,
       icon: Calendar,
       color: "text-amber-600",
       bg: "bg-amber-50",
@@ -107,7 +109,10 @@ export default function DashboardPage() {
             {stats.map((stat) => (
               <div
                 key={stat.label}
+                role="button"
+                tabIndex={0}
                 onClick={() => navigate(stat.route)}
+                onKeyDown={activateOnKey(() => navigate(stat.route))}
                 className="card flex items-center gap-3 p-4 md:p-6 cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all"
               >
                 <div className={`${stat.bg} p-2 md:p-3 rounded-lg shrink-0`}>
@@ -145,7 +150,10 @@ export default function DashboardPage() {
                 {patients.slice(0, 5).map((p: any) => (
                   <div
                     key={p.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => navigate("/patients")}
+                    onKeyDown={activateOnKey(() => navigate("/patients"))}
                     className="py-3 flex items-center justify-between gap-2 cursor-pointer hover:bg-cream-50 rounded-lg px-2 -mx-2 transition-colors"
                   >
                     <div className="min-w-0">

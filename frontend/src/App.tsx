@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, lazy, Suspense } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -10,17 +10,39 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { useIdleTimeout } from "./hooks/useIdleTimeout";
 import IdleWarningModal from "./components/IdleWarningModal";
-import LoginPage from "./pages/LoginPage";
-import SignupPage from "./pages/SignupPage";
-import VerifyEmailPage from "./pages/VerifyEmailPage";
-import DashboardPage from "./pages/DashboardPage";
-import PatientsPage from "./pages/PatientsPage";
-import ConsultationsPage from "./pages/ConsultationsPage";
 import Layout from "./components/Layout";
-import SettingsPage from "./pages/SettingsPage";
-import SharedFilesPage from "./pages/SharedFilesPage";
 
-const queryClient = new QueryClient();
+// Issue #43: code-splitting por ruta -- sin esto, las 9 páginas (incluidas
+// login/signup/verify, que se ven una sola vez) iban todas en el bundle
+// inicial.
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const SignupPage = lazy(() => import("./pages/SignupPage"));
+const VerifyEmailPage = lazy(() => import("./pages/VerifyEmailPage"));
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const PatientsPage = lazy(() => import("./pages/PatientsPage"));
+const ConsultationsPage = lazy(() => import("./pages/ConsultationsPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const SharedFilesPage = lazy(() => import("./pages/SharedFilesPage"));
+
+function RouteFallback() {
+  return (
+    <div className="flex items-center justify-center min-h-screen text-slate-400 text-sm">
+      Cargando...
+    </div>
+  );
+}
+
+// Issue #39: sin staleTime, cada montaje de página (p. ej. navegar entre
+// pestañas) refetchea aunque el dato siga fresco -- 30s es suficiente para
+// evitar llamadas redundantes sin arriesgar mostrar datos viejos por mucho
+// tiempo en un sistema clínico.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+    },
+  },
+});
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -61,26 +83,28 @@ function IdleManager() {
 
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/login" replace />} />
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/signup" element={<SignupPage />} />
-      <Route path="/verify-email" element={<VerifyEmailPage />} />
+    <Suspense fallback={<RouteFallback />}>
+      <Routes>
+        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
 
-      <Route
-        element={
-          <PrivateRoute>
-            <Layout />
-          </PrivateRoute>
-        }
-      >
-        <Route path="dashboard" element={<DashboardPage />} />
-        <Route path="patients" element={<PatientsPage />} />
-        <Route path="consultations" element={<ConsultationsPage />} />
-        <Route path="settings" element={<SettingsPage />} />
-        <Route path="archivos" element={<SharedFilesPage />} />
-      </Route>
-    </Routes>
+        <Route
+          element={
+            <PrivateRoute>
+              <Layout />
+            </PrivateRoute>
+          }
+        >
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="patients" element={<PatientsPage />} />
+          <Route path="consultations" element={<ConsultationsPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route path="archivos" element={<SharedFilesPage />} />
+        </Route>
+      </Routes>
+    </Suspense>
   );
 }
 

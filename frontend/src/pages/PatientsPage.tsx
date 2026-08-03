@@ -7,6 +7,7 @@ import { downloadBlob } from "../utils/download";
 import { usePatients, useCreatePatient, useDeletePatient } from "../hooks/usePatients";
 import PatientForm, { type PatientFormValues } from "../components/patients/PatientForm";
 import PatientModal from "../components/patients/PatientModal";
+import ConfirmDialog from "../components/ui/ConfirmDialog";
 import { EMPTY_CONSENTS, type ConsentStatus, type Patient } from "../types/patient";
 
 const emptyForm: PatientFormValues = {
@@ -32,6 +33,7 @@ export default function PatientsPage() {
   const [listError, setListError] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [modalIntent, setModalIntent] = useState<ModalIntent>(null);
+  const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
 
   const [form, setForm] = useState<PatientFormValues>(emptyForm);
   const [formConsents, setFormConsents] = useState<ConsentStatus>(EMPTY_CONSENTS);
@@ -91,12 +93,13 @@ export default function PatientsPage() {
     );
   };
 
-  const handleDelete = (p: Patient) => {
-    if (!confirm(`¿Eliminar a "${p.fullName}"? Esta acción no se puede deshacer.`)) return;
-    deleteMutation.mutate(p.id, {
+  const handleConfirmDelete = () => {
+    if (!patientToDelete) return;
+    deleteMutation.mutate(patientToDelete.id, {
       onSuccess: () => setListError(""),
       onError: (err) => setListError(getApiErrorMessage(err, "No se pudo eliminar el paciente")),
     });
+    setPatientToDelete(null);
   };
 
   const handleDownloadReport = async (p: Patient) => {
@@ -209,6 +212,7 @@ export default function PatientsPage() {
                         onClick={() => setModalIntent({ patient: p, tab: "detail" })}
                         className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"
                         title="Ver detalle"
+                        aria-label={`Ver detalle de ${p.fullName}`}
                       >
                         <Eye size={15} />
                       </button>
@@ -216,6 +220,7 @@ export default function PatientsPage() {
                         onClick={() => setModalIntent({ patient: p, tab: "edit" })}
                         className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-400 transition-colors"
                         title="Editar"
+                        aria-label={`Editar a ${p.fullName}`}
                       >
                         <Pencil size={15} />
                       </button>
@@ -223,13 +228,15 @@ export default function PatientsPage() {
                         onClick={() => handleDownloadReport(p)}
                         className="p-1.5 hover:bg-sage-50 rounded-lg text-sage-600 transition-colors"
                         title="Descargar PDF"
+                        aria-label={`Descargar ficha PDF de ${p.fullName}`}
                       >
                         <Download size={15} />
                       </button>
                       <button
-                        onClick={() => handleDelete(p)}
+                        onClick={() => setPatientToDelete(p)}
                         className="p-1.5 hover:bg-red-50 rounded-lg text-red-400 transition-colors"
                         title="Eliminar"
+                        aria-label={`Eliminar a ${p.fullName}`}
                       >
                         <Trash2 size={15} />
                       </button>
@@ -289,7 +296,7 @@ export default function PatientsPage() {
                   <Download size={13} /> PDF
                 </button>
                 <button
-                  onClick={() => handleDelete(p)}
+                  onClick={() => setPatientToDelete(p)}
                   className="text-xs py-1 px-2 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 flex items-center gap-1"
                 >
                   <Trash2 size={13} />
@@ -306,6 +313,15 @@ export default function PatientsPage() {
           patient={modalIntent.patient}
           initialTab={modalIntent.tab}
           onClose={() => setModalIntent(null)}
+        />
+      )}
+
+      {patientToDelete && (
+        <ConfirmDialog
+          title="Eliminar paciente"
+          message={`¿Eliminar a "${patientToDelete.fullName}"? Esta acción no se puede deshacer.`}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setPatientToDelete(null)}
         />
       )}
     </div>
