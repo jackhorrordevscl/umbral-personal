@@ -8,17 +8,27 @@ Esta no es una app de e-commerce donde lo peor que puede pasar es un carrito de 
 
 Tu trabajo hoy no es "usar la app": es **tratar de romperla a propósito**, de la forma en que la rompería un día real y desordenado — con interrupciones, errores de tipeo, decisiones a medio camino. Cuanto más "caótico" seas probando, más útil es tu reporte.
 
+Un detalle importante: Umbral es una app **individual** — tu cuenta es tuya y solo tuya, sin roles ni jerarquías. No vas a tener una segunda cuenta "de otro tipo" para probar; todo lo que hagas hoy es con la única cuenta que crees.
+
 ---
 
 ## La historia: un día de la Dra. Constanza
 
 Vas a encarnar a una terapeuta ficticia. Sigue la historia paso a paso, en el orden que aparece — no saltes partes, porque algunos pasos dependen de los anteriores.
 
+### 8:45 — Antes de empezar: crea tu cuenta
+
+Si todavía no tienes una cuenta, créala ahora: en el login, haz clic en "Regístrate", completa nombre, email y contraseña, y confirma el enlace que te llega por correo (revisa spam si no aparece en unos minutos) — sin este paso no vas a poder loguear.
+
+> 📝 Anota: ¿el mensaje de "revisa tu email" te dejó claro qué esperar? ¿el enlace de verificación funcionó al primer clic?
+
 ### 9:00 — Llegas a trabajar
 
-Inicias sesión en Umbral. *(Si tu cuenta es `ADMIN`/`SUPERVISOR`, te va a pedir activar MFA la primera vez — sigue el proceso con tu app autenticadora.)*
+Inicia sesión en Umbral. En tu primer login exitoso, la app te va a pedir activar MFA — es obligatorio para toda cuenta, no hay forma de saltarlo. Escanea el código QR con tu app autenticadora (Google Authenticator, Authy, o similar) y confirma el código de 6 dígitos.
 
-> 📝 Anota: ¿el login se sintió confuso en algún paso? ¿el mensaje de error, si te equivocaste de contraseña a propósito, te dijo algo útil?
+**Antes de seguir, guarda los 10 códigos de recuperación** que la pantalla te muestra justo después — se muestran una única vez. Anótalos en un gestor de contraseñas o imprímelos; los vas a necesitar más adelante si alguna vez pierdes el celular con tu app autenticadora.
+
+> 📝 Anota: ¿el login se sintió confuso en algún paso? ¿quedó claro que esos 10 códigos no se vuelven a mostrar? ¿el mensaje de error, si te equivocaste de contraseña a propósito, te dijo algo útil?
 
 ### 9:15 — Tu primera paciente nueva: Antonia
 
@@ -30,12 +40,12 @@ Deja el teléfono y el email en blanco, tal como indica el perfil.
 
 ### 9:20 — El consentimiento incómodo
 
-Antes de la primera sesión, tienes que registrar los consentimientos de Antonia. Su madre autoriza **Tratamiento**, pero **duda** sobre "Red de salud" — no quiere que la ficha se comparta con otros profesionales de la institución todavía.
+Antes de la primera sesión, tienes que registrar los consentimientos de Antonia. Su madre autoriza **Tratamiento** sin dudar, pero pide tiempo para pensar la modalidad de **Telemedicina** — prefiere que, por ahora, las sesiones sean presenciales.
 
 - Otorga el consentimiento de **Tratamiento** (evidencia: "Autorización firmada por la madre en admisión").
-- **No** otorgues el de "Red de salud" — déjalo sin marcar.
+- **No** otorgues el de **Telemedicina** — déjalo sin marcar.
 
-> 📝 Anota: ¿quedó claro en la pantalla que "Red de salud" es opcional y distinto de "Tratamiento"? ¿Si no marcas nada, la app te lo permite seguir sin bloquear el resto del flujo?
+> 📝 Anota: ¿quedó claro en la pantalla que "Tratamiento" y "Telemedicina" son dos consentimientos independientes? ¿la app te avisa de algún modo si más adelante intentas registrar una consulta por telemedicina sin ese consentimiento otorgado, o simplemente lo permite sin decir nada?
 
 ### 9:30 — La primera sesión
 
@@ -58,7 +68,7 @@ Al revisar la consulta que registraste, te das cuenta de que pusiste "Presencial
 
 ### 10:15 — Un segundo paciente, con historia clínica más cargada
 
-Carga a **Jorge Luis Ramírez Peña** (perfil #4 — el adulto mayor con el email con tilde). Otórgale los tres consentimientos, con evidencia distinta para cada uno. Súbele un documento (un PDF cualquiera, o una foto tuya guardada como .jpg).
+Carga a **Jorge Luis Ramírez Peña** (perfil #4 — el adulto mayor con el email con tilde). Otórgale los dos consentimientos (Tratamiento y Telemedicina), con evidencia distinta para cada uno. Súbele un documento (un PDF cualquiera, o una foto tuya guardada como .jpg).
 
 Intenta también subir un archivo que **no** sea PDF ni imagen (un .docx, por ejemplo) — a propósito, para que falle.
 
@@ -76,15 +86,14 @@ Cierra sesión manualmente (no esperes a que expire sola). Vuelve a entrar. Conf
 
 ---
 
-## Si tienes una cuenta de rol distinto a THERAPIST
+## Si te queda tiempo: prueba la recuperación de cuenta
 
-Si además te dieron una segunda cuenta (`COORDINATOR`, `SUPERVISOR` o `ADMIN`), repite esta parte:
+Esta es la parte más sensible de toda la app — es la única puerta de salida si pierdes la clave o el dispositivo MFA, así que vale la pena estresarla a propósito:
 
-- Entra con esa segunda cuenta e intenta ver la ficha de Antonia o Jorge, que creaste con la cuenta de `THERAPIST`.
-- Fíjate qué pasa: ¿te deja ver todo, te bloquea, o depende del consentimiento "Red de Salud" que le diste (o no) a ese paciente? Con `SUPERVISOR`, prueba también qué pasa si el paciente NO tiene ese consentimiento otorgado — deberías ver una opción de "acceso excepcional" que te pide escribir un motivo.
-- `ADMIN` no debería poder ver la ficha bajo ningún caso — si te deja entrar, es un bug, avísalo.
+- **Olvidaste la contraseña**: cierra sesión, y desde el login haz clic en "¿Olvidaste tu contraseña?". Pide el enlace con tu email, revisa tu correo, y restablece la contraseña. Después inicia sesión con la contraseña nueva — la vieja ya no debería funcionar.
+- **Perdiste el dispositivo MFA**: desde la pantalla donde te pide el código de 6 dígitos, haz clic en "¿Perdiste el dispositivo MFA?" y usa uno de los 10 códigos de recuperación que guardaste en el paso de las 9:00. Confirma que MFA queda desactivado y que el próximo login te vuelve a pedir enrolarlo desde cero (nuevo QR, nueva tanda de códigos).
 
-> 📝 Anota exactamente qué rol vio qué — esto es lo más sensible de toda la app (quién puede ver los datos de quién), así que cualquier cosa que te resulte "raro" acá, avísala aunque no estés seguro de si es un bug.
+> 📝 Anota: ¿alguno de los dos flujos te dejó en un estado confuso (por ejemplo, sin saber si quedaste logueado o no)? ¿los mensajes de error, si probaste con datos incorrectos a propósito, fueron claros?
 
 ---
 
@@ -92,7 +101,7 @@ Si además te dieron una segunda cuenta (`COORDINATOR`, `SUPERVISOR` o `ADMIN`),
 
 No hace falta que escribas un informe formal. Elige lo que te resulte más cómodo:
 
-1. **Directo en `docs/manual-terapeutas.md`**, en los espacios `📝 Observaciones UX` de cada sección — así queda todo junto y ordenado por tema.
+1. **Directo en el manual de uso (PDF o `docs/manual-terapeutas.md`)**, en los espacios "📝 Observaciones UX" de cada sección — así queda todo junto y ordenado por tema.
 2. **Una lista simple** con capturas de pantalla de lo que te pareció raro, y me la pasas.
 3. **Contándomelo en la conversación**, como vienes haciendo — yo lo reviso contra el código para confirmar si es comportamiento esperado o un bug real.
 
