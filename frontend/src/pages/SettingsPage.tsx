@@ -3,6 +3,7 @@ import { ShieldCheck, ShieldOff, QrCode } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
+import RecoveryCodesReveal from '../components/RecoveryCodesReveal';
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -13,6 +14,10 @@ export default function SettingsPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'idle' | 'scan' | 'verify' | 'done'>('idle');
+  // Issue #50: mfa/enable entrega recoveryCodes en la misma respuesta, una
+  // única vez -- se muestran antes del estado "MFA activo" normal, no junto
+  // a él, para no perderlos entre el resto del contenido de esa pantalla.
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
 
   const handleGenerateQR = async () => {
     setLoading(true);
@@ -33,7 +38,8 @@ export default function SettingsPage() {
     setLoading(true);
     setError('');
     try {
-      await api.post('/auth/mfa/enable', { token });
+      const res = await api.post('/auth/mfa/enable', { token });
+      setRecoveryCodes(res.data.recoveryCodes ?? null);
       setMessage('MFA activado correctamente. Tu cuenta ahora requiere doble factor.');
       setStep('done');
     } catch (err) {
@@ -150,7 +156,15 @@ export default function SettingsPage() {
         )}
 
         {/* Paso 4: MFA activo — desactivar */}
-        {step === 'done' && (
+        {step === 'done' && recoveryCodes && (
+          <RecoveryCodesReveal
+            codes={recoveryCodes}
+            continueLabel="Ya guardé mis códigos"
+            onContinue={() => setRecoveryCodes(null)}
+          />
+        )}
+
+        {step === 'done' && !recoveryCodes && (
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-emerald-600">
               <ShieldCheck size={18} />

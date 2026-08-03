@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
+import RecoveryCodesReveal from '../components/RecoveryCodesReveal';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -29,6 +30,15 @@ export default function LoginPage() {
   const [passwordChangeRequired, setPasswordChangeRequired] = useState(false);
   const [passwordChangeToken, setPasswordChangeToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  // Issue #50: mfa/setup/confirm entrega accessToken + recoveryCodes en la
+  // misma respuesta, pero los códigos solo se muestran una vez -- se retiene
+  // el login hasta que el usuario confirma haberlos guardado, en vez de
+  // loguear directo y perder la única oportunidad de mostrarlos.
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [pendingAuth, setPendingAuth] = useState<{
+    accessToken: string;
+    user: { id: string; email: string; role: string; name: string };
+  } | null>(null);
 
   const { register, handleSubmit, formState: { errors } } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
@@ -135,14 +145,36 @@ export default function LoginPage() {
         setupToken,
         token: setupMfaCode,
       });
-      login(res.data.accessToken, res.data.user);
-      navigate('/dashboard');
+      if (res.data.recoveryCodes?.length) {
+        setPendingAuth({ accessToken: res.data.accessToken, user: res.data.user });
+        setRecoveryCodes(res.data.recoveryCodes);
+      } else {
+        login(res.data.accessToken, res.data.user);
+        navigate('/dashboard');
+      }
     } catch (error) {
       setError(getApiErrorMessage(error, 'Código MFA inválido. Intenta de nuevo.'));
     } finally {
       setLoading(false);
     }
   };
+
+  if (recoveryCodes && pendingAuth) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+        <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md">
+          <RecoveryCodesReveal
+            codes={recoveryCodes}
+            continueLabel="Ya guardé mis códigos, continuar"
+            onContinue={() => {
+              login(pendingAuth.accessToken, pendingAuth.user);
+              navigate('/dashboard');
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (passwordChangeRequired) {
     return (
@@ -247,6 +279,11 @@ export default function LoginPage() {
           >
             {loading ? 'Verificando...' : 'Verificar'}
           </button>
+          <p className="text-center text-sm text-slate-500 mt-4">
+            <Link to="/mfa/recover" className="text-slate-900 font-medium hover:underline">
+              ¿Perdiste el dispositivo MFA?
+            </Link>
+          </p>
         </div>
       </div>
     );
@@ -297,7 +334,12 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-slate-700">Contraseña</label>
+                <Link to="/forgot-password" className="text-xs text-slate-500 hover:underline">
+                  ¿Olvidaste tu contraseña?
+                </Link>
+              </div>
               <input
                 {...register('password')}
                 type="password"
