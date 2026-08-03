@@ -29,8 +29,13 @@ describe('Documents encryption at rest (e2e)', () => {
 
   const runId = Date.now();
   const TEST_PASSWORD = 'TestPass123!';
+  // Prefijo con magic bytes reales de PDF (%PDF-1.4): la validación de
+  // contenido real del archivo (issue #51, file-signature.util.ts) rechaza
+  // contenido cuyos magic bytes no coincidan con el mimetype declarado, así
+  // que el fixture de este test ya no puede ser texto plano puro declarado
+  // como application/pdf.
   const PLAINTEXT_MARKER =
-    'contenido-clinico-sensible-no-deberia-verse-en-disco';
+    '%PDF-1.4\ncontenido-clinico-sensible-no-deberia-verse-en-disco';
 
   let therapistAToken: string;
   let therapistBToken: string;

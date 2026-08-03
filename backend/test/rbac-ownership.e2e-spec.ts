@@ -212,7 +212,11 @@ describe('RBAC ownership guard (e2e)', () => {
         .set('Authorization', `Bearer ${therapistAToken}`)
         .field('patientId', patientId)
         .field('type', 'OTHER')
-        .attach('file', Buffer.from('contenido de prueba'), 'test-owner.pdf')
+        .attach(
+          'file',
+          Buffer.from('%PDF-1.4\ncontenido de prueba'),
+          'test-owner.pdf',
+        )
         .expect(201);
       ownerDocumentId = res.body.id;
       expect(ownerDocumentId).toBeDefined();
