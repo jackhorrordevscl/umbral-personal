@@ -502,7 +502,17 @@ Setup (una sola vez):
 4. Disparar el workflow manualmente una vez (`Actions` → `Backup offsite` →
    `Run workflow`) y verificar que el archivo aparezca en el bucket de B2.
 5. Verificar al menos una restauración real desde la copia offsite antes de
-   dar por cerrado el punto (ver "Restaurar un backup" abajo).
+   dar por cerrado el punto (ver "Restaurar un backup" abajo). **Hecho y
+   verificado el 2026-08-03** (issue #56): se bajó el `.sql.gz.enc` real de
+   B2, se desencriptó y restauró contra un Postgres local descartable. Las
+   11 tablas de `schema.prisma` restauraron con datos correctos (incluido
+   `_prisma_migrations` con las 21 migraciones aplicadas) y el trigger
+   `trg_audit_log_append_only` siguió bloqueando `UPDATE` después de
+   restaurar. El dump completo también arrastra ~600 errores esperables de
+   roles/extensiones internas de Supabase (`supabase_admin`,
+   `dashboard_user`, `vault`, `pgbouncer`, etc.) que no existen fuera de su
+   infraestructura — no son un problema, `psql -f` los saltea y sigue con
+   el resto del archivo.
 
 > Mientras estos 4 secrets no estén cargados, el workflow no falla: corta
 > antes de instalar nada y termina en success con un aviso en el step
@@ -536,12 +546,31 @@ esa máquina (nunca en el repo):
 OFFSITE_UPLOAD_CMD="rclone copy {} b2remote:mi-bucket/umbral/"
 ```
 
-Restaurar un backup (aplica a ambos casos, A y B):
+Restaurar un backup (aplica a ambos casos, A y B; verificado end-to-end el
+2026-08-03 contra un backup real bajado de B2, issue #56):
 
 ```bash
+# 1. Bajar el backup más reciente de B2 (si restaurás desde la copia offsite,
+#    no desde un backup.sh local):
+rclone copy b2remote:mi-bucket/umbral/umbral_backup_2026-07-15_02-00-00.sql.gz.enc .
+
+# 2. Desencriptar + descomprimir + restaurar. La frase de cifrado va siempre
+#    en un archivo (nunca como argumento en texto plano, quedaría en el
+#    historial de la shell):
 openssl enc -d -aes-256-cbc -pbkdf2 -pass file:"$HOME/.umbral_backup_passphrase" \
   -in umbral_backup_2026-07-15_02-00-00.sql.gz.enc | gunzip | \
   psql -U umbral_user -h localhost -d umbral_db
+```
+
+Si restaurás un dump que viene de Supabase (backup offsite vía A) contra un
+Postgres que no es Supabase (ej. un descartable local para probar), vas a ver
+~600 líneas de `ERROR: no existe el rol «...»` para roles internos de
+Supabase (`supabase_admin`, `dashboard_user`, `vault`, `pgbouncer`, etc.) —
+son esperables y no afectan las tablas de la app, `psql -f`/`psql <` los
+saltea y sigue. Confirmá que restauró bien mirando solo tus tablas:
+
+```sql
+SELECT relname, n_live_tup FROM pg_stat_user_tables WHERE schemaname = 'public';
 ```
 
 ---
