@@ -14,8 +14,12 @@ export class ReportsService {
     patientId: string,
     userId: string,
   ): Promise<Buffer> {
-    // Lanza NotFoundException/ForbiddenException si el usuario no tiene acceso a este paciente
-    await this.patientsService.findOne(patientId, userId);
+    // Lanza NotFoundException si el usuario no tiene acceso a este paciente.
+    // Un único guard liviano en vez de repetir el fetch de autorización 3
+    // veces (issue #28): antes esto llamaba a `findOne` (heavy) solo para
+    // autorizar, y `getCurrentConsentStatus` volvía a llamar `findOne`
+    // internamente.
+    await this.patientsService.assertAccess(patientId, userId);
 
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },
@@ -38,11 +42,12 @@ export class ReportsService {
 
     // T6.1 (issue #27): consentSigned/telemedConsentSigned ya no existen como
     // columnas; el estado vigente por finalidad se deriva del ledger
-    // append-only PatientConsent.
-    const consentStatus = await this.patientsService.getCurrentConsentStatus(
+    // append-only PatientConsent. Ya se validó acceso arriba, así que se
+    // consulta el ledger directo en vez de volver a pasar por
+    // getCurrentConsentStatus (que repetiría el guard de autorización).
+    const consentStatus = (await this.patientsService.getConsentStatusMap([patientId])).get(
       patientId,
-      userId,
-    );
+    ) ?? { TREATMENT: false, TELEMEDICINE: false };
 
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 50 });

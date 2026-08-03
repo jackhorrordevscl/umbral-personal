@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
@@ -28,10 +28,20 @@ export class PatientsService {
   ) {}
 
   async create(dto: CreatePatientDto, therapistId: string) {
+    const rut = normalizeRut(dto.rut);
+
+    const existing = await this.prisma.patient.findUnique({
+      where: { rut },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException('Ya existe un paciente con ese RUT');
+    }
+
     return this.prisma.patient.create({
       data: {
         ...dto,
-        rut: normalizeRut(dto.rut),
+        rut,
         birthDate: new Date(dto.birthDate),
         therapistId,
       },
@@ -43,7 +53,7 @@ export class PatientsService {
   // última fila (por recordedAt) por (patientId, purpose) vía DISTINCT ON;
   // Prisma requiere que los campos de `distinct` encabecen el `orderBy` para
   // que el resultado sea determinístico.
-  private async getConsentStatusMap(
+  async getConsentStatusMap(
     patientIds: string[],
   ): Promise<Map<string, ConsentStatusMap>> {
     const map = new Map<string, ConsentStatusMap>();
@@ -82,9 +92,27 @@ export class PatientsService {
     }));
   }
 
-  private async fetchPatientWithConsents(id: string) {
+  // Guard de autorización liviano: solo confirma que `id` existe y pertenece
+  // a `userId`, sin traer consultas/documentos/consentimientos. Para usarlo
+  // en los módulos (consultations, documents, reports) que solo necesitan
+  // validar acceso, no el detalle completo del paciente -- antes todos
+  // pagaban el costo de `findOne` (joins + query de consentimientos) solo
+  // para un chequeo de ownership.
+  async assertAccess(id: string, userId: string): Promise<{ id: string; rut: string }> {
     const patient = await this.prisma.patient.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, therapistId: userId, deletedAt: null },
+      select: { id: true, rut: true },
+    });
+    // NotFoundException uniforme tanto si el paciente no existe como si
+    // pertenece a otro profesional: no distinguir evita filtrar (vía 403 vs
+    // 404) que un id ajeno corresponde a un paciente real.
+    if (!patient) throw new NotFoundException('Paciente no encontrado');
+    return patient;
+  }
+
+  async findOne(id: string, userId: string) {
+    const patient = await this.prisma.patient.findFirst({
+      where: { id, therapistId: userId, deletedAt: null },
       include: {
         therapist: { select: { id: true, name: true } },
         // Solo la versión vigente de cada consulta (T2.3: corregir crea una
@@ -100,16 +128,6 @@ export class PatientsService {
     if (!patient) throw new NotFoundException('Paciente no encontrado');
 
     const consents = (await this.getConsentStatusMap([id])).get(id) ?? emptyConsentStatus();
-    return { patient, consents };
-  }
-
-  async findOne(id: string, userId: string) {
-    const { patient, consents } = await this.fetchPatientWithConsents(id);
-
-    if (patient.therapistId !== userId) {
-      throw new ForbiddenException('Acceso denegado a este paciente');
-    }
-
     return { ...patient, consents };
   }
 
@@ -172,7 +190,7 @@ export class PatientsService {
   }
 
   async softDelete(id: string, userId: string) {
-    await this.findOne(id, userId);
+    await this.assertAccess(id, userId);
     return this.prisma.patient.update({
       where: { id },
       data: { deletedAt: new Date() },
@@ -180,7 +198,7 @@ export class PatientsService {
   }
 
   async getHistory(id: string, userId: string) {
-    await this.findOne(id, userId);
+    await this.assertAccess(id, userId);
 
     return this.prisma.patientHistory.findMany({
       where: { patientId: id },
@@ -194,7 +212,7 @@ export class PatientsService {
   // T6.1 (issue #27): registra un evento de otorgamiento/revocación para una
   // finalidad puntual.
   async recordConsent(id: string, dto: RecordConsentDto, userId: string) {
-    await this.findOne(id, userId);
+    await this.assertAccess(id, userId);
 
     return this.prisma.patientConsent.create({
       data: {
@@ -208,7 +226,7 @@ export class PatientsService {
   }
 
   async getConsentLedger(id: string, userId: string) {
-    await this.findOne(id, userId);
+    await this.assertAccess(id, userId);
 
     return this.prisma.patientConsent.findMany({
       where: { patientId: id },
@@ -220,17 +238,7 @@ export class PatientsService {
   }
 
   async getCurrentConsentStatus(id: string, userId: string): Promise<ConsentStatusMap> {
-    await this.findOne(id, userId);
-
-    const status = emptyConsentStatus();
-    const latestEvents = await this.prisma.patientConsent.findMany({
-      where: { patientId: id },
-      distinct: ['purpose'],
-      orderBy: { recordedAt: 'desc' },
-    });
-    for (const event of latestEvents) {
-      status[event.purpose] = event.action === 'GRANT';
-    }
-    return status;
+    await this.assertAccess(id, userId);
+    return (await this.getConsentStatusMap([id])).get(id) ?? emptyConsentStatus();
   }
 }

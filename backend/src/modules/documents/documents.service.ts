@@ -25,10 +25,10 @@ export class DocumentsService {
     file: Express.Multer.File,
     type: string,
   ) {
-    // Lanza NotFoundException/ForbiddenException si el paciente no existe
-    // o el usuario no tiene acceso a él -- se valida ANTES de escribir nada
-    // a disco, así no queda un archivo huérfano que limpiar.
-    await this.patientsService.findOne(patientId, userId);
+    // Lanza NotFoundException si el paciente no existe o el usuario no
+    // tiene acceso a él -- se valida ANTES de escribir nada a disco, así no
+    // queda un archivo huérfano que limpiar.
+    await this.patientsService.assertAccess(patientId, userId);
 
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
@@ -60,8 +60,8 @@ export class DocumentsService {
   }
 
   async findByPatient(patientId: string, userId: string) {
-    // Lanza NotFoundException/ForbiddenException si el usuario no tiene acceso a este paciente
-    await this.patientsService.findOne(patientId, userId);
+    // Lanza NotFoundException si el usuario no tiene acceso a este paciente
+    await this.patientsService.assertAccess(patientId, userId);
 
     return this.prisma.patientDocument.findMany({
       where: { patientId },
@@ -76,8 +76,8 @@ export class DocumentsService {
 
     if (!doc) throw new NotFoundException('Documento no encontrado');
 
-    // Lanza ForbiddenException si el usuario no tiene acceso al paciente dueño del documento
-    await this.patientsService.findOne(doc.patientId, userId);
+    // Lanza NotFoundException si el usuario no tiene acceso al paciente dueño del documento
+    await this.patientsService.assertAccess(doc.patientId, userId);
 
     return doc;
   }

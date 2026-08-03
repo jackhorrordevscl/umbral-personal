@@ -188,7 +188,7 @@ describe('Patient consent ledger (e2e)', () => {
       expect(ledger[1].action).toBe('REVOKE');
     });
 
-    it('un terapeuta sin relación con el paciente recibe 403', () => {
+    it('un terapeuta sin relación con el paciente recibe 404', () => {
       return request(app.getHttpServer())
         .post(`/api/v1/patients/${patientId}/consents`)
         .set('Authorization', `Bearer ${therapistBToken}`)
@@ -197,7 +197,7 @@ describe('Patient consent ledger (e2e)', () => {
           action: 'GRANT',
           evidence: 'Intento no autorizado de otorgar telemedicina',
         })
-        .expect(403);
+        .expect(404);
     });
 
     it('rechaza purpose HEALTH_NETWORK, eliminado del enum (issue #6) (400)', () => {
@@ -262,11 +262,11 @@ describe('Patient consent ledger (e2e)', () => {
       });
     });
 
-    it('un terapeuta sin relación con el paciente recibe 403', () => {
+    it('un terapeuta sin relación con el paciente recibe 404', () => {
       return request(app.getHttpServer())
         .get(`/api/v1/patients/${patientId}/consents/status`)
         .set('Authorization', `Bearer ${therapistBToken}`)
-        .expect(403);
+        .expect(404);
     });
   });
 
@@ -283,11 +283,11 @@ describe('Patient consent ledger (e2e)', () => {
       expect(res.body[0].recordedBy.id).toBeDefined();
     });
 
-    it('un terapeuta sin relación con el paciente recibe 403', () => {
+    it('un terapeuta sin relación con el paciente recibe 404', () => {
       return request(app.getHttpServer())
         .get(`/api/v1/patients/${patientId}/consents`)
         .set('Authorization', `Bearer ${therapistBToken}`)
-        .expect(403);
+        .expect(404);
     });
   });
 });

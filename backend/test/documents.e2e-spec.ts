@@ -165,7 +165,7 @@ describe('Documents encryption at rest (e2e)', () => {
       expect(raw.length).toBe(12 + 16 + Buffer.from(PLAINTEXT_MARKER).length);
     });
 
-    it('rechaza subir a un paciente ajeno (403) sin escribir nada a disco', async () => {
+    it('rechaza subir a un paciente ajeno (404) sin escribir nada a disco', async () => {
       await request(app.getHttpServer())
         .post('/api/v1/documents/upload')
         .set('Authorization', `Bearer ${therapistBToken}`)
@@ -175,7 +175,7 @@ describe('Documents encryption at rest (e2e)', () => {
           filename: 'ajeno.pdf',
           contentType: 'application/pdf',
         })
-        .expect(403);
+        .expect(404);
     });
   });
 
@@ -189,11 +189,11 @@ describe('Documents encryption at rest (e2e)', () => {
       expect(Buffer.from(res.body).toString('utf-8')).toBe(PLAINTEXT_MARKER);
     });
 
-    it('un terapeuta sin relación con el paciente recibe 403', () => {
+    it('un terapeuta sin relación con el paciente recibe 404', () => {
       return request(app.getHttpServer())
         .get(`/api/v1/documents/${documentId}/download`)
         .set('Authorization', `Bearer ${therapistBToken}`)
-        .expect(403);
+        .expect(404);
     });
   });
 });

@@ -1,4 +1,3 @@
-
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
@@ -23,30 +22,30 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  passwordHash  String
-  name          String
-  role          Role      @default(PROFESSIONAL)
-  mfaSecret     String?
-  mfaEnabled    Boolean   @default(false)
-  mustChangePassword Boolean @default(false)
+  id                 String    @id @default(uuid())
+  email              String    @unique
+  passwordHash       String
+  name               String
+  role               Role      @default(PROFESSIONAL)
+  mfaSecret          String?
+  mfaEnabled         Boolean   @default(false)
+  mustChangePassword Boolean   @default(false)
   // Issue #5: signup propio. Default true (no false) para que las cuentas ya
   // existentes -- seedeadas o creadas directo vía Prisma, nunca vía
   // POST /auth/signup -- no queden bloqueadas al login por una migración
   // retroactiva. AuthService.signup es el único lugar que la crea en false.
-  emailVerified Boolean @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  deletedAt     DateTime?
-  
-  patients      Patient[]
-  consultations Consultation[]
-  auditLogs     AuditLog[]
-  patientEdits  PatientHistory[] @relation("PatientEdits")
-  sharedFiles   SharedFile[] @relation("UploadedFiles")
-  consultationEdits ConsultationHistory[] @relation("ConsultationEdits")
-  patientConsentEvents PatientConsent[] @relation("PatientConsentEvents")
+  emailVerified      Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  patients             Patient[]
+  consultations        Consultation[]
+  auditLogs            AuditLog[]
+  patientEdits         PatientHistory[]      @relation("PatientEdits")
+  sharedFiles          SharedFile[]          @relation("UploadedFiles")
+  consultationEdits    ConsultationHistory[] @relation("ConsultationEdits")
+  patientConsentEvents PatientConsent[]      @relation("PatientConsentEvents")
 }
 
 // Un solo rol: el profesional dueño de todas sus fichas. Se mantiene como
@@ -75,12 +74,14 @@ model Patient {
   updatedAt             DateTime  @updatedAt
   notificationsConsent  Boolean   @default(false)
 
-  therapistId    String
-  therapist      User               @relation(fields: [therapistId], references: [id])
-  consultations  Consultation[]
-  documents      PatientDocument[]
-  history        PatientHistory[]
-  consents       PatientConsent[]
+  therapistId   String
+  therapist     User              @relation(fields: [therapistId], references: [id])
+  consultations Consultation[]
+  documents     PatientDocument[]
+  history       PatientHistory[]
+  consents      PatientConsent[]
+
+  @@index([therapistId])
 }
 
 model PatientDocument {
@@ -92,6 +93,8 @@ model PatientDocument {
   storagePath String
   uploadedAt  DateTime     @default(now())
   uploadedBy  String
+
+  @@index([patientId])
 }
 
 enum DocumentType {
@@ -127,13 +130,15 @@ model Consultation {
 
   // Versionado inmutable: corregir una consulta nunca modifica la fila
   // original, crea una fila nueva que apunta correctsId a la anterior.
-  correctsId      String?       @unique
-  corrects        Consultation? @relation("ConsultationVersion", fields: [correctsId], references: [id])
-  correctedBy     Consultation? @relation("ConsultationVersion")
+  correctsId  String?       @unique
+  corrects    Consultation? @relation("ConsultationVersion", fields: [correctsId], references: [id])
+  correctedBy Consultation? @relation("ConsultationVersion")
 
-  history         ConsultationHistory[]
+  history ConsultationHistory[]
 
   @@index([groupId])
+  @@index([patientId])
+  @@index([therapistId])
 }
 
 enum SessionType {
@@ -177,21 +182,22 @@ enum AuditAction {
 // migración de la tabla real en producción -- no se justifica solo por
 // claridad de naming.
 model SharedFile {
-  id          String   @id @default(cuid())
-  name        String                          // Nombre descriptivo del archivo
-  originalName String                         // Nombre original del archivo
-  filename    String                          // Nombre en disco
-  path        String                          // Ruta en servidor
-  mimetype    String
-  size        Int
-  category    FileCategory @default(GENERAL)
-  description String?
-  uploadedBy  User     @relation("UploadedFiles", fields: [uploadedById], references: [id])
+  id           String       @id @default(cuid())
+  name         String // Nombre descriptivo del archivo
+  originalName String // Nombre original del archivo
+  filename     String // Nombre en disco
+  path         String // Ruta en servidor
+  mimetype     String
+  size         Int
+  category     FileCategory @default(GENERAL)
+  description  String?
+  uploadedBy   User         @relation("UploadedFiles", fields: [uploadedById], references: [id])
   uploadedById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  isActive    Boolean  @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  isActive     Boolean      @default(true)
 
+  @@index([uploadedById])
   @@map("shared_files")
 }
 
@@ -214,16 +220,20 @@ model PatientHistory {
   reason      String
   snapshot    Json
   diff        Json
+
+  @@index([patientId])
 }
 
 model ConsultationHistory {
-  id             String      @id @default(uuid())
+  id             String       @id @default(uuid())
   consultationId String
   consultation   Consultation @relation(fields: [consultationId], references: [id])
   editedById     String
-  editedBy       User        @relation("ConsultationEdits", fields: [editedById], references: [id])
-  editedAt       DateTime    @default(now())
+  editedBy       User         @relation("ConsultationEdits", fields: [editedById], references: [id])
+  editedAt       DateTime     @default(now())
   snapshot       Json
+
+  @@index([consultationId])
 }
 
 // T6.1 (issue #27): ledger append-only de consentimientos por finalidad

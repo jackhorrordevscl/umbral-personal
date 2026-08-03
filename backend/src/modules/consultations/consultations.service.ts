@@ -28,11 +28,11 @@ export class ConsultationsService {
   ) {}
 
   async create(dto: CreateConsultationDto, therapistId: string) {
-    // findOne lanza ForbiddenException/NotFoundException si el paciente no
-    // existe o no pertenece al profesional autenticado -- sin este chequeo,
-    // cualquier usuario podía crear una consulta sobre un paciente ajeno
-    // conociendo su id (issue #12).
-    const patient = await this.patientsService.findOne(dto.patientId, therapistId);
+    // assertAccess lanza NotFoundException si el paciente no existe o no
+    // pertenece al profesional autenticado -- sin este chequeo, cualquier
+    // usuario podía crear una consulta sobre un paciente ajeno conociendo su
+    // id (issue #12).
+    const patient = await this.patientsService.assertAccess(dto.patientId, therapistId);
     const patientRut = dto.patientRut || patient.rut;
 
     // Se genera el id de antemano para que groupId (el identificador de la
@@ -76,8 +76,8 @@ export class ConsultationsService {
   }
 
   async findByPatient(patientId: string, userId: string) {
-    // Lanza NotFoundException/ForbiddenException si el usuario no tiene acceso a este paciente
-    await this.patientsService.findOne(patientId, userId);
+    // Lanza NotFoundException si el usuario no tiene acceso a este paciente
+    await this.patientsService.assertAccess(patientId, userId);
 
     // Solo la versión vigente de cada consulta (correctedBy: null = nadie la corrigió después)
     const consultations = await this.prisma.consultation.findMany({
@@ -117,8 +117,8 @@ export class ConsultationsService {
     });
     if (!consultation) throw new NotFoundException('Consulta no encontrada');
 
-    // Lanza ForbiddenException si el usuario no tiene acceso al paciente dueño de esta consulta
-    await this.patientsService.findOne(consultation.patientId, userId);
+    // Lanza NotFoundException si el usuario no tiene acceso al paciente dueño de esta consulta
+    await this.patientsService.assertAccess(consultation.patientId, userId);
 
     const history = await this.getHistory(consultation.groupId);
 

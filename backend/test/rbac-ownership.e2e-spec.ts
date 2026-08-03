@@ -12,9 +12,10 @@ import { PrismaService } from '../src/prisma/prisma.service';
  * T1.5 (issue #10), reescrito para el modelo de un solo rol (issue #7):
  * verifica que los endpoints sensibles (consultas, reportes, documentos,
  * pacientes) respeten la relación terapeuta-paciente aplicada por
- * PatientsService.findOne(patientId, userId):
+ * PatientsService.assertAccess/findOne(patientId, userId):
  *   - el dueño (Patient.therapistId === userId) accede (2xx)
- *   - un PROFESSIONAL sin relación con el paciente recibe 403
+ *   - un PROFESSIONAL sin relación con el paciente recibe 404 (issue #30:
+ *     antes devolvía 403, revelando que el paciente existía)
  *
  * Tras el colapso de roles (b0354c0) ya no existe POST /users (era CRUD
  * institucional, reemplazado por ProfileModule): los fixtures se crean
@@ -196,11 +197,11 @@ describe('RBAC ownership guard (e2e)', () => {
         .expect(200);
     });
 
-    it('un terapeuta sin relación con el paciente recibe 403', () => {
+    it('un terapeuta sin relación con el paciente recibe 404', () => {
       return request(app.getHttpServer())
         .get(`/api/v1/patients/${patientId}`)
         .set('Authorization', `Bearer ${therapistBToken}`)
-        .expect(403);
+        .expect(404);
     });
   });
 
@@ -217,14 +218,14 @@ describe('RBAC ownership guard (e2e)', () => {
       expect(ownerDocumentId).toBeDefined();
     });
 
-    it('un terapeuta sin relación con el paciente recibe 403', () => {
+    it('un terapeuta sin relación con el paciente recibe 404', () => {
       return request(app.getHttpServer())
         .post('/api/v1/documents/upload')
         .set('Authorization', `Bearer ${therapistBToken}`)
         .field('patientId', patientId)
         .field('type', 'OTHER')
         .attach('file', Buffer.from('contenido de prueba'), 'test-nonowner.pdf')
-        .expect(403);
+        .expect(404);
     });
   });
 
@@ -236,11 +237,11 @@ describe('RBAC ownership guard (e2e)', () => {
         .expect(200);
     });
 
-    it('un terapeuta sin relación con el paciente recibe 403', () => {
+    it('un terapeuta sin relación con el paciente recibe 404', () => {
       return request(app.getHttpServer())
         .get(`/api/v1/documents/patient/${patientId}`)
         .set('Authorization', `Bearer ${therapistBToken}`)
-        .expect(403);
+        .expect(404);
     });
   });
 
@@ -252,16 +253,16 @@ describe('RBAC ownership guard (e2e)', () => {
         .expect(200);
     });
 
-    it('un terapeuta sin relación con el paciente recibe 403', () => {
+    it('un terapeuta sin relación con el paciente recibe 404', () => {
       return request(app.getHttpServer())
         .get(`/api/v1/documents/${ownerDocumentId}/download`)
         .set('Authorization', `Bearer ${therapistBToken}`)
-        .expect(403);
+        .expect(404);
     });
   });
 
   describe('POST /consultations', () => {
-    it('un terapeuta sin relación con el paciente recibe 403 (issue #12)', () => {
+    it('un terapeuta sin relación con el paciente recibe 404 (issue #12)', () => {
       return request(app.getHttpServer())
         .post('/api/v1/consultations')
         .set('Authorization', `Bearer ${therapistBToken}`)
@@ -271,7 +272,7 @@ describe('RBAC ownership guard (e2e)', () => {
           consultReason: 'Intento no autorizado',
           intervention: 'Intento no autorizado',
         })
-        .expect(403);
+        .expect(404);
     });
   });
 
@@ -283,11 +284,11 @@ describe('RBAC ownership guard (e2e)', () => {
         .expect(200);
     });
 
-    it('un terapeuta sin relación con el paciente recibe 403', () => {
+    it('un terapeuta sin relación con el paciente recibe 404', () => {
       return request(app.getHttpServer())
         .get(`/api/v1/consultations/patient/${patientId}`)
         .set('Authorization', `Bearer ${therapistBToken}`)
-        .expect(403);
+        .expect(404);
     });
   });
 
@@ -299,21 +300,21 @@ describe('RBAC ownership guard (e2e)', () => {
         .expect(200);
     });
 
-    it('un terapeuta sin relación con el paciente recibe 403', () => {
+    it('un terapeuta sin relación con el paciente recibe 404', () => {
       return request(app.getHttpServer())
         .get(`/api/v1/consultations/${consultationId}`)
         .set('Authorization', `Bearer ${therapistBToken}`)
-        .expect(403);
+        .expect(404);
     });
   });
 
   describe('PATCH /consultations/:id/correct (versionado inmutable, T2.3)', () => {
-    it('un terapeuta sin relación con el paciente recibe 403', () => {
+    it('un terapeuta sin relación con el paciente recibe 404', () => {
       return request(app.getHttpServer())
         .patch(`/api/v1/consultations/${consultationId}/correct`)
         .set('Authorization', `Bearer ${therapistBToken}`)
         .send({ consultReason: 'Intento no autorizado' })
-        .expect(403);
+        .expect(404);
     });
 
     it('el terapeuta dueño puede corregir: crea una versión nueva (2xx)', async () => {
@@ -358,11 +359,11 @@ describe('RBAC ownership guard (e2e)', () => {
         .expect('Content-Type', 'application/pdf');
     });
 
-    it('un terapeuta sin relación con el paciente recibe 403', () => {
+    it('un terapeuta sin relación con el paciente recibe 404', () => {
       return request(app.getHttpServer())
         .get(`/api/v1/reports/patient/${patientId}`)
         .set('Authorization', `Bearer ${therapistBToken}`)
-        .expect(403);
+        .expect(404);
     });
   });
 });
