@@ -17,8 +17,9 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 
 ## Documentación relacionada
 
-- [`docs/manual-terapeutas.md`](docs/manual-terapeutas.md) — manual funcional
-  para terapeutas: crear tu cuenta, MFA obligatorio, recuperación de cuenta,
+- [`docs/manual-terapeutas.md`](docs/manual-terapeutas.md) ([PDF para
+  imprimir/compartir](docs/manual-terapeutas.pdf)) — manual funcional para
+  terapeutas: crear tu cuenta, MFA obligatorio, recuperación de cuenta,
   pacientes, consultas, documentos, archivos personales y reportes PDF.
 - [`docs/caso-de-uso-testing.md`](docs/caso-de-uso-testing.md) — guía
   narrativa de testing manual/UAT paso a paso para voluntarios que prueban la
