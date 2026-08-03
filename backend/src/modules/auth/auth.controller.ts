@@ -24,7 +24,13 @@ export class AuthController {
   // login también consumiría cupo de 'mfa-verify'/'signup' (y viceversa)
   // además del propio.
   @UseGuards(ThrottlerGuard)
-  @SkipThrottle({ 'mfa-verify': true, signup: true })
+  @SkipThrottle({
+    'mfa-verify': true,
+    signup: true,
+    'mfa-setup': true,
+    'password-change': true,
+    'verify-email': true,
+  })
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
@@ -36,7 +42,13 @@ export class AuthController {
   // fuerza bruta sobre el TOTP de 6 dígitos (window:1, ~3 códigos válidos)
   // emitía un JWT real sin ningún límite de intentos.
   @UseGuards(ThrottlerGuard)
-  @SkipThrottle({ login: true, signup: true })
+  @SkipThrottle({
+    login: true,
+    signup: true,
+    'mfa-setup': true,
+    'password-change': true,
+    'verify-email': true,
+  })
   @Post('mfa/verify')
   verifyMfa(@Body() dto: VerifyMfaDto) {
     return this.authService.verifyMfa(dto);
@@ -46,7 +58,13 @@ export class AuthController {
   // cuenta y dispara un envío de email real. Throttler propio ('signup')
   // para no compartir presupuesto con login/mfa-verify.
   @UseGuards(ThrottlerGuard)
-  @SkipThrottle({ login: true, 'mfa-verify': true })
+  @SkipThrottle({
+    login: true,
+    'mfa-verify': true,
+    'mfa-setup': true,
+    'password-change': true,
+    'verify-email': true,
+  })
   @Post('signup')
   signup(@Body() dto: SignupDto) {
     return this.authService.signup(dto);
@@ -55,7 +73,17 @@ export class AuthController {
   // Sin JwtAuthGuard a propósito, mismo motivo que mfa/setup/*: el usuario
   // todavía no tiene sesión (la cuenta ni siquiera puede loguear hasta
   // verificar). El token firmado (purpose 'email-verify') es lo que protege
-  // esta ruta, no el guard.
+  // esta ruta, no el guard. ThrottlerGuard propio (issue #37): sin sesión ni
+  // límite de intentos, el token de verificación quedaba expuesto a fuerza
+  // bruta igual que login/mfa-verify/signup.
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({
+    login: true,
+    'mfa-verify': true,
+    signup: true,
+    'mfa-setup': true,
+    'password-change': true,
+  })
   @Post('verify-email')
   verifyEmail(@Body() dto: VerifyEmailDto) {
     return this.authService.verifyEmail(dto.token);
@@ -65,12 +93,31 @@ export class AuthController {
   // el enrolamiento MFA forzado (obligatorio para toda cuenta sin MFA
   // configurado). El setupToken (verificado a mano en AuthService) es lo
   // que protege estas rutas, no el guard — ver auth.service.ts para el
-  // detalle del hueco de seguridad que esto evita.
+  // detalle del hueco de seguridad que esto evita. ThrottlerGuard propio
+  // (issue #37): confirm valida un TOTP de 6 dígitos igual que mfa/verify,
+  // así que necesita el mismo tipo de límite de intentos; begin y confirm
+  // comparten el throttler 'mfa-setup' por ser dos pasos de un mismo flujo.
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({
+    login: true,
+    'mfa-verify': true,
+    signup: true,
+    'password-change': true,
+    'verify-email': true,
+  })
   @Post('mfa/setup/begin')
   beginMfaSetup(@Body() dto: MfaSetupBeginDto) {
     return this.authService.beginMfaSetup(dto.setupToken);
   }
 
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({
+    login: true,
+    'mfa-verify': true,
+    signup: true,
+    'password-change': true,
+    'verify-email': true,
+  })
   @Post('mfa/setup/confirm')
   confirmMfaSetup(@Body() dto: MfaSetupConfirmDto) {
     return this.authService.confirmMfaSetup(dto.setupToken, dto.token);
@@ -79,7 +126,15 @@ export class AuthController {
   // T4.4 (issue #22): sin JwtAuthGuard por el mismo motivo que mfa/setup/*:
   // el usuario todavía no tiene sesión (login le negó el accessToken por
   // mustChangePassword=true). El passwordChangeToken firmado es lo que
-  // protege esta ruta, no el guard.
+  // protege esta ruta, no el guard. ThrottlerGuard propio (issue #37).
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({
+    login: true,
+    'mfa-verify': true,
+    signup: true,
+    'mfa-setup': true,
+    'verify-email': true,
+  })
   @Post('password/change')
   changePassword(@Body() dto: ChangePasswordDto) {
     return this.authService.changePassword(dto);

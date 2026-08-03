@@ -7,24 +7,29 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { FileCategory } from '@prisma/client';
 import * as fs from 'fs';
-
-export interface UploadFileDto {
-  name: string;
-  description?: string;
-  category?: FileCategory;
-}
+import { UploadSharedFileDto } from './dto/upload-shared-file.dto';
+import { UpdateSharedFileDto } from './dto/update-shared-file.dto';
 
 // "Shared" es el nombre heredado de la versión institucional multi-
 // profesional: hoy cada método filtra por uploadedById === userId, es una
 // biblioteca 100% privada por usuario, no se comparte nada entre
 // profesionales (ver comentario en el modelo SharedFile de schema.prisma).
+//
+// Decisión (issue #38): a diferencia de `documents` (que cifra en reposo con
+// AES-256-GCM porque guarda documentos legales/clínicos del PACIENTE bajo
+// Ley 20.584), `shared-files` guarda material de trabajo del propio
+// profesional (plantillas, formularios, protocolos, libros) sin datos de
+// pacientes -- no hay obligación legal equivalente y el contenido no es
+// sensible del mismo modo. Se mantiene sin cifrar deliberadamente; si algún
+// día se permite subir acá archivos con datos de pacientes, esta decisión
+// hay que revisitarla.
 @Injectable()
 export class SharedFilesService {
   constructor(private prisma: PrismaService) {}
 
   async uploadFile(
     file: Express.Multer.File,
-    dto: UploadFileDto,
+    dto: UploadSharedFileDto,
     userId: string,
   ) {
     return this.prisma.sharedFile.create({
@@ -87,7 +92,7 @@ export class SharedFilesService {
     return { message: 'Archivo eliminado correctamente' };
   }
 
-  async updateFile(id: string, dto: Partial<UploadFileDto>, userId: string) {
+  async updateFile(id: string, dto: UpdateSharedFileDto, userId: string) {
     await this.findOne(id, userId);
 
     return this.prisma.sharedFile.update({

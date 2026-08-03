@@ -35,8 +35,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Token no autorizado para esta operación');
     }
 
+    // select mínimo: este validate corre en cada request autenticado (vía
+    // JwtAuthGuard, prácticamente todos los endpoints) y solo se necesitan
+    // estos 5 campos -- traer la fila completa movía passwordHash/mfaSecret
+    // de más en cada request (issue #34).
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
+      select: { id: true, email: true, role: true, name: true, deletedAt: true },
     });
 
     if (!user || user.deletedAt) {

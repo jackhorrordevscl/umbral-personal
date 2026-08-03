@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { DocumentEncryptionService } from './document-encryption.service';
 import * as path from 'path';
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'documents');
 
@@ -30,13 +30,13 @@ export class DocumentsService {
     // queda un archivo huérfano que limpiar.
     await this.patientsService.assertAccess(patientId, userId);
 
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    await fs.mkdir(UPLOAD_DIR, { recursive: true });
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
     const storedName = `${uniqueSuffix}${path.extname(file.originalname)}.enc`;
     const storagePath = path.join('uploads', 'documents', storedName);
 
     const encrypted = this.encryption.encrypt(file.buffer);
-    fs.writeFileSync(path.join(process.cwd(), storagePath), encrypted);
+    await fs.writeFile(path.join(process.cwd(), storagePath), encrypted);
 
     return this.prisma.patientDocument.create({
       data: {
@@ -53,7 +53,7 @@ export class DocumentsService {
   // acceso ya la hace `getDocument` (vía `patientsService.findOne`).
   async getDecryptedFile(id: string, userId: string) {
     const doc = await this.getDocument(id, userId);
-    const encrypted = fs.readFileSync(
+    const encrypted = await fs.readFile(
       path.join(process.cwd(), doc.storagePath),
     );
     return { doc, buffer: this.encryption.decrypt(encrypted) };

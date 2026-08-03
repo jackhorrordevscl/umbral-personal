@@ -11,14 +11,19 @@ import {
   UseInterceptors,
   UploadedFile,
   Res,
-  Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { SharedFilesService } from './shared-files.service';
-import type { UploadFileDto } from './shared-files.service';
+import { UploadSharedFileDto } from './dto/upload-shared-file.dto';
+import { UpdateSharedFileDto } from './dto/update-shared-file.dto';
 import { FileCategory } from '@prisma/client';
+
+interface AuthUser {
+  id: string;
+}
 
 @Controller('shared-files')
 @UseGuards(JwtAuthGuard)
@@ -26,19 +31,26 @@ export class SharedFilesController {
   constructor(private readonly sharedFilesService: SharedFilesService) {}
 
   @Get()
-  findAll(@Query('category') category: FileCategory | undefined, @Req() req: any) {
-    return this.sharedFilesService.findAll(req.user.id, category);
+  findAll(
+    @Query('category') category: FileCategory | undefined,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.sharedFilesService.findAll(user.id, category);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string, @Req() req: any) {
-    return this.sharedFilesService.findOne(id, req.user.id);
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.sharedFilesService.findOne(id, user.id);
   }
 
   @Get(':id/download')
-  async download(@Param('id') id: string, @Req() req: any, @Res() res: Response) {
-    const file = await this.sharedFilesService.findOne(id, req.user.id);
-    const filePath = await this.sharedFilesService.getFilePath(id, req.user.id);
+  async download(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
+  ) {
+    const file = await this.sharedFilesService.findOne(id, user.id);
+    const filePath = await this.sharedFilesService.getFilePath(id, user.id);
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="${encodeURIComponent(file.originalName)}"`,
@@ -51,25 +63,23 @@ export class SharedFilesController {
   @UseInterceptors(FileInterceptor('file'))
   uploadFile(
     @UploadedFile() file: Express.Multer.File,
-    @Body()
-    dto: { name: string; description?: string; category?: FileCategory },
-    @Req() req: any,
+    @Body() dto: UploadSharedFileDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.sharedFilesService.uploadFile(file, dto, req.user.id);
+    return this.sharedFilesService.uploadFile(file, dto, user.id);
   }
 
   @Patch(':id')
   updateFile(
     @Param('id') id: string,
-    @Body()
-    dto: { name?: string; description?: string; category?: FileCategory },
-    @Req() req: any,
+    @Body() dto: UpdateSharedFileDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.sharedFilesService.updateFile(id, dto, req.user.id);
+    return this.sharedFilesService.updateFile(id, dto, user.id);
   }
 
   @Delete(':id')
-  deleteFile(@Param('id') id: string, @Req() req: any) {
-    return this.sharedFilesService.deleteFile(id, req.user.id);
+  deleteFile(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.sharedFilesService.deleteFile(id, user.id);
   }
 }

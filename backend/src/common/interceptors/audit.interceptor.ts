@@ -24,7 +24,6 @@ export class AuditInterceptor implements NestInterceptor {
 
     const method = request.method;
     const url = request.url;
-    const resourceId = request.params?.id ?? request.params?.patientId ?? 'N/A';
     const ipAddress = request.ip;
     const userAgent = request.headers['user-agent'];
 
@@ -41,6 +40,15 @@ export class AuditInterceptor implements NestInterceptor {
 
     return next.handle().pipe(
       tap(() => {
+        // request.body recién en este punto está garantizado completo: en
+        // POST /documents/upload, patientId viaja en el body (multipart,
+        // parseado por el FileInterceptor del controller) en vez de en la
+        // URL, y ese interceptor corre DESPUÉS de este (que es global) pero
+        // ANTES de que next.handle() resuelva -- leer el body antes de acá
+        // lo encontraba vacío y dejaba resourceId en 'N/A' (issue #36).
+        const resourceId =
+          request.params?.id ?? request.params?.patientId ?? request.body?.patientId ?? 'N/A';
+
         // Registra después de que la respuesta fue exitosa. Si falla, el
         // request principal no se ve afectado (fail-open: la atención al
         // paciente no depende de la disponibilidad del log), pero el fallo

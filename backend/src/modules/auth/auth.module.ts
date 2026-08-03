@@ -149,6 +149,40 @@ export function buildAuthThrottlerOptions(
     60000,
   );
 
+  // Issue #37: mfa/setup/begin y mfa/setup/confirm, verify-email y
+  // password/change quedaban sin ningún throttler pese a ser rutas sin
+  // JwtAuthGuard (protegidas solo por un token firmado de corta duración).
+  // mfa/setup/confirm en particular valida un TOTP de 6 dígitos igual que
+  // mfa/verify, pero sin límite de intentos era una superficie de fuerza
+  // bruta abierta. begin/confirm comparten un mismo throttler nombrado
+  // ('mfa-setup'): son dos pasos de un mismo flujo de enrolamiento.
+  const mfaSetupLimit = parsePositiveInt(
+    config.get<string>('MFA_SETUP_THROTTLE_LIMIT'),
+    isTest ? 1000 : 5,
+  );
+  const mfaSetupTtl = parsePositiveInt(
+    config.get<string>('MFA_SETUP_THROTTLE_TTL_MS'),
+    60000,
+  );
+
+  const passwordChangeLimit = parsePositiveInt(
+    config.get<string>('PASSWORD_CHANGE_THROTTLE_LIMIT'),
+    isTest ? 1000 : 5,
+  );
+  const passwordChangeTtl = parsePositiveInt(
+    config.get<string>('PASSWORD_CHANGE_THROTTLE_TTL_MS'),
+    60000,
+  );
+
+  const verifyEmailLimit = parsePositiveInt(
+    config.get<string>('VERIFY_EMAIL_THROTTLE_LIMIT'),
+    isTest ? 1000 : 5,
+  );
+  const verifyEmailTtl = parsePositiveInt(
+    config.get<string>('VERIFY_EMAIL_THROTTLE_TTL_MS'),
+    60000,
+  );
+
   const trustedProxyHops = parsePositiveInt(
     config.get<string>('TRUSTED_PROXY_HOPS'),
     1,
@@ -159,6 +193,9 @@ export function buildAuthThrottlerOptions(
       { name: 'login', limit: loginLimit, ttl: loginTtl },
       { name: 'mfa-verify', limit: mfaVerifyLimit, ttl: mfaVerifyTtl },
       { name: 'signup', limit: signupLimit, ttl: signupTtl },
+      { name: 'mfa-setup', limit: mfaSetupLimit, ttl: mfaSetupTtl },
+      { name: 'password-change', limit: passwordChangeLimit, ttl: passwordChangeTtl },
+      { name: 'verify-email', limit: verifyEmailLimit, ttl: verifyEmailTtl },
     ],
     getTracker: (req: Record<string, any>) =>
       getLoginTracker(req as Parameters<typeof getLoginTracker>[0], trustedProxyHops),

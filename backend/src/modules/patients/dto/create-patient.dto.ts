@@ -3,6 +3,7 @@ import {
   IsEmail,
   IsOptional,
   IsDateString,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreatePatientDto {
@@ -27,7 +28,12 @@ export class CreatePatientDto {
   @IsString()
   phone?: string;
 
+  // @IsOptional() por sí solo solo exime undefined/null, no "" -- el
+  // frontend siempre manda "" (nunca undefined) cuando el campo queda
+  // vacío, así que sin @ValidateIf @IsEmail() rechazaba la creación con
+  // email en blanco (issue #49).
   @IsOptional()
+  @ValidateIf((o) => o.email !== '')
   @IsEmail()
   email?: string;
 
