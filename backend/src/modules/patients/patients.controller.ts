@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { PatientsService } from './patients.service';
@@ -14,6 +15,7 @@ import { UpdatePatientDto } from './dto/update-patient.dto';
 import { RecordConsentDto } from './dto/record-consent.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 
 @Controller('patients')
 @UseGuards(JwtAuthGuard)
@@ -26,8 +28,8 @@ export class PatientsController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: any) {
-    return this.patientsService.findAll(user.id);
+  findAll(@CurrentUser() user: any, @Query() query: PaginationQueryDto) {
+    return this.patientsService.findAll(user.id, query);
   }
 
   @Get(':id/history')

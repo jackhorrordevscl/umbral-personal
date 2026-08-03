@@ -5,6 +5,7 @@ import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { RecordConsentDto } from './dto/record-consent.dto';
 import { ConsentPurpose } from '@prisma/client';
+import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 
 function normalizeRut(rut: string): string {
   return rut.replace(/\./g, '').trim().toUpperCase();
@@ -78,18 +79,29 @@ export class PatientsService {
     return map;
   }
 
-  async findAll(userId: string) {
-    const patients = await this.prisma.patient.findMany({
-      where: { therapistId: userId, deletedAt: null },
-      orderBy: { createdAt: 'desc' },
-    });
+  // Sin page/pageSize devuelve la lista completa (retrocompatible); con
+  // ambos, pagina con take/skip (issue #48).
+  async findAll(userId: string, pagination?: { page?: number; pageSize?: number }) {
+    const where = { therapistId: userId, deletedAt: null };
+    const { page, pageSize } = pagination ?? {};
+    const isPaginated = !!page && !!pageSize;
+
+    const [patients, total] = await Promise.all([
+      this.prisma.patient.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        ...(isPaginated ? { take: pageSize, skip: (page - 1) * pageSize } : {}),
+      }),
+      isPaginated ? this.prisma.patient.count({ where }) : Promise.resolve(undefined),
+    ]);
 
     const consentMap = await this.getConsentStatusMap(patients.map((p) => p.id));
-
-    return patients.map((p) => ({
+    const data = patients.map((p) => ({
       ...p,
       consents: consentMap.get(p.id) ?? emptyConsentStatus(),
     }));
+
+    return isPaginated ? { data, total, page, pageSize } : data;
   }
 
   // Guard de autorización liviano: solo confirma que `id` existe y pertenece
@@ -173,8 +185,8 @@ export class PatientsService {
           patientId: id,
           changedById: userId,
           reason,
-          snapshot: JSON.parse(JSON.stringify(snapshot)),
-          diff: JSON.parse(JSON.stringify(diff)),
+          snapshot: toJsonSnapshot(snapshot),
+          diff: toJsonSnapshot(diff),
         },
       });
 

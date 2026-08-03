@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import api from '../api/client';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import { getApiErrorMessage } from '../utils/api-error';
+import { downloadBlob } from '../utils/download';
 
 const CATEGORIES = [
   { value: '', label: 'Todos' },
@@ -106,9 +108,8 @@ export default function SharedFilesPage() {
       setShowUpload(false);
       setForm({ name: '', description: '', category: 'GENERAL', file: null });
       queryClient.invalidateQueries({ queryKey: ['shared-files'] });
-    } catch (e: any) {
-      const msg = e?.response?.data?.message;
-      setUploadError(msg ?? 'Error al subir el archivo. Intenta nuevamente.');
+    } catch (e) {
+      setUploadError(getApiErrorMessage(e, 'Error al subir el archivo. Intenta nuevamente.'));
     } finally {
       setUploading(false);
     }
@@ -135,14 +136,7 @@ export default function SharedFilesPage() {
       const res = await api.get(`/shared-files/${file.id}/download`, {
         responseType: 'blob',
       });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', file.originalName);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      downloadBlob(new Blob([res.data]), file.originalName);
     } catch {
       setError('Error al descargar el archivo');
     }
@@ -155,8 +149,8 @@ export default function SharedFilesPage() {
     try {
       await api.delete(`/shared-files/${id}`);
       queryClient.invalidateQueries({ queryKey: ['shared-files'] });
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'Error al eliminar');
+    } catch (e) {
+      setError(getApiErrorMessage(e, 'Error al eliminar'));
     }
   };
 
@@ -179,9 +173,8 @@ export default function SharedFilesPage() {
       });
       queryClient.invalidateQueries({ queryKey: ['shared-files'] });
       setEditingFile(null);
-    } catch (e: any) {
-      const msg = e?.response?.data?.message;
-      setEditError(msg ?? 'Error al guardar');
+    } catch (e) {
+      setEditError(getApiErrorMessage(e, 'Error al guardar'));
     } finally {
       setEditSaving(false);
     }

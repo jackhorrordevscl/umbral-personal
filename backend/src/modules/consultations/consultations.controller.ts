@@ -5,6 +5,7 @@ import {
   Patch,
   Body,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ConsultationsService } from './consultations.service';
@@ -12,6 +13,7 @@ import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { CorrectConsultationDto } from './dto/correct-consultation.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('consultations')
@@ -27,8 +29,9 @@ export class ConsultationsController {
   findByPatient(
     @Param('patientId') patientId: string,
     @CurrentUser() user: any,
+    @Query() query: PaginationQueryDto,
   ) {
-    return this.consultationsService.findByPatient(patientId, user.id);
+    return this.consultationsService.findByPatient(patientId, user.id, query);
   }
 
   // Issue #40: agregado en el backend en vez de que el dashboard resuelva

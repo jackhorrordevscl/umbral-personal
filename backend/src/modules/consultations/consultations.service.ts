@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { CorrectConsultationDto } from './dto/correct-consultation.dto';
+import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 
 function parseDate(dateStr: string): Date {
   if (dateStr.includes('T') || dateStr.includes(' ')) {
@@ -75,16 +76,30 @@ export class ConsultationsService {
     });
   }
 
-  async findByPatient(patientId: string, userId: string) {
+  // Sin page/pageSize devuelve la lista completa (retrocompatible); con
+  // ambos, pagina con take/skip (issue #48).
+  async findByPatient(
+    patientId: string,
+    userId: string,
+    pagination?: { page?: number; pageSize?: number },
+  ) {
     // Lanza NotFoundException si el usuario no tiene acceso a este paciente
     await this.patientsService.assertAccess(patientId, userId);
 
+    const where = { patientId, correctedBy: null, deletedAt: null };
+    const { page, pageSize } = pagination ?? {};
+    const isPaginated = !!page && !!pageSize;
+
     // Solo la versión vigente de cada consulta (correctedBy: null = nadie la corrigió después)
-    const consultations = await this.prisma.consultation.findMany({
-      where: { patientId, correctedBy: null, deletedAt: null },
-      orderBy: { createdAt: 'desc' },
-      include: THERAPIST_SELECT,
-    });
+    const [consultations, total] = await Promise.all([
+      this.prisma.consultation.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: THERAPIST_SELECT,
+        ...(isPaginated ? { take: pageSize, skip: (page - 1) * pageSize } : {}),
+      }),
+      isPaginated ? this.prisma.consultation.count({ where }) : Promise.resolve(undefined),
+    ]);
 
     // Una sola query para el historial de todas las consultas en vez de N
     // (antes: una consulta a consultationHistory por cada fila, aunque
@@ -104,10 +119,12 @@ export class ConsultationsService {
       }
     }
 
-    return consultations.map((c) => ({
+    const data = consultations.map((c) => ({
       ...c,
       history: historyMap.get(c.groupId) ?? [],
     }));
+
+    return isPaginated ? { data, total, page, pageSize } : data;
   }
 
   // Issue #40: 2 queries de agregación en vez de traer todas las filas.
@@ -155,14 +172,14 @@ export class ConsultationsService {
     }
 
     // Snapshot del estado actual antes de crear la corrección
-    const snapshot = JSON.parse(JSON.stringify({
+    const snapshot = toJsonSnapshot({
       sessionDate: original.sessionDate,
       consultReason: original.consultReason,
       intervention: original.intervention,
       agreements: original.agreements,
       nextSessionDate: original.nextSessionDate,
       sessionType: original.sessionType,
-    }));
+    });
 
     return this.prisma.$transaction(async (tx) => {
       // El snapshot queda indexado por groupId, no por el id de la versión
