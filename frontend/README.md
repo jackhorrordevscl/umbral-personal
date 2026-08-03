@@ -1,4 +1,4 @@
-# Frontend — Umbral SpA
+# Frontend — Umbral - RCE
 
 Interfaz React del sistema de gestión de fichas clínicas. Documentación
 completa del proyecto (instalación, variables de entorno, endpoints,

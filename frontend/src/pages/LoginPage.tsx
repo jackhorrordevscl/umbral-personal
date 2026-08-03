@@ -306,7 +306,7 @@ export default function LoginPage() {
           </p>
         </div>
         <div className="text-slate-500 text-xs">
-          © 2026 Umbral SpA — Datos protegidos bajo Ley 19.628
+          © 2026 Umbral - RCE — Datos protegidos bajo Ley 19.628
         </div>
       </div>
 

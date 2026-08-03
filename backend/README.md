@@ -1,4 +1,4 @@
-# Backend — Umbral SpA
+# Backend — Umbral - RCE
 
 API NestJS del sistema de gestión de fichas clínicas. Documentación completa
 del proyecto (instalación, variables de entorno, endpoints, compliance) en el

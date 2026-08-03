@@ -738,7 +738,7 @@ describe('AuthService', () => {
       const result = await service.generateMfaSecret('user-1');
 
       expect(mockSpeakeasy.generateSecret).toHaveBeenCalledWith({
-        name: 'Umbral SpA (user@example.com)',
+        name: 'Umbral - RCE (user@example.com)',
         length: 20,
       });
       expect(prisma.user.update).toHaveBeenCalledWith({

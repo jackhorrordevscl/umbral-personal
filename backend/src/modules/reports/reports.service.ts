@@ -169,7 +169,7 @@ export class ReportsService {
       // ── PIE DE PÁGINA ────────────────────────────────────
       doc.moveDown(2);
       doc.fontSize(9).font('Helvetica')
-        .text('Documento generado por Umbral SpA — Confidencial', { align: 'center' });
+        .text('Documento generado por Umbral - RCE — Confidencial', { align: 'center' });
       doc.text('Ley 20.584 — Custodia obligatoria 15 años', { align: 'center' });
 
       doc.end();

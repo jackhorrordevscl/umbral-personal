@@ -15,7 +15,7 @@ export class MailService {
     // depender de tener Resend configurado para correr los tests o levantar
     // el backend en local.
     this.resend = apiKey ? new Resend(apiKey) : null;
-    this.from = this.config.get<string>('MAIL_FROM') ?? 'Umbral SpA <onboarding@resend.dev>';
+    this.from = this.config.get<string>('MAIL_FROM') ?? 'Umbral - RCE <onboarding@resend.dev>';
   }
 
   async sendVerificationEmail(to: string, name: string, verifyUrl: string): Promise<void> {
@@ -29,10 +29,10 @@ export class MailService {
     const { error } = await this.resend.emails.send({
       from: this.from,
       to,
-      subject: 'Verifica tu cuenta en Umbral SpA',
+      subject: 'Verifica tu cuenta en Umbral - RCE',
       html: `
         <p>Hola ${name},</p>
-        <p>Crea tu cuenta en Umbral SpA haciendo clic en el siguiente enlace:</p>
+        <p>Crea tu cuenta en Umbral - RCE haciendo clic en el siguiente enlace:</p>
         <p><a href="${verifyUrl}">${verifyUrl}</a></p>
         <p>Si no creaste esta cuenta, puedes ignorar este email.</p>
       `,
@@ -58,7 +58,7 @@ export class MailService {
     const { error } = await this.resend.emails.send({
       from: this.from,
       to,
-      subject: 'Restablece tu contraseña en Umbral SpA',
+      subject: 'Restablece tu contraseña en Umbral - RCE',
       html: `
         <p>Hola ${name},</p>
         <p>Restablece tu contraseña haciendo clic en el siguiente enlace (válido por 30 minutos):</p>

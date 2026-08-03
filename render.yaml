@@ -55,7 +55,7 @@ services:
       - key: JWT_EXPIRES_IN
         value: 8h
       - key: MFA_APP_NAME
-        value: Umbral SpA
+        value: Umbral - RCE
       - key: RUN_MIGRATIONS
         value: "false"
       # 3 = Render detrás de Cloudflare (ver comentario en auth.module.ts).

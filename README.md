@@ -109,7 +109,7 @@ DATABASE_URL="postgresql://umbral_user:tu_password_seguro@localhost:5432/umbral_
 DIRECT_URL="postgresql://umbral_user:tu_password_seguro@localhost:5432/umbral_db"
 JWT_SECRET="cambia-este-secreto-en-produccion"
 JWT_EXPIRES_IN="8h"
-MFA_APP_NAME="Umbral SpA"
+MFA_APP_NAME="Umbral - RCE"
 FRONTEND_URL="http://localhost:5173"
 # Clave de cifrado de documentos (T8.1) -- generá la tuya con:
 # openssl rand -base64 32
@@ -622,7 +622,7 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `DIRECT_URL` | Conexión directa (sin pooler) para `prisma migrate` | Igual a `DATABASE_URL` en local |
 | `JWT_SECRET` | Clave secreta para firmar tokens | Cadena aleatoria larga |
 | `JWT_EXPIRES_IN` | Tiempo de expiración del token | `8h` |
-| `MFA_APP_NAME` | Nombre que aparece en la app autenticadora | `Umbral SpA` |
+| `MFA_APP_NAME` | Nombre que aparece en la app autenticadora | `Umbral - RCE` |
 | `FRONTEND_URL` | URL del frontend (para CORS) | `http://localhost:5173` |
 | `DOCUMENT_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar documentos de pacientes en reposo (T8.1) | Generar con `openssl rand -base64 32` |
 | `PORT` | Puerto del backend | `3001` (default) |
@@ -632,7 +632,7 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `SEED_ADMIN_EMAIL` | Email del admin creado por `prisma db seed` (`npm run seed`) | `admin@umbral.cl` (default, ver `prisma/seed-admin.defaults.ts`) |
 | `SEED_ADMIN_PASSWORD` | Contraseña inicial del admin creado por el seed | Ver advertencia abajo — **nunca dejar el default en un entorno alcanzable** |
 | `RESEND_API_KEY` | API key de [Resend](https://resend.com) (free tier) para el email de verificación del signup propio (issue #5). Sin setear, `MailService` saltea el envío con un warning en logs — no bloquea signup en dev/test | Conseguir en el dashboard de Resend |
-| `MAIL_FROM` | Remitente del email de verificación | `Umbral SpA <onboarding@resend.dev>` (default) |
+| `MAIL_FROM` | Remitente del email de verificación | `Umbral - RCE <onboarding@resend.dev>` (default) |
 
 > ⚠️ Si el comando de arranque del hosting ya corre `prisma migrate deploy` antes de iniciar el server (recomendado), **no** setees `RUN_MIGRATIONS=true` también — no rompe nada (la migración es idempotente), pero la corre dos veces innecesariamente.
 
@@ -644,4 +644,4 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 
 ## Licencia
 
-Uso privado — Umbral SpA © 2026. Todos los derechos reservados.
+Uso privado — Umbral - RCE © 2026. Todos los derechos reservados.

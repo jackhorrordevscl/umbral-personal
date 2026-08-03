@@ -14,7 +14,7 @@ que trate datos personales.
 
 ## Responsable del tratamiento
 
-Umbral SpA, a través del sistema de gestión de fichas clínicas descrito en
+Umbral - RCE, a través del sistema de gestión de fichas clínicas descrito en
 este repositorio.
 
 ## Inventario de actividades de tratamiento

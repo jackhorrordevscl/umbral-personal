@@ -452,7 +452,7 @@ export class AuthService {
     if (!user) throw new UnauthorizedException('Usuario no válido');
 
     const secret = speakeasy.generateSecret({
-      name: `Umbral SpA (${user.email})`,
+      name: `Umbral - RCE (${user.email})`,
       length: 20,
     });
 

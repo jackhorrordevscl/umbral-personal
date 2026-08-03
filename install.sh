@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🚀 Instalando Sistema de Gestión Clínica Umbral SpA"
+echo "🚀 Instalando Sistema de Gestión Clínica Umbral - RCE"
 echo "=================================================="
 
 # ─── VERIFICAR NODE ───────────────────────────────────
@@ -66,14 +66,14 @@ DATABASE_URL="postgresql://umbral_user:umbral_password_2024@localhost:5432/umbra
 DIRECT_URL="postgresql://umbral_user:umbral_password_2024@localhost:5432/umbral_db"
 JWT_SECRET="umbral-jwt-secret-cambiar-en-produccion-2024"
 JWT_EXPIRES_IN="8h"
-MFA_APP_NAME="Umbral SpA"
+MFA_APP_NAME="Umbral - RCE"
 FRONTEND_URL="http://localhost:5173"
 # Signup propio (issue #5): sin esta key, el email de verificación no se
 # envía (queda logueado como warning) pero el signup igual crea la cuenta --
 # útil para desarrollar sin cuenta de Resend. Conseguí la tuya en
 # https://resend.com (free tier).
 RESEND_API_KEY=""
-MAIL_FROM="Umbral SpA <onboarding@resend.dev>"
+MAIL_FROM="Umbral - RCE <onboarding@resend.dev>"
 # Clave de cifrado de documentos (T8.1) -- generá la tuya con:
 # openssl rand -base64 32
 DOCUMENT_ENCRYPTION_KEY="+rPRh0H2ayZ4yAIjhOWbvOghetuNtScBP8g2VgNuBik="

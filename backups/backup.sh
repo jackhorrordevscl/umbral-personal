@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ═══════════════════════════════════════════════════════════════════════
-# Backup cifrado de Umbral SpA — control-fichas
+# Backup cifrado de Umbral - RCE — control-fichas
 #
 # Requisitos de configuración (una sola vez, fuera de este repo):
 #
