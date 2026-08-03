@@ -128,12 +128,19 @@ En la práctica: si te equivocaste en algo, corrígelo con confianza — no se "
 
 ## 5. Documentos de pacientes
 
-Cada ficha de paciente permite subir documentos asociados (ej. informes, exámenes). Reglas:
-- Solo se aceptan **PDF e imágenes** — cualquier otro tipo de archivo se rechaza.
+Desde la ficha del paciente, en la sección "Documentos legales", subes archivos ligados a esa persona en dos pasos:
+
+1. Elige el tipo de documento en el desplegable: **Consentimiento informado**, **Acuerdo de telemedicina** u **Otro**.
+2. Haz clic en "Subir" y selecciona el archivo desde tu computadora.
+
+Reglas:
+- Solo se aceptan **PDF e imágenes** — cualquier otro tipo de archivo se rechaza antes de subir.
 - **10 MB máximo** por archivo.
 - Solo puedes subir documentos a pacientes propios (mismos que ves en tu listado).
 
-Esto es distinto de "Archivos personales" (ver sección 6) — los documentos de paciente están ligados a una ficha específica, no son de uso general.
+Cada documento subido queda en la lista con su nombre y tipo, y se puede volver a descargar en cualquier momento con el ícono de descarga.
+
+Esto es distinto de "Archivos personales" (ver sección 6): los documentos de paciente quedan ligados a una ficha específica (el consentimiento firmado de esa persona, por ejemplo), mientras que "Archivos personales" es tu biblioteca general, sin paciente asociado.
 
 > 📝 Observaciones UX:
 >
