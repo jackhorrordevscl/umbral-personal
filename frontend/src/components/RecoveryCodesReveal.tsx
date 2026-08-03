@@ -7,7 +7,7 @@ interface RecoveryCodesRevealProps {
 // Issue #50: se usa en dos flujos (enrolamiento MFA forzado en LoginPage y
 // activación opcional en SettingsPage) -- el backend solo entrega estos
 // códigos una vez, en la respuesta de mfa/enable o mfa/setup/confirm, así
-// que ambos puntos de entrada necesitan la misma pantalla de "guardalos
+// que ambos puntos de entrada necesitan la misma pantalla de "guárdalos
 // ahora, no los vas a volver a ver".
 export default function RecoveryCodesReveal({
   codes,

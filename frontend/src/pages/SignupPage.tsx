@@ -62,7 +62,7 @@ export default function SignupPage() {
         <div className="mb-8">
           <h2 className="font-display text-3xl text-slate-900">Crear cuenta</h2>
           <p className="text-slate-500 text-sm mt-2">
-            Registrate como profesional dueño de tus propias fichas.
+            Regístrate como profesional dueño de tus propias fichas.
           </p>
         </div>
 

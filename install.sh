@@ -70,11 +70,11 @@ MFA_APP_NAME="Umbral - RCE"
 FRONTEND_URL="http://localhost:5173"
 # Signup propio (issue #5): sin esta key, el email de verificación no se
 # envía (queda logueado como warning) pero el signup igual crea la cuenta --
-# útil para desarrollar sin cuenta de Resend. Conseguí la tuya en
+# útil para desarrollar sin cuenta de Resend. Consigue la tuya en
 # https://resend.com (free tier).
 RESEND_API_KEY=""
 MAIL_FROM="Umbral - RCE <onboarding@resend.dev>"
-# Clave de cifrado de documentos (T8.1) -- generá la tuya con:
+# Clave de cifrado de documentos (T8.1) -- genera la tuya con:
 # openssl rand -base64 32
 DOCUMENT_ENCRYPTION_KEY="+rPRh0H2ayZ4yAIjhOWbvOghetuNtScBP8g2VgNuBik="
 EOL

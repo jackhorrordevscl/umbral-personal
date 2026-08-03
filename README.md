@@ -12,8 +12,8 @@ que se simplificó a este modelo de una sola cuenta por profesional (issue
 Deberes de los Pacientes), la **Ley 19.628** (Protección de la Vida Privada)
 y la **Ley 21.719** (nueva Ley de Protección de Datos Personales) de Chile.
 
-Si sos terapeuta y solo querés saber cómo usar la app (sin instalar nada),
-andá directo al [Manual de uso](docs/manual-terapeutas.md).
+Si eres terapeuta y solo quieres saber cómo usar la app (sin instalar nada),
+ve directo al [Manual de uso](docs/manual-terapeutas.md).
 
 ## Documentación relacionada
 
@@ -111,7 +111,7 @@ JWT_SECRET="cambia-este-secreto-en-produccion"
 JWT_EXPIRES_IN="8h"
 MFA_APP_NAME="Umbral - RCE"
 FRONTEND_URL="http://localhost:5173"
-# Clave de cifrado de documentos (T8.1) -- generá la tuya con:
+# Clave de cifrado de documentos (T8.1) -- genera la tuya con:
 # openssl rand -base64 32
 DOCUMENT_ENCRYPTION_KEY="+rPRh0H2ayZ4yAIjhOWbvOghetuNtScBP8g2VgNuBik="
 ```
@@ -160,11 +160,11 @@ npm run dev
 No hay usuarios predefinidos por rol — cada profesional crea su propia
 cuenta:
 
-- **Alta normal**: `POST /auth/signup` (o el botón "Registrate" del login)
+- **Alta normal**: `POST /auth/signup` (o el botón "Regístrate" del login)
   crea la cuenta con `emailVerified: false`. Sin `RESEND_API_KEY` configurada
   en local, el email de verificación no se envía de verdad — `MailService`
-  lo saltea con un warning en el log del backend (revisalo ahí para sacar el
-  link mientras probás en dev).
+  lo saltea con un warning en el log del backend (revísalo ahí para sacar el
+  link mientras pruebas en dev).
 - **Cuenta semilla** (`npm run seed`, ver más abajo): crea una única cuenta
   de prueba para no tener que pasar por signup+verificación en cada corrida
   local.
@@ -174,11 +174,11 @@ Email:     admin@umbral.cl
 Password:  Umbral2024!
 ```
 
-> ⚠️ Cambiá estas credenciales inmediatamente después de instalar en un
+> ⚠️ Cambia estas credenciales inmediatamente después de instalar en un
 > entorno alcanzable por otras personas (ver `SEED_ADMIN_EMAIL`/
 > `SEED_ADMIN_PASSWORD` en Variables de Entorno). La cuenta semilla fuerza
 > cambio de contraseña en su primer login (`mustChangePassword`), pero eso
-> solo protege si cambiás la clave **antes** de que alguien más la use con
+> solo protege si cambias la clave **antes** de que alguien más la use con
 > el valor conocido — es público, está en este repo.
 >
 > Si perdiste tu contraseña o el dispositivo MFA de una cuenta ya
@@ -437,14 +437,14 @@ GET /api/v1/reports/patient/:patientId    🔒
 
 ## Configuración de Backups
 
-El script de backup está en `backups/backup.sh`. Antes de activarlo, configurá dos archivos protegidos **fuera del repositorio** (nunca en git):
+El script de backup está en `backups/backup.sh`. Antes de activarlo, configura dos archivos protegidos **fuera del repositorio** (nunca en git):
 
 ```bash
 # 1. Credenciales de base de datos
 echo "localhost:5432:umbral_db:umbral_user:TU_PASSWORD" >> ~/.pgpass
 chmod 600 ~/.pgpass
 
-# 2. Frase de cifrado — guardá una copia en un gestor de contraseñas.
+# 2. Frase de cifrado — guarda una copia en un gestor de contraseñas.
 #    Sin ella, los backups cifrados son irrecuperables.
 openssl rand -base64 48 > ~/.umbral_backup_passphrase
 chmod 600 ~/.umbral_backup_passphrase
@@ -494,7 +494,7 @@ Setup (una sola vez):
    | Secret | Valor |
    |---|---|
    | `BACKUP_DB_URL` | El `DIRECT_URL` de Supabase (session pooler, puerto 5432 — mismo que usa Render para `prisma migrate deploy`, no el transaction pooler) |
-   | `BACKUP_PASSPHRASE` | `openssl rand -base64 48` — guardá una copia en un gestor de contraseñas, sin ella los backups son irrecuperables |
+   | `BACKUP_PASSPHRASE` | `openssl rand -base64 48` — guarda una copia en un gestor de contraseñas, sin ella los backups son irrecuperables |
    | `RCLONE_CONFIG_CONTENT` | Contenido completo de `rclone.conf` generado en el paso 2 |
    | `B2_BUCKET_PATH` | `nombre-del-remote:mi-bucket/umbral/` (el remote que configuraste en `rclone config`) |
 
@@ -636,9 +636,9 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 
 > ⚠️ Si el comando de arranque del hosting ya corre `prisma migrate deploy` antes de iniciar el server (recomendado), **no** setees `RUN_MIGRATIONS=true` también — no rompe nada (la migración es idempotente), pero la corre dos veces innecesariamente.
 
-> 🔒 **El `DOCUMENT_ENCRYPTION_KEY` de ejemplo de arriba es público** (está en un repo público) — igual que con `JWT_SECRET`, en producción el arranque falla si detecta ese valor exacto o cualquier clave que no decodifique a 32 bytes en base64. Generá una propia con `openssl rand -base64 32` antes de desplegar.
+> 🔒 **El `DOCUMENT_ENCRYPTION_KEY` de ejemplo de arriba es público** (está en un repo público) — igual que con `JWT_SECRET`, en producción el arranque falla si detecta ese valor exacto o cualquier clave que no decodifique a 32 bytes en base64. Genera una propia con `openssl rand -base64 32` antes de desplegar.
 
-> 🔒 **`SEED_ADMIN_PASSWORD` es pública si no la overrideás.** El default (`prisma/seed-admin.defaults.ts`) está commiteado en un repo público — cualquiera lo puede leer. La cuenta admin fuerza cambio de contraseña en su primer login (`mustChangePassword`), pero eso solo protege si el operador cambia la clave *antes* de que alguien más la use con la contraseña conocida: quien loguee primero con el default se queda con el `passwordChangeToken` y puede tomar la cuenta. En local/CI el default está bien (nadie más tiene acceso a esa base). En **cualquier entorno alcanzable desde afuera** (staging, producción), seteá `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` a valores propios antes de correr el seed por primera vez.
+> 🔒 **`SEED_ADMIN_PASSWORD` es pública si no la sobrescribes.** El default (`prisma/seed-admin.defaults.ts`) está commiteado en un repo público — cualquiera lo puede leer. La cuenta admin fuerza cambio de contraseña en su primer login (`mustChangePassword`), pero eso solo protege si el operador cambia la clave *antes* de que alguien más la use con la contraseña conocida: quien loguee primero con el default se queda con el `passwordChangeToken` y puede tomar la cuenta. En local/CI el default está bien (nadie más tiene acceso a esa base). En **cualquier entorno alcanzable desde afuera** (staging, producción), configura `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` a valores propios antes de correr el seed por primera vez.
 
 ---
 

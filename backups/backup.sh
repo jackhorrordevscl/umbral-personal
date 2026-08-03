@@ -13,7 +13,7 @@ set -euo pipefail
 #   2. Frase de cifrado en un archivo protegido (nunca en este script ni en git):
 #        openssl rand -base64 48 > ~/.umbral_backup_passphrase
 #        chmod 600 ~/.umbral_backup_passphrase
-#      Guardá una copia de esa frase en un gestor de contraseñas — sin
+#      Guarda una copia de esa frase en un gestor de contraseñas — sin
 #      ella, los backups cifrados son irrecuperables.
 #
 #   3. (Opcional) Variables de entorno para personalizar rutas — ver
@@ -70,7 +70,7 @@ fi
 
 if [ ! -f "$PASSPHRASE_FILE" ]; then
   echo "❌ No se encontró el archivo de frase de cifrado: $PASSPHRASE_FILE"
-  echo "   Generalo con: openssl rand -base64 48 > \"$PASSPHRASE_FILE\" && chmod 600 \"$PASSPHRASE_FILE\""
+  echo "   Genéralo con: openssl rand -base64 48 > \"$PASSPHRASE_FILE\" && chmod 600 \"$PASSPHRASE_FILE\""
   exit 1
 fi
 
