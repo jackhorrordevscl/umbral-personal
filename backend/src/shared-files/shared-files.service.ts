@@ -7,8 +7,10 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { FileCategory } from '@prisma/client';
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import { UploadSharedFileDto } from './dto/upload-shared-file.dto';
 import { UpdateSharedFileDto } from './dto/update-shared-file.dto';
+import { assertFileContentMatchesMimetype } from '../common/utils/file-signature.util';
 
 // "Shared" es el nombre heredado de la versión institucional multi-
 // profesional: hoy cada método filtra por uploadedById === userId, es una
@@ -32,6 +34,18 @@ export class SharedFilesService {
     dto: UploadSharedFileDto,
     userId: string,
   ) {
+    // El `fileFilter` del multer module (shared-files.module.ts) solo mira
+    // el header `mimetype` declarado por el cliente (spoofable); acá se
+    // valida el contenido real ya escrito a disco (issue #51). Si no
+    // coincide, se borra el archivo huérfano antes de propagar el error.
+    try {
+      const buffer = await fsp.readFile(file.path);
+      await assertFileContentMatchesMimetype(buffer, file.mimetype);
+    } catch (err) {
+      await fsp.unlink(file.path).catch(() => undefined);
+      throw err;
+    }
+
     return this.prisma.sharedFile.create({
       data: {
         name: dto.name || file.originalname,

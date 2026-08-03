@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { DocumentEncryptionService } from './document-encryption.service';
+import { assertFileContentMatchesMimetype } from '../../common/utils/file-signature.util';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 
@@ -29,6 +30,11 @@ export class DocumentsService {
     // tiene acceso a él -- se valida ANTES de escribir nada a disco, así no
     // queda un archivo huérfano que limpiar.
     await this.patientsService.assertAccess(patientId, userId);
+
+    // El `fileFilter` del controller solo mira el header `mimetype`
+    // declarado por el cliente (spoofable); esta es la validación real de
+    // contenido (issue #51), corre sobre el buffer ya completo.
+    await assertFileContentMatchesMimetype(file.buffer, file.mimetype);
 
     await fs.mkdir(UPLOAD_DIR, { recursive: true });
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
