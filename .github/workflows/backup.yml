@@ -1,14 +1,13 @@
 name: Backup offsite
 
-# Issue #8: backup.sh (backups/backup.sh) asume una VM persistente con cron
-# propio -- este repo corre en Render free tier, que no tiene un proceso
-# persistente para cron. Este workflow reemplaza esa pieza: corre pg_dump
-# contra Supabase (accesible desde cualquier lado, no requiere estar en la
-# misma red), cifra igual que backup.sh y sube el resultado a Backblaze B2
-# vía rclone. No usa backup.sh directamente porque su interfaz asume rutas
-# locales (BACKUP_DIR/ARCHIVE_DIR/NAS_DIR) que no tienen sentido en un
-# runner efímero -- acá cada backup diario se sube a B2 sin acumular
-# estado local entre corridas.
+# Issue #8: este repo corre el backend en Render free tier, que no tiene un
+# proceso persistente para cron, así que el backup no puede vivir en un
+# script local con estado (issue #61, retirado: asumía una VM propia con
+# rutas locales tipo BACKUP_DIR/ARCHIVE_DIR/NAS_DIR que no tienen sentido en
+# un runner efímero). Este workflow corre pg_dump contra Supabase
+# (accesible desde cualquier lado, no requiere estar en la misma red),
+# cifra el resultado y lo sube a Backblaze B2 vía rclone -- cada backup
+# diario se sube sin acumular estado local entre corridas.
 on:
   schedule:
     # 05:00 UTC ~ 02:00 America/Santiago en horario de verano (UTC-3); se

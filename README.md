@@ -280,8 +280,6 @@ umbral-personal/
 │                                  # ResetPassword, MfaRecover, Dashboard, Patients,
 │                                  # Consultations, Settings (MFA), SharedFiles
 ├── docs/                         # Manual de uso, caso de testing, RAT
-├── backups/
-│   └── backup.sh                 # Script de backup automático
 └── README.md
 ```
 
@@ -348,16 +346,20 @@ umbral-personal/
 - Tabla append-only — ningún registro puede modificarse ni eliminarse
 
 ### Backups Automáticos
-- Script de backup diario programado vía cron (2:00 AM)
+- Workflow diario de GitHub Actions (`.github/workflows/backup.yml`), sin
+  depender de ningún servidor propio (issue #8)
 - Compresión gzip + cifrado AES-256 de los respaldos (nunca se escribe un
   volcado sin cifrar a disco)
-- Credenciales de base de datos vía `.pgpass`, nunca hardcodeadas en el script
-- Rotación operativa de 30 días **separada** de un archivo de custodia legal
-  mensual que nunca se borra (Ley 20.584: 15 años)
-- Segunda copia local en un dispositivo físico distinto (NAS)
-- Copia offsite real vía Backblaze B2 + `rclone` (T3.3, issue #17) — proveedor
-  ya definido, configuración de infra pendiente (ver sección
-  [Configuración de Backups](#configuración-de-backups))
+- Sin rotación: se conserva todo indefinidamente — al volumen real
+  (~40 KB/backup diario), 15 años de historial completo entran cómodos en
+  los 10 GB gratis de B2, sin necesidad de distinguir "operativo" de
+  "custodia legal" (Ley 20.584: 15 años)
+- Copia offsite real vía Backblaze B2 + `rclone`, con una Application Key
+  restringida (sin `deleteFiles`) para que un secret filtrado no permita
+  borrar el historial (issue #58)
+- Tercera copia local en la máquina del terapeuta, espejo de B2 vía una key
+  de solo lectura separada (regla 3-2-1, issue #57) — ver sección
+  [Copia offsite real](#copia-offsite-real-backblaze-b2--rclone)
 
 ---
 
@@ -438,27 +440,8 @@ GET /api/v1/reports/patient/:patientId    🔒
 
 ## Configuración de Backups
 
-El script de backup está en `backups/backup.sh`. Antes de activarlo, configura dos archivos protegidos **fuera del repositorio** (nunca en git):
-
-```bash
-# 1. Credenciales de base de datos
-echo "localhost:5432:umbral_db:umbral_user:TU_PASSWORD" >> ~/.pgpass
-chmod 600 ~/.pgpass
-
-# 2. Frase de cifrado — guarda una copia en un gestor de contraseñas.
-#    Sin ella, los backups cifrados son irrecuperables.
-openssl rand -base64 48 > ~/.umbral_backup_passphrase
-chmod 600 ~/.umbral_backup_passphrase
-```
-
-Variables opcionales (todas tienen un default razonable si no se configuran — ver comentarios al inicio de `backup.sh`):
-
-| Variable | Para qué |
-|---|---|
-| `BACKUP_DIR` | Backups operativos, rotan cada `RETENTION_DAYS` |
-| `ARCHIVE_DIR` | Custodia legal — nunca se borra automáticamente |
-| `NAS_DIR` | Segunda copia local en un dispositivo físico distinto (regla 3-2-1) |
-| `OFFSITE_UPLOAD_CMD` | Hook para subir a un destino offsite real (T3.3, issue #17) |
+Producción corre íntegramente vía GitHub Actions — no hay ningún script
+local que configurar. Ver el setup completo en la sección siguiente.
 
 ### Copia offsite real (Backblaze B2 + rclone)
 
@@ -469,17 +452,14 @@ existente (ej. HostGator) porque su Acceptable Use Policy prohíbe
 explícitamente usar el espacio de shared hosting como *"offsite storage of
 electronic files"* — ver la discusión completa en el issue #17.
 
-Hay dos formas de correr el backup, según dónde se ejecute:
-
 #### A) Automatizado vía GitHub Actions (producción actual)
 
-`backups/backup.sh` asume una VM persistente con cron propio — este repo
-corre el backend en Render free tier, que no tiene un proceso persistente
-para cron (issue #10 evaluó y descartó migrar a una VM por ahora). Por eso
-la copia offsite en producción corre como un workflow programado
-(`.github/workflows/backup.yml`): todos los días hace `pg_dump` contra
-Supabase, cifra igual que `backup.sh` y sube el resultado a B2 vía rclone,
-sin depender de ningún servidor propio.
+Este repo corre el backend en Render free tier, que no tiene un proceso
+persistente para cron (issue #10 evaluó y descartó migrar a una VM por
+ahora). Por eso la copia offsite en producción corre como un workflow
+programado (`.github/workflows/backup.yml`): todos los días hace `pg_dump`
+contra Supabase, cifra el resultado (gzip + AES-256) y lo sube a B2 vía
+rclone, sin depender de ningún servidor propio.
 
 Setup (una sola vez):
 
@@ -532,33 +512,7 @@ Setup (una sola vez):
 > secrets de B2"). No hace falta desactivar el cron a mano mientras B2
 > todavía no está configurado.
 
-#### B) Manual / local (`backup.sh`)
-
-Sigue siendo útil para correr un backup puntual desde tu propia máquina, o
-si en algún momento se migra a una VM persistente (issue #10) y conviene
-volver a un cron tradicional:
-
-```bash
-chmod +x backups/backup.sh
-
-# Agregar al cron (ejecuta todos los días a las 2:00 AM)
-crontab -e
-```
-
-Agregar la siguiente línea:
-
-```
-0 2 * * * /ruta/completa/umbral-personal/backups/backup.sh >> /ruta/completa/umbral-personal/backups/backup.log 2>&1
-```
-
-Para que también suba a B2, setear `OFFSITE_UPLOAD_CMD` en el entorno de
-esa máquina (nunca en el repo):
-
-```bash
-OFFSITE_UPLOAD_CMD="rclone copy {} b2remote:mi-bucket/umbral/"
-```
-
-#### C) Tercera copia local (regla 3-2-1, issue #57)
+#### B) Tercera copia local (regla 3-2-1, issue #57)
 
 Con Supabase (origen) + B2 (offsite) hay 2 copias en 2 medios, pero la regla
 3-2-1 completa pide 3 copias, 1 offsite. Falta una segunda copia de
@@ -613,12 +567,12 @@ Setup (una sola vez):
 Costo real: $0 (mismo `rclone` del punto A, sin secrets nuevos ni
 infraestructura adicional).
 
-Restaurar un backup (aplica a los tres casos, A, B y C; verificado end-to-end el
+Restaurar un backup (aplica a los dos casos, A y B; verificado end-to-end el
 2026-08-03 contra un backup real bajado de B2, issue #56):
 
 ```bash
-# 1. Bajar el backup más reciente de B2 (si restaurás desde la copia offsite,
-#    no desde un backup.sh local):
+# 1. Bajar el backup más reciente de B2 (o usar directamente el archivo ya
+#    presente en b2-local-mirror/, si restaurás desde la copia local):
 rclone copy b2remote:mi-bucket/umbral/umbral_backup_2026-07-15_02-00-00.sql.gz.enc .
 
 # 2. Desencriptar + descomprimir + restaurar. La frase de cifrado va siempre
