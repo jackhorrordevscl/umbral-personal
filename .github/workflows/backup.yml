@@ -21,10 +21,33 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     steps:
+      # Antes de que B2 esté configurado (secrets vacíos), el job fallaba
+      # todas las noches en vez de terminar limpio: rclone/pg_dump reventaban
+      # con un error de credenciales en vez de un mensaje claro. Este chequeo
+      # corta antes de instalar nada y termina en success con un aviso, para
+      # no generar una alerta roja diaria por algo que ya se sabe pendiente.
+      - name: Verificar secrets de B2 configurados
+        id: check-secrets
+        env:
+          BACKUP_DB_URL: ${{ secrets.BACKUP_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          RCLONE_CONFIG_CONTENT: ${{ secrets.RCLONE_CONFIG_CONTENT }}
+          B2_BUCKET_PATH: ${{ secrets.B2_BUCKET_PATH }}
+        run: |
+          if [ -z "$BACKUP_DB_URL" ] || [ -z "$BACKUP_PASSPHRASE" ] || \
+             [ -z "$RCLONE_CONFIG_CONTENT" ] || [ -z "$B2_BUCKET_PATH" ]; then
+            echo "⚠️ Backup offsite salteado: faltan uno o más secrets de B2 (BACKUP_DB_URL, BACKUP_PASSPHRASE, RCLONE_CONFIG_CONTENT, B2_BUCKET_PATH). Ver issue #8/#17." >> "$GITHUB_STEP_SUMMARY"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Instalar rclone
+        if: steps.check-secrets.outputs.configured == 'true'
         run: curl https://rclone.org/install.sh | sudo bash
 
       - name: Backup cifrado -> Backblaze B2
+        if: steps.check-secrets.outputs.configured == 'true'
         env:
           # Session pooler de Supabase (DIRECT_URL en Render), no el
           # transaction pooler: pg_dump necesita prepared statements igual
