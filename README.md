@@ -558,7 +558,62 @@ esa máquina (nunca en el repo):
 OFFSITE_UPLOAD_CMD="rclone copy {} b2remote:mi-bucket/umbral/"
 ```
 
-Restaurar un backup (aplica a ambos casos, A y B; verificado end-to-end el
+#### C) Tercera copia local (regla 3-2-1, issue #57)
+
+Con Supabase (origen) + B2 (offsite) hay 2 copias en 2 medios, pero la regla
+3-2-1 completa pide 3 copias, 1 offsite. Falta una segunda copia de
+respaldo en un medio físico distinto: la máquina local del terapeuta,
+sincronizada desde B2.
+
+Importante: se usa `rclone copy`, **no** `rclone sync` — `sync` replica
+borrados desde B2 hacia lo local, así que si un backup se borra por error
+(o la cuenta de B2 se ve comprometida) esa pérdida se propagaría a la
+copia local. `copy` solo agrega, nunca borra.
+
+También importante: esto **lee** de B2 (`GET` de descarga), algo que la key
+`umbral-backup-ci` del punto A no puede hacer a propósito (solo tiene
+`listFiles,writeFiles`). Hace falta una segunda Application Key,
+de solo lectura, exclusiva para este uso local:
+
+```bash
+b2 key create --bucket mi-bucket umbral-local-mirror listFiles,readFiles
+```
+
+Setup (una sola vez):
+
+1. Agregar un segundo remote en `rclone.conf` (junto al usado por el punto
+   A) con las credenciales de la key de solo lectura de arriba — nunca la
+   de CI:
+
+   ```ini
+   [b2read]
+   type = b2
+   account = <keyID de umbral-local-mirror>
+   key = <applicationKey de umbral-local-mirror>
+   ```
+
+2. Elegir una carpeta local como destino (ej. `b2-local-mirror/` en la raíz
+   del repo, agregada a `.gitignore` para que nunca se trackee) y correr
+   una vez a mano para confirmar:
+
+   ```bash
+   rclone copy b2read:mi-bucket/umbral/ b2-local-mirror/
+   ```
+
+3. Automatizar con el Task Scheduler de Windows (`onlogon`, para no
+   depender de que la máquina esté prendida a una hora fija):
+
+   ```
+   schtasks /create /tn "UmbralBackupLocalMirror" /tr "<ruta>\backup-local-mirror.bat" /sc onlogon /rl limited /f
+   ```
+
+   donde el `.bat` solo llama a `rclone copy` con el mismo comando del
+   paso 2.
+
+Costo real: $0 (mismo `rclone` del punto A, sin secrets nuevos ni
+infraestructura adicional).
+
+Restaurar un backup (aplica a los tres casos, A, B y C; verificado end-to-end el
 2026-08-03 contra un backup real bajado de B2, issue #56):
 
 ```bash
