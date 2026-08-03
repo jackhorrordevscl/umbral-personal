@@ -110,6 +110,18 @@ export class ConsultationsService {
     }));
   }
 
+  // Issue #40: 2 queries de agregación en vez de traer todas las filas.
+  async getStats(therapistId: string) {
+    const baseWhere = { therapistId, correctedBy: null, deletedAt: null };
+    const [total, upcoming] = await Promise.all([
+      this.prisma.consultation.count({ where: baseWhere }),
+      this.prisma.consultation.count({
+        where: { ...baseWhere, nextSessionDate: { gte: new Date() } },
+      }),
+    ]);
+    return { total, upcoming };
+  }
+
   async findOne(id: string, userId: string) {
     const consultation = await this.prisma.consultation.findFirst({
       where: { id, deletedAt: null },

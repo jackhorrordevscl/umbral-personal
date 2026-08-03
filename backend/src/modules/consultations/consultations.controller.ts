@@ -31,6 +31,15 @@ export class ConsultationsController {
     return this.consultationsService.findByPatient(patientId, user.id);
   }
 
+  // Issue #40: agregado en el backend en vez de que el dashboard resuelva
+  // "cuántas consultas tiene cada paciente" haciendo un GET por paciente
+  // (N+1). Debe declararse ANTES de :id -- si no, Express/Nest matchea
+  // "stats" contra ese wildcard de un solo segmento.
+  @Get('stats')
+  getStats(@CurrentUser() user: any) {
+    return this.consultationsService.getStats(user.id);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: any) {
     return this.consultationsService.findOne(id, user.id);
