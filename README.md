@@ -27,6 +27,9 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 - [`docs/registro-actividades-tratamiento.md`](docs/registro-actividades-tratamiento.md) —
   Registro de Actividades de Tratamiento (RAT, Ley 21.719): qué datos se
   tratan, con qué finalidad, base legal y retención.
+- [`docs/incident-log.md`](docs/incident-log.md) — bitácora de incidentes de
+  seguridad reales: qué pasó, impacto, causa raíz, remediación y
+  verificación.
 
 ---
 
@@ -498,16 +501,8 @@ Setup (una sola vez):
    `Run workflow`) y verificar que el archivo aparezca en el bucket de B2.
 6. Verificar al menos una restauración real desde la copia offsite antes de
    dar por cerrado el punto (ver "Restaurar un backup" abajo). **Hecho y
-   verificado el 2026-08-03** (issue #56): se bajó el `.sql.gz.enc` real de
-   B2, se desencriptó y restauró contra un Postgres local descartable. Las
-   11 tablas de `schema.prisma` restauraron con datos correctos (incluido
-   `_prisma_migrations` con las 21 migraciones aplicadas) y el trigger
-   `trg_audit_log_append_only` siguió bloqueando `UPDATE` después de
-   restaurar. El dump completo también arrastra ~600 errores esperables de
-   roles/extensiones internas de Supabase (`supabase_admin`,
-   `dashboard_user`, `vault`, `pgbouncer`, etc.) que no existen fuera de su
-   infraestructura — no son un problema, `psql -f` los saltea y sigue con
-   el resto del archivo.
+   verificado el 2026-08-03** (issue #56) — detalle completo del
+   procedimiento y resultado en [`docs/incident-log.md`](docs/incident-log.md).
 
 > Mientras estos 4 secrets no estén cargados, el workflow no falla: corta
 > antes de instalar nada y termina en success con un aviso en el step
@@ -671,41 +666,13 @@ hasta que pueda volver a entrar. Tres mecanismos, del menos al más invasivo:
    🔒 **Issue #52 — el trigger append-only por sí solo no alcanza.**
    `trg_audit_log_append_only` impide modificar o borrar una fila ya
    escrita, pero no impedía que las mismas credenciales usadas para este
-   procedimiento manual deshabiliten el trigger (`ALTER TABLE ... DISABLE
-   TRIGGER` o `DROP TRIGGER`), hagan el reset sin dejar el paso 3, y lo
-   reactiven después sin rastro — porque el rol de runtime de la app ERA el
-   dueño de la tabla, y el dueño tiene esos permisos implícitos sin importar
-   los GRANT/REVOKE.
-
-   Primer intento descartado: un *event trigger* a nivel de base que
-   bloqueara ese DDL sin importar el rol. `CREATE EVENT TRIGGER` requiere
-   privilegios de superusuario en Postgres — verificado contra el rol real
-   de producción (`SELECT rolsuper FROM pg_roles WHERE rolname =
-   current_user`) que da `false`. No es viable en Supabase, ni en staging ni
-   en producción: no es un problema de ambiente, es un techo de la
-   plataforma.
-
-   Fix real, migración `20260803060000_restrict_audit_log_owner_privileges`:
-   se transfiere la ownership de `"AuditLog"` a un rol nuevo sin login
-   (`audit_log_owner`), y el rol de runtime queda con `SELECT`/`INSERT`
-   explícitos únicamente — sin `ALTER`/`TRIGGER`/`UPDATE`/`DELETE`. No
-   necesita superusuario, solo que el rol que corre la migración tenga
-   `CREATEROLE` (verificado con `SELECT rolcreaterole, rolcreatedb FROM
-   pg_roles WHERE rolname = current_user` -> `true`). Probado
-   end-to-end contra un cluster Postgres local descartable con un rol sin
-   superusuario pero con ese mismo perfil de privilegios: `ALTER TABLE ...
-   DISABLE TRIGGER` y `DROP TRIGGER` fallan por no ser dueño, `SET ROLE
-   audit_log_owner` falla por no tener membership (no hay forma de asumir
-   los privilegios del dueño), `UPDATE`/`DELETE` quedan bloqueados por
-   permisos (ni siquiera llegan a evaluar el trigger), e `INSERT`/`SELECT`
-   (lo único que usa `AuditService.log()`) siguen funcionando sin fricción.
-
-   Nota operativa: una futura migración legítima que necesite alterar la
-   estructura de `"AuditLog"` (ej. agregar una columna) va a fallar con este
-   mismo rol porque ya no es el dueño — requiere un paso manual documentado
-   (otorgar membership de `audit_log_owner` temporalmente, aplicar el
-   cambio, revocarla de nuevo), no un `prisma migrate deploy` automático sin
-   intervención.
+   procedimiento manual deshabiliten el trigger y reseteen sin dejar el
+   paso 3 de auditoría — porque el rol de runtime de la app ERA el dueño de
+   la tabla. Fix real: migración
+   `20260803060000_restrict_audit_log_owner_privileges`, que transfiere la
+   ownership a un rol nuevo sin login. Narrativa completa (intento
+   descartado, fix, verificación end-to-end) en
+   [`docs/incident-log.md`](docs/incident-log.md).
 
 Pendiente de proveedor externo (no depende de código): firma electrónica
 avanzada Ley 19.799 (issues #24-#26). La copia offsite de backups ya tiene

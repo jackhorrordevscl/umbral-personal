@@ -4,7 +4,8 @@
 
 # backups/files/: destino histórico de backup.sh corrido a mano -- nunca debe
 # trackearse (issue de seguridad resuelto: 4 dumps sin cifrar quedaron
-# committeados acá y hubo que purgar el historial completo de git).
+# committeados acá y hubo que purgar el historial completo de git -- detalle
+# completo en docs/incident-log.md).
 backups/files/
 
 # b2-local-mirror/: tercera copia de la regla 3-2-1 (issue #57), espejo local
