@@ -98,7 +98,8 @@ export default function LoginPage() {
     }
   };
 
-  const onPasswordChangeSubmit = async () => {
+  const onPasswordChangeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
     setError('');
     try {
@@ -114,7 +115,8 @@ export default function LoginPage() {
     }
   };
 
-  const onMfaSubmit = async () => {
+  const onMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
     setError('');
     try {
@@ -137,7 +139,8 @@ export default function LoginPage() {
     }
   };
 
-  const onMfaSetupSubmit = async () => {
+  const onMfaSetupSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
     setError('');
     try {
@@ -184,27 +187,29 @@ export default function LoginPage() {
           <p className="text-slate-500 text-sm mb-6">
             Esta cuenta todavía usa la contraseña inicial. Elige una nueva contraseña para continuar.
           </p>
-          <input
-            type="password"
-            aria-label="Nueva contraseña"
-            placeholder="Nueva contraseña"
-            minLength={8}
-            value={newPassword}
-            onChange={e => setNewPassword(e.target.value)}
-            className="input-field mb-4"
-          />
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-              <p className="text-red-600 text-sm">{error}</p>
-            </div>
-          )}
-          <button
-            onClick={onPasswordChangeSubmit}
-            disabled={loading || newPassword.length < 8}
-            className="btn-primary w-full py-3 text-base disabled:opacity-50"
-          >
-            {loading ? 'Cambiando...' : 'Cambiar contraseña y continuar'}
-          </button>
+          <form onSubmit={onPasswordChangeSubmit}>
+            <input
+              type="password"
+              aria-label="Nueva contraseña"
+              placeholder="Nueva contraseña"
+              minLength={8}
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              className="input-field mb-4"
+            />
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                <p className="text-red-600 text-sm">{error}</p>
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={loading || newPassword.length < 8}
+              className="btn-primary w-full py-3 text-base disabled:opacity-50"
+            >
+              {loading ? 'Cambiando...' : 'Cambiar contraseña y continuar'}
+            </button>
+          </form>
         </div>
       </div>
     );
@@ -224,27 +229,29 @@ export default function LoginPage() {
               <img src={setupQrCode} alt="Código QR para configurar MFA" />
             </div>
           )}
-          <input
-            type="text"
-            aria-label="Código de verificación MFA de 6 dígitos"
-            maxLength={6}
-            placeholder="000000"
-            value={setupMfaCode}
-            onChange={e => setSetupMfaCode(e.target.value)}
-            className="input-field text-center text-2xl tracking-widest mb-4"
-          />
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-              <p className="text-red-600 text-sm">{error}</p>
-            </div>
-          )}
-          <button
-            onClick={onMfaSetupSubmit}
-            disabled={loading || setupMfaCode.length !== 6 || !setupQrCode}
-            className="btn-primary w-full py-3 text-base disabled:opacity-50"
-          >
-            {loading ? 'Verificando...' : 'Activar y continuar'}
-          </button>
+          <form onSubmit={onMfaSetupSubmit}>
+            <input
+              type="text"
+              aria-label="Código de verificación MFA de 6 dígitos"
+              maxLength={6}
+              placeholder="000000"
+              value={setupMfaCode}
+              onChange={e => setSetupMfaCode(e.target.value)}
+              className="input-field text-center text-2xl tracking-widest mb-4"
+            />
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                <p className="text-red-600 text-sm">{error}</p>
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={loading || setupMfaCode.length !== 6 || !setupQrCode}
+              className="btn-primary w-full py-3 text-base disabled:opacity-50"
+            >
+              {loading ? 'Verificando...' : 'Activar y continuar'}
+            </button>
+          </form>
         </div>
       </div>
     );
@@ -258,27 +265,29 @@ export default function LoginPage() {
           <p className="text-slate-500 text-sm mb-6">
             Ingresa el código de 6 dígitos de tu app autenticadora
           </p>
-          <input
-            type="text"
-            aria-label="Código de verificación MFA de 6 dígitos"
-            maxLength={6}
-            placeholder="000000"
-            value={mfaToken}
-            onChange={e => setMfaToken(e.target.value)}
-            className="input-field text-center text-2xl tracking-widest mb-4"
-          />
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-              <p className="text-red-600 text-sm">{error}</p>
-            </div>
-          )}
-          <button
-            onClick={onMfaSubmit}
-            disabled={loading || mfaToken.length !== 6}
-            className="btn-primary w-full py-3 text-base disabled:opacity-50"
-          >
-            {loading ? 'Verificando...' : 'Verificar'}
-          </button>
+          <form onSubmit={onMfaSubmit}>
+            <input
+              type="text"
+              aria-label="Código de verificación MFA de 6 dígitos"
+              maxLength={6}
+              placeholder="000000"
+              value={mfaToken}
+              onChange={e => setMfaToken(e.target.value)}
+              className="input-field text-center text-2xl tracking-widest mb-4"
+            />
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                <p className="text-red-600 text-sm">{error}</p>
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={loading || mfaToken.length !== 6}
+              className="btn-primary w-full py-3 text-base disabled:opacity-50"
+            >
+              {loading ? 'Verificando...' : 'Verificar'}
+            </button>
+          </form>
           <p className="text-center text-sm text-slate-500 mt-4">
             <Link to="/mfa/recover" className="text-slate-900 font-medium hover:underline">
               ¿Perdiste el dispositivo MFA?

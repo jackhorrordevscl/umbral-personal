@@ -118,7 +118,8 @@ export default function ConsultationsPage() {
     },
   });
 
-  const handleSubmit = () => {
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
     if (!form.patientId) { setFormError('Selecciona un paciente'); return; }
     if (!form.sessionDate) { setFormError('La fecha de sesión es obligatoria'); return; }
     if (!form.consultReason.trim()) { setFormError('El motivo de consulta es obligatorio'); return; }
@@ -156,7 +157,8 @@ export default function ConsultationsPage() {
     setEditError('');
   };
 
-  const handleEditSubmit = () => {
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
     if (!editingConsultation) return;
     correctMutation.mutate({
       id: editingConsultation.id,
@@ -224,6 +226,7 @@ export default function ConsultationsPage() {
               <X size={20} />
             </button>
           </div>
+          <form onSubmit={handleSubmit}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label htmlFor="consult-patientId" className="block text-xs font-medium text-slate-600 mb-1">Paciente *</label>
@@ -292,11 +295,12 @@ export default function ConsultationsPage() {
             </div>
           )}
           <div className="flex gap-3 mt-6">
-            <button onClick={handleSubmit} className="btn-primary" disabled={createMutation.isPending}>
+            <button type="submit" className="btn-primary" disabled={createMutation.isPending}>
               {createMutation.isPending ? 'Guardando...' : 'Guardar sesión'}
             </button>
-            <button onClick={() => setShowForm(false)} className="btn-secondary">Cancelar</button>
+            <button type="button" onClick={() => setShowForm(false)} className="btn-secondary">Cancelar</button>
           </div>
+          </form>
         </div>
       )}
 
@@ -336,6 +340,7 @@ export default function ConsultationsPage() {
                 Por normativa clínica las sesiones no se eliminan ni sobreescriben. Esta corrección actualiza el registro y guarda un snapshot de la versión anterior para trazabilidad.
               </p>
             </div>
+            <form onSubmit={handleEditSubmit}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="correct-sessionDate" className="block text-xs font-medium text-slate-600 mb-1">Fecha de sesión</label>
@@ -391,16 +396,18 @@ export default function ConsultationsPage() {
               </div>
             )}
             <div className="flex gap-3 mt-6">
-              <button onClick={handleEditSubmit} className="btn-primary" disabled={correctMutation.isPending}>
+              <button type="submit" className="btn-primary" disabled={correctMutation.isPending}>
                 {correctMutation.isPending ? 'Guardando...' : 'Guardar corrección'}
               </button>
               <button
+                type="button"
                 onClick={() => { setEditingConsultation(null); setEditError(''); }}
                 className="btn-secondary"
               >
                 Cancelar
               </button>
             </div>
+            </form>
           </div>
         </div>
       )}

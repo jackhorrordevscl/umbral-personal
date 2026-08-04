@@ -34,7 +34,8 @@ export default function SettingsPage() {
     }
   };
 
-  const handleEnableMfa = async () => {
+  const handleEnableMfa = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
     setError('');
     try {
@@ -49,7 +50,8 @@ export default function SettingsPage() {
     }
   };
 
-  const handleDisableMfa = async () => {
+  const handleDisableMfa = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
     setError('');
     try {
@@ -132,7 +134,7 @@ export default function SettingsPage() {
 
         {/* Paso 3: Verificar */}
         {step === 'verify' && (
-          <div className="space-y-4">
+          <form className="space-y-4" onSubmit={handleEnableMfa}>
             <p className="text-sm text-slate-600">
               Ingresa el código de 6 dígitos de tu app para confirmar:
             </p>
@@ -146,13 +148,13 @@ export default function SettingsPage() {
               className="input-field text-center text-2xl tracking-widest"
             />
             <button
-              onClick={handleEnableMfa}
+              type="submit"
               disabled={loading || token.length !== 6}
               className="btn-primary w-full disabled:opacity-50"
             >
               {loading ? 'Verificando...' : 'Activar MFA'}
             </button>
-          </div>
+          </form>
         )}
 
         {/* Paso 4: MFA activo — desactivar */}
@@ -173,23 +175,25 @@ export default function SettingsPage() {
             <p className="text-sm text-slate-600">
               Para desactivar el MFA ingresa un código válido de tu app:
             </p>
-            <input
-              type="text"
-              aria-label="Código de verificación MFA de 6 dígitos para desactivar"
-              maxLength={6}
-              placeholder="000000"
-              value={token}
-              onChange={e => setToken(e.target.value)}
-              className="input-field text-center text-2xl tracking-widest"
-            />
-            <button
-              onClick={handleDisableMfa}
-              disabled={loading || token.length !== 6}
-              className="btn-secondary flex items-center gap-2 disabled:opacity-50"
-            >
-              <ShieldOff size={16} />
-              {loading ? 'Desactivando...' : 'Desactivar MFA'}
-            </button>
+            <form className="space-y-4" onSubmit={handleDisableMfa}>
+              <input
+                type="text"
+                aria-label="Código de verificación MFA de 6 dígitos para desactivar"
+                maxLength={6}
+                placeholder="000000"
+                value={token}
+                onChange={e => setToken(e.target.value)}
+                className="input-field text-center text-2xl tracking-widest"
+              />
+              <button
+                type="submit"
+                disabled={loading || token.length !== 6}
+                className="btn-secondary flex items-center gap-2 disabled:opacity-50"
+              >
+                <ShieldOff size={16} />
+                {loading ? 'Desactivando...' : 'Desactivar MFA'}
+              </button>
+            </form>
           </div>
         )}
       </div>

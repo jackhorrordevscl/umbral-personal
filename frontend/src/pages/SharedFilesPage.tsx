@@ -89,7 +89,8 @@ export default function SharedFilesPage() {
   // el mismo banner que ya usan las acciones de descarga/borrado (issue #23).
   const displayError = error || (filesError ? 'No se pudo cargar el repositorio de archivos. Reintenta más tarde.' : '');
 
-  const handleUpload = async () => {
+  const handleUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
     setUploadError('');
     if (!form.file) { setUploadError('Selecciona un archivo'); return; }
     if (!form.name.trim()) { setUploadError('Ingresa un nombre'); return; }
@@ -160,7 +161,8 @@ export default function SharedFilesPage() {
     setEditError('');
   };
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!editingFile) return;
     if (!editForm.name.trim()) { setEditError('El nombre es obligatorio'); return; }
     setEditSaving(true);
@@ -323,6 +325,7 @@ export default function SharedFilesPage() {
               </button>
             </div>
 
+            <form onSubmit={handleUpload}>
             <div
               className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center cursor-pointer hover:border-sage-300 transition-colors mb-4"
               onClick={() => fileInputRef.current?.click()}
@@ -407,19 +410,21 @@ export default function SharedFilesPage() {
 
             <div className="flex gap-3 mt-5">
               <button
+                type="button"
                 onClick={() => setShowUpload(false)}
                 className="btn-secondary flex-1"
               >
                 Cancelar
               </button>
               <button
-                onClick={handleUpload}
+                type="submit"
                 disabled={uploading}
                 className="btn-primary flex-1 disabled:opacity-50"
               >
                 {uploading ? 'Subiendo...' : 'Subir archivo'}
               </button>
             </div>
+            </form>
           </div>
         </div>
       )}
@@ -447,6 +452,7 @@ export default function SharedFilesPage() {
               </button>
             </div>
 
+            <form onSubmit={handleSaveEdit}>
             <div className="space-y-3">
               <div>
                 <label htmlFor="edit-file-name" className="block text-xs font-medium text-slate-600 mb-1">
@@ -494,19 +500,21 @@ export default function SharedFilesPage() {
 
             <div className="flex gap-3 mt-5">
               <button
+                type="button"
                 onClick={() => setEditingFile(null)}
                 className="btn-secondary flex-1"
               >
                 Cancelar
               </button>
               <button
-                onClick={handleSaveEdit}
+                type="submit"
                 disabled={editSaving}
                 className="btn-primary flex-1 disabled:opacity-50"
               >
                 {editSaving ? 'Guardando...' : 'Guardar cambios'}
               </button>
             </div>
+            </form>
           </div>
         </div>
       )}

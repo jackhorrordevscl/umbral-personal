@@ -52,6 +52,12 @@ export default function PatientForm({
           <X size={20} />
         </button>
       </div>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit();
+        }}
+      >
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label htmlFor="patient-fullName" className="block text-xs font-medium text-slate-600 mb-1">
@@ -207,13 +213,14 @@ export default function PatientForm({
         </div>
       )}
       <div className="flex gap-3 mt-6">
-        <button onClick={onSubmit} className="btn-primary" disabled={isPending}>
+        <button type="submit" className="btn-primary" disabled={isPending}>
           {isPending ? "Guardando..." : "Guardar ficha"}
         </button>
-        <button onClick={onCancel} className="btn-secondary">
+        <button type="button" onClick={onCancel} className="btn-secondary">
           Cancelar
         </button>
       </div>
+      </form>
     </div>
   );
 }

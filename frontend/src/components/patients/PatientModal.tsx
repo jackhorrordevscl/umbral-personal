@@ -100,7 +100,8 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
     setModalTab("edit");
   };
 
-  const handleSubmitEdit = () => {
+  const handleSubmitEdit = (e: React.FormEvent) => {
+    e.preventDefault();
     if (!editReason.trim()) {
       setEditError("El motivo de la modificación es obligatorio");
       return;
@@ -383,7 +384,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
           )}
 
           {modalTab === "edit" && (
-            <div className="space-y-4">
+            <form className="space-y-4" onSubmit={handleSubmitEdit}>
               <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
                 <AlertCircle size={14} className="text-amber-500 shrink-0 mt-0.5" />
                 <p className="text-amber-700 text-xs">
@@ -559,17 +560,21 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
 
               <div className="flex gap-3 pt-2">
                 <button
-                  onClick={handleSubmitEdit}
+                  type="submit"
                   className="btn-primary flex items-center gap-2"
                   disabled={updateMutation.isPending}
                 >
                   {updateMutation.isPending ? "Guardando..." : "Guardar cambios"}
                 </button>
-                <button onClick={() => setModalTab("detail")} className="btn-secondary">
+                <button
+                  type="button"
+                  onClick={() => setModalTab("detail")}
+                  className="btn-secondary"
+                >
                   Cancelar
                 </button>
               </div>
-            </div>
+            </form>
           )}
 
           {modalTab === "history" && (
