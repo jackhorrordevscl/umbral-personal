@@ -213,6 +213,28 @@ describe('AuthService', () => {
       ).rejects.toThrow('Credenciales inválidas');
     });
 
+    it('corre un argon2.verify dummy si el usuario no existe (cierra el timing oracle)', async () => {
+      // getDummyPasswordHash() cachea el hash dummy una sola vez a nivel de
+      // módulo (por diseño: se calcula una vez, no en cada request), así que
+      // no podemos afirmar CUÁL valor exacto usó -- eso depende de qué mock
+      // de argon2.hash estuviera activo la primera vez que se llamó en todo
+      // este archivo de test. Lo que sí es estable y es lo que realmente
+      // importa para cerrar el timing oracle: que argon2.verify se invoque
+      // igual en la rama "usuario no existe" que en la de un usuario real,
+      // en vez de retornar 401 de inmediato sin correr ningún hash.
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.login({ email: 'no@example.com', password: 'password1' }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(mockArgon2.verify).toHaveBeenCalledTimes(1);
+      expect(mockArgon2.verify).toHaveBeenCalledWith(
+        expect.anything(),
+        'password1',
+      );
+    });
+
     it('lanza 401 si el usuario está soft-deleted (deletedAt seteado)', async () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ deletedAt: new Date() }),
@@ -676,6 +698,19 @@ describe('AuthService', () => {
       ).rejects.toThrow('Usuario no válido');
     });
 
+    it('lanza 401 si la cuenta está soft-deleted, aunque el TOTP sea válido (mfa/verify es standalone y recibe userId crudo)', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET', deletedAt: new Date() }),
+      );
+      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+
+      await expect(
+        service.verifyMfa({ userId: 'user-1', token: '123456' }),
+      ).rejects.toThrow('Usuario no válido');
+      // No debe llegar a emitir accessToken para una cuenta desactivada.
+      expect(jwtService.sign).not.toHaveBeenCalled();
+    });
+
     it('lanza 401 si el TOTP es inválido', async () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ mfaSecret: 'BASE32SECRET' }),
@@ -723,6 +758,17 @@ describe('AuthService', () => {
       await expect(service.generateMfaSecret('user-1')).rejects.toThrow(
         'Usuario no válido',
       );
+    });
+
+    it('lanza 401 si MFA ya está activo (exige desactivarlo primero, no alcanza con un accessToken)', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaEnabled: true, mfaSecret: 'BASE32SECRET' }),
+      );
+
+      await expect(service.generateMfaSecret('user-1')).rejects.toThrow(
+        'MFA ya está activo. Desactívalo primero para regenerar el secreto.',
+      );
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
 
     it('genera y persiste el secreto, devolviendo el QR', async () => {
@@ -846,6 +892,18 @@ describe('AuthService', () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
       await expect(service.recoverMfa(dto)).rejects.toThrow('Credenciales inválidas');
+    });
+
+    it('corre un argon2.verify dummy si el usuario no existe (cierra el timing oracle)', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.recoverMfa(dto)).rejects.toThrow(UnauthorizedException);
+
+      expect(mockArgon2.verify).toHaveBeenCalledTimes(1);
+      expect(mockArgon2.verify).toHaveBeenCalledWith(
+        expect.anything(),
+        'password1',
+      );
     });
 
     it('lanza 401 genérico si la contraseña es incorrecta', async () => {

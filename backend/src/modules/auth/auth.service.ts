@@ -44,6 +44,21 @@ const FORGOT_PASSWORD_GENERIC_MESSAGE = {
     'Si el email está registrado, vas a recibir un enlace para restablecer tu contraseña.',
 };
 
+// Hash argon2 dummy contra el que verificar cuando el email no existe -- sin
+// esto, un email inexistente responde de inmediato mientras uno real corre
+// argon2.verify (costoso a propósito), generando un timing oracle que
+// permite enumerar cuentas aunque el mensaje de error sea idéntico en ambos
+// casos. Se genera una sola vez de forma perezosa (no hardcodeado: así el
+// hash es válido para la versión de argon2 realmente instalada) y se
+// reusa en cada intento de login/recover con email inexistente.
+let dummyPasswordHash: Promise<string> | null = null;
+function getDummyPasswordHash(): Promise<string> {
+  if (!dummyPasswordHash) {
+    dummyPasswordHash = argon2.hash('umbral-timing-safe-dummy-value');
+  }
+  return dummyPasswordHash;
+}
+
 // Issue #50: cantidad de códigos de recuperación de MFA generados por
 // enableMfa. 10 es el estándar de facto (GitHub, Google) -- suficiente para
 // varios extravíos del dispositivo TOTP sin ser tantos que degrade la
@@ -136,6 +151,7 @@ export class AuthService {
     });
 
     if (!user || user.deletedAt) {
+      await argon2.verify(await getDummyPasswordHash(), dto.password);
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
@@ -429,7 +445,12 @@ export class AuthService {
       where: { id: dto.userId },
     });
 
-    if (!user || !user.mfaSecret) {
+    // mfa/verify es un endpoint standalone que recibe un userId crudo (no
+    // requiere haber pasado por login() primero), así que necesita su propio
+    // chequeo de deletedAt -- sin esto, una cuenta desactivada tras un
+    // incidente (ej. offboarding de un colaborador comprometido) podía
+    // seguir logueando con el TOTP que ya tenía de antes de la revocación.
+    if (!user || !user.mfaSecret || user.deletedAt) {
       throw new UnauthorizedException('Usuario no válido');
     }
 
@@ -450,6 +471,18 @@ export class AuthService {
   async generateMfaSecret(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException('Usuario no válido');
+
+    // Si MFA ya está activo, regenerar el secreto acá (con solo un
+    // accessToken válido, sin probar el TOTP actual) le rompería el
+    // autenticador al dueño legítimo sin aviso y le abriría la puerta a
+    // quien haya robado el token de sesión a tomar el segundo factor.
+    // Mismo criterio que disableMfa: para tocar un MFA ya activo hace falta
+    // el TOTP vigente, no solo una sesión.
+    if (user.mfaEnabled) {
+      throw new UnauthorizedException(
+        'MFA ya está activo. Desactívalo primero para regenerar el secreto.',
+      );
+    }
 
     const secret = speakeasy.generateSecret({
       name: `Umbral - RCE (${user.email})`,
@@ -551,6 +584,7 @@ export class AuthService {
       where: { email: dto.email },
     });
     if (!user || user.deletedAt) {
+      await argon2.verify(await getDummyPasswordHash(), dto.password);
       throw new UnauthorizedException('Credenciales inválidas');
     }
 

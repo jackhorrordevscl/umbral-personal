@@ -13,7 +13,7 @@ async function bootstrap() {
 
   app.enableCors({
     origin: [
-      'http://localhost:5173',
+      process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : null,
       process.env.LAN_DEV_URL,
       process.env.FRONTEND_URL,
     ].filter(Boolean),

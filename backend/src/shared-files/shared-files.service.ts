@@ -1,9 +1,5 @@
 // src/shared-files/shared-files.service.ts
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FileCategory } from '@prisma/client';
 import * as fs from 'fs';
@@ -81,9 +77,12 @@ export class SharedFilesService {
       where: { id, isActive: true },
       include: { uploadedBy: { select: { name: true } } },
     });
-    if (!file) throw new NotFoundException('Archivo no encontrado');
-    if (file.uploadedById !== userId) {
-      throw new ForbiddenException('No tienes permiso para acceder a este archivo');
+    // NotFoundException uniforme tanto si el archivo no existe como si
+    // pertenece a otro usuario: no distinguir evita filtrar (vía 403 vs 404)
+    // que un id ajeno corresponde a un archivo real -- mismo criterio que
+    // assertAccess en patients.service.ts.
+    if (!file || file.uploadedById !== userId) {
+      throw new NotFoundException('Archivo no encontrado');
     }
     return file;
   }
