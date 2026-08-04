@@ -49,13 +49,7 @@ jobs:
 
       - run: npm ci
 
-      # T7.3 (issue #32): el repo tiene deuda de lint preexistente en casi
-      # todos los archivos (mayormente @typescript-eslint/no-unsafe-* por el
-      # uso extendido de `any` en NestJS/supertest), no introducida por este
-      # cambio. Corre en cada PR para que sea visible, pero no bloquea el
-      # merge hasta que se decida encarar esa deuda aparte.
-      - name: Lint (no bloqueante)
-        continue-on-error: true
+      - name: Lint
         run: npx eslint "{src,apps,libs,test}/**/*.ts"
 
       - name: Migrar base de datos de CI
@@ -92,8 +86,7 @@ jobs:
 
       - run: npm ci
 
-      - name: Lint (no bloqueante)
-        continue-on-error: true
+      - name: Lint
         run: npx eslint .
 
       - name: Typecheck + build
