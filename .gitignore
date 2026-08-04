@@ -10,3 +10,8 @@ backups/files/
 # b2-local-mirror/: tercera copia de la regla 3-2-1 (issue #57), espejo local
 # de lo que ya está en Backblaze B2 vía `rclone copy` (nunca `sync`).
 b2-local-mirror/
+
+# docs/CONSENTIMIENTO*.docx: plantillas reales de consentimiento informado
+# que usa el terapeuta -- llevan su nombre propio, no deben terminar en un
+# repo público (issue #59).
+docs/CONSENTIMIENTO*.docx
