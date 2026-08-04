@@ -3,13 +3,21 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.use(helmet());
 
-  app.useGlobalFilters(new PrismaExceptionFilter(app.get(HttpAdapterHost)));
+  // Orden importa: Nest usa el primer filtro registrado cuyo tipo matchea la
+  // excepción. PrismaExceptionFilter (específico) va primero; AllExceptionsFilter
+  // (@Catch() sin argumentos, catch-all) va último como red de contención.
+  const httpAdapterHost = app.get(HttpAdapterHost);
+  app.useGlobalFilters(
+    new PrismaExceptionFilter(httpAdapterHost),
+    new AllExceptionsFilter(httpAdapterHost),
+  );
 
   app.enableCors({
     origin: [
