@@ -1,6 +1,7 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle } from 'lucide-react';
+import Modal from '../components/ui/Modal';
 import api from '../api/client';
 import { buildLocalISO, formatChileDateTime, formatChileDate } from '../utils/datetime';
 import { normalizeRut } from '../utils/rut';
@@ -306,18 +307,11 @@ export default function ConsultationsPage() {
 
       {/* Modal edición */}
       {editingConsultation && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-          onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
-            if (e.key === 'Escape') { setEditingConsultation(null); setEditError(''); }
-          }}
+        <Modal
+          onClose={() => { setEditingConsultation(null); setEditError(''); }}
+          labelledBy="correct-consultation-title"
+          className="max-w-2xl p-6 max-h-[90vh] overflow-auto"
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="correct-consultation-title"
-            className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-auto"
-          >
             <div className="flex items-start justify-between mb-2">
               <div>
                 <h3 id="correct-consultation-title" className="font-display text-xl text-slate-900">
@@ -408,8 +402,7 @@ export default function ConsultationsPage() {
               </button>
             </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

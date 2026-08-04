@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useRef, useState } from "react";
 import {
   AlertCircle,
   ChevronRight,
@@ -10,6 +10,7 @@ import {
   Upload as UploadIcon,
   X,
 } from "lucide-react";
+import Modal from "../ui/Modal";
 import {
   CONSENT_PURPOSE_LABELS,
   EMPTY_CONSENTS,
@@ -182,21 +183,12 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
   const documents = documentsQuery.data ?? [];
   const history = historyQuery.data ?? [];
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape") onClose();
-  };
-
   return (
-    <div
-      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-      onKeyDown={handleKeyDown}
+    <Modal
+      onClose={onClose}
+      labelledBy="patient-modal-title"
+      className="max-w-lg max-h-[90vh] flex flex-col"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="patient-modal-title"
-        className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col"
-      >
         <div className="flex items-start justify-between p-6 pb-0">
           <div>
             <h3 id="patient-modal-title" className="font-display text-2xl text-slate-900">
@@ -628,7 +620,6 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

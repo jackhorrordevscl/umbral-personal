@@ -5,6 +5,7 @@ import {
   BookOpen, File, Search, X, Plus, AlertCircle, Pencil, ExternalLink,
 } from 'lucide-react';
 import api from '../api/client';
+import Modal from '../components/ui/Modal';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import { getApiErrorMessage } from '../utils/api-error';
 import { downloadBlob } from '../utils/download';
@@ -304,18 +305,11 @@ export default function SharedFilesPage() {
 
       {/* Modal subir archivo */}
       {showUpload && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-          onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
-            if (e.key === 'Escape') setShowUpload(false);
-          }}
+        <Modal
+          onClose={() => setShowUpload(false)}
+          labelledBy="upload-file-title"
+          className="max-w-md p-6"
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="upload-file-title"
-            className="bg-white rounded-2xl w-full max-w-md shadow-xl p-6"
-          >
             <div className="flex justify-between items-center mb-4">
               <h2 id="upload-file-title" className="text-lg font-semibold text-slate-800">
                 Subir archivo
@@ -425,24 +419,16 @@ export default function SharedFilesPage() {
               </button>
             </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Modal editar archivo */}
       {editingFile && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-          onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
-            if (e.key === 'Escape') setEditingFile(null);
-          }}
+        <Modal
+          onClose={() => setEditingFile(null)}
+          labelledBy="edit-file-title"
+          className="max-w-md p-6"
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="edit-file-title"
-            className="bg-white rounded-2xl w-full max-w-md shadow-xl p-6"
-          >
             <div className="flex justify-between items-center mb-4">
               <h2 id="edit-file-title" className="text-lg font-semibold text-slate-800">
                 Editar archivo
@@ -515,8 +501,7 @@ export default function SharedFilesPage() {
               </button>
             </div>
             </form>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {fileToDelete && (
