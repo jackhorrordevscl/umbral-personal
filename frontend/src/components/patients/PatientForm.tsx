@@ -1,4 +1,6 @@
-import { AlertCircle, X } from "lucide-react";
+import { X } from "lucide-react";
+import ErrorBanner from "../ui/ErrorBanner";
+import FormField from "../ui/FormField";
 import {
   CONSENT_PURPOSE_LABELS,
   type ConsentPurpose,
@@ -59,21 +61,15 @@ export default function PatientForm({
         }}
       >
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label htmlFor="patient-fullName" className="block text-xs font-medium text-slate-600 mb-1">
-            Nombre completo *
-          </label>
+        <FormField id="patient-fullName" label="Nombre completo" required>
           <input
             id="patient-fullName"
             className="input-field"
             value={form.fullName}
             onChange={(e) => onChange({ ...form, fullName: e.target.value })}
           />
-        </div>
-        <div>
-          <label htmlFor="patient-rut" className="block text-xs font-medium text-slate-600 mb-1">
-            RUT *
-          </label>
+        </FormField>
+        <FormField id="patient-rut" label="RUT" required error={rutError}>
           <input
             id="patient-rut"
             className={`input-field ${rutError ? "border-red-300 focus:ring-red-200" : ""}`}
@@ -82,16 +78,8 @@ export default function PatientForm({
             onChange={(e) => onRutChange(e.target.value)}
             maxLength={12}
           />
-          {rutError && (
-            <p className="text-red-500 text-xs mt-1 flex items-center gap-1">
-              <AlertCircle size={11} /> {rutError}
-            </p>
-          )}
-        </div>
-        <div>
-          <label htmlFor="patient-birthDate" className="block text-xs font-medium text-slate-600 mb-1">
-            Fecha de nacimiento *
-          </label>
+        </FormField>
+        <FormField id="patient-birthDate" label="Fecha de nacimiento" required>
           <input
             id="patient-birthDate"
             type="date"
@@ -99,33 +87,24 @@ export default function PatientForm({
             value={form.birthDate}
             onChange={(e) => onChange({ ...form, birthDate: e.target.value })}
           />
-        </div>
-        <div>
-          <label htmlFor="patient-occupation" className="block text-xs font-medium text-slate-600 mb-1">
-            Ocupación
-          </label>
+        </FormField>
+        <FormField id="patient-occupation" label="Ocupación">
           <input
             id="patient-occupation"
             className="input-field"
             value={form.occupation}
             onChange={(e) => onChange({ ...form, occupation: e.target.value })}
           />
-        </div>
-        <div>
-          <label htmlFor="patient-phone" className="block text-xs font-medium text-slate-600 mb-1">
-            Teléfono
-          </label>
+        </FormField>
+        <FormField id="patient-phone" label="Teléfono">
           <input
             id="patient-phone"
             className="input-field"
             value={form.phone}
             onChange={(e) => onChange({ ...form, phone: e.target.value })}
           />
-        </div>
-        <div>
-          <label htmlFor="patient-email" className="block text-xs font-medium text-slate-600 mb-1">
-            Email
-          </label>
+        </FormField>
+        <FormField id="patient-email" label="Email">
           <input
             id="patient-email"
             type="email"
@@ -133,60 +112,39 @@ export default function PatientForm({
             value={form.email}
             onChange={(e) => onChange({ ...form, email: e.target.value })}
           />
-        </div>
-        <div>
-          <label htmlFor="patient-address" className="block text-xs font-medium text-slate-600 mb-1">
-            Dirección
-          </label>
+        </FormField>
+        <FormField id="patient-address" label="Dirección">
           <input
             id="patient-address"
             className="input-field"
             value={form.address}
             onChange={(e) => onChange({ ...form, address: e.target.value })}
           />
-        </div>
-        <div>
-          <label
-            htmlFor="patient-emergencyContactName"
-            className="block text-xs font-medium text-slate-600 mb-1"
-          >
-            Contacto emergencia
-          </label>
+        </FormField>
+        <FormField id="patient-emergencyContactName" label="Contacto emergencia">
           <input
             id="patient-emergencyContactName"
             className="input-field"
             value={form.emergencyContactName}
             onChange={(e) => onChange({ ...form, emergencyContactName: e.target.value })}
           />
-        </div>
-        <div>
-          <label
-            htmlFor="patient-emergencyContactPhone"
-            className="block text-xs font-medium text-slate-600 mb-1"
-          >
-            Teléfono emergencia
-          </label>
+        </FormField>
+        <FormField id="patient-emergencyContactPhone" label="Teléfono emergencia">
           <input
             id="patient-emergencyContactPhone"
             className="input-field"
             value={form.emergencyContactPhone}
             onChange={(e) => onChange({ ...form, emergencyContactPhone: e.target.value })}
           />
-        </div>
-        <div>
-          <label
-            htmlFor="patient-treatingPsychiatrist"
-            className="block text-xs font-medium text-slate-600 mb-1"
-          >
-            Psiquiatra tratante
-          </label>
+        </FormField>
+        <FormField id="patient-treatingPsychiatrist" label="Psiquiatra tratante">
           <input
             id="patient-treatingPsychiatrist"
             className="input-field"
             value={form.treatingPsychiatrist}
             onChange={(e) => onChange({ ...form, treatingPsychiatrist: e.target.value })}
           />
-        </div>
+        </FormField>
         <div className="flex flex-wrap items-center gap-6 pt-2">
           {(Object.keys(CONSENT_PURPOSE_LABELS) as ConsentPurpose[]).map((purpose) => (
             <label
@@ -206,12 +164,7 @@ export default function PatientForm({
           ))}
         </div>
       </div>
-      {formError && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-4 flex items-center gap-2">
-          <AlertCircle size={14} className="text-red-500 shrink-0" />
-          <p className="text-red-600 text-sm">{formError}</p>
-        </div>
-      )}
+      {formError && <ErrorBanner icon message={formError} className="mt-4" />}
       <div className="flex gap-3 mt-6">
         <button type="submit" className="btn-primary" disabled={isPending}>
           {isPending ? "Guardando..." : "Guardar ficha"}

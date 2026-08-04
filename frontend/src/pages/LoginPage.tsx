@@ -7,6 +7,7 @@ import { useAuth } from '../context/useAuth';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
 import RecoveryCodesReveal from '../components/RecoveryCodesReveal';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -197,11 +198,7 @@ export default function LoginPage() {
               onChange={e => setNewPassword(e.target.value)}
               className="input-field mb-4"
             />
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-                <p className="text-red-600 text-sm">{error}</p>
-              </div>
-            )}
+            {error && <ErrorBanner message={error} className="mb-4" />}
             <button
               type="submit"
               disabled={loading || newPassword.length < 8}
@@ -239,11 +236,7 @@ export default function LoginPage() {
               onChange={e => setSetupMfaCode(e.target.value)}
               className="input-field text-center text-2xl tracking-widest mb-4"
             />
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-                <p className="text-red-600 text-sm">{error}</p>
-              </div>
-            )}
+            {error && <ErrorBanner message={error} className="mb-4" />}
             <button
               type="submit"
               disabled={loading || setupMfaCode.length !== 6 || !setupQrCode}
@@ -275,11 +268,7 @@ export default function LoginPage() {
               onChange={e => setMfaToken(e.target.value)}
               className="input-field text-center text-2xl tracking-widest mb-4"
             />
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-                <p className="text-red-600 text-sm">{error}</p>
-              </div>
-            )}
+            {error && <ErrorBanner message={error} className="mb-4" />}
             <button
               type="submit"
               disabled={loading || mfaToken.length !== 6}
@@ -365,11 +354,7 @@ export default function LoginPage() {
               )}
             </div>
 
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <p className="text-red-600 text-sm">{error}</p>
-              </div>
-            )}
+            {error && <ErrorBanner message={error} />}
 
             <button
               type="submit"

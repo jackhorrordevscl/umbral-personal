@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 type Status = 'verifying' | 'success' | 'error';
 
@@ -54,9 +55,7 @@ export default function VerifyEmailPage() {
             <h2 className="font-display text-2xl text-slate-900 mb-2">
               No se pudo verificar
             </h2>
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-6">
-              <p className="text-red-600 text-sm">{error}</p>
-            </div>
+            <ErrorBanner message={error} className="mb-6" />
           </>
         )}
 

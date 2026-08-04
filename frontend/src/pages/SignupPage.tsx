@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 // Issue #5: único componente genuinamente nuevo del MVP -- en la versión
 // institucional las cuentas las creaba un ADMIN (POST /users, eliminado tras
@@ -99,11 +100,7 @@ export default function SignupPage() {
             )}
           </div>
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-              <p className="text-red-600 text-sm">{error}</p>
-            </div>
-          )}
+          {error && <ErrorBanner message={error} />}
 
           <button
             type="submit"

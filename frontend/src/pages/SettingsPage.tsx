@@ -4,6 +4,7 @@ import { useAuth } from '../context/useAuth';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
 import RecoveryCodesReveal from '../components/RecoveryCodesReveal';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -86,17 +87,9 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {message && (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4">
-            <p className="text-emerald-700 text-sm">{message}</p>
-          </div>
-        )}
+        {message && <ErrorBanner message={message} variant="success" className="mb-4" />}
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-            <p className="text-red-600 text-sm">{error}</p>
-          </div>
-        )}
+        {error && <ErrorBanner message={error} className="mb-4" />}
 
         {/* Paso 1: Generar QR */}
         {step === 'idle' && (

@@ -11,6 +11,8 @@ import {
   X,
 } from "lucide-react";
 import Modal from "../ui/Modal";
+import ErrorBanner from "../ui/ErrorBanner";
+import FormField from "../ui/FormField";
 import {
   CONSENT_PURPOSE_LABELS,
   EMPTY_CONSENTS,
@@ -384,32 +386,23 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                 </p>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="edit-fullName" className="block text-xs font-medium text-slate-600 mb-1">
-                    Nombre completo
-                  </label>
+                <FormField id="edit-fullName" label="Nombre completo">
                   <input
                     id="edit-fullName"
                     className="input-field"
                     value={editForm.fullName ?? ""}
                     onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
                   />
-                </div>
-                <div>
-                  <label htmlFor="edit-phone" className="block text-xs font-medium text-slate-600 mb-1">
-                    Teléfono
-                  </label>
+                </FormField>
+                <FormField id="edit-phone" label="Teléfono">
                   <input
                     id="edit-phone"
                     className="input-field"
                     value={editForm.phone ?? ""}
                     onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
                   />
-                </div>
-                <div>
-                  <label htmlFor="edit-email" className="block text-xs font-medium text-slate-600 mb-1">
-                    Email
-                  </label>
+                </FormField>
+                <FormField id="edit-email" label="Email">
                   <input
                     id="edit-email"
                     type="email"
@@ -417,36 +410,24 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                     value={editForm.email ?? ""}
                     onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
                   />
-                </div>
-                <div>
-                  <label htmlFor="edit-occupation" className="block text-xs font-medium text-slate-600 mb-1">
-                    Ocupación
-                  </label>
+                </FormField>
+                <FormField id="edit-occupation" label="Ocupación">
                   <input
                     id="edit-occupation"
                     className="input-field"
                     value={editForm.occupation ?? ""}
                     onChange={(e) => setEditForm({ ...editForm, occupation: e.target.value })}
                   />
-                </div>
-                <div className="md:col-span-2">
-                  <label htmlFor="edit-address" className="block text-xs font-medium text-slate-600 mb-1">
-                    Dirección
-                  </label>
+                </FormField>
+                <FormField id="edit-address" label="Dirección" className="md:col-span-2">
                   <input
                     id="edit-address"
                     className="input-field"
                     value={editForm.address ?? ""}
                     onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
                   />
-                </div>
-                <div>
-                  <label
-                    htmlFor="edit-emergencyContactName"
-                    className="block text-xs font-medium text-slate-600 mb-1"
-                  >
-                    Contacto emergencia
-                  </label>
+                </FormField>
+                <FormField id="edit-emergencyContactName" label="Contacto emergencia">
                   <input
                     id="edit-emergencyContactName"
                     className="input-field"
@@ -455,14 +436,8 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                       setEditForm({ ...editForm, emergencyContactName: e.target.value })
                     }
                   />
-                </div>
-                <div>
-                  <label
-                    htmlFor="edit-emergencyContactPhone"
-                    className="block text-xs font-medium text-slate-600 mb-1"
-                  >
-                    Teléfono emergencia
-                  </label>
+                </FormField>
+                <FormField id="edit-emergencyContactPhone" label="Teléfono emergencia">
                   <input
                     id="edit-emergencyContactPhone"
                     className="input-field"
@@ -471,14 +446,8 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                       setEditForm({ ...editForm, emergencyContactPhone: e.target.value })
                     }
                   />
-                </div>
-                <div>
-                  <label
-                    htmlFor="edit-treatingPsychiatrist"
-                    className="block text-xs font-medium text-slate-600 mb-1"
-                  >
-                    Psiquiatra tratante
-                  </label>
+                </FormField>
+                <FormField id="edit-treatingPsychiatrist" label="Psiquiatra tratante">
                   <input
                     id="edit-treatingPsychiatrist"
                     className="input-field"
@@ -487,21 +456,15 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                       setEditForm({ ...editForm, treatingPsychiatrist: e.target.value })
                     }
                   />
-                </div>
-                <div>
-                  <label
-                    htmlFor="edit-treatingDoctor"
-                    className="block text-xs font-medium text-slate-600 mb-1"
-                  >
-                    Médico tratante
-                  </label>
+                </FormField>
+                <FormField id="edit-treatingDoctor" label="Médico tratante">
                   <input
                     id="edit-treatingDoctor"
                     className="input-field"
                     value={editForm.treatingDoctor ?? ""}
                     onChange={(e) => setEditForm({ ...editForm, treatingDoctor: e.target.value })}
                   />
-                </div>
+                </FormField>
                 <div className="flex flex-wrap items-center gap-6 pt-2 md:col-span-2">
                   {(Object.keys(CONSENT_PURPOSE_LABELS) as ConsentPurpose[]).map((purpose) => (
                     <label
@@ -543,12 +506,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                 </p>
               </div>
 
-              {editError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-                  <AlertCircle size={14} className="text-red-500 shrink-0" />
-                  <p className="text-red-600 text-sm">{editError}</p>
-                </div>
-              )}
+              {editError && <ErrorBanner icon message={editError} />}
 
               <div className="flex gap-3 pt-2">
                 <button

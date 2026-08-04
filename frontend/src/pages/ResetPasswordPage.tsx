@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 const resetPasswordSchema = z.object({
   newPassword: z.string().min(8, 'Mínimo 8 caracteres'),
@@ -49,11 +50,10 @@ export default function ResetPasswordPage() {
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
         <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md text-center">
           <h2 className="font-display text-2xl text-slate-900 mb-2">Enlace inválido</h2>
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-6">
-            <p className="text-red-600 text-sm">
-              Este enlace de restablecimiento no es válido. Solicita uno nuevo.
-            </p>
-          </div>
+          <ErrorBanner
+            message="Este enlace de restablecimiento no es válido. Solicita uno nuevo."
+            className="mb-6"
+          />
           <Link to="/forgot-password" className="text-slate-900 font-medium hover:underline text-sm">
             Solicitar enlace nuevo
           </Link>
@@ -105,11 +105,7 @@ export default function ResetPasswordPage() {
             )}
           </div>
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-              <p className="text-red-600 text-sm">{error}</p>
-            </div>
-          )}
+          {error && <ErrorBanner message={error} />}
 
           <button
             type="submit"
