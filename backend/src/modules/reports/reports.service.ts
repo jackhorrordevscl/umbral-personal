@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
-import PDFDocument = require('pdfkit');
+import PDFDocument from 'pdfkit';
 
 @Injectable()
 export class ReportsService {
@@ -47,9 +47,9 @@ export class ReportsService {
     // append-only PatientConsent. Ya se validó acceso arriba, así que se
     // consulta el ledger directo en vez de volver a pasar por
     // getCurrentConsentStatus (que repetiría el guard de autorización).
-    const consentStatus = (await this.patientsService.getConsentStatusMap([patientId])).get(
-      patientId,
-    ) ?? { TREATMENT: false, TELEMEDICINE: false };
+    const consentStatus = (
+      await this.patientsService.getConsentStatusMap([patientId])
+    ).get(patientId) ?? { TREATMENT: false, TELEMEDICINE: false };
 
     this.logger.log(
       `Generando reporte PDF: patientId=${patientId} userId=${userId}`,
@@ -59,7 +59,7 @@ export class ReportsService {
       const doc = new PDFDocument({ margin: 50 });
       const buffers: Buffer[] = [];
 
-      doc.on('data', (chunk) => buffers.push(chunk));
+      doc.on('data', (chunk: Buffer) => buffers.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(buffers)));
       doc.on('error', (err: Error) => {
         this.logger.error(
@@ -89,33 +89,50 @@ export class ReportsService {
       doc.moveDown(2);
 
       // ── DATOS DEL PACIENTE ───────────────────────────────
-      doc.fontSize(14).font('Helvetica-Bold').text('1. Identificación del Paciente');
+      doc
+        .fontSize(14)
+        .font('Helvetica-Bold')
+        .text('1. Identificación del Paciente');
       doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
       doc.moveDown(0.5);
 
       doc.fontSize(10).font('Helvetica');
       doc.text(`Nombre completo: ${patient.fullName}`);
       doc.text(`RUT: ${patient.rut}`);
-      doc.text(`Fecha de nacimiento: ${new Date(patient.birthDate).toLocaleDateString('es-CL')}`);
+      doc.text(
+        `Fecha de nacimiento: ${new Date(patient.birthDate).toLocaleDateString('es-CL')}`,
+      );
       doc.text(`Ocupación: ${patient.occupation ?? 'No registrada'}`);
       doc.text(`Teléfono: ${patient.phone ?? 'No registrado'}`);
       doc.text(`Email: ${patient.email ?? 'No registrado'}`);
       doc.text(`Dirección: ${patient.address ?? 'No registrada'}`);
 
       doc.moveDown();
-      doc.text(`Contacto de emergencia: ${patient.emergencyContactName ?? 'No registrado'}`);
-      doc.text(`Teléfono emergencia: ${patient.emergencyContactPhone ?? 'No registrado'}`);
+      doc.text(
+        `Contacto de emergencia: ${patient.emergencyContactName ?? 'No registrado'}`,
+      );
+      doc.text(
+        `Teléfono emergencia: ${patient.emergencyContactPhone ?? 'No registrado'}`,
+      );
 
       doc.moveDown();
-      doc.text(`Psiquiatra tratante: ${patient.treatingPsychiatrist ?? 'No registrado'}`);
+      doc.text(
+        `Psiquiatra tratante: ${patient.treatingPsychiatrist ?? 'No registrado'}`,
+      );
       doc.text(`Médico tratante: ${patient.treatingDoctor ?? 'No registrado'}`);
 
       // ── PSICÓLOGO TRATANTE ───────────────────────────────
-      doc.text(`Psicólogo/a tratante: ${patient.therapist?.name ?? 'No asignado'}`);
+      doc.text(
+        `Psicólogo/a tratante: ${patient.therapist?.name ?? 'No asignado'}`,
+      );
 
       doc.moveDown();
-      doc.text(`Consentimiento informado: ${consentStatus.TREATMENT ? 'Firmado' : 'Pendiente'}`);
-      doc.text(`Acuerdo telemedicina: ${consentStatus.TELEMEDICINE ? 'Firmado' : 'Pendiente'}`);
+      doc.text(
+        `Consentimiento informado: ${consentStatus.TREATMENT ? 'Firmado' : 'Pendiente'}`,
+      );
+      doc.text(
+        `Acuerdo telemedicina: ${consentStatus.TELEMEDICINE ? 'Firmado' : 'Pendiente'}`,
+      );
 
       doc.moveDown(2);
 
@@ -130,9 +147,7 @@ export class ReportsService {
         patient.consultations.forEach((c, index) => {
           // Título de sesión con mejor espaciado
           doc.moveDown(0.5);
-          doc
-            .rect(50, doc.y, 500, 20)
-            .fill('#f1f5f9');
+          doc.rect(50, doc.y, 500, 20).fill('#f1f5f9');
 
           doc
             .fillColor('#1e293b')
@@ -146,17 +161,23 @@ export class ReportsService {
           doc.moveDown(0.8);
 
           doc.fontSize(10).font('Helvetica');
-          doc.text(`Tipo: ${c.sessionType === 'IN_PERSON' ? 'Presencial' : 'Telemedicina'}`);
+          doc.text(
+            `Tipo: ${c.sessionType === 'IN_PERSON' ? 'Presencial' : 'Telemedicina'}`,
+          );
 
           doc.moveDown(0.3);
-          doc.font('Helvetica-Bold').text('Motivo de consulta:', { continued: false });
+          doc
+            .font('Helvetica-Bold')
+            .text('Motivo de consulta:', { continued: false });
           doc.font('Helvetica').text(c.consultReason, {
             align: 'justify',
             width: 500,
           });
 
           doc.moveDown(0.3);
-          doc.font('Helvetica-Bold').text('Intervención:', { continued: false });
+          doc
+            .font('Helvetica-Bold')
+            .text('Intervención:', { continued: false });
           doc.font('Helvetica').text(c.intervention, {
             align: 'justify',
             width: 500,
@@ -171,7 +192,7 @@ export class ReportsService {
 
           doc.moveDown(0.3);
           doc.text(
-            `Próxima sesión: ${c.nextSessionDate ? new Date(c.nextSessionDate).toLocaleDateString('es-CL') : 'No agendada'}`
+            `Próxima sesión: ${c.nextSessionDate ? new Date(c.nextSessionDate).toLocaleDateString('es-CL') : 'No agendada'}`,
           );
 
           doc.moveDown(1);
@@ -180,9 +201,15 @@ export class ReportsService {
 
       // ── PIE DE PÁGINA ────────────────────────────────────
       doc.moveDown(2);
-      doc.fontSize(9).font('Helvetica')
-        .text('Documento generado por Umbral - RCE — Confidencial', { align: 'center' });
-      doc.text('Ley 20.584 — Custodia obligatoria 15 años', { align: 'center' });
+      doc
+        .fontSize(9)
+        .font('Helvetica')
+        .text('Documento generado por Umbral - RCE — Confidencial', {
+          align: 'center',
+        });
+      doc.text('Ley 20.584 — Custodia obligatoria 15 años', {
+        align: 'center',
+      });
 
       doc.end();
     });
