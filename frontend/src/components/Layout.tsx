@@ -40,8 +40,8 @@ export default function Layout() {
         lg:translate-x-0
       `}>
         <div className="px-6 py-8 border-b border-slate-800 flex items-center justify-between">
-          <div>
-            <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-[72px] w-auto" />
+          <div className="flex-1 flex justify-center">
+            <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-[83px] w-auto" />
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
