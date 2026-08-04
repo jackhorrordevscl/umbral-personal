@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import PDFDocument = require('pdfkit');
 
 @Injectable()
 export class ReportsService {
+  private readonly logger = new Logger(ReportsService.name);
+
   constructor(
     private prisma: PrismaService,
     private patientsService: PatientsService,
@@ -49,13 +51,23 @@ export class ReportsService {
       patientId,
     ) ?? { TREATMENT: false, TELEMEDICINE: false };
 
+    this.logger.log(
+      `Generando reporte PDF: patientId=${patientId} userId=${userId}`,
+    );
+
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 50 });
       const buffers: Buffer[] = [];
 
       doc.on('data', (chunk) => buffers.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(buffers)));
-      doc.on('error', reject);
+      doc.on('error', (err: Error) => {
+        this.logger.error(
+          `Fallo al generar PDF de ficha: patientId=${patientId} userId=${userId} — ${err.message}`,
+          err.stack,
+        );
+        reject(err);
+      });
 
       // ── ENCABEZADO ──────────────────────────────────────
       doc

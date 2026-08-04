@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
@@ -23,6 +28,8 @@ function emptyConsentStatus(): ConsentStatusMap {
 
 @Injectable()
 export class PatientsService {
+  private readonly logger = new Logger(PatientsService.name);
+
   constructor(
     private prisma: PrismaService,
     private auditService: AuditService,
@@ -39,7 +46,7 @@ export class PatientsService {
       throw new ConflictException('Ya existe un paciente con ese RUT');
     }
 
-    return this.prisma.patient.create({
+    const patient = await this.prisma.patient.create({
       data: {
         ...dto,
         rut,
@@ -47,6 +54,10 @@ export class PatientsService {
         therapistId,
       },
     });
+    this.logger.log(
+      `Paciente creado: id=${patient.id} therapistId=${therapistId}`,
+    );
+    return patient;
   }
 
   // T6.1 (issue #27): estado vigente de consentimiento por finalidad para un
@@ -179,7 +190,7 @@ export class PatientsService {
     // findOne desde el ledger PatientConsent, no una columna real de Patient)
     const { therapist, consultations, documents, consents, ...snapshot } = current as any;
 
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       await tx.patientHistory.create({
         data: {
           patientId: id,
@@ -199,14 +210,22 @@ export class PatientsService {
         },
       });
     });
+    this.logger.log(
+      `Paciente actualizado: id=${id} userId=${userId} campos=${Object.keys(diff).join(',')}`,
+    );
+    return updated;
   }
 
   async softDelete(id: string, userId: string) {
     await this.assertAccess(id, userId);
-    return this.prisma.patient.update({
+    const deleted = await this.prisma.patient.update({
       where: { id },
       data: { deletedAt: new Date() },
     });
+    this.logger.log(
+      `Paciente eliminado (soft delete): id=${id} userId=${userId}`,
+    );
+    return deleted;
   }
 
   async getHistory(id: string, userId: string) {

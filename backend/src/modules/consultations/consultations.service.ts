@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
@@ -23,6 +24,8 @@ const THERAPIST_SELECT = { therapist: { select: { name: true, email: true } } };
 
 @Injectable()
 export class ConsultationsService {
+  private readonly logger = new Logger(ConsultationsService.name);
+
   constructor(
     private prisma: PrismaService,
     private patientsService: PatientsService,
@@ -40,7 +43,7 @@ export class ConsultationsService {
     // cadena de versiones) sea igual al id de esta primera versión.
     const id = randomUUID();
 
-    return this.prisma.consultation.create({
+    const consultation = await this.prisma.consultation.create({
       data: {
         id,
         groupId: id,
@@ -56,6 +59,10 @@ export class ConsultationsService {
         patientRut,
       },
     });
+    this.logger.log(
+      `Consulta creada: id=${consultation.id} patientId=${dto.patientId} therapistId=${therapistId}`,
+    );
+    return consultation;
   }
 
   /**
@@ -181,7 +188,7 @@ export class ConsultationsService {
       sessionType: original.sessionType,
     });
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // El snapshot queda indexado por groupId, no por el id de la versión
       // que se está corrigiendo, para que el historial sea el mismo visto
       // desde cualquier versión de la cadena.
@@ -217,5 +224,9 @@ export class ConsultationsService {
 
       return { ...corrected, history: await this.getHistory(original.groupId, tx) };
     });
+    this.logger.log(
+      `Consulta corregida: originalId=${id} nuevaId=${result.id} groupId=${original.groupId} therapistId=${therapistId}`,
+    );
+    return result;
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { DocumentEncryptionService } from './document-encryption.service';
@@ -10,6 +10,8 @@ const UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'documents');
 
 @Injectable()
 export class DocumentsService {
+  private readonly logger = new Logger(DocumentsService.name);
+
   constructor(
     private prisma: PrismaService,
     private patientsService: PatientsService,
@@ -42,9 +44,17 @@ export class DocumentsService {
     const storagePath = path.join('uploads', 'documents', storedName);
 
     const encrypted = this.encryption.encrypt(file.buffer);
-    await fs.writeFile(path.join(process.cwd(), storagePath), encrypted);
+    try {
+      await fs.writeFile(path.join(process.cwd(), storagePath), encrypted);
+    } catch (err) {
+      this.logger.error(
+        `Fallo al escribir documento cifrado a disco: patientId=${patientId} storagePath=${storagePath} — ${err instanceof Error ? err.message : err}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw err;
+    }
 
-    return this.prisma.patientDocument.create({
+    const doc = await this.prisma.patientDocument.create({
       data: {
         patientId,
         uploadedBy: userId,
@@ -53,16 +63,28 @@ export class DocumentsService {
         storagePath,
       },
     });
+    this.logger.log(
+      `Documento subido: id=${doc.id} patientId=${patientId} userId=${userId}`,
+    );
+    return doc;
   }
 
   // Devuelve el contenido ya descifrado, listo para servir. La validación de
   // acceso ya la hace `getDocument` (vía `patientsService.findOne`).
   async getDecryptedFile(id: string, userId: string) {
     const doc = await this.getDocument(id, userId);
-    const encrypted = await fs.readFile(
-      path.join(process.cwd(), doc.storagePath),
-    );
-    return { doc, buffer: this.encryption.decrypt(encrypted) };
+    try {
+      const encrypted = await fs.readFile(
+        path.join(process.cwd(), doc.storagePath),
+      );
+      return { doc, buffer: this.encryption.decrypt(encrypted) };
+    } catch (err) {
+      this.logger.error(
+        `Fallo al leer/descifrar documento: id=${id} storagePath=${doc.storagePath} — ${err instanceof Error ? err.message : err}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw err;
+    }
   }
 
   async findByPatient(patientId: string, userId: string) {
