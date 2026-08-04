@@ -20,3 +20,7 @@ docs/CONSENTIMIENTO*.docx
 # (issue #67) -- mismo riesgo que el patrón de arriba, cubre cualquier
 # archivo de Office abierto en cualquier carpeta del repo.
 **/~$*
+
+# .db-password.local: password aleatoria que install.sh genera para el
+# usuario de Postgres local (issue #70) -- nunca debe commitearse.
+.db-password.local
