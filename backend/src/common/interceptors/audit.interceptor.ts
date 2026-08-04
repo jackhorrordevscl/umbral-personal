@@ -6,8 +6,24 @@ import {
   CallHandler,
 } from '@nestjs/common';
 import { Observable, tap } from 'rxjs';
+import type { Request } from 'express';
 import { AuditService } from '../../modules/audit/audit.service';
 import { getResourceFromUrl } from '../utils/audit-resource.util';
+import type { RequestUser } from '../decorators/current-user.decorator';
+
+interface AuditableRequest extends Request {
+  user?: RequestUser;
+  body: { patientId?: string } & Record<string, unknown>;
+}
+
+// params.id/patientId puede ser string[] en Express 5 (segmentos wildcard)
+// -- se toma el primer valor si llega un array, mismo criterio que
+// jwt-auth.guard.ts.
+function firstIfArray(
+  value: string | string[] | undefined,
+): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
 
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
@@ -16,7 +32,7 @@ export class AuditInterceptor implements NestInterceptor {
   constructor(private auditService: AuditService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
-    const request = context.switchToHttp().getRequest();
+    const request = context.switchToHttp().getRequest<AuditableRequest>();
     const user = request.user;
 
     // Solo registra si hay usuario autenticado
@@ -47,7 +63,10 @@ export class AuditInterceptor implements NestInterceptor {
         // ANTES de que next.handle() resuelva -- leer el body antes de acá
         // lo encontraba vacío y dejaba resourceId en 'N/A' (issue #36).
         const resourceId =
-          request.params?.id ?? request.params?.patientId ?? request.body?.patientId ?? 'N/A';
+          firstIfArray(request.params?.id) ??
+          firstIfArray(request.params?.patientId) ??
+          request.body?.patientId ??
+          'N/A';
 
         // Registra después de que la respuesta fue exitosa. Si falla, el
         // request principal no se ve afectado (fail-open: la atención al
