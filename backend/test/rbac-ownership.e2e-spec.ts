@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import * as fs from 'fs';
+import * as zlib from 'zlib';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import { AppModule } from '../src/app.module';
@@ -28,6 +29,57 @@ import { PrismaService } from '../src/prisma/prisma.service';
  * colisionar con datos de pruebas manuales previas, y se eliminan en
  * afterAll.
  */
+
+// Extractor mínimo de texto de PDF para el test de contenido del export
+// (#72, punto 10). Se probó pdf-parse (v1 y v2) para esto y ambas fallan de
+// forma no determinística corriendo dentro del proceso de Jest (funcionan
+// bien standalone con el mismo buffer) -- en vez de perseguir esa
+// incompatibilidad, se lee directo el stream de contenido del PDF: PDFKit
+// escribe cada operador de texto (Tj/TJ) como string hex `<...>` (glyph
+// codes en WinAnsiEncoding, que para los caracteres usados acá coincide
+// con latin1), así que alcanza con inflar los streams FlateDecode y
+// decodificar los strings hex, sin reconstruir el layout completo.
+function extractPdfLiteralStrings(buf: Buffer): string {
+  const STREAM_MARKER = Buffer.from('stream');
+  const ENDSTREAM_MARKER = Buffer.from('endstream');
+  let out = '';
+  let pos = 0;
+
+  while (true) {
+    const streamIdx = buf.indexOf(STREAM_MARKER, pos);
+    if (streamIdx === -1) break;
+    let dataStart = streamIdx + STREAM_MARKER.length;
+    if (buf[dataStart] === 0x0d) dataStart++; // \r
+    if (buf[dataStart] === 0x0a) dataStart++; // \n
+    const endIdx = buf.indexOf(ENDSTREAM_MARKER, dataStart);
+    if (endIdx === -1) break;
+
+    try {
+      const inflated = zlib.inflateSync(buf.subarray(dataStart, endIdx));
+      const hexStrings = inflated.toString('latin1').match(/<([0-9a-fA-F]+)>/g);
+      if (hexStrings) {
+        out += hexStrings
+          .map((s) => Buffer.from(s.slice(1, -1), 'hex').toString('latin1'))
+          .join('');
+      }
+    } catch {
+      // No es un stream FlateDecode con texto (fuente embebida, xref, etc.)
+      // -- se ignora, no todo stream del PDF lleva contenido de texto.
+    }
+
+    pos = endIdx + ENDSTREAM_MARKER.length;
+  }
+
+  return out;
+}
+
+// Compara ignorando espacios: PDFKit puede partir una frase en varios
+// grupos (...)  dentro de un mismo operador TJ para justificar texto, así
+// que la posición exacta de los espacios en el stream no es confiable.
+function normalizeForPdfSearch(s: string): string {
+  return s.replace(/\s+/g, '');
+}
+
 describe('RBAC ownership guard (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
@@ -361,6 +413,34 @@ describe('RBAC ownership guard (e2e)', () => {
         .set('Authorization', `Bearer ${therapistAToken}`)
         .expect(200)
         .expect('Content-Type', 'application/pdf');
+    });
+
+    // #72 (punto 10): el 200/content-type de arriba no confirma que el PDF
+    // efectivamente contenga los datos del paciente y de la consulta -- un
+    // bug en ReportsService que generara un PDF vacío o con datos de otro
+    // paciente pasaría ese test igual.
+    it('el PDF generado contiene los datos reales del paciente y la consulta', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/reports/patient/${patientId}`)
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .responseType('blob')
+        .expect(200);
+
+      const text = normalizeForPdfSearch(
+        extractPdfLiteralStrings(res.body as Buffer),
+      );
+
+      // El describe 'PATCH .../correct' de arriba ya corrigió consultReason
+      // (comparte consultationId con este fixture) -- el reporte debe
+      // reflejar la versión vigente, no la original.
+      expect(text).toContain(normalizeForPdfSearch('RBAC Test Patient'));
+      expect(text).toContain(normalizeForPdfSearch(`RBAC${runId}`));
+      expect(text).toContain(
+        normalizeForPdfSearch('Motivo corregido por el dueño'),
+      );
+      expect(text).toContain(
+        normalizeForPdfSearch('Intervención de prueba RBAC'),
+      );
     });
 
     it('un terapeuta sin relación con el paciente recibe 404', () => {
