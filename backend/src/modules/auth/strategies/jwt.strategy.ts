@@ -11,13 +11,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private prisma: PrismaService,
   ) {
     super({
-  jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-  ignoreExpiration: false,
-  secretOrKey: configService.get<string>('JWT_SECRET') as string,
-});
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: configService.get<string>('JWT_SECRET') as string,
+    });
   }
 
-  async validate(payload: { sub: string; email: string; role: string; purpose?: string }) {
+  async validate(payload: {
+    sub: string;
+    email: string;
+    role: string;
+    purpose?: string;
+  }) {
     // Los JWT de corta duración emitidos para forzar el enrolamiento MFA
     // (purpose: 'mfa-setup', ver AuthService.login/verifySetupToken), el
     // cambio de contraseña (purpose: 'password-change', ver
@@ -34,7 +39,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       payload.purpose === 'email-verify' ||
       payload.purpose === 'password-reset'
     ) {
-      throw new UnauthorizedException('Token no autorizado para esta operación');
+      throw new UnauthorizedException(
+        'Token no autorizado para esta operación',
+      );
     }
 
     // select mínimo: este validate corre en cada request autenticado (vía
@@ -43,7 +50,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // de más en cada request (issue #34).
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, email: true, role: true, name: true, deletedAt: true },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        name: true,
+        deletedAt: true,
+      },
     });
 
     if (!user || user.deletedAt) {

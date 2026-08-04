@@ -36,7 +36,10 @@ export class ConsultationsService {
     // pertenece al profesional autenticado -- sin este chequeo, cualquier
     // usuario podía crear una consulta sobre un paciente ajeno conociendo su
     // id (issue #12).
-    const patient = await this.patientsService.assertAccess(dto.patientId, therapistId);
+    const patient = await this.patientsService.assertAccess(
+      dto.patientId,
+      therapistId,
+    );
     const patientRut = dto.patientRut || patient.rut;
 
     // Se genera el id de antemano para que groupId (el identificador de la
@@ -53,9 +56,13 @@ export class ConsultationsService {
         consultReason: dto.consultReason,
         intervention: dto.intervention,
         agreements: dto.agreements,
-        nextSessionDate: dto.nextSessionDate ? parseDate(dto.nextSessionDate) : null,
+        nextSessionDate: dto.nextSessionDate
+          ? parseDate(dto.nextSessionDate)
+          : null,
         sessionType: dto.sessionType ?? 'IN_PERSON',
-        scheduledAt: dto.scheduledAt ? parseDate(dto.scheduledAt) : parseDate(dto.sessionDate),
+        scheduledAt: dto.scheduledAt
+          ? parseDate(dto.scheduledAt)
+          : parseDate(dto.sessionDate),
         patientRut,
       },
     });
@@ -105,14 +112,19 @@ export class ConsultationsService {
         include: THERAPIST_SELECT,
         ...(isPaginated ? { take: pageSize, skip: (page - 1) * pageSize } : {}),
       }),
-      isPaginated ? this.prisma.consultation.count({ where }) : Promise.resolve(undefined),
+      isPaginated
+        ? this.prisma.consultation.count({ where })
+        : Promise.resolve(undefined),
     ]);
 
     // Una sola query para el historial de todas las consultas en vez de N
     // (antes: una consulta a consultationHistory por cada fila, aunque
     // paralelizadas con Promise.all) -- mismo patrón que
     // PatientsService.getConsentStatusMap.
-    const historyMap = new Map<string, Awaited<ReturnType<typeof this.getHistory>>>();
+    const historyMap = new Map<
+      string,
+      Awaited<ReturnType<typeof this.getHistory>>
+    >();
     if (consultations.length > 0) {
       const groupIds = consultations.map((c) => c.groupId);
       const allHistory = await this.prisma.consultationHistory.findMany({
@@ -161,11 +173,7 @@ export class ConsultationsService {
     return { ...consultation, history };
   }
 
-  async correct(
-    id: string,
-    dto: CorrectConsultationDto,
-    therapistId: string,
-  ) {
+  async correct(id: string, dto: CorrectConsultationDto, therapistId: string) {
     const original = await this.findOne(id, therapistId);
 
     const alreadySuperseded = await this.prisma.consultation.findFirst({
@@ -208,11 +216,15 @@ export class ConsultationsService {
           groupId: original.groupId,
           patientId: original.patientId,
           therapistId: original.therapistId,
-          sessionDate: dto.sessionDate ? parseDate(dto.sessionDate) : original.sessionDate,
+          sessionDate: dto.sessionDate
+            ? parseDate(dto.sessionDate)
+            : original.sessionDate,
           consultReason: dto.consultReason ?? original.consultReason,
           intervention: dto.intervention ?? original.intervention,
           agreements: dto.agreements ?? original.agreements,
-          nextSessionDate: dto.nextSessionDate ? parseDate(dto.nextSessionDate) : original.nextSessionDate,
+          nextSessionDate: dto.nextSessionDate
+            ? parseDate(dto.nextSessionDate)
+            : original.nextSessionDate,
           sessionType: dto.sessionType ?? original.sessionType,
           scheduledAt: original.scheduledAt,
           reminderSent: original.reminderSent,
@@ -222,7 +234,10 @@ export class ConsultationsService {
         include: THERAPIST_SELECT,
       });
 
-      return { ...corrected, history: await this.getHistory(original.groupId, tx) };
+      return {
+        ...corrected,
+        history: await this.getHistory(original.groupId, tx),
+      };
     });
     this.logger.log(
       `Consulta corregida: originalId=${id} nuevaId=${result.id} groupId=${original.groupId} therapistId=${therapistId}`,

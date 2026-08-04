@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -102,13 +106,19 @@ export class AuthService {
       { sub: user.id, purpose: EMAIL_VERIFY_PURPOSE },
       { expiresIn: EMAIL_VERIFY_EXPIRES_IN },
     );
-    const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
     const verifyUrl = `${frontendUrl}/verify-email?token=${token}`;
 
-    await this.mailService.sendVerificationEmail(user.email, user.name, verifyUrl);
+    await this.mailService.sendVerificationEmail(
+      user.email,
+      user.name,
+      verifyUrl,
+    );
 
     return {
-      message: 'Cuenta creada. Revisa tu email para verificarla antes de iniciar sesión.',
+      message:
+        'Cuenta creada. Revisa tu email para verificarla antes de iniciar sesión.',
     };
   }
 
@@ -117,14 +127,18 @@ export class AuthService {
     try {
       payload = this.jwtService.verify(token);
     } catch {
-      throw new UnauthorizedException('Token de verificación inválido o expirado');
+      throw new UnauthorizedException(
+        'Token de verificación inválido o expirado',
+      );
     }
 
     if (payload.purpose !== EMAIL_VERIFY_PURPOSE) {
       throw new UnauthorizedException('Token de verificación inválido');
     }
 
-    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
     if (!user || user.deletedAt) {
       throw new UnauthorizedException('Usuario no válido');
     }
@@ -164,7 +178,9 @@ export class AuthService {
     // propio sin verificar no debería poder avanzar a ningún paso posterior
     // del login, ni siquiera a enrolar MFA.
     if (!user.emailVerified) {
-      throw new UnauthorizedException('Debes verificar tu email antes de iniciar sesión');
+      throw new UnauthorizedException(
+        'Debes verificar tu email antes de iniciar sesión',
+      );
     }
 
     if (user.mustChangePassword) {
@@ -231,7 +247,9 @@ export class AuthService {
   async changePassword(dto: ChangePasswordDto) {
     const payload = this.verifyPasswordChangeToken(dto.passwordChangeToken);
 
-    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
     if (!user || user.deletedAt) {
       throw new UnauthorizedException('Usuario no válido');
     }
@@ -242,7 +260,9 @@ export class AuthService {
     // aunque el cambio legítimo ya hubiera terminado. Mismo patrón que
     // rejectIfAlreadyEnrolled para el replay del setupToken de MFA.
     if (!user.mustChangePassword) {
-      throw new UnauthorizedException('La contraseña ya fue actualizada anteriormente');
+      throw new UnauthorizedException(
+        'La contraseña ya fue actualizada anteriormente',
+      );
     }
 
     const newPasswordHash = await argon2.hash(dto.newPassword);
@@ -267,7 +287,9 @@ export class AuthService {
     try {
       payload = this.jwtService.verify(passwordChangeToken);
     } catch {
-      throw new UnauthorizedException('Token de cambio de contraseña inválido o expirado');
+      throw new UnauthorizedException(
+        'Token de cambio de contraseña inválido o expirado',
+      );
     }
 
     if (payload.purpose !== PASSWORD_CHANGE_PURPOSE) {
@@ -305,13 +327,22 @@ export class AuthService {
     });
 
     const resetToken = this.jwtService.sign(
-      { sub: user.id, purpose: PASSWORD_RESET_PURPOSE, resetIssuedAt: issuedAt.getTime() },
+      {
+        sub: user.id,
+        purpose: PASSWORD_RESET_PURPOSE,
+        resetIssuedAt: issuedAt.getTime(),
+      },
       { expiresIn: PASSWORD_RESET_EXPIRES_IN },
     );
-    const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
     const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
 
-    await this.mailService.sendPasswordResetEmail(user.email, user.name, resetUrl);
+    await this.mailService.sendPasswordResetEmail(
+      user.email,
+      user.name,
+      resetUrl,
+    );
     await this.auditService.log({
       userId: user.id,
       action: 'PASSWORD_RESET_REQUESTED',
@@ -334,14 +365,18 @@ export class AuthService {
     try {
       payload = this.jwtService.verify(dto.resetToken);
     } catch {
-      throw new UnauthorizedException('Token de restablecimiento inválido o expirado');
+      throw new UnauthorizedException(
+        'Token de restablecimiento inválido o expirado',
+      );
     }
 
     if (payload.purpose !== PASSWORD_RESET_PURPOSE) {
       throw new UnauthorizedException('Token de restablecimiento inválido');
     }
 
-    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
     if (!user || user.deletedAt) {
       throw new UnauthorizedException('Usuario no válido');
     }
@@ -350,7 +385,9 @@ export class AuthService {
       !user.passwordResetTokenIssuedAt ||
       user.passwordResetTokenIssuedAt.getTime() !== payload.resetIssuedAt
     ) {
-      throw new UnauthorizedException('Token de restablecimiento inválido o ya utilizado');
+      throw new UnauthorizedException(
+        'Token de restablecimiento inválido o ya utilizado',
+      );
     }
 
     const newPasswordHash = await argon2.hash(dto.newPassword);
@@ -399,7 +436,9 @@ export class AuthService {
     await this.rejectIfAlreadyEnrolled(payload.sub);
     const { recoveryCodes } = await this.enableMfa(payload.sub, token);
 
-    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
     if (!user) throw new UnauthorizedException('Usuario no válido');
 
     return { ...this.generateToken(user), recoveryCodes };
@@ -411,12 +450,17 @@ export class AuthService {
    * beginMfaSetup/confirmMfaSetup; jwt.strategy.ts además impide que este
    * mismo token se use como Bearer token de sesión en cualquier otra ruta.
    */
-  private verifySetupToken(setupToken: string): { sub: string; purpose?: string } {
+  private verifySetupToken(setupToken: string): {
+    sub: string;
+    purpose?: string;
+  } {
     let payload: { sub: string; purpose?: string };
     try {
       payload = this.jwtService.verify(setupToken);
     } catch {
-      throw new UnauthorizedException('Token de configuración MFA inválido o expirado');
+      throw new UnauthorizedException(
+        'Token de configuración MFA inválido o expirado',
+      );
     }
 
     if (payload.purpose !== MFA_SETUP_PURPOSE) {
@@ -436,7 +480,9 @@ export class AuthService {
   private async rejectIfAlreadyEnrolled(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (user?.mfaEnabled) {
-      throw new UnauthorizedException('MFA ya fue configurado para esta cuenta');
+      throw new UnauthorizedException(
+        'MFA ya fue configurado para esta cuenta',
+      );
     }
   }
 
@@ -636,7 +682,8 @@ export class AuthService {
     });
 
     return {
-      message: 'MFA desactivado con el código de recuperación. Vuelve a habilitarlo cuanto antes.',
+      message:
+        'MFA desactivado con el código de recuperación. Vuelve a habilitarlo cuanto antes.',
     };
   }
 
@@ -648,11 +695,15 @@ export class AuthService {
    * así que volver a habilitar MFA invalida los códigos de una habilitación
    * anterior.
    */
-  private async generateAndPersistRecoveryCodes(userId: string): Promise<string[]> {
+  private async generateAndPersistRecoveryCodes(
+    userId: string,
+  ): Promise<string[]> {
     const codes = Array.from({ length: MFA_RECOVERY_CODES_COUNT }, () =>
       this.generateRecoveryCode(),
     );
-    const hashedCodes = await Promise.all(codes.map((code) => argon2.hash(code)));
+    const hashedCodes = await Promise.all(
+      codes.map((code) => argon2.hash(code)),
+    );
 
     await this.prisma.$transaction([
       this.prisma.mfaRecoveryCode.deleteMany({ where: { userId } }),
@@ -671,7 +722,12 @@ export class AuthService {
     return raw.match(/.{1,4}/g)!.join('-');
   }
 
-  private generateToken(user: { id: string; email: string; role: string, name: string }) {
+  private generateToken(user: {
+    id: string;
+    email: string;
+    role: string;
+    name: string;
+  }) {
     const payload = {
       sub: user.id,
       email: user.email,

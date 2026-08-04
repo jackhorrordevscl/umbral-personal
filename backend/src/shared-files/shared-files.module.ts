@@ -11,11 +11,14 @@ import { BadRequestException } from '@nestjs/common';
 const ALLOWED_MIMETYPES: Record<string, string> = {
   'application/pdf': 'PDF',
   'application/msword': 'Word (.doc)',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word (.docx)',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+    'Word (.docx)',
   'application/vnd.ms-excel': 'Excel (.xls)',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'Excel (.xlsx)',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+    'Excel (.xlsx)',
   'application/vnd.ms-powerpoint': 'PowerPoint (.ppt)',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PowerPoint (.pptx)',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation':
+    'PowerPoint (.pptx)',
   'image/jpeg': 'Imagen JPEG',
   'image/png': 'Imagen PNG',
   'image/gif': 'Imagen GIF',
@@ -44,7 +47,7 @@ const ALLOWED_MIMETYPES: Record<string, string> = {
           cb(
             new BadRequestException(
               `Tipo de archivo no admitido: "${extname(file.originalname) || file.mimetype}". ` +
-              `Formatos permitidos: ${allowed}.`,
+                `Formatos permitidos: ${allowed}.`,
             ),
             false,
           );
