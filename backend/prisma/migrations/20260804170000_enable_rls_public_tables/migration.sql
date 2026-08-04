@@ -11,16 +11,21 @@
 -- Se habilita RLS sin agregar ninguna policy (deny-all por default para los
 -- roles `anon`/`authenticated` que usa PostgREST) en las 10 tablas del
 -- schema public. Esto NO afecta a esta aplicación: DATABASE_URL/DIRECT_URL
--- conectan como el rol `postgres` (superusuario de Supabase), y los
--- superusuarios de Postgres bypasean RLS siempre, sin importar si está
--- habilitado o si hay policies -- confirmado antes de aplicar este cambio.
+-- conectan como el rol `postgres` de Supabase -- no es superusuario del
+-- SO/Postgres (rolsuper=false), pero sí tiene rolbypassrls=true (verificado
+-- contra la instancia real antes de aplicar este cambio), que alcanza para
+-- que Prisma siga leyendo/escribiendo todo sin importar RLS ni policies.
+--
+-- `shared_files` usa @@map en schema.prisma (modelo `SharedFile`, tabla real
+-- en Postgres `shared_files`) -- el resto de los modelos no tiene @@map, el
+-- nombre de tabla coincide con el nombre del modelo.
 ALTER TABLE "User" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "MfaRecoveryCode" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "Patient" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "PatientDocument" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "Consultation" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "AuditLog" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "SharedFile" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "shared_files" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "PatientHistory" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "ConsultationHistory" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "PatientConsent" ENABLE ROW LEVEL SECURITY;
