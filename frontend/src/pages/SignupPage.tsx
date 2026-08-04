@@ -68,15 +68,16 @@ export default function SignupPage() {
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Nombre completo</label>
-            <input {...register('name')} type="text" className="input-field" />
+            <label htmlFor="signup-name" className="block text-sm font-medium text-slate-700 mb-1">Nombre completo</label>
+            <input {...register('name')} id="signup-name" type="text" className="input-field" />
             {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+            <label htmlFor="signup-email" className="block text-sm font-medium text-slate-700 mb-1">Email</label>
             <input
               {...register('email')}
+              id="signup-email"
               type="email"
               placeholder="tu@email.com"
               className="input-field"
@@ -85,9 +86,10 @@ export default function SignupPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
+            <label htmlFor="signup-password" className="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
             <input
               {...register('password')}
+              id="signup-password"
               type="password"
               placeholder="••••••••"
               className="input-field"

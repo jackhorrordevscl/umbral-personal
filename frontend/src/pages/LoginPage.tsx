@@ -333,9 +333,10 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-slate-300 lg:text-slate-700 mb-1">Email</label>
+              <label htmlFor="login-email" className="block text-sm font-medium text-slate-300 lg:text-slate-700 mb-1">Email</label>
               <input
                 {...register('email')}
+                id="login-email"
                 type="email"
                 placeholder="tu@email.com"
                 className="input-field"
@@ -347,13 +348,14 @@ export default function LoginPage() {
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-sm font-medium text-slate-300 lg:text-slate-700">Contraseña</label>
+                <label htmlFor="login-password" className="block text-sm font-medium text-slate-300 lg:text-slate-700">Contraseña</label>
                 <Link to="/forgot-password" className="text-xs text-slate-400 lg:text-slate-500 hover:underline">
                   ¿Olvidaste tu contraseña?
                 </Link>
               </div>
               <input
                 {...register('password')}
+                id="login-password"
                 type="password"
                 placeholder="••••••••"
                 className="input-field"

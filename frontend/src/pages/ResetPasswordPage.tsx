@@ -90,11 +90,12 @@ export default function ResetPasswordPage() {
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
+            <label htmlFor="reset-password-newPassword" className="block text-sm font-medium text-slate-700 mb-1">
               Nueva contraseña
             </label>
             <input
               {...register('newPassword')}
+              id="reset-password-newPassword"
               type="password"
               placeholder="••••••••"
               className="input-field"

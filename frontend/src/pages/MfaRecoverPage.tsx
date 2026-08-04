@@ -71,9 +71,10 @@ export default function MfaRecoverPage() {
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+            <label htmlFor="mfa-recover-email" className="block text-sm font-medium text-slate-700 mb-1">Email</label>
             <input
               {...register('email')}
+              id="mfa-recover-email"
               type="email"
               placeholder="tu@email.com"
               className="input-field"
@@ -84,9 +85,10 @@ export default function MfaRecoverPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
+            <label htmlFor="mfa-recover-password" className="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
             <input
               {...register('password')}
+              id="mfa-recover-password"
               type="password"
               placeholder="••••••••"
               className="input-field"
@@ -97,11 +99,12 @@ export default function MfaRecoverPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
+            <label htmlFor="mfa-recover-recoveryCode" className="block text-sm font-medium text-slate-700 mb-1">
               Código de recuperación
             </label>
             <input
               {...register('recoveryCode')}
+              id="mfa-recover-recoveryCode"
               type="text"
               placeholder="a1b2-c3d4-e5f6-a7b8-c9d0"
               className="input-field font-mono"
