@@ -127,8 +127,8 @@ export default function SharedFilesPage() {
       // después de este punto (a diferencia de handleDownload, que dispara
       // la descarga y termina en el mismo tick).
       window.open(url, '_blank');
-    } catch {
-      setError('Error al abrir el archivo');
+    } catch (e) {
+      setError(getApiErrorMessage(e, 'Error al abrir el archivo'));
     }
   };
 
@@ -138,8 +138,8 @@ export default function SharedFilesPage() {
         responseType: 'blob',
       });
       downloadBlob(new Blob([res.data]), file.originalName);
-    } catch {
-      setError('Error al descargar el archivo');
+    } catch (e) {
+      setError(getApiErrorMessage(e, 'Error al descargar el archivo'));
     }
   };
 
