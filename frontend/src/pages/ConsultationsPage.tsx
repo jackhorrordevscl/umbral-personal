@@ -323,7 +323,7 @@ export default function ConsultationsPage() {
                 <h3 id="correct-consultation-title" className="font-display text-xl text-slate-900">
                   Corregir Sesión
                 </h3>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-500 mt-1">
                   La versión actual quedará guardada en el historial de esta sesión.
                 </p>
               </div>
@@ -443,7 +443,7 @@ export default function ConsultationsPage() {
                       selectedPatientId === p.id ? 'bg-sage-50 border-l-2 border-sage-500' : ''
                     }`}>
                     <p className="text-sm font-medium text-slate-800">{p.fullName}</p>
-                    <p className="text-xs text-slate-400">{p.rut}</p>
+                    <p className="text-xs text-slate-500">{p.rut}</p>
                   </button>
                 ))}
               </div>
@@ -454,13 +454,13 @@ export default function ConsultationsPage() {
         <div className="lg:col-span-2 space-y-4">
           {!selectedPatientId ? (
             <div className="card flex items-center justify-center h-48">
-              <p className="text-slate-400 text-sm text-center px-4">
+              <p className="text-slate-500 text-sm text-center px-4">
                 Selecciona un paciente para ver su historial
               </p>
             </div>
           ) : consultations.length === 0 ? (
             <div className="card flex items-center justify-center h-48">
-              <p className="text-slate-400 text-sm">Sin consultas registradas</p>
+              <p className="text-slate-500 text-sm">Sin consultas registradas</p>
             </div>
           ) : (
             consultations.map((c: Consultation) => {
@@ -509,20 +509,20 @@ export default function ConsultationsPage() {
                       )}
                       {c.nextSessionDate && (
                         <div className="pt-2 border-t border-slate-100">
-                          <p className="text-xs text-slate-400">
+                          <p className="text-xs text-slate-500">
                             Próxima sesión: <span className="font-medium text-slate-600">
                               {formatChileDate(c.nextSessionDate)}
                             </span>
                           </p>
                         </div>
                       )}
-                      <p className="text-xs text-slate-400">Terapeuta: {c.therapist?.name}</p>
+                      <p className="text-xs text-slate-500">Terapeuta: {c.therapist?.name}</p>
                     </div>
 
                     {c.history.length > 0 && (
                       <button
                         onClick={() => toggleHistory(c.id)}
-                        className="mt-3 pt-3 border-t border-slate-100 w-full flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                        className="mt-3 pt-3 border-t border-slate-100 w-full flex items-center gap-1 text-xs text-slate-500 hover:text-slate-600 transition-colors"
                       >
                         {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                         {isExpanded ? 'Ocultar' : 'Ver'} historial de correcciones ({c.history.length})
@@ -536,7 +536,7 @@ export default function ConsultationsPage() {
                         <p className="text-xs font-medium text-slate-600">
                           {formatChileDateTime(h.snapshot.sessionDate)}
                         </p>
-                        <p className="text-xs text-slate-400 mt-0.5">
+                        <p className="text-xs text-slate-500 mt-0.5">
                           Corregido el {formatChileDateTime(h.editedAt)} por {h.editedBy.name}
                         </p>
                       </div>

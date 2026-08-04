@@ -202,7 +202,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
             <h3 id="patient-modal-title" className="font-display text-2xl text-slate-900">
               {selected.fullName}
             </h3>
-            <p className="text-slate-400 text-sm font-mono">{displayRut(selected.rut)}</p>
+            <p className="text-slate-500 text-sm font-mono">{displayRut(selected.rut)}</p>
           </div>
           <button
             onClick={onClose}
@@ -311,9 +311,9 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                   </p>
                 )}
                 {documentsQuery.isLoading ? (
-                  <p className="text-xs text-slate-400">Cargando...</p>
+                  <p className="text-xs text-slate-500">Cargando...</p>
                 ) : documents.length === 0 ? (
-                  <p className="text-xs text-slate-400 mb-3">Sin documentos subidos.</p>
+                  <p className="text-xs text-slate-500 mb-3">Sin documentos subidos.</p>
                 ) : (
                   <div className="space-y-2 mb-3">
                     {documents.map((doc) => (
@@ -327,7 +327,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                             <p className="text-xs font-medium text-slate-700 truncate">
                               {doc.fileName}
                             </p>
-                            <p className="text-xs text-slate-400">{doc.type}</p>
+                            <p className="text-xs text-slate-500">{doc.type}</p>
                           </div>
                         </div>
                         <button
@@ -529,7 +529,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                   ))}
                 </div>
               </div>
-              <p className="text-xs text-slate-400 -mt-2">
+              <p className="text-xs text-slate-500 -mt-2">
                 Otorgar o revocar una finalidad de consentimiento aquí también queda registrado
                 con el motivo indicado abajo como evidencia (Ley 21.719).
               </p>
@@ -546,7 +546,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                   value={editReason}
                   onChange={(e) => setEditReason(e.target.value)}
                 />
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-500 mt-1">
                   {editReason.length} caracteres (mínimo 10)
                 </p>
               </div>
@@ -580,7 +580,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
           {modalTab === "history" && (
             <div>
               {historyQuery.isLoading ? (
-                <p className="text-sm text-slate-400 py-4">Cargando historial...</p>
+                <p className="text-sm text-slate-500 py-4">Cargando historial...</p>
               ) : historyQuery.isError ? (
                 <p className="text-sm text-red-500 py-4 flex items-center gap-1">
                   <AlertCircle size={12} /> No se pudo cargar el historial.
@@ -588,7 +588,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
               ) : history.length === 0 ? (
                 <div className="text-center py-8">
                   <History size={32} className="text-slate-200 mx-auto mb-2" />
-                  <p className="text-sm text-slate-400">Sin modificaciones registradas.</p>
+                  <p className="text-sm text-slate-500">Sin modificaciones registradas.</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -598,7 +598,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                         <p className="text-xs font-medium text-slate-700">
                           {entry.changedBy.name}
                         </p>
-                        <p className="text-xs text-slate-400">
+                        <p className="text-xs text-slate-500">
                           {new Date(entry.changedAt).toLocaleString("es-CL")}
                         </p>
                       </div>

@@ -240,9 +240,9 @@ export default function SharedFilesPage() {
       </div>
 
       {isLoading ? (
-        <div className="text-center py-16 text-slate-400">Cargando archivos...</div>
+        <div className="text-center py-16 text-slate-500">Cargando archivos...</div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-16 text-slate-400">
+        <div className="text-center py-16 text-slate-500">
           <File className="w-12 h-12 mx-auto mb-3 opacity-30" />
           <p>No hay archivos en esta categoría</p>
         </div>
@@ -270,7 +270,7 @@ export default function SharedFilesPage() {
                     <ExternalLink className="w-3 h-3 text-slate-300 inline shrink-0" />
                   )}
                 </p>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-500 mt-0.5">
                   {file.originalName} · {formatSize(file.size)}
                 </p>
                 {file.description && (
@@ -336,7 +336,7 @@ export default function SharedFilesPage() {
                 <>
                   <Upload className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                   <p className="text-sm text-slate-500">Haz clic para seleccionar un archivo</p>
-                  <p className="text-xs text-slate-400 mt-1">Máx. 50 MB</p>
+                  <p className="text-xs text-slate-500 mt-1">Máx. 50 MB</p>
                 </>
               )}
               <input

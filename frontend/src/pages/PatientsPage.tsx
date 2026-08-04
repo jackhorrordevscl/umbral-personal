@@ -180,7 +180,7 @@ export default function PatientsPage() {
           <tbody className="divide-y divide-slate-50">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={5} className="text-center py-12 text-slate-400">
+                <td colSpan={5} className="text-center py-12 text-slate-500">
                   No se encontraron pacientes.
                 </td>
               </tr>
@@ -189,7 +189,7 @@ export default function PatientsPage() {
                 <tr key={p.id} className="hover:bg-cream-50 transition-colors">
                   <td className="px-6 py-4">
                     <p className="font-medium text-slate-800">{p.fullName}</p>
-                    <p className="text-xs text-slate-400">{p.email}</p>
+                    <p className="text-xs text-slate-500">{p.email}</p>
                   </td>
                   <td className="px-6 py-4 text-slate-600 font-mono text-xs">
                     {displayRut(p.rut)}
@@ -252,7 +252,7 @@ export default function PatientsPage() {
       {/* Cards móvil */}
       <div className="md:hidden space-y-3">
         {filtered.length === 0 ? (
-          <div className="card text-center py-8 text-slate-400 text-sm">
+          <div className="card text-center py-8 text-slate-500 text-sm">
             No se encontraron pacientes.
           </div>
         ) : (
@@ -261,7 +261,7 @@ export default function PatientsPage() {
               <div className="flex items-start justify-between mb-2">
                 <div>
                   <p className="font-medium text-slate-800">{p.fullName}</p>
-                  <p className="text-xs text-slate-400 font-mono">{displayRut(p.rut)}</p>
+                  <p className="text-xs text-slate-500 font-mono">{displayRut(p.rut)}</p>
                 </div>
                 <span
                   className={`text-xs px-2 py-1 rounded-full shrink-0 ${

@@ -82,7 +82,7 @@ export default function SettingsPage() {
           </div>
           <div>
             <h3 className="font-medium text-slate-800">Autenticación de dos factores</h3>
-            <p className="text-xs text-slate-400">{user?.email}</p>
+            <p className="text-xs text-slate-500">{user?.email}</p>
           </div>
         </div>
 
@@ -123,7 +123,7 @@ export default function SettingsPage() {
                 <img src={qrCode} alt="QR MFA" className="w-48 h-48 rounded-lg border border-slate-200" />
               </div>
             )}
-            <p className="text-xs text-slate-400 text-center">
+            <p className="text-xs text-slate-500 text-center">
               Clave manual: <span className="font-mono text-slate-600">{secret}</span>
             </p>
             <button onClick={() => setStep('verify')} className="btn-primary w-full">

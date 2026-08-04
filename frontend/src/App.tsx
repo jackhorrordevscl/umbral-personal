@@ -30,7 +30,7 @@ const SharedFilesPage = lazy(() => import("./pages/SharedFilesPage"));
 
 function RouteFallback() {
   return (
-    <div className="flex items-center justify-center min-h-screen text-slate-400 text-sm">
+    <div className="flex items-center justify-center min-h-screen text-slate-500 text-sm">
       Cargando...
     </div>
   );

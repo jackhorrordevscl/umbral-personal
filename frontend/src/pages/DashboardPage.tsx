@@ -143,7 +143,7 @@ export default function DashboardPage() {
               </button>
             </div>
             {patients.length === 0 ? (
-              <p className="text-slate-400 text-sm text-center py-8">
+              <p className="text-slate-500 text-sm text-center py-8">
                 No hay pacientes registrados aún.
               </p>
             ) : (
@@ -161,7 +161,7 @@ export default function DashboardPage() {
                       <p className="text-sm font-medium text-slate-800 truncate">
                         {p.fullName}
                       </p>
-                      <p className="text-xs text-slate-400">{p.rut}</p>
+                      <p className="text-xs text-slate-500">{p.rut}</p>
                     </div>
                     <div className="shrink-0">
                       {p.consents?.TREATMENT ? (
