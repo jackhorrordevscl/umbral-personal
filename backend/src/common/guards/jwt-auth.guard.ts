@@ -1,5 +1,6 @@
 import { ExecutionContext, Injectable, Logger } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import type { Request } from 'express';
 import { AuditService } from '../../modules/audit/audit.service';
 import { getResourceFromUrl } from '../utils/audit-resource.util';
 
@@ -19,13 +20,22 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     status?: any,
   ): TUser {
     if (err || !user) {
-      const request = context.switchToHttp().getRequest();
+      const request: Request = context.switchToHttp().getRequest();
+      // params puede tener valores string[] (segmentos wildcard de Express
+      // 5) -- el resto del código (audit.interceptor.ts) asume string, así
+      // que se toma el primer valor si llega un array.
+      const paramId = request.params?.id;
+      const paramPatientId = request.params?.patientId;
+      const resourceId =
+        (Array.isArray(paramId) ? paramId[0] : paramId) ??
+        (Array.isArray(paramPatientId) ? paramPatientId[0] : paramPatientId) ??
+        'N/A';
 
       this.auditService
         .log({
           action: 'UNAUTHORIZED_ATTEMPT',
           resource: getResourceFromUrl(request.url),
-          resourceId: request.params?.id ?? request.params?.patientId ?? 'N/A',
+          resourceId,
           detail: `${request.method} ${request.url}`,
           ipAddress: request.ip,
           userAgent: request.headers['user-agent'],

@@ -17,9 +17,12 @@ function buildContext(): ExecutionContext {
 
 describe('JwtAuthGuard', () => {
   it('reporta el fallo de auditoría de un intento no autorizado de forma visible', async () => {
-    const failingAuditService = {
-      log: jest.fn().mockRejectedValue(new Error('DB no disponible')),
-    } as unknown as AuditService;
+    // El mock se referencia via esta variable, no via
+    // failingAuditService.log, para no disparar @typescript-eslint/
+    // unbound-method (el cast a AuditService hace que .log se vea como un
+    // método de instancia sin bindear).
+    const logMock = jest.fn().mockRejectedValue(new Error('DB no disponible'));
+    const failingAuditService = { log: logMock } as unknown as AuditService;
 
     const errorSpy = jest
       .spyOn(Logger.prototype, 'error')
@@ -35,7 +38,7 @@ describe('JwtAuthGuard', () => {
     // la excepción de Passport; esperamos el microtask para que el .catch corra.
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(failingAuditService.log).toHaveBeenCalledTimes(1);
+    expect(logMock).toHaveBeenCalledTimes(1);
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy.mock.calls[0][0]).toContain(
       'Fallo al registrar intento no autorizado',
@@ -70,16 +73,20 @@ describe('JwtAuthGuard', () => {
   });
 
   it('no registra auditoría y devuelve el usuario en el camino feliz (err=null, user truthy)', () => {
-    const auditService = {
-      log: jest.fn(),
-    } as unknown as AuditService;
+    const logMock = jest.fn();
+    const auditService = { log: logMock } as unknown as AuditService;
 
     const guard = new JwtAuthGuard(auditService);
     const user = { id: 'user-1', role: 'STAFF' };
 
-    const result = guard.handleRequest(null, user, null, buildContext());
+    const result = guard.handleRequest<typeof user>(
+      null,
+      user,
+      null,
+      buildContext(),
+    );
 
     expect(result).toBe(user);
-    expect(auditService.log).not.toHaveBeenCalled();
+    expect(logMock).not.toHaveBeenCalled();
   });
 });
