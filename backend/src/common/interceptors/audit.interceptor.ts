@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Observable, tap } from 'rxjs';
 import type { Request } from 'express';
+import { AuditAction } from '@prisma/client';
 import { AuditService } from '../../modules/audit/audit.service';
 import { getResourceFromUrl } from '../utils/audit-resource.util';
 import type { RequestUser } from '../decorators/current-user.decorator';
@@ -44,7 +45,7 @@ export class AuditInterceptor implements NestInterceptor {
     const userAgent = request.headers['user-agent'];
 
     // Determina la acción según el método HTTP
-    const actionMap: Record<string, string> = {
+    const actionMap: Record<string, AuditAction> = {
       GET: 'VIEW',
       POST: 'CREATE',
       PATCH: 'UPDATE',

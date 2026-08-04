@@ -40,12 +40,20 @@ describe('AuthService', () => {
   let service: AuthService;
   let prisma: {
     user: { findUnique: jest.Mock; update: jest.Mock; create: jest.Mock };
-    mfaRecoveryCode: { findMany: jest.Mock; deleteMany: jest.Mock; createMany: jest.Mock; update: jest.Mock };
+    mfaRecoveryCode: {
+      findMany: jest.Mock;
+      deleteMany: jest.Mock;
+      createMany: jest.Mock;
+      update: jest.Mock;
+    };
     $transaction: jest.Mock;
   };
   let jwtService: { sign: jest.Mock; verify: jest.Mock };
   let config: { get: jest.Mock };
-  let mailService: { sendVerificationEmail: jest.Mock; sendPasswordResetEmail: jest.Mock };
+  let mailService: {
+    sendVerificationEmail: jest.Mock;
+    sendPasswordResetEmail: jest.Mock;
+  };
   let auditService: { log: jest.Mock };
 
   beforeEach(() => {
@@ -111,9 +119,7 @@ describe('AuthService', () => {
     it('crea la cuenta con emailVerified=false y envía el email de verificación', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
       mockArgon2.hash.mockResolvedValue('hashed-password' as never);
-      prisma.user.create.mockResolvedValue(
-        buildUser({ emailVerified: false }),
-      );
+      prisma.user.create.mockResolvedValue(buildUser({ emailVerified: false }));
       config.get.mockImplementation((key: string) =>
         key === 'FRONTEND_URL' ? 'http://localhost:5173' : undefined,
       );

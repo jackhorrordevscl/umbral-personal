@@ -2,6 +2,8 @@ import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
+import { exec, type ExecException } from 'child_process';
+import * as path from 'path';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
@@ -47,8 +49,6 @@ async function bootstrap() {
   // por su cuenta (ver comentario más abajo sobre por qué esto puede
   // duplicarse con el Start Command de Render, y por qué eso es seguro).
   if (process.env.RUN_MIGRATIONS === 'true') {
-    const { exec } = require('child_process');
-    const path = require('path');
     console.log('🔄 Ejecutando migraciones Prisma (async)...');
     const backendRoot = __dirname.includes('/dist/')
       ? path.join(__dirname, '..', '..')
@@ -65,7 +65,7 @@ async function bootstrap() {
     exec(
       'npx prisma migrate deploy',
       { cwd: backendRoot },
-      (error, stdout, stderr) => {
+      (error: ExecException | null, stdout: string, stderr: string) => {
         if (error) {
           console.error('❌ Error en migraciones:', error.message);
           console.error('stderr:', stderr);

@@ -12,7 +12,10 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { MfaRecoverDto } from './dto/mfa-recover.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type RequestUser,
+} from '../../common/decorators/current-user.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -216,19 +219,19 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Post('mfa/generate')
-  generateMfaSecret(@CurrentUser() user: any) {
+  generateMfaSecret(@CurrentUser() user: RequestUser) {
     return this.authService.generateMfaSecret(user.id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('mfa/enable')
-  enableMfa(@CurrentUser() user: any, @Body('token') token: string) {
+  enableMfa(@CurrentUser() user: RequestUser, @Body('token') token: string) {
     return this.authService.enableMfa(user.id, token);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('mfa/disable')
-  disableMfa(@CurrentUser() user: any, @Body('token') token: string) {
+  disableMfa(@CurrentUser() user: RequestUser, @Body('token') token: string) {
     return this.authService.disableMfa(user.id, token);
   }
 }

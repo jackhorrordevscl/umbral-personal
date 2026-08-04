@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { AuditAction } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 interface CreateAuditLogDto {
   userId?: string;
-  action: string;
+  action: AuditAction;
   resource: string;
   resourceId: string;
   detail?: string;
@@ -20,7 +21,7 @@ export class AuditService {
     return this.prisma.auditLog.create({
       data: {
         userId: data.userId,
-        action: data.action as any,
+        action: data.action,
         resource: data.resource,
         resourceId: data.resourceId,
         detail: data.detail,

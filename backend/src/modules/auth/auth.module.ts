@@ -245,13 +245,24 @@ export function buildAuthThrottlerOptions(
       { name: 'mfa-verify', limit: mfaVerifyLimit, ttl: mfaVerifyTtl },
       { name: 'signup', limit: signupLimit, ttl: signupTtl },
       { name: 'mfa-setup', limit: mfaSetupLimit, ttl: mfaSetupTtl },
-      { name: 'password-change', limit: passwordChangeLimit, ttl: passwordChangeTtl },
+      {
+        name: 'password-change',
+        limit: passwordChangeLimit,
+        ttl: passwordChangeTtl,
+      },
       { name: 'verify-email', limit: verifyEmailLimit, ttl: verifyEmailTtl },
-      { name: 'password-reset', limit: passwordResetLimit, ttl: passwordResetTtl },
+      {
+        name: 'password-reset',
+        limit: passwordResetLimit,
+        ttl: passwordResetTtl,
+      },
       { name: 'mfa-recover', limit: mfaRecoverLimit, ttl: mfaRecoverTtl },
     ],
     getTracker: (req: Record<string, any>) =>
-      getLoginTracker(req as Parameters<typeof getLoginTracker>[0], trustedProxyHops),
+      getLoginTracker(
+        req as Parameters<typeof getLoginTracker>[0],
+        trustedProxyHops,
+      ),
   };
 }
 
