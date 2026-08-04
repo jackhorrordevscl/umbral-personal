@@ -41,8 +41,7 @@ export default function Layout() {
       `}>
         <div className="px-6 py-8 border-b border-slate-800 flex items-center justify-between">
           <div>
-            <h1 className="font-display text-2xl text-white">Umbral</h1>
-            <p className="text-slate-400 text-xs mt-1">Gestión Clínica</p>
+            <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-10 w-auto" />
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -87,7 +86,7 @@ export default function Layout() {
           >
             <Menu size={22} />
           </button>
-          <h1 className="font-display text-xl text-slate-900">Umbral</h1>
+          <img src="/favicon.svg" alt="Umbral" className="h-7 w-7 rounded" />
         </header>
         <main className="flex-1 overflow-auto">
           <Outlet />
