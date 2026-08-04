@@ -60,6 +60,26 @@ legal real, no es una decisión de ingeniería. Hasta que se resuelva, este
 punto queda documentado acá como riesgo abierto y conocido, no como algo ya
 evaluado y aceptado.
 
+Evidencia recopilada hasta ahora (issue #55), guardada en
+`docs/evidencia-compliance/` (snapshots en PDF, con fecha, de páginas
+públicas que los proveedores pueden actualizar):
+
+- **Supabase**: `supabase-dpa-2026-08-03.pdf` — el DPA se incorpora
+  automáticamente al aceptar los Términos de Servicio (cláusula 12.2:
+  *"acceptance of the Agreement shall have the same effect as signing the
+  SCCs"*), sin firma separada. Confirmado por fuente oficial.
+- **Backblaze**: `backblaze-dpa-eea-eu-2026-08-03.pdf` +
+  `backblaze-tos-2026-08-03.pdf` — mismo mecanismo de incorporación
+  automática, pero el DPA público encontrado está textualmente acotado a
+  *"when GDPR applies"* (UE/EEA). No confirma por sí solo que aplique a una
+  transferencia desde Chile. Pendiente: respuesta de
+  `privacy@backblaze.com` sobre si combinan su DPA/SCCs con las Cláusulas
+  Contractuales Modelo (CCM) que el Ministerio de Economía de Chile aprobó
+  en diciembre 2025 (Resolución RAEX202503748) para transferencias bajo la
+  Ley 21.719 -- ojo que la validez de esa aprobación ministerial también
+  está en debate legal (¿le correspondía a la futura Agencia de Protección
+  de Datos Personales, no al Ministerio?).
+
 ## Pendientes conocidos
 
 - **Transferencia internacional de datos** — ver sección de arriba. Es el
