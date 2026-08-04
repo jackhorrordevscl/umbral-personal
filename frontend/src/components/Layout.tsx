@@ -41,7 +41,7 @@ export default function Layout() {
       `}>
         <div className="px-6 py-8 border-b border-slate-800 flex items-center justify-between">
           <div>
-            <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-14 w-auto" />
+            <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-24 w-auto" />
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
