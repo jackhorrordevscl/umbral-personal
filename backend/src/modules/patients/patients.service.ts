@@ -17,7 +17,11 @@ function normalizeRut(rut: string): string {
 }
 
 function isDate(val: unknown): val is Date {
-  return val !== null && val !== undefined && Object.prototype.toString.call(val) === '[object Date]';
+  return (
+    val !== null &&
+    val !== undefined &&
+    Object.prototype.toString.call(val) === '[object Date]'
+  );
 }
 
 type ConsentStatusMap = Record<ConsentPurpose, boolean>;
@@ -92,7 +96,10 @@ export class PatientsService {
 
   // Sin page/pageSize devuelve la lista completa (retrocompatible); con
   // ambos, pagina con take/skip (issue #48).
-  async findAll(userId: string, pagination?: { page?: number; pageSize?: number }) {
+  async findAll(
+    userId: string,
+    pagination?: { page?: number; pageSize?: number },
+  ) {
     const where = { therapistId: userId, deletedAt: null };
     const { page, pageSize } = pagination ?? {};
     const isPaginated = !!page && !!pageSize;
@@ -103,10 +110,14 @@ export class PatientsService {
         orderBy: { createdAt: 'desc' },
         ...(isPaginated ? { take: pageSize, skip: (page - 1) * pageSize } : {}),
       }),
-      isPaginated ? this.prisma.patient.count({ where }) : Promise.resolve(undefined),
+      isPaginated
+        ? this.prisma.patient.count({ where })
+        : Promise.resolve(undefined),
     ]);
 
-    const consentMap = await this.getConsentStatusMap(patients.map((p) => p.id));
+    const consentMap = await this.getConsentStatusMap(
+      patients.map((p) => p.id),
+    );
     const data = patients.map((p) => ({
       ...p,
       consents: consentMap.get(p.id) ?? emptyConsentStatus(),
@@ -121,7 +132,10 @@ export class PatientsService {
   // validar acceso, no el detalle completo del paciente -- antes todos
   // pagaban el costo de `findOne` (joins + query de consentimientos) solo
   // para un chequeo de ownership.
-  async assertAccess(id: string, userId: string): Promise<{ id: string; rut: string }> {
+  async assertAccess(
+    id: string,
+    userId: string,
+  ): Promise<{ id: string; rut: string }> {
     const patient = await this.prisma.patient.findFirst({
       where: { id, therapistId: userId, deletedAt: null },
       select: { id: true, rut: true },
@@ -150,7 +164,8 @@ export class PatientsService {
     });
     if (!patient) throw new NotFoundException('Paciente no encontrado');
 
-    const consents = (await this.getConsentStatusMap([id])).get(id) ?? emptyConsentStatus();
+    const consents =
+      (await this.getConsentStatusMap([id])).get(id) ?? emptyConsentStatus();
     return { ...patient, consents };
   }
 
@@ -165,7 +180,9 @@ export class PatientsService {
       const incoming = fields[key];
       if (incoming === undefined) continue;
 
-      const currentVal = (current as Record<string, unknown>)[key];
+      const currentVal = (current as Record<string, unknown>)[
+        key
+      ] as typeof incoming;
 
       const incomingStr = isDate(incoming)
         ? incoming.toISOString()
@@ -188,7 +205,8 @@ export class PatientsService {
 
     // Snapshot sin relaciones ni campos computados (consents es agregado en
     // findOne desde el ledger PatientConsent, no una columna real de Patient)
-    const { therapist, consultations, documents, consents, ...snapshot } = current as any;
+    const { therapist, consultations, documents, consents, ...snapshot } =
+      current;
 
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.patientHistory.create({
@@ -268,8 +286,13 @@ export class PatientsService {
     });
   }
 
-  async getCurrentConsentStatus(id: string, userId: string): Promise<ConsentStatusMap> {
+  async getCurrentConsentStatus(
+    id: string,
+    userId: string,
+  ): Promise<ConsentStatusMap> {
     await this.assertAccess(id, userId);
-    return (await this.getConsentStatusMap([id])).get(id) ?? emptyConsentStatus();
+    return (
+      (await this.getConsentStatusMap([id])).get(id) ?? emptyConsentStatus()
+    );
   }
 }
