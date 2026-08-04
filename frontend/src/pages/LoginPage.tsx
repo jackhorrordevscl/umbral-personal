@@ -318,18 +318,22 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-cream-50">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-slate-900 lg:bg-cream-50">
         <div className="w-full max-w-md">
+          <div className="mb-8 flex justify-center lg:hidden">
+            <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-16 w-auto" />
+          </div>
+
           <div className="mb-10">
-            <h2 className="font-display text-3xl text-slate-900">Bienvenida</h2>
-            <p className="text-slate-500 text-sm mt-2">
+            <h2 className="font-display text-3xl text-white lg:text-slate-900">Te damos la bienvenida</h2>
+            <p className="text-slate-400 lg:text-slate-500 text-sm mt-2">
               Ingresa tus credenciales para acceder al sistema
             </p>
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+              <label className="block text-sm font-medium text-slate-300 lg:text-slate-700 mb-1">Email</label>
               <input
                 {...register('email')}
                 type="email"
@@ -343,8 +347,8 @@ export default function LoginPage() {
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-sm font-medium text-slate-700">Contraseña</label>
-                <Link to="/forgot-password" className="text-xs text-slate-500 hover:underline">
+                <label className="block text-sm font-medium text-slate-300 lg:text-slate-700">Contraseña</label>
+                <Link to="/forgot-password" className="text-xs text-slate-400 lg:text-slate-500 hover:underline">
                   ¿Olvidaste tu contraseña?
                 </Link>
               </div>
@@ -373,9 +377,9 @@ export default function LoginPage() {
               {loading ? 'Ingresando...' : 'Ingresar'}
             </button>
 
-            <p className="text-center text-sm text-slate-500">
+            <p className="text-center text-sm text-slate-400 lg:text-slate-500">
               ¿No tienes cuenta?{' '}
-              <Link to="/signup" className="text-slate-900 font-medium hover:underline">
+              <Link to="/signup" className="text-white lg:text-slate-900 font-medium hover:underline">
                 Regístrate
               </Link>
             </p>
