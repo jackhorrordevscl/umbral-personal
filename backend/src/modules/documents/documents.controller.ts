@@ -14,6 +14,7 @@ import type { Response } from 'express';
 import { DocumentsService } from './documents.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { UploadDocumentDto } from './dto/upload-document.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('documents')
@@ -42,15 +43,14 @@ export class DocumentsController {
   )
   async upload(
     @UploadedFile() file: Express.Multer.File,
-    @Body('patientId') patientId: string,
-    @Body('type') type: string,
+    @Body() dto: UploadDocumentDto,
     @CurrentUser() user: any,
   ) {
     return this.documentsService.uploadDocument(
-      patientId,
+      dto.patientId,
       user.id,
       file,
-      type,
+      dto.type,
     );
   }
 

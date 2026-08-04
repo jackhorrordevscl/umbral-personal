@@ -19,7 +19,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { SharedFilesService } from './shared-files.service';
 import { UploadSharedFileDto } from './dto/upload-shared-file.dto';
 import { UpdateSharedFileDto } from './dto/update-shared-file.dto';
-import { FileCategory } from '@prisma/client';
+import { FindAllSharedFilesDto } from './dto/find-all-shared-files.dto';
 
 interface AuthUser {
   id: string;
@@ -32,10 +32,10 @@ export class SharedFilesController {
 
   @Get()
   findAll(
-    @Query('category') category: FileCategory | undefined,
+    @Query() query: FindAllSharedFilesDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.sharedFilesService.findAll(user.id, category);
+    return this.sharedFilesService.findAll(user.id, query.category);
   }
 
   @Get(':id')

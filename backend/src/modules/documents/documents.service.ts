@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { DocumentType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { DocumentEncryptionService } from './document-encryption.service';
@@ -26,7 +27,7 @@ export class DocumentsService {
     patientId: string,
     userId: string,
     file: Express.Multer.File,
-    type: string,
+    type: DocumentType,
   ) {
     // Lanza NotFoundException si el paciente no existe o el usuario no
     // tiene acceso a él -- se valida ANTES de escribir nada a disco, así no
@@ -58,7 +59,7 @@ export class DocumentsService {
       data: {
         patientId,
         uploadedBy: userId,
-        type: type as any,
+        type,
         fileName: file.originalname,
         storagePath,
       },

@@ -182,6 +182,22 @@ describe('Documents encryption at rest (e2e)', () => {
         })
         .expect(404);
     });
+
+    // #72 (punto 3): `type` pasaba por @Body('type') sin DTO, con un
+    // `type as any` en DocumentsService que anulaba el chequeo de enum -- un
+    // valor fuera de DocumentType caía al 500 genérico en vez de un 400.
+    it('rechaza un `type` fuera del enum DocumentType con 400, no 500', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/documents/upload')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .field('patientId', patientId)
+        .field('type', 'NO_EXISTE')
+        .attach('file', Buffer.from('contenido'), {
+          filename: 'informe.pdf',
+          contentType: 'application/pdf',
+        })
+        .expect(400);
+    });
   });
 
   describe('GET /documents/:id/download', () => {
