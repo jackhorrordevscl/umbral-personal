@@ -21,16 +21,28 @@ este repositorio.
 
 | # | Actividad | Modelo(s) Prisma | Datos tratados | Finalidad | Base legal / consentimiento | Quién accede | Retención |
 |---|---|---|---|---|---|---|---|
-| 1 | Ficha clínica | `Patient` | Identificación, RUT, contacto, contacto de emergencia, médico/psiquiatra tratante | Prestación del servicio psicológico | Consentimiento informado — purpose `TREATMENT` en `PatientConsent` | Terapeuta tratante (`therapistId`); `SUPERVISOR`/`COORDINATOR` según rol | 15 años desde el cierre (Ley 20.584). Soft delete (`deletedAt`), nunca se borra físicamente |
+| 1 | Ficha clínica | `Patient` | Identificación, RUT, contacto, contacto de emergencia, médico/psiquiatra tratante | Prestación del servicio psicológico | Consentimiento informado — purpose `TREATMENT` en `PatientConsent` | Terapeuta tratante (`therapistId`); único rol del sistema (`enum Role { PROFESSIONAL }`), sin ruta de acceso excepcional | 15 años desde el cierre (Ley 20.584). Soft delete (`deletedAt`), nunca se borra físicamente |
 | 2 | Consulta clínica | `Consultation` + `ConsultationHistory` | Motivo de consulta, intervención, acuerdos, próxima sesión | Registro obligatorio de cada sesión | Consentimiento `TREATMENT`; versionado append-only (`groupId`, `correctsId`) | Terapeuta tratante; correcciones quedan en `ConsultationHistory` | Igual que ficha (15 años); ninguna versión se sobreescribe |
 | 3 | Telemedicina | `Consultation.sessionType = TELEMED`, `PatientDocument.type = TELEMED_AGREEMENT` | Datos de la consulta + acuerdo de telemedicina firmado | Atención remota | Consentimiento específico — purpose `TELEMEDICINE` | Terapeuta tratante | Igual que ficha |
-| 4 | Compartir con red de salud | `PatientConsent` purpose `HEALTH_NETWORK` | Datos clínicos ya existentes de la ficha | Continuidad de atención con otro profesional/institución | Consentimiento explícito `HEALTH_NETWORK`, o acceso excepcional auditado de `SUPERVISOR` (T6.5) | Profesional autorizado; `SUPERVISOR` en modo excepcional | Igual que ficha; el acceso excepcional queda registrado en `AuditLog.overrideReason` |
+| 4 | Email transaccional (verificación de cuenta / reset de contraseña) | `MailService` vía Resend (`backend/src/modules/mail/mail.service.ts`) | Nombre y email del profesional (dato del usuario del sistema, no del paciente) | Verificar la cuenta y permitir recuperar el acceso | Necesidad contractual para operar la cuenta — no requiere consentimiento del paciente porque no trata sus datos | Resend (procesador, EE.UU.); nadie más — el link de verificación/reset no viaja a ningún otro tercero | El email en sí no se retiene por Umbral más allá del envío; el token asociado expira (30 min en el reset) |
 | 5 | Documentos adjuntos | `PatientDocument` (consentimiento informado, informes, otros) | Archivos/PDFs vinculados al paciente | Soporte de la ficha clínica | Consentimiento `TREATMENT` | Quien subió (`uploadedBy`) + terapeuta tratante | Igual que ficha |
 | 6 | Exportación de PDF de ficha | Servicio de reportes (acción `EXPORT_PDF` en `AuditLog`) | Ficha + historial clínico completo | Entrega al paciente o a fiscalización | Deriva del consentimiento `TREATMENT` ya otorgado | Quien exporta, queda auditado | Hereda la retención de 15 años (obligación de custodia impresa en el pie del PDF) |
-| 7 | Bitácora de auditoría | `AuditLog` | Usuario, acción, recurso, IP, user agent, motivo de excepción | Trazabilidad y evidencia ante fiscalización | Obligación legal / interés legítimo — no requiere consentimiento del paciente | `SUPERVISOR`/`ADMIN` (lectura); inserción automática por el sistema, tabla append-only | **15 años**, igual que la ficha que audita — el log solo tiene razón de ser mientras existe el dato que audita |
+| 7 | Bitácora de auditoría | `AuditLog` | Usuario, acción, recurso, IP, user agent, detalle | Trazabilidad y evidencia ante fiscalización | Obligación legal / interés legítimo — no requiere consentimiento del paciente | Terapeuta tratante (lectura); inserción automática por el sistema, tabla append-only | **15 años**, igual que la ficha que audita — el log solo tiene razón de ser mientras existe el dato que audita |
 | 8 | Historial de cambios de ficha | `PatientHistory` (snapshot + diff) | Ficha completa antes/después de cada edición | Trazabilidad de modificaciones a datos clínicos | Deriva de `TREATMENT` | Quien edita (`changedBy`), auditoría | Igual que ficha |
 | 9 | Archivos compartidos (biblioteca interna) | `SharedFile` | Plantillas, formularios, protocolos — no son datos de pacientes | Recursos operativos del equipo | No aplica (no es dato personal de paciente) | Todo el staff autenticado | Sin retención legal específica — política interna |
 | 10 | Backups | Workflow `.github/workflows/backup.yml` (fuera de Prisma; reemplaza a `backups/backup.sh`, pensado para una VM propia que ya no existe) | Volcado cifrado (AES-256, `openssl`) de toda la base | Continuidad operativa / recuperación ante desastre | Obligación de seguridad (Ley 19.628 art. 11 bis) | Quien tenga las credenciales de Backblaze B2 y la frase de cifrado (gestor de contraseñas del terapeuta) | Sin rotación: se conserva **todo, indefinidamente** — a este volumen (~40 KB/backup diario) 15 años de historial completo ocupan ~230 MB, muy por debajo de los 10 GB gratis de B2, así que no hace falta distinguir "operativo" de "custodia legal" con políticas de borrado distintas (issue #8, cerrado 2026-08-03) |
+
+> **Nota sobre la fila 1 (versiones previas de este documento):** este RAT
+> describía anteriormente roles `SUPERVISOR`/`COORDINATOR`/`ADMIN` y un modo
+> de "acceso excepcional" con `AuditLog.overrideReason`, y una fila 4 de
+> "Compartir con red de salud" (purpose `HEALTH_NETWORK`). Ninguno de los
+> tres existe en el código: el schema colapsó a un único rol
+> (`schema.prisma:63-64`, ver comentario en `schema.prisma:210-217`),
+> `AuditLog` solo tiene `detail` (no `overrideReason`, `schema.prisma:178-189`)
+> y `ConsentPurpose` solo tiene `TREATMENT`/`TELEMEDICINE`
+> (`schema.prisma:293-295`) — `HEALTH_NETWORK` se eliminó por migración
+> (`20260802100000_remove_health_network_consent`, ver issue #71). Corregido
+> issue #65.
 
 ## Transferencia internacional de datos
 
@@ -46,6 +58,13 @@ Chile, pero eso ya no es así:
   diferencia de Supabase, que sí lo tiene por necesidad operativa: no se
   puede consultar/actualizar una ficha clínica sin que la base la lea en
   claro).
+- El email transaccional (fila 4) se envía vía **Resend, hosteado en Estados
+  Unidos** ("Company's primary processing operations take place in the
+  United States") — pero a diferencia de las filas 1-9, acá el dato que
+  transita es del **profesional que usa el sistema** (nombre, email), no del
+  paciente. No es una transferencia de datos de salud, así que la base
+  habilitante que aplica no es el consentimiento informado del paciente sino
+  la necesidad contractual de operar la cuenta del profesional.
 
 Esto constituye una transferencia internacional de datos de salud, que la
 Ley 21.719 regula explícitamente (requiere alguna base habilitante: nivel de
@@ -79,11 +98,23 @@ públicas que los proveedores pueden actualizar):
   Ley 21.719 -- ojo que la validez de esa aprobación ministerial también
   está en debate legal (¿le correspondía a la futura Agencia de Protección
   de Datos Personales, no al Ministerio?).
+- **Resend**: mismo mecanismo de incorporación automática del DPA al
+  aceptar los Términos de Servicio (`resend.com/legal/dpa`). Procesamiento
+  primario en Estados Unidos; lista de subprocesadores en
+  `resend.com/legal/subprocessors`. El alcance del DPA es amplio (EU
+  SCCs/GDPR, UK SCCs, Suiza FADP, CCPA) pero, igual que con Backblaze, no
+  menciona Chile ni la Ley 21.719 explícitamente. Snapshot en PDF con fecha
+  todavía **pendiente de capturar** en `docs/evidencia-compliance/`
+  (issue #66) — el resumen de arriba es investigación textual, no evidencia
+  archivada.
 
 ## Pendientes conocidos
 
 - **Transferencia internacional de datos** — ver sección de arriba. Es el
   pendiente más importante de este documento hoy.
+- **Evidencia de Resend sin archivar**: falta capturar el snapshot en PDF
+  del DPA/ToS de Resend en `docs/evidencia-compliance/`, siguiendo el mismo
+  patrón que Supabase/Backblaze (issue #66).
 - **Firma electrónica avanzada** (filas 2 y 6, a futuro): la firma de cada
   consulta/corrección y el sello de tiempo en los PDF exportados dependen de
   elegir un proveedor acreditado por la Ley 19.799 — ver issues #24, #25, #26
