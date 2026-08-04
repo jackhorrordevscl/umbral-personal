@@ -35,18 +35,27 @@ import { MailModule } from '../mail/mail.module';
  * rate-limit-login.e2e-spec.ts prueba el 429 real, vía override de DI del
  * token de opciones del ThrottlerModule, sin tocar esta rama.
  */
+const throttlerLogger = new Logger('AuthThrottlerConfig');
+
 // Un valor no numérico en la env var (typo, string vacío) no debe apagar el
 // throttler en silencio: Number('') es 0 y Number('abc') es NaN, y ambos
 // harían que la comparación totalHits > limit de @nestjs/throttler nunca
 // bloquee. Si el valor no parsea a un entero positivo, se ignora y se usa
-// el default.
+// el default -- pero se loguea, porque un typo en un límite de throttling
+// es justo el tipo de error que conviene ver en el arranque, no descubrir
+// después de un incidente de fuerza bruta.
 function parsePositiveInt(
   raw: string | undefined,
   fallback: number,
+  varName: string,
 ): number {
   if (raw === undefined) return fallback;
   const parsed = Number(raw);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+  if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  throttlerLogger.warn(
+    `${varName}="${raw}" no es un entero positivo válido, usando el default (${fallback}).`,
+  );
+  return fallback;
 }
 
 // Sin esto, ThrottlerGuard usaría su tracker por defecto (req.ip), que sin
@@ -121,19 +130,23 @@ export function buildAuthThrottlerOptions(
   const loginLimit = parsePositiveInt(
     config.get<string>('LOGIN_THROTTLE_LIMIT'),
     isTest ? 1000 : 5,
+    'LOGIN_THROTTLE_LIMIT',
   );
   const loginTtl = parsePositiveInt(
     config.get<string>('LOGIN_THROTTLE_TTL_MS'),
     60000,
+    'LOGIN_THROTTLE_TTL_MS',
   );
 
   const mfaVerifyLimit = parsePositiveInt(
     config.get<string>('MFA_THROTTLE_LIMIT'),
     isTest ? 1000 : 5,
+    'MFA_THROTTLE_LIMIT',
   );
   const mfaVerifyTtl = parsePositiveInt(
     config.get<string>('MFA_THROTTLE_TTL_MS'),
     60000,
+    'MFA_THROTTLE_TTL_MS',
   );
 
   // Issue #5: signup propio es la única ruta no autenticada que dispara un
@@ -143,10 +156,12 @@ export function buildAuthThrottlerOptions(
   const signupLimit = parsePositiveInt(
     config.get<string>('SIGNUP_THROTTLE_LIMIT'),
     isTest ? 1000 : 5,
+    'SIGNUP_THROTTLE_LIMIT',
   );
   const signupTtl = parsePositiveInt(
     config.get<string>('SIGNUP_THROTTLE_TTL_MS'),
     60000,
+    'SIGNUP_THROTTLE_TTL_MS',
   );
 
   // Issue #37: mfa/setup/begin y mfa/setup/confirm, verify-email y
@@ -159,28 +174,34 @@ export function buildAuthThrottlerOptions(
   const mfaSetupLimit = parsePositiveInt(
     config.get<string>('MFA_SETUP_THROTTLE_LIMIT'),
     isTest ? 1000 : 5,
+    'MFA_SETUP_THROTTLE_LIMIT',
   );
   const mfaSetupTtl = parsePositiveInt(
     config.get<string>('MFA_SETUP_THROTTLE_TTL_MS'),
     60000,
+    'MFA_SETUP_THROTTLE_TTL_MS',
   );
 
   const passwordChangeLimit = parsePositiveInt(
     config.get<string>('PASSWORD_CHANGE_THROTTLE_LIMIT'),
     isTest ? 1000 : 5,
+    'PASSWORD_CHANGE_THROTTLE_LIMIT',
   );
   const passwordChangeTtl = parsePositiveInt(
     config.get<string>('PASSWORD_CHANGE_THROTTLE_TTL_MS'),
     60000,
+    'PASSWORD_CHANGE_THROTTLE_TTL_MS',
   );
 
   const verifyEmailLimit = parsePositiveInt(
     config.get<string>('VERIFY_EMAIL_THROTTLE_LIMIT'),
     isTest ? 1000 : 5,
+    'VERIFY_EMAIL_THROTTLE_LIMIT',
   );
   const verifyEmailTtl = parsePositiveInt(
     config.get<string>('VERIFY_EMAIL_THROTTLE_TTL_MS'),
     60000,
+    'VERIFY_EMAIL_THROTTLE_TTL_MS',
   );
 
   // Issue #50: password/forgot y password/reset, mismo criterio que
@@ -190,10 +211,12 @@ export function buildAuthThrottlerOptions(
   const passwordResetLimit = parsePositiveInt(
     config.get<string>('PASSWORD_RESET_THROTTLE_LIMIT'),
     isTest ? 1000 : 5,
+    'PASSWORD_RESET_THROTTLE_LIMIT',
   );
   const passwordResetTtl = parsePositiveInt(
     config.get<string>('PASSWORD_RESET_THROTTLE_TTL_MS'),
     60000,
+    'PASSWORD_RESET_THROTTLE_TTL_MS',
   );
 
   // Issue #50: mfa/recover, mismo criterio que password-reset -- ruta sin
@@ -202,15 +225,18 @@ export function buildAuthThrottlerOptions(
   const mfaRecoverLimit = parsePositiveInt(
     config.get<string>('MFA_RECOVER_THROTTLE_LIMIT'),
     isTest ? 1000 : 5,
+    'MFA_RECOVER_THROTTLE_LIMIT',
   );
   const mfaRecoverTtl = parsePositiveInt(
     config.get<string>('MFA_RECOVER_THROTTLE_TTL_MS'),
     60000,
+    'MFA_RECOVER_THROTTLE_TTL_MS',
   );
 
   const trustedProxyHops = parsePositiveInt(
     config.get<string>('TRUSTED_PROXY_HOPS'),
     1,
+    'TRUSTED_PROXY_HOPS',
   );
 
   return {
