@@ -23,9 +23,65 @@ function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function isValidUrl(value: string): boolean {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Los valores de env var son siempre string | undefined en la práctica, pero
+// el tipo declarado es unknown -- este helper evita el "[object Object]" que
+// String() produciría si alguna vez no lo son.
+function describeValue(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+// main.ts lee estas cuatro env vars directo de process.env (CORS, puerto,
+// flag de migraciones) sin pasar por ConfigService -- se validan acá igual,
+// porque ConfigModule.forRoot ejecuta este validate() antes de que main.ts
+// llegue a usarlas, así que un typo revienta el arranque con un mensaje
+// claro en vez de un 500/CORS roto/puerto inválido en runtime.
+function validateMainTsEnvVars(config: Record<string, unknown>): void {
+  if (config.PORT !== undefined) {
+    const port = Number(config.PORT);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error(
+        `PORT inválido: "${describeValue(config.PORT)}" no es un puerto válido (1-65535).`,
+      );
+    }
+  }
+
+  for (const varName of ['FRONTEND_URL', 'LAN_DEV_URL'] as const) {
+    const value = config[varName];
+    if (
+      value !== undefined &&
+      (typeof value !== 'string' || !isValidUrl(value))
+    ) {
+      throw new Error(
+        `${varName} inválida: "${describeValue(value)}" no es una URL válida.`,
+      );
+    }
+  }
+
+  if (
+    config.RUN_MIGRATIONS !== undefined &&
+    config.RUN_MIGRATIONS !== 'true' &&
+    config.RUN_MIGRATIONS !== 'false'
+  ) {
+    throw new Error(
+      `RUN_MIGRATIONS inválido: "${describeValue(config.RUN_MIGRATIONS)}" -- debe ser exactamente "true" o "false".`,
+    );
+  }
+}
+
 export function validateEnv(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
+  validateMainTsEnvVars(config);
+
   if (config.NODE_ENV === 'production') {
     const secret =
       typeof config.JWT_SECRET === 'string' ? config.JWT_SECRET : '';

@@ -145,4 +145,52 @@ describe('validateEnv', () => {
 
     expect(validateEnv(config)).toBe(config);
   });
+
+  it('permite PORT/FRONTEND_URL/LAN_DEV_URL/RUN_MIGRATIONS válidos', () => {
+    const config = {
+      NODE_ENV: 'test',
+      PORT: '3001',
+      FRONTEND_URL: 'https://umbral.example.com',
+      LAN_DEV_URL: 'http://192.168.1.100:5173',
+      RUN_MIGRATIONS: 'true',
+    };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
+  it('rechaza un PORT que no es un puerto válido', () => {
+    const config = { NODE_ENV: 'test', PORT: 'abc' };
+
+    expect(() => validateEnv(config)).toThrow(/PORT inválido/);
+  });
+
+  it('rechaza un PORT fuera de rango', () => {
+    const config = { NODE_ENV: 'test', PORT: '70000' };
+
+    expect(() => validateEnv(config)).toThrow(/PORT inválido/);
+  });
+
+  it('rechaza un FRONTEND_URL que no es una URL válida', () => {
+    const config = { NODE_ENV: 'test', FRONTEND_URL: 'no-es-una-url' };
+
+    expect(() => validateEnv(config)).toThrow(/FRONTEND_URL inválida/);
+  });
+
+  it('rechaza un LAN_DEV_URL que no es una URL válida', () => {
+    const config = { NODE_ENV: 'test', LAN_DEV_URL: 'no-es-una-url' };
+
+    expect(() => validateEnv(config)).toThrow(/LAN_DEV_URL inválida/);
+  });
+
+  it('rechaza un RUN_MIGRATIONS que no es "true" ni "false"', () => {
+    const config = { NODE_ENV: 'test', RUN_MIGRATIONS: 'ture' };
+
+    expect(() => validateEnv(config)).toThrow(/RUN_MIGRATIONS inválido/);
+  });
+
+  it('permite RUN_MIGRATIONS="false"', () => {
+    const config = { NODE_ENV: 'test', RUN_MIGRATIONS: 'false' };
+
+    expect(validateEnv(config)).toBe(config);
+  });
 });
