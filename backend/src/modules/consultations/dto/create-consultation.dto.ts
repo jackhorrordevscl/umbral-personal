@@ -1,9 +1,4 @@
-import {
-  IsString,
-  IsOptional,
-  IsDateString,
-  IsEnum,
-} from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsEnum } from 'class-validator';
 
 export enum SessionType {
   IN_PERSON = 'IN_PERSON',

@@ -61,9 +61,7 @@ describe('SharedFilesService', () => {
       const file = buildFile();
       prisma.sharedFile.findFirst.mockResolvedValue(file);
 
-      await expect(service.findOne('file-1', 'user-1')).resolves.toEqual(
-        file,
-      );
+      await expect(service.findOne('file-1', 'user-1')).resolves.toEqual(file);
     });
   });
 });
