@@ -27,6 +27,7 @@ export class ProfileService {
     if (dto.email) {
       const exists = await this.prisma.user.findFirst({
         where: { email: dto.email, id: { not: id } },
+        select: { id: true },
       });
       if (exists) throw new ConflictException('El email ya está registrado');
     }
