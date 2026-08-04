@@ -24,8 +24,26 @@ ALTER TABLE "MfaRecoveryCode" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "Patient" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "PatientDocument" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "Consultation" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "AuditLog" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "shared_files" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "PatientHistory" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "ConsultationHistory" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "PatientConsent" ENABLE ROW LEVEL SECURITY;
+
+-- "AuditLog" es distinta: la migración 20260803060000 (issue #52) le sacó
+-- deliberadamente la ownership al rol de runtime y se la dio a un rol
+-- separado (`audit_log_owner`), justo para que ni la app ni sus
+-- credenciales puedan alterar la tabla (evita desactivar el trigger
+-- append-only). `ENABLE ROW LEVEL SECURITY` exige ser el dueño, así que
+-- hace falta el mismo procedimiento documentado ahí: otorgar membership
+-- temporal, aplicar el cambio, revocarla de nuevo -- sin tocar el resto de
+-- los GRANT/REVOKE que ya la protegen (rolbypassrls=true en el rol de
+-- runtime hace que esto no le cambie nada a la app: sigue viendo/insertando
+-- igual que antes, RLS habilitado o no).
+DO $$
+DECLARE
+  runtime_role text := current_user;
+BEGIN
+  EXECUTE format('GRANT audit_log_owner TO %I', runtime_role);
+  EXECUTE 'ALTER TABLE "AuditLog" ENABLE ROW LEVEL SECURITY';
+  EXECUTE format('REVOKE audit_log_owner FROM %I', runtime_role);
+END $$;
