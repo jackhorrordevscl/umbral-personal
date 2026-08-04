@@ -1,57 +1,12 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle } from 'lucide-react';
 import Modal from '../components/ui/Modal';
-import api from '../api/client';
+import { usePatients } from '../hooks/usePatients';
+import { useConsultations, useCreateConsultation, useCorrectConsultation } from '../hooks/useConsultations';
+import type { Consultation, ConsultationHistory, Patient } from '../types/patient';
 import { buildLocalISO, formatChileDateTime, formatChileDate } from '../utils/datetime';
 import { normalizeRut } from '../utils/rut';
 import { getApiErrorMessage } from '../utils/api-error';
-
-interface ConsultationHistory {
-  id: string;
-  editedAt: string;
-  editedBy: { name: string; email: string };
-  snapshot: {
-    sessionDate: string;
-    consultReason: string;
-    intervention: string;
-    agreements?: string;
-    nextSessionDate?: string;
-    sessionType: string;
-  };
-}
-
-interface Consultation {
-  id: string;
-  patientId: string;
-  sessionDate: string;
-  consultReason: string;
-  intervention: string;
-  agreements: string;
-  nextSessionDate: string;
-  sessionType: string;
-  therapist: { name: string; email: string };
-  history: ConsultationHistory[];
-}
-
-interface Patient {
-  id: string;
-  fullName: string;
-  rut: string;
-}
-
-interface ConsultationPayload {
-  sessionDate: string;
-  consultReason: string;
-  intervention: string;
-  agreements: string;
-  nextSessionDate?: string;
-  sessionType: string;
-}
-
-interface CreateConsultationPayload extends ConsultationPayload {
-  patientId: string;
-}
 
 const emptyForm = {
   patientId: '', sessionDate: '', sessionTime: '09:00',
@@ -61,7 +16,6 @@ const emptyForm = {
 };
 
 export default function ConsultationsPage() {
-  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [selectedPatientId, setSelectedPatientId] = useState('');
@@ -78,46 +32,13 @@ export default function ConsultationsPage() {
   });
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
 
-  const { data: patients = [], isError: patientsError } = useQuery({
-    queryKey: ['patients'],
-    queryFn: () => api.get('/patients').then(r => r.data),
-  });
+  const { data: patients = [], isError: patientsError } = usePatients();
 
-  const { data: consultations = [], isError: consultationsError } = useQuery({
-    queryKey: ['consultations', selectedPatientId],
-    queryFn: () => selectedPatientId
-      ? api.get(`/consultations/patient/${selectedPatientId}`).then(r => r.data)
-      : Promise.resolve([]),
-    enabled: !!selectedPatientId,
-  });
+  const { data: consultations = [], isError: consultationsError } =
+    useConsultations(selectedPatientId || undefined);
 
-  const createMutation = useMutation({
-    mutationFn: (data: CreateConsultationPayload) => api.post('/consultations', data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['consultations'] });
-      setShowForm(false);
-      setForm(emptyForm);
-      setFormError('');
-    },
-    onError: (err: unknown) => {
-      setFormError(getApiErrorMessage(err, 'Error al guardar sesión'));
-    },
-  });
-
-  const correctMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: ConsultationPayload }) =>
-      api.patch(`/consultations/${id}/correct`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['consultations'] });
-      setEditingConsultation(null);
-      setEditError('');
-    },
-    onError: (err: unknown) => {
-      // Issue #41: banner rojo del propio formulario en vez de alert()
-      // nativo, mismo patrón que formError arriba.
-      setEditError(getApiErrorMessage(err, 'Error al corregir sesión'));
-    },
-  });
+  const createMutation = useCreateConsultation();
+  const correctMutation = useCorrectConsultation();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,17 +47,29 @@ export default function ConsultationsPage() {
     if (!form.consultReason.trim()) { setFormError('El motivo de consulta es obligatorio'); return; }
     if (!form.intervention.trim()) { setFormError('La intervención es obligatoria'); return; }
     setFormError('');
-    createMutation.mutate({
-      patientId: form.patientId,
-      sessionDate: buildLocalISO(form.sessionDate, form.sessionTime),
-      consultReason: form.consultReason,
-      intervention: form.intervention,
-      agreements: form.agreements,
-      nextSessionDate: form.nextSessionDate
-        ? buildLocalISO(form.nextSessionDate, form.nextSessionTime)
-        : undefined,
-      sessionType: form.sessionType,
-    });
+    createMutation.mutate(
+      {
+        patientId: form.patientId,
+        sessionDate: buildLocalISO(form.sessionDate, form.sessionTime),
+        consultReason: form.consultReason,
+        intervention: form.intervention,
+        agreements: form.agreements,
+        nextSessionDate: form.nextSessionDate
+          ? buildLocalISO(form.nextSessionDate, form.nextSessionTime)
+          : undefined,
+        sessionType: form.sessionType,
+      },
+      {
+        onSuccess: () => {
+          setShowForm(false);
+          setForm(emptyForm);
+          setFormError('');
+        },
+        onError: (err: unknown) => {
+          setFormError(getApiErrorMessage(err, 'Error al guardar sesión'));
+        },
+      },
+    );
   };
 
   const handleEditOpen = (c: Consultation) => {
@@ -161,19 +94,32 @@ export default function ConsultationsPage() {
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingConsultation) return;
-    correctMutation.mutate({
-      id: editingConsultation.id,
-      data: {
-        sessionDate: buildLocalISO(editForm.sessionDate, editForm.sessionTime),
-        consultReason: editForm.consultReason,
-        intervention: editForm.intervention,
-        agreements: editForm.agreements,
-        nextSessionDate: editForm.nextSessionDate
-          ? buildLocalISO(editForm.nextSessionDate, editForm.nextSessionTime)
-          : undefined,
-        sessionType: editForm.sessionType,
+    correctMutation.mutate(
+      {
+        id: editingConsultation.id,
+        data: {
+          sessionDate: buildLocalISO(editForm.sessionDate, editForm.sessionTime),
+          consultReason: editForm.consultReason,
+          intervention: editForm.intervention,
+          agreements: editForm.agreements,
+          nextSessionDate: editForm.nextSessionDate
+            ? buildLocalISO(editForm.nextSessionDate, editForm.nextSessionTime)
+            : undefined,
+          sessionType: editForm.sessionType,
+        },
       },
-    });
+      {
+        onSuccess: () => {
+          setEditingConsultation(null);
+          setEditError('');
+        },
+        onError: (err: unknown) => {
+          // Issue #41: banner rojo del propio formulario en vez de alert()
+          // nativo, mismo patrón que formError arriba.
+          setEditError(getApiErrorMessage(err, 'Error al corregir sesión'));
+        },
+      },
+    );
   };
 
   const toggleHistory = (id: string) => {

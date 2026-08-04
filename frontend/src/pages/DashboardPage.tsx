@@ -3,18 +3,14 @@ import type { KeyboardEvent } from "react";
 import { Users, ClipboardList, FileText, Calendar, AlertCircle } from "lucide-react";
 import { useAuth } from "../context/useAuth";
 import { useNavigate } from "react-router";
-import api from "../api/client";
+import { usePatients } from "../hooks/usePatients";
 import { getConsultationStats } from "../api/consultations";
-import type { Patient } from "../types/patient";
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const { data: patients = [], isError: patientsError } = useQuery<Patient[]>({
-    queryKey: ["patients"],
-    queryFn: () => api.get("/patients").then((r) => r.data),
-  });
+  const { data: patients = [], isError: patientsError } = usePatients();
 
   // Issue #40: antes esto era un GET /consultations/patient/:id por cada
   // paciente vía Promise.all (N+1) solo para contar filas. El backend ahora

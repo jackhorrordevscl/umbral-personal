@@ -43,6 +43,33 @@ export interface PatientDocument {
   uploadedAt: string;
 }
 
+export interface ConsultationHistory {
+  id: string;
+  editedAt: string;
+  editedBy: { name: string; email: string };
+  snapshot: {
+    sessionDate: string;
+    consultReason: string;
+    intervention: string;
+    agreements?: string;
+    nextSessionDate?: string;
+    sessionType: string;
+  };
+}
+
+export interface Consultation {
+  id: string;
+  patientId: string;
+  sessionDate: string;
+  consultReason: string;
+  intervention: string;
+  agreements: string;
+  nextSessionDate: string;
+  sessionType: string;
+  therapist: { name: string; email: string };
+  history: ConsultationHistory[];
+}
+
 export const FIELD_LABELS: Record<string, string> = {
   fullName: "Nombre completo",
   rut: "RUT",
