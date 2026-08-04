@@ -26,7 +26,6 @@ export interface Patient {
   treatingPsychiatrist: string;
   treatingDoctor: string;
   address: string;
-  notificationsConsent: boolean;
 }
 
 export interface PatientHistoryEntry {
@@ -56,6 +55,5 @@ export const FIELD_LABELS: Record<string, string> = {
   emergencyContactPhone: "Teléfono emergencia",
   treatingPsychiatrist: "Psiquiatra tratante",
   treatingDoctor: "Médico tratante",
-  notificationsConsent: "Consentimiento notificaciones",
   isActive: "Activo",
 };

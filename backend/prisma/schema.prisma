@@ -101,7 +101,6 @@ model Patient {
   deletedAt             DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
-  notificationsConsent  Boolean   @default(false)
 
   therapistId   String
   therapist     User              @relation(fields: [therapistId], references: [id])
