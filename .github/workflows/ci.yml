@@ -9,6 +9,7 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
@@ -61,8 +62,15 @@ jobs:
       - name: Seed (usuario admin de test)
         run: npm run seed
 
-      - name: Tests unitarios
-        run: npx jest
+      - name: Tests unitarios (con cobertura)
+        run: npx jest --coverage
+
+      - name: Subir reporte de cobertura
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: coverage/
+          retention-days: 14
 
       - name: Tests e2e
         run: npx jest --config ./test/jest-e2e.json
@@ -72,6 +80,7 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
