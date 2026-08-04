@@ -131,11 +131,11 @@ cd ../frontend
 npm install --legacy-peer-deps
 ```
 
-Si vas a usar en red local, edita `src/api/client.ts` y cambia la `baseURL`
-con la IP de tu servidor:
+Si vas a usar en red local, seteá `VITE_API_URL` en el `.env` del frontend
+con la IP de tu servidor (ver `frontend/src/api/client.ts`):
 
-```typescript
-baseURL: 'http://TU_IP:3001/api/v1',
+```
+VITE_API_URL=http://TU_IP:3001/api/v1
 ```
 
 ---
@@ -276,6 +276,9 @@ umbral-personal/
 │       ├── api/                  # Cliente HTTP (Axios)
 │       ├── context/              # AuthContext
 │       ├── components/           # Layout, Sidebar, RecoveryCodesReveal
+│       ├── hooks/                # usePatients, usePatientDocuments,
+│       │                         # usePatientHistory, useIdleTimeout
+│       ├── utils/                # api-error, datetime, download, rut
 │       └── pages/                # Login, Signup, VerifyEmail, ForgotPassword,
 │                                  # ResetPassword, MfaRecover, Dashboard, Patients,
 │                                  # Consultations, Settings (MFA), SharedFiles
