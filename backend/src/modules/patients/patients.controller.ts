@@ -14,7 +14,10 @@ import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { RecordConsentDto } from './dto/record-consent.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type RequestUser,
+} from '../../common/decorators/current-user.decorator';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 
 @Controller('patients')
@@ -23,22 +26,25 @@ export class PatientsController {
   constructor(private patientsService: PatientsService) {}
 
   @Post()
-  create(@Body() dto: CreatePatientDto, @CurrentUser() user: any) {
+  create(@Body() dto: CreatePatientDto, @CurrentUser() user: RequestUser) {
     return this.patientsService.create(dto, user.id);
   }
 
   @Get()
-  findAll(@CurrentUser() user: any, @Query() query: PaginationQueryDto) {
+  findAll(
+    @CurrentUser() user: RequestUser,
+    @Query() query: PaginationQueryDto,
+  ) {
     return this.patientsService.findAll(user.id, query);
   }
 
   @Get(':id/history')
-  getHistory(@Param('id') id: string, @CurrentUser() user: any) {
+  getHistory(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.patientsService.getHistory(id, user.id);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+  findOne(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.patientsService.findOne(id, user.id);
   }
 
@@ -46,13 +52,13 @@ export class PatientsController {
   update(
     @Param('id') id: string,
     @Body() dto: UpdatePatientDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: RequestUser,
   ) {
     return this.patientsService.update(id, dto, user.id);
   }
 
   @Delete(':id')
-  softDelete(@Param('id') id: string, @CurrentUser() user: any) {
+  softDelete(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.patientsService.softDelete(id, user.id);
   }
 
@@ -61,18 +67,18 @@ export class PatientsController {
   recordConsent(
     @Param('id') id: string,
     @Body() dto: RecordConsentDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: RequestUser,
   ) {
     return this.patientsService.recordConsent(id, dto, user.id);
   }
 
   @Get(':id/consents/status')
-  getConsentStatus(@Param('id') id: string, @CurrentUser() user: any) {
+  getConsentStatus(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.patientsService.getCurrentConsentStatus(id, user.id);
   }
 
   @Get(':id/consents')
-  getConsentLedger(@Param('id') id: string, @CurrentUser() user: any) {
+  getConsentLedger(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.patientsService.getConsentLedger(id, user.id);
   }
 }

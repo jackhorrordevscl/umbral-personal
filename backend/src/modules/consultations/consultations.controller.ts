@@ -12,7 +12,10 @@ import { ConsultationsService } from './consultations.service';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { CorrectConsultationDto } from './dto/correct-consultation.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type RequestUser,
+} from '../../common/decorators/current-user.decorator';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 
 @UseGuards(JwtAuthGuard)
@@ -21,14 +24,14 @@ export class ConsultationsController {
   constructor(private consultationsService: ConsultationsService) {}
 
   @Post()
-  create(@Body() dto: CreateConsultationDto, @CurrentUser() user: any) {
+  create(@Body() dto: CreateConsultationDto, @CurrentUser() user: RequestUser) {
     return this.consultationsService.create(dto, user.id);
   }
 
   @Get('patient/:patientId')
   findByPatient(
     @Param('patientId') patientId: string,
-    @CurrentUser() user: any,
+    @CurrentUser() user: RequestUser,
     @Query() query: PaginationQueryDto,
   ) {
     return this.consultationsService.findByPatient(patientId, user.id, query);
@@ -39,12 +42,12 @@ export class ConsultationsController {
   // (N+1). Debe declararse ANTES de :id -- si no, Express/Nest matchea
   // "stats" contra ese wildcard de un solo segmento.
   @Get('stats')
-  getStats(@CurrentUser() user: any) {
+  getStats(@CurrentUser() user: RequestUser) {
     return this.consultationsService.getStats(user.id);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+  findOne(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.consultationsService.findOne(id, user.id);
   }
 
@@ -52,7 +55,7 @@ export class ConsultationsController {
   correct(
     @Param('id') id: string,
     @Body() dto: CorrectConsultationDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: RequestUser,
   ) {
     return this.consultationsService.correct(id, dto, user.id);
   }
