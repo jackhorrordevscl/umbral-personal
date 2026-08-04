@@ -29,19 +29,27 @@ export class PrismaExceptionFilter implements ExceptionFilter {
   private mapToHttpException(exception: Prisma.PrismaClientKnownRequestError) {
     switch (exception.code) {
       case 'P2002': {
-        const target = (exception.meta?.target as string[] | undefined)?.join(', ');
+        const target = (exception.meta?.target as string[] | undefined)?.join(
+          ', ',
+        );
         return new ConflictException(
-          target ? `Ya existe un registro con ese ${target}` : 'Registro duplicado',
+          target
+            ? `Ya existe un registro con ese ${target}`
+            : 'Registro duplicado',
         );
       }
       case 'P2025':
         return new NotFoundException('Registro no encontrado');
       case 'P2003':
-        return new ConflictException('La operación viola una referencia existente');
+        return new ConflictException(
+          'La operación viola una referencia existente',
+        );
       default:
         // Código de Prisma no mapeado explícitamente: no asumir que es un
         // conflicto de datos, dejarlo como error de servidor genérico.
-        return new InternalServerErrorException('Error al procesar la operación en la base de datos');
+        return new InternalServerErrorException(
+          'Error al procesar la operación en la base de datos',
+        );
     }
   }
 }

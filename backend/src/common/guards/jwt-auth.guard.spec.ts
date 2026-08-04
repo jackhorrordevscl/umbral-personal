@@ -27,9 +27,9 @@ describe('JwtAuthGuard', () => {
 
     const guard = new JwtAuthGuard(failingAuditService);
 
-    expect(() =>
-      guard.handleRequest(null, false, null, buildContext()),
-    ).toThrow();
+    expect(() => {
+      guard.handleRequest(null, false, null, buildContext());
+    }).toThrow();
 
     // handleRequest dispara el log de forma fire-and-forget antes de tirar
     // la excepción de Passport; esperamos el microtask para que el .catch corra.
@@ -56,9 +56,9 @@ describe('JwtAuthGuard', () => {
 
     const guard = new JwtAuthGuard(failingAuditService);
 
-    expect(() =>
-      guard.handleRequest(null, false, null, buildContext()),
-    ).toThrow();
+    expect(() => {
+      guard.handleRequest(null, false, null, buildContext());
+    }).toThrow();
 
     await new Promise((resolve) => setImmediate(resolve));
 
