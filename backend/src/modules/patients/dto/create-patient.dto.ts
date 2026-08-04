@@ -33,7 +33,7 @@ export class CreatePatientDto {
   // vacío, así que sin @ValidateIf @IsEmail() rechazaba la creación con
   // email en blanco (issue #49).
   @IsOptional()
-  @ValidateIf((o) => o.email !== '')
+  @ValidateIf((o: CreatePatientDto) => o.email !== '')
   @IsEmail()
   email?: string;
 
@@ -52,4 +52,4 @@ export class CreatePatientDto {
   @IsOptional()
   @IsString()
   treatingDoctor?: string;
-};
+}

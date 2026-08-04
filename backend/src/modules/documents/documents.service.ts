@@ -37,7 +37,7 @@ export class DocumentsService {
     // El `fileFilter` del controller solo mira el header `mimetype`
     // declarado por el cliente (spoofable); esta es la validación real de
     // contenido (issue #51), corre sobre el buffer ya completo.
-    await assertFileContentMatchesMimetype(file.buffer, file.mimetype);
+    assertFileContentMatchesMimetype(file.buffer, file.mimetype);
 
     await fs.mkdir(UPLOAD_DIR, { recursive: true });
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;

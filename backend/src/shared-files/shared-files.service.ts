@@ -36,7 +36,7 @@ export class SharedFilesService {
     // coincide, se borra el archivo huérfano antes de propagar el error.
     try {
       const buffer = await fsp.readFile(file.path);
-      await assertFileContentMatchesMimetype(buffer, file.mimetype);
+      assertFileContentMatchesMimetype(buffer, file.mimetype);
     } catch (err) {
       await fsp.unlink(file.path).catch(() => undefined);
       throw err;
@@ -90,7 +90,9 @@ export class SharedFilesService {
   async getFilePath(id: string, userId: string): Promise<string> {
     const file = await this.findOne(id, userId);
     if (!fs.existsSync(file.path)) {
-      throw new NotFoundException('Archivo físico no encontrado en el servidor');
+      throw new NotFoundException(
+        'Archivo físico no encontrado en el servidor',
+      );
     }
     return file.path;
   }

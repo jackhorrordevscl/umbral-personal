@@ -56,7 +56,7 @@ export class SharedFilesController {
       `attachment; filename="${encodeURIComponent(file.originalName)}"`,
     );
     res.setHeader('Content-Type', file.mimetype);
-    (res as any).sendFile(filePath);
+    res.sendFile(filePath);
   }
 
   @Post('upload')

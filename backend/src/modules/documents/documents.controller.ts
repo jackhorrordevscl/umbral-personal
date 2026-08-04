@@ -13,7 +13,10 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { DocumentsService } from './documents.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type RequestUser,
+} from '../../common/decorators/current-user.decorator';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 
 @UseGuards(JwtAuthGuard)
@@ -44,7 +47,7 @@ export class DocumentsController {
   async upload(
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: UploadDocumentDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: RequestUser,
   ) {
     return this.documentsService.uploadDocument(
       dto.patientId,
@@ -57,7 +60,7 @@ export class DocumentsController {
   @Get('patient/:patientId')
   findByPatient(
     @Param('patientId') patientId: string,
-    @CurrentUser() user: any,
+    @CurrentUser() user: RequestUser,
   ) {
     return this.documentsService.findByPatient(patientId, user.id);
   }
@@ -65,7 +68,7 @@ export class DocumentsController {
   @Get(':id/download')
   async download(
     @Param('id') id: string,
-    @CurrentUser() user: any,
+    @CurrentUser() user: RequestUser,
     @Res() res: Response,
   ) {
     const { doc, buffer } = await this.documentsService.getDecryptedFile(
