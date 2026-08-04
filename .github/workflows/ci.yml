@@ -98,6 +98,16 @@ jobs:
       - name: Lint
         run: npx eslint .
 
+      - name: Tests unitarios (con cobertura)
+        run: npm run test:cov
+
+      - name: Subir reporte de cobertura
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
+          retention-days: 14
+
       - name: Typecheck + build
         run: npm run build
 
