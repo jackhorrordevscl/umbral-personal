@@ -320,8 +320,8 @@ export default function LoginPage() {
 
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-slate-900 lg:bg-cream-50">
         <div className="w-full max-w-md">
-          <div className="mb-8 flex justify-center lg:hidden">
-            <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-16 w-auto" />
+          <div className="mb-[37px] flex justify-center lg:hidden">
+            <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-20 w-auto" />
           </div>
 
           <div className="mb-10">
