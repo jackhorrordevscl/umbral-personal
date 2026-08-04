@@ -14,6 +14,12 @@ export default mergeConfig(
         reporter: ['text', 'lcov'],
         include: ['src/**/*.{ts,tsx}'],
         exclude: ['src/main.tsx', 'src/vite-env.d.ts', 'src/test/**'],
+        thresholds: {
+          statements: 20,
+          branches: 20,
+          functions: 15,
+          lines: 20,
+        },
       },
     },
   }),
