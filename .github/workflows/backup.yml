@@ -41,9 +41,28 @@ jobs:
             echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Instalar rclone
+      # Antes se instalaba con `curl | sudo bash` (script sin checksum ni
+      # firma) en el mismo job que maneja RCLONE_CONFIG_CONTENT y las
+      # credenciales de B2 -- un compromiso de ese script de instalación
+      # tendría acceso de escritura al destino de backup (issue #71). Ahora
+      # se baja un release fijado y se verifica su SHA256 contra el
+      # SHA256SUMS publicado por rclone.org antes de instalar nada.
+      - name: Instalar rclone (versión fijada + checksum verificado)
         if: steps.check-secrets.outputs.configured == 'true'
-        run: curl https://rclone.org/install.sh | sudo bash
+        env:
+          RCLONE_VERSION: '1.75.0'
+        run: |
+          set -euo pipefail
+
+          ARCHIVE="rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          curl -fsSL -o "$ARCHIVE" "https://downloads.rclone.org/v${RCLONE_VERSION}/${ARCHIVE}"
+          curl -fsSL -o SHA256SUMS "https://downloads.rclone.org/v${RCLONE_VERSION}/SHA256SUMS"
+          grep " ${ARCHIVE}\$" SHA256SUMS | sha256sum -c -
+
+          unzip -q "$ARCHIVE"
+          sudo install -m 755 "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/rclone
+          rm -rf "$ARCHIVE" SHA256SUMS "rclone-v${RCLONE_VERSION}-linux-amd64"
+          rclone version
 
       - name: Backup cifrado -> Backblaze B2
         if: steps.check-secrets.outputs.configured == 'true'
