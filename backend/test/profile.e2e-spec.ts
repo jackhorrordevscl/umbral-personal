@@ -39,24 +39,35 @@ describe('ProfileModule (e2e)', () => {
       .post('/api/v1/auth/login')
       .send({ email, password: TEST_PASSWORD })
       .expect(201);
-    expect(login.body.requiresMfaSetup).toBe(true);
+    expect((login.body as Record<string, unknown>).requiresMfaSetup).toBe(true);
 
     const beginSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/begin')
-      .send({ setupToken: login.body.setupToken })
+      .send({
+        setupToken: (login.body as Record<string, unknown>)
+          .setupToken as string,
+      })
       .expect(201);
 
     const totp = speakeasy.totp({
-      secret: beginSetup.body.secret,
+      secret: (beginSetup.body as Record<string, unknown>).secret as string,
       encoding: 'base32',
     });
 
     const confirmSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/confirm')
-      .send({ setupToken: login.body.setupToken, token: totp })
+      .send({
+        setupToken: (login.body as Record<string, unknown>)
+          .setupToken as string,
+        token: totp,
+      })
       .expect(201);
 
-    return { id: user.id, token: confirmSetup.body.accessToken };
+    return {
+      id: user.id,
+      token: (confirmSetup.body as Record<string, unknown>)
+        .accessToken as string,
+    };
   }
 
   beforeAll(async () => {
@@ -128,10 +139,12 @@ describe('ProfileModule (e2e)', () => {
         .set('Authorization', `Bearer ${userAToken}`)
         .expect(200);
 
-      expect(res.body.id).toBe(userAId);
-      expect(res.body.email).toBe(userAEmail);
-      expect(res.body.mfaEnabled).toBe(true);
-      expect(res.body.passwordHash).toBeUndefined();
+      expect((res.body as Record<string, unknown>).id as string).toBe(userAId);
+      expect((res.body as Record<string, unknown>).email).toBe(userAEmail);
+      expect((res.body as Record<string, unknown>).mfaEnabled).toBe(true);
+      expect(
+        (res.body as Record<string, unknown>).passwordHash,
+      ).toBeUndefined();
     });
   });
 
@@ -143,8 +156,10 @@ describe('ProfileModule (e2e)', () => {
         .send({ name: 'Nombre Actualizado' })
         .expect(200);
 
-      expect(res.body.name).toBe('Nombre Actualizado');
-      expect(res.body.email).toBe(userAEmail);
+      expect((res.body as Record<string, unknown>).name).toBe(
+        'Nombre Actualizado',
+      );
+      expect((res.body as Record<string, unknown>).email).toBe(userAEmail);
     });
 
     it('actualiza el email a uno nuevo y no usado', async () => {
@@ -155,7 +170,7 @@ describe('ProfileModule (e2e)', () => {
         .send({ email: newEmail })
         .expect(200);
 
-      expect(res.body.email).toBe(newEmail);
+      expect((res.body as Record<string, unknown>).email).toBe(newEmail);
 
       // Revertir para no interferir con los tests siguientes que asumen userAEmail.
       await request(app.getHttpServer())
@@ -207,7 +222,7 @@ describe('ProfileModule (e2e)', () => {
         .post('/api/v1/auth/login')
         .send({ email: userAEmail, password: NEW_PASSWORD })
         .expect(201);
-      expect(relogin.body.requiresMfa).toBe(true);
+      expect((relogin.body as Record<string, unknown>).requiresMfa).toBe(true);
     });
   });
 });

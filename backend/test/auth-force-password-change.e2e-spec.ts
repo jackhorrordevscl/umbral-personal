@@ -89,16 +89,27 @@ describe('Cambio de contraseña forzado del admin semilla (e2e)', () => {
       .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
       .expect(201);
 
-    expect(res.body.requiresPasswordChange).toBe(true);
-    expect(typeof res.body.passwordChangeToken).toBe('string');
-    expect(res.body.accessToken).toBeUndefined();
-    expect(res.body.requiresMfaSetup).toBeUndefined();
+    expect((res.body as Record<string, unknown>).requiresPasswordChange).toBe(
+      true,
+    );
+    expect(
+      typeof (res.body as Record<string, unknown>).passwordChangeToken,
+    ).toBe('string');
+    expect(
+      (res.body as Record<string, unknown>).accessToken as string,
+    ).toBeUndefined();
+    expect(
+      (res.body as Record<string, unknown>).requiresMfaSetup,
+    ).toBeUndefined();
   });
 
   it('POST /auth/password/change con token inválido devuelve 401', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/auth/password/change')
-      .send({ passwordChangeToken: 'esto-no-es-un-jwt-valido', newPassword: NEW_PASSWORD })
+      .send({
+        passwordChangeToken: 'esto-no-es-un-jwt-valido',
+        newPassword: NEW_PASSWORD,
+      })
       .expect(401);
   });
 
@@ -122,27 +133,43 @@ describe('Cambio de contraseña forzado del admin semilla (e2e)', () => {
       .post('/api/v1/auth/login')
       .send({ email: otherEmail, password: 'TestPass123!' })
       .expect(201);
-    expect(otherLogin.body.requiresMfaSetup).toBe(true);
+    expect((otherLogin.body as Record<string, unknown>).requiresMfaSetup).toBe(
+      true,
+    );
 
     const beginSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/begin')
-      .send({ setupToken: otherLogin.body.setupToken })
+      .send({
+        setupToken: (otherLogin.body as Record<string, unknown>)
+          .setupToken as string,
+      })
       .expect(201);
 
     const totp = speakeasy.totp({
-      secret: beginSetup.body.secret,
+      secret: (beginSetup.body as Record<string, unknown>).secret as string,
       encoding: 'base32',
     });
 
     const confirmSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/confirm')
-      .send({ setupToken: otherLogin.body.setupToken, token: totp })
+      .send({
+        setupToken: (otherLogin.body as Record<string, unknown>)
+          .setupToken as string,
+        token: totp,
+      })
       .expect(201);
-    expect(typeof confirmSetup.body.accessToken).toBe('string');
+    expect(
+      typeof (confirmSetup.body as Record<string, unknown>)
+        .accessToken as string,
+    ).toBe('string');
 
     await request(app.getHttpServer())
       .post('/api/v1/auth/password/change')
-      .send({ passwordChangeToken: confirmSetup.body.accessToken, newPassword: NEW_PASSWORD })
+      .send({
+        passwordChangeToken: (confirmSetup.body as Record<string, unknown>)
+          .accessToken as string,
+        newPassword: NEW_PASSWORD,
+      })
       .expect(401);
 
     await prisma.user.updateMany({
@@ -159,7 +186,10 @@ describe('Cambio de contraseña forzado del admin semilla (e2e)', () => {
 
     await request(app.getHttpServer())
       .get('/api/v1/patients')
-      .set('Authorization', `Bearer ${loginRes.body.passwordChangeToken}`)
+      .set(
+        'Authorization',
+        `Bearer ${(loginRes.body as Record<string, unknown>).passwordChangeToken as string}`,
+      )
       .expect(401);
   });
 
@@ -171,15 +201,25 @@ describe('Cambio de contraseña forzado del admin semilla (e2e)', () => {
 
     const changeRes = await request(app.getHttpServer())
       .post('/api/v1/auth/password/change')
-      .send({ passwordChangeToken: loginRes.body.passwordChangeToken, newPassword: NEW_PASSWORD })
+      .send({
+        passwordChangeToken: (loginRes.body as Record<string, unknown>)
+          .passwordChangeToken,
+        newPassword: NEW_PASSWORD,
+      })
       .expect(201);
 
     // ADMIN es rol MFA_REQUIRED y todavía no tiene MFA habilitado: la
     // continuación (completeLogin) debe pedir enrolamiento, no dar sesión.
-    expect(changeRes.body.requiresMfaSetup).toBe(true);
-    expect(typeof changeRes.body.setupToken).toBe('string');
+    expect((changeRes.body as Record<string, unknown>).requiresMfaSetup).toBe(
+      true,
+    );
+    expect(
+      typeof (changeRes.body as Record<string, unknown>).setupToken as string,
+    ).toBe('string');
 
-    const admin = await prisma.user.findUnique({ where: { email: ADMIN_EMAIL } });
+    const admin = await prisma.user.findUnique({
+      where: { email: ADMIN_EMAIL },
+    });
     expect(admin?.mustChangePassword).toBe(false);
 
     // La contraseña vieja ya no sirve.
@@ -193,7 +233,9 @@ describe('Cambio de contraseña forzado del admin semilla (e2e)', () => {
       .post('/api/v1/auth/login')
       .send({ email: ADMIN_EMAIL, password: NEW_PASSWORD })
       .expect(201);
-    expect(reLogin.body.requiresPasswordChange).toBeUndefined();
+    expect(
+      (reLogin.body as Record<string, unknown>).requiresPasswordChange,
+    ).toBeUndefined();
   });
 
   it('reusar un passwordChangeToken después de un cambio ya completado rechaza con 401 (no permite retomar la cuenta)', async () => {
@@ -209,7 +251,9 @@ describe('Cambio de contraseña forzado del admin semilla (e2e)', () => {
     // esta prueba, no uno nuevo (login ya no emite uno). Se resetea el flag
     // a mano para emitir un token de prueba, se lo usa una vez, y se vuelve
     // a dejar en false para simular el token "viejo" reusado después.
-    expect(staleLoginRes.body.requiresMfaSetup).toBe(true);
+    expect(
+      (staleLoginRes.body as Record<string, unknown>).requiresMfaSetup,
+    ).toBe(true);
 
     await prisma.user.updateMany({
       where: { email: ADMIN_EMAIL },
@@ -219,7 +263,8 @@ describe('Cambio de contraseña forzado del admin semilla (e2e)', () => {
       .post('/api/v1/auth/login')
       .send({ email: ADMIN_EMAIL, password: NEW_PASSWORD })
       .expect(201);
-    const staleToken = tokenIssuedWhileTrue.body.passwordChangeToken;
+    const staleToken = (tokenIssuedWhileTrue.body as Record<string, unknown>)
+      .passwordChangeToken;
 
     await prisma.user.updateMany({
       where: { email: ADMIN_EMAIL },

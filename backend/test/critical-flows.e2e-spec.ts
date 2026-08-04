@@ -74,21 +74,30 @@ describe('Critical flows (e2e)', () => {
       .post('/api/v1/auth/login')
       .send({ email: therapistEmail, password: TEST_PASSWORD })
       .expect(201);
-    expect(bootstrapLogin.body.requiresMfaSetup).toBe(true);
+    expect(
+      (bootstrapLogin.body as Record<string, unknown>).requiresMfaSetup,
+    ).toBe(true);
 
     const beginSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/begin')
-      .send({ setupToken: bootstrapLogin.body.setupToken })
+      .send({
+        setupToken: (bootstrapLogin.body as Record<string, unknown>)
+          .setupToken as string,
+      })
       .expect(201);
 
     const totp = speakeasy.totp({
-      secret: beginSetup.body.secret,
+      secret: (beginSetup.body as Record<string, unknown>).secret as string,
       encoding: 'base32',
     });
 
     await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/confirm')
-      .send({ setupToken: bootstrapLogin.body.setupToken, token: totp })
+      .send({
+        setupToken: (bootstrapLogin.body as Record<string, unknown>)
+          .setupToken as string,
+        token: totp,
+      })
       .expect(201);
   });
 
@@ -121,9 +130,11 @@ describe('Critical flows (e2e)', () => {
         .send({ email: therapistEmail, password: TEST_PASSWORD })
         .expect(201);
 
-      expect(res.body.requiresMfa).toBe(true);
-      expect(res.body.userId).toBe(therapistId);
-      expect(res.body.accessToken).toBeUndefined();
+      expect((res.body as Record<string, unknown>).requiresMfa).toBe(true);
+      expect((res.body as Record<string, unknown>).userId).toBe(therapistId);
+      expect(
+        (res.body as Record<string, unknown>).accessToken as string,
+      ).toBeUndefined();
     });
 
     it('login + mfa/verify con TOTP válido entrega accessToken y datos del usuario', async () => {
@@ -140,18 +151,24 @@ describe('Critical flows (e2e)', () => {
 
       const verifyRes = await request(app.getHttpServer())
         .post('/api/v1/auth/mfa/verify')
-        .send({ userId: loginRes.body.userId, token: totp })
+        .send({
+          userId: (loginRes.body as Record<string, unknown>).userId,
+          token: totp,
+        })
         .expect(201);
 
-      expect(verifyRes.body.accessToken).toBeDefined();
-      expect(verifyRes.body.user).toEqual({
+      expect(
+        (verifyRes.body as Record<string, unknown>).accessToken as string,
+      ).toBeDefined();
+      expect((verifyRes.body as Record<string, unknown>).user).toEqual({
         id: therapistId,
         email: therapistEmail,
         role: 'PROFESSIONAL',
         name: 'Critical Flows Therapist',
       });
 
-      therapistToken = verifyRes.body.accessToken;
+      therapistToken = (verifyRes.body as Record<string, unknown>)
+        .accessToken as string;
     });
 
     it('rechaza con 401 una contraseña incorrecta', () => {
@@ -164,7 +181,10 @@ describe('Critical flows (e2e)', () => {
     it('rechaza con 401 un email que no existe', () => {
       return request(app.getHttpServer())
         .post('/api/v1/auth/login')
-        .send({ email: `no-existe.${runId}@umbral.cl`, password: TEST_PASSWORD })
+        .send({
+          email: `no-existe.${runId}@umbral.cl`,
+          password: TEST_PASSWORD,
+        })
         .expect(401);
     });
   });
@@ -194,10 +214,16 @@ describe('Critical flows (e2e)', () => {
         })
         .expect(201);
 
-      expect(res.body.id).toBeDefined();
-      expect(res.body.fullName).toBe('Paciente Flujo Crítico');
-      expect(res.body.therapistId).toBe(therapistId);
-      createdPatientIds.push(res.body.id);
+      expect((res.body as Record<string, unknown>).id as string).toBeDefined();
+      expect((res.body as Record<string, unknown>).fullName).toBe(
+        'Paciente Flujo Crítico',
+      );
+      expect((res.body as Record<string, unknown>).therapistId).toBe(
+        therapistId,
+      );
+      createdPatientIds.push(
+        (res.body as Record<string, unknown>).id as string,
+      );
     });
 
     it('rechaza con 400 si falta un campo requerido (fullName)', () => {

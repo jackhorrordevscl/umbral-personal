@@ -44,7 +44,10 @@ describe('Documents encryption at rest (e2e)', () => {
   let patientId: string;
   let documentId: string;
 
-  async function createProfessionalAndLogin(email: string, name: string): Promise<{ id: string; token: string }> {
+  async function createProfessionalAndLogin(
+    email: string,
+    name: string,
+  ): Promise<{ id: string; token: string }> {
     const passwordHash = await argon2.hash(TEST_PASSWORD);
     const user = await prisma.user.create({
       data: { email, passwordHash, name },
@@ -54,24 +57,35 @@ describe('Documents encryption at rest (e2e)', () => {
       .post('/api/v1/auth/login')
       .send({ email, password: TEST_PASSWORD })
       .expect(201);
-    expect(login.body.requiresMfaSetup).toBe(true);
+    expect((login.body as Record<string, unknown>).requiresMfaSetup).toBe(true);
 
     const beginSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/begin')
-      .send({ setupToken: login.body.setupToken })
+      .send({
+        setupToken: (login.body as Record<string, unknown>)
+          .setupToken as string,
+      })
       .expect(201);
 
     const totp = speakeasy.totp({
-      secret: beginSetup.body.secret,
+      secret: (beginSetup.body as Record<string, unknown>).secret as string,
       encoding: 'base32',
     });
 
     const confirmSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/confirm')
-      .send({ setupToken: login.body.setupToken, token: totp })
+      .send({
+        setupToken: (login.body as Record<string, unknown>)
+          .setupToken as string,
+        token: totp,
+      })
       .expect(201);
 
-    return { id: user.id, token: confirmSetup.body.accessToken };
+    return {
+      id: user.id,
+      token: (confirmSetup.body as Record<string, unknown>)
+        .accessToken as string,
+    };
   }
 
   beforeAll(async () => {
@@ -115,7 +129,7 @@ describe('Documents encryption at rest (e2e)', () => {
         birthDate: '1990-01-01',
       })
       .expect(201);
-    patientId = patientCreate.body.id;
+    patientId = (patientCreate.body as Record<string, unknown>).id as string;
   });
 
   afterAll(async () => {
@@ -158,12 +172,19 @@ describe('Documents encryption at rest (e2e)', () => {
         })
         .expect(201);
 
-      documentId = res.body.id;
-      expect(res.body.fileName).toBe('informe.pdf');
-      expect(res.body.storagePath).toMatch(/\.enc$/);
+      documentId = (res.body as Record<string, unknown>).id as string;
+      expect((res.body as Record<string, unknown>).fileName).toBe(
+        'informe.pdf',
+      );
+      expect(
+        (res.body as Record<string, unknown>).storagePath as string,
+      ).toMatch(/\.enc$/);
 
       const raw = fs.readFileSync(
-        path.join(process.cwd(), res.body.storagePath),
+        path.join(
+          process.cwd(),
+          (res.body as Record<string, unknown>).storagePath as string,
+        ),
       );
       expect(raw.includes(Buffer.from(PLAINTEXT_MARKER))).toBe(false);
       // IV (12) + authTag (16) + ciphertext (mismo largo que el original)

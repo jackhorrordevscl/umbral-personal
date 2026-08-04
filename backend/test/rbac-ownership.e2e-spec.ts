@@ -99,7 +99,10 @@ describe('RBAC ownership guard (e2e)', () => {
   // Crea un usuario PROFESSIONAL directo vía Prisma (no existe POST /users
   // tras el colapso de roles) y completa el enrolamiento MFA forzado, que
   // aplica a toda cuenta sin excepción. Devuelve el accessToken de sesión.
-  async function createProfessionalAndLogin(email: string, name: string): Promise<{ id: string; token: string }> {
+  async function createProfessionalAndLogin(
+    email: string,
+    name: string,
+  ): Promise<{ id: string; token: string }> {
     const passwordHash = await argon2.hash(TEST_PASSWORD);
     const user = await prisma.user.create({
       data: { email, passwordHash, name },
@@ -109,24 +112,35 @@ describe('RBAC ownership guard (e2e)', () => {
       .post('/api/v1/auth/login')
       .send({ email, password: TEST_PASSWORD })
       .expect(201);
-    expect(login.body.requiresMfaSetup).toBe(true);
+    expect((login.body as Record<string, unknown>).requiresMfaSetup).toBe(true);
 
     const beginSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/begin')
-      .send({ setupToken: login.body.setupToken })
+      .send({
+        setupToken: (login.body as Record<string, unknown>)
+          .setupToken as string,
+      })
       .expect(201);
 
     const totp = speakeasy.totp({
-      secret: beginSetup.body.secret,
+      secret: (beginSetup.body as Record<string, unknown>).secret as string,
       encoding: 'base32',
     });
 
     const confirmSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/confirm')
-      .send({ setupToken: login.body.setupToken, token: totp })
+      .send({
+        setupToken: (login.body as Record<string, unknown>)
+          .setupToken as string,
+        token: totp,
+      })
       .expect(201);
 
-    return { id: user.id, token: confirmSetup.body.accessToken };
+    return {
+      id: user.id,
+      token: (confirmSetup.body as Record<string, unknown>)
+        .accessToken as string,
+    };
   }
 
   beforeAll(async () => {
@@ -171,7 +185,7 @@ describe('RBAC ownership guard (e2e)', () => {
         birthDate: '1990-01-01',
       })
       .expect(201);
-    patientId = patientCreate.body.id;
+    patientId = (patientCreate.body as Record<string, unknown>).id as string;
 
     const consultationCreate = await request(app.getHttpServer())
       .post('/api/v1/consultations')
@@ -183,7 +197,8 @@ describe('RBAC ownership guard (e2e)', () => {
         intervention: 'Intervención de prueba RBAC',
       })
       .expect(201);
-    consultationId = consultationCreate.body.id;
+    consultationId = (consultationCreate.body as Record<string, unknown>)
+      .id as string;
   });
 
   afterAll(async () => {
@@ -270,7 +285,7 @@ describe('RBAC ownership guard (e2e)', () => {
           'test-owner.pdf',
         )
         .expect(201);
-      ownerDocumentId = res.body.id;
+      ownerDocumentId = (res.body as Record<string, unknown>).id as string;
       expect(ownerDocumentId).toBeDefined();
     });
 
@@ -380,11 +395,15 @@ describe('RBAC ownership guard (e2e)', () => {
         .send({ consultReason: 'Motivo corregido por el dueño' })
         .expect(200);
 
-      const correctedId = res.body.id;
+      const correctedId = (res.body as Record<string, unknown>).id as string;
       expect(correctedId).toBeDefined();
       expect(correctedId).not.toBe(consultationId);
-      expect(res.body.consultReason).toBe('Motivo corregido por el dueño');
-      expect(res.body.history.length).toBe(1);
+      expect((res.body as Record<string, unknown>).consultReason).toBe(
+        'Motivo corregido por el dueño',
+      );
+      expect(
+        ((res.body as Record<string, unknown>).history as unknown[]).length,
+      ).toBe(1);
     });
 
     it('la versión original queda intacta y consultable por su id original', async () => {
@@ -393,8 +412,12 @@ describe('RBAC ownership guard (e2e)', () => {
         .set('Authorization', `Bearer ${therapistAToken}`)
         .expect(200);
 
-      expect(res.body.id).toBe(consultationId);
-      expect(res.body.consultReason).toBe('Motivo de prueba RBAC');
+      expect((res.body as Record<string, unknown>).id as string).toBe(
+        consultationId,
+      );
+      expect((res.body as Record<string, unknown>).consultReason).toBe(
+        'Motivo de prueba RBAC',
+      );
     });
 
     it('corregir la versión original ya superada devuelve 409', () => {

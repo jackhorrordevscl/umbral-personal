@@ -81,9 +81,15 @@ describe('Signup + verificación de email (e2e)', () => {
         .send({ email, password: TEST_PASSWORD, name: 'Nueva Profesional' })
         .expect(201);
 
-      expect(typeof res.body.message).toBe('string');
-      expect(res.body.accessToken).toBeUndefined();
-      expect(res.body.setupToken).toBeUndefined();
+      expect(typeof (res.body as Record<string, unknown>).message).toBe(
+        'string',
+      );
+      expect(
+        (res.body as Record<string, unknown>).accessToken as string,
+      ).toBeUndefined();
+      expect(
+        (res.body as Record<string, unknown>).setupToken as string,
+      ).toBeUndefined();
 
       const user = await prisma.user.findUnique({ where: { email } });
       expect(user).not.toBeNull();
@@ -109,14 +115,22 @@ describe('Signup + verificación de email (e2e)', () => {
     it('rechaza contraseña menor a 8 caracteres (400)', () => {
       return request(app.getHttpServer())
         .post('/api/v1/auth/signup')
-        .send({ email: `signup.short.${runId}@umbral.cl`, password: 'corta1', name: 'Test' })
+        .send({
+          email: `signup.short.${runId}@umbral.cl`,
+          password: 'corta1',
+          name: 'Test',
+        })
         .expect(400);
     });
 
     it('rechaza email inválido (400)', () => {
       return request(app.getHttpServer())
         .post('/api/v1/auth/signup')
-        .send({ email: 'no-es-un-email', password: TEST_PASSWORD, name: 'Test' })
+        .send({
+          email: 'no-es-un-email',
+          password: TEST_PASSWORD,
+          name: 'Test',
+        })
         .expect(400);
     });
   });
@@ -159,7 +173,7 @@ describe('Signup + verificación de email (e2e)', () => {
         .post('/api/v1/auth/signup')
         .send({ email, password: TEST_PASSWORD, name: 'Verificación Completa' })
         .expect(201);
-      expect(signupRes.body.message).toBeDefined();
+      expect((signupRes.body as Record<string, unknown>).message).toBeDefined();
 
       const user = await prisma.user.findUnique({ where: { email } });
       expect(user!.emailVerified).toBe(false);
@@ -174,7 +188,7 @@ describe('Signup + verificación de email (e2e)', () => {
         .post('/api/v1/auth/verify-email')
         .send({ token })
         .expect(201);
-      expect(verifyRes.body.message).toBeDefined();
+      expect((verifyRes.body as Record<string, unknown>).message).toBeDefined();
 
       const verifiedUser = await prisma.user.findUnique({ where: { email } });
       expect(verifiedUser!.emailVerified).toBe(true);
@@ -185,7 +199,9 @@ describe('Signup + verificación de email (e2e)', () => {
         .post('/api/v1/auth/login')
         .send({ email, password: TEST_PASSWORD })
         .expect(201);
-      expect(loginRes.body.requiresMfaSetup).toBe(true);
+      expect((loginRes.body as Record<string, unknown>).requiresMfaSetup).toBe(
+        true,
+      );
     });
 
     it('reusar el mismo token tras verificar rechaza con 401 (replay guard)', async () => {

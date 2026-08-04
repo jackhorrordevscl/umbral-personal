@@ -4,6 +4,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
+import { AuditAction } from '@prisma/client';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 
@@ -35,7 +36,7 @@ describe('AuditLog — escritura real end-to-end (e2e)', () => {
   async function waitForAuditLog(
     where: {
       userId: string;
-      action: string;
+      action: AuditAction;
       resource: string;
       resourceId: string;
     },
@@ -45,7 +46,7 @@ describe('AuditLog — escritura real end-to-end (e2e)', () => {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const found = await prisma.auditLog.findFirst({
-        where: where as any,
+        where,
         orderBy: { createdAt: 'desc' },
       });
       if (found) return found;
@@ -86,20 +87,28 @@ describe('AuditLog — escritura real end-to-end (e2e)', () => {
 
     const beginSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/begin')
-      .send({ setupToken: login.body.setupToken })
+      .send({
+        setupToken: (login.body as Record<string, unknown>)
+          .setupToken as string,
+      })
       .expect(201);
 
     const totp = speakeasy.totp({
-      secret: beginSetup.body.secret,
+      secret: (beginSetup.body as Record<string, unknown>).secret as string,
       encoding: 'base32',
     });
 
     const confirmSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/confirm')
-      .send({ setupToken: login.body.setupToken, token: totp })
+      .send({
+        setupToken: (login.body as Record<string, unknown>)
+          .setupToken as string,
+        token: totp,
+      })
       .expect(201);
 
-    userToken = confirmSetup.body.accessToken;
+    userToken = (confirmSetup.body as Record<string, unknown>)
+      .accessToken as string;
 
     // Creado directo vía Prisma (no vía API) para no depender del propio
     // comportamiento que este spec audita como parte del fixture de setup.
@@ -132,7 +141,7 @@ describe('AuditLog — escritura real end-to-end (e2e)', () => {
   });
 
   it('POST /consultations (creación real) escribe una fila CREATE en AuditLog', async () => {
-    // AuditInterceptor resuelve resourceId desde request.body.patientId para
+    // AuditInterceptor resuelve resourceId desde (request.body as Record<string, unknown>).patientId para
     // POST /consultations (no hay :id en la ruta) -- ver el comentario sobre
     // issue #36 en audit.interceptor.ts. Queda indexado por el paciente
     // dueño, no por el id de la consulta recién creada.

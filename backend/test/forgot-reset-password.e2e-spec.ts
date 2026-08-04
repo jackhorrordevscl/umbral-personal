@@ -111,7 +111,9 @@ describe('Forgot/reset password (e2e)', () => {
         .expect(201);
 
       expect(resExisting.body).toEqual(resMissing.body);
-      expect(typeof resExisting.body.message).toBe('string');
+      expect(typeof (resExisting.body as Record<string, unknown>).message).toBe(
+        'string',
+      );
     });
 
     it('rechaza email inválido (400)', () => {
@@ -138,7 +140,10 @@ describe('Forgot/reset password (e2e)', () => {
     it('token inválido devuelve 401', () => {
       return request(app.getHttpServer())
         .post('/api/v1/auth/password/reset')
-        .send({ resetToken: 'esto-no-es-un-jwt-valido', newPassword: NEW_PASSWORD })
+        .send({
+          resetToken: 'esto-no-es-un-jwt-valido',
+          newPassword: NEW_PASSWORD,
+        })
         .expect(401);
     });
 
@@ -169,17 +174,26 @@ describe('Forgot/reset password (e2e)', () => {
         .post('/api/v1/auth/password/forgot')
         .send({ email })
         .expect(201);
-      expect(forgotRes.body.accessToken).toBeUndefined();
+      expect(
+        (forgotRes.body as Record<string, unknown>).accessToken as string,
+      ).toBeUndefined();
 
       const user = await prisma.user.findUnique({ where: { id } });
-      const token = signResetToken(id, user!.passwordResetTokenIssuedAt!.getTime());
+      const token = signResetToken(
+        id,
+        user!.passwordResetTokenIssuedAt!.getTime(),
+      );
 
       const resetRes = await request(app.getHttpServer())
         .post('/api/v1/auth/password/reset')
         .send({ resetToken: token, newPassword: NEW_PASSWORD })
         .expect(201);
-      expect(resetRes.body.accessToken).toBeUndefined();
-      expect(typeof resetRes.body.message).toBe('string');
+      expect(
+        (resetRes.body as Record<string, unknown>).accessToken as string,
+      ).toBeUndefined();
+      expect(typeof (resetRes.body as Record<string, unknown>).message).toBe(
+        'string',
+      );
 
       // La contraseña vieja ya no sirve.
       await request(app.getHttpServer())
@@ -193,7 +207,9 @@ describe('Forgot/reset password (e2e)', () => {
         .post('/api/v1/auth/login')
         .send({ email, password: NEW_PASSWORD })
         .expect(201);
-      expect(loginRes.body.requiresMfaSetup).toBe(true);
+      expect((loginRes.body as Record<string, unknown>).requiresMfaSetup).toBe(
+        true,
+      );
     });
 
     it('reusar el mismo resetToken tras usarlo rechaza con 401 (replay guard)', async () => {
@@ -205,7 +221,10 @@ describe('Forgot/reset password (e2e)', () => {
         .expect(201);
 
       const user = await prisma.user.findUnique({ where: { id } });
-      const token = signResetToken(id, user!.passwordResetTokenIssuedAt!.getTime());
+      const token = signResetToken(
+        id,
+        user!.passwordResetTokenIssuedAt!.getTime(),
+      );
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/password/reset')
@@ -225,8 +244,9 @@ describe('Forgot/reset password (e2e)', () => {
         .post('/api/v1/auth/password/forgot')
         .send({ email })
         .expect(201);
-      const firstIssuedAt = (await prisma.user.findUnique({ where: { id } }))!
-        .passwordResetTokenIssuedAt!.getTime();
+      const firstIssuedAt = (await prisma.user.findUnique({
+        where: { id },
+      }))!.passwordResetTokenIssuedAt!.getTime();
       const staleToken = signResetToken(id, firstIssuedAt);
 
       // Simula que pasa tiempo real entre ambos pedidos, para que el segundo
@@ -252,7 +272,10 @@ describe('Forgot/reset password (e2e)', () => {
         .send({ email })
         .expect(201);
       const user = await prisma.user.findUnique({ where: { id } });
-      const token = signResetToken(id, user!.passwordResetTokenIssuedAt!.getTime());
+      const token = signResetToken(
+        id,
+        user!.passwordResetTokenIssuedAt!.getTime(),
+      );
 
       await request(app.getHttpServer())
         .get('/api/v1/patients')
@@ -270,12 +293,22 @@ describe('Forgot/reset password (e2e)', () => {
         .expect(201);
       const beginSetup = await request(app.getHttpServer())
         .post('/api/v1/auth/mfa/setup/begin')
-        .send({ setupToken: bootstrapLogin.body.setupToken })
+        .send({
+          setupToken: (bootstrapLogin.body as Record<string, unknown>)
+            .setupToken as string,
+        })
         .expect(201);
-      const totp = speakeasy.totp({ secret: beginSetup.body.secret, encoding: 'base32' });
+      const totp = speakeasy.totp({
+        secret: (beginSetup.body as Record<string, unknown>).secret as string,
+        encoding: 'base32',
+      });
       await request(app.getHttpServer())
         .post('/api/v1/auth/mfa/setup/confirm')
-        .send({ setupToken: bootstrapLogin.body.setupToken, token: totp })
+        .send({
+          setupToken: (bootstrapLogin.body as Record<string, unknown>)
+            .setupToken as string,
+          token: totp,
+        })
         .expect(201);
 
       await request(app.getHttpServer())
@@ -283,7 +316,10 @@ describe('Forgot/reset password (e2e)', () => {
         .send({ email })
         .expect(201);
       const user = await prisma.user.findUnique({ where: { id } });
-      const token = signResetToken(id, user!.passwordResetTokenIssuedAt!.getTime());
+      const token = signResetToken(
+        id,
+        user!.passwordResetTokenIssuedAt!.getTime(),
+      );
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/password/reset')
@@ -297,8 +333,10 @@ describe('Forgot/reset password (e2e)', () => {
 
       // requiresMfa (no requiresMfaSetup): MFA sigue habilitado, el reset no
       // lo desactivó ni lo bypaseó.
-      expect(loginRes.body.requiresMfa).toBe(true);
-      expect(loginRes.body.accessToken).toBeUndefined();
+      expect((loginRes.body as Record<string, unknown>).requiresMfa).toBe(true);
+      expect(
+        (loginRes.body as Record<string, unknown>).accessToken as string,
+      ).toBeUndefined();
     });
   });
 });

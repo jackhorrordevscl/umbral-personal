@@ -37,7 +37,10 @@ describe('Patient consent ledger (e2e)', () => {
 
   let patientId: string;
 
-  async function createProfessionalAndLogin(email: string, name: string): Promise<{ id: string; token: string }> {
+  async function createProfessionalAndLogin(
+    email: string,
+    name: string,
+  ): Promise<{ id: string; token: string }> {
     const passwordHash = await argon2.hash(TEST_PASSWORD);
     const user = await prisma.user.create({
       data: { email, passwordHash, name },
@@ -47,24 +50,35 @@ describe('Patient consent ledger (e2e)', () => {
       .post('/api/v1/auth/login')
       .send({ email, password: TEST_PASSWORD })
       .expect(201);
-    expect(login.body.requiresMfaSetup).toBe(true);
+    expect((login.body as Record<string, unknown>).requiresMfaSetup).toBe(true);
 
     const beginSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/begin')
-      .send({ setupToken: login.body.setupToken })
+      .send({
+        setupToken: (login.body as Record<string, unknown>)
+          .setupToken as string,
+      })
       .expect(201);
 
     const totp = speakeasy.totp({
-      secret: beginSetup.body.secret,
+      secret: (beginSetup.body as Record<string, unknown>).secret as string,
       encoding: 'base32',
     });
 
     const confirmSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/confirm')
-      .send({ setupToken: login.body.setupToken, token: totp })
+      .send({
+        setupToken: (login.body as Record<string, unknown>)
+          .setupToken as string,
+        token: totp,
+      })
       .expect(201);
 
-    return { id: user.id, token: confirmSetup.body.accessToken };
+    return {
+      id: user.id,
+      token: (confirmSetup.body as Record<string, unknown>)
+        .accessToken as string,
+    };
   }
 
   beforeAll(async () => {
@@ -108,7 +122,7 @@ describe('Patient consent ledger (e2e)', () => {
         birthDate: '1990-01-01',
       })
       .expect(201);
-    patientId = patientCreate.body.id;
+    patientId = (patientCreate.body as Record<string, unknown>).id as string;
   });
 
   afterAll(async () => {
@@ -155,10 +169,12 @@ describe('Patient consent ledger (e2e)', () => {
         })
         .expect(201);
 
-      expect(res.body.purpose).toBe('TREATMENT');
-      expect(res.body.action).toBe('GRANT');
-      expect(res.body.recordedById).toBe(therapistAId);
-      expect(res.body.recordedAt).toBeDefined();
+      expect((res.body as Record<string, unknown>).purpose).toBe('TREATMENT');
+      expect((res.body as Record<string, unknown>).action).toBe('GRANT');
+      expect((res.body as Record<string, unknown>).recordedById).toBe(
+        therapistAId,
+      );
+      expect((res.body as Record<string, unknown>).recordedAt).toBeDefined();
 
       const ledger = await prisma.patientConsent.findMany({
         where: { patientId, purpose: 'TREATMENT' },
@@ -278,9 +294,20 @@ describe('Patient consent ledger (e2e)', () => {
         .expect(200);
 
       expect(Array.isArray(res.body)).toBe(true);
-      expect(res.body.length).toBeGreaterThanOrEqual(3);
-      expect(res.body[0].recordedBy).toBeDefined();
-      expect(res.body[0].recordedBy.id).toBeDefined();
+      expect(
+        (res.body as Record<string, unknown>).length,
+      ).toBeGreaterThanOrEqual(3);
+      expect(
+        (res.body as Record<string, unknown>[])[0].recordedBy,
+      ).toBeDefined();
+      expect(
+        (
+          (res.body as Record<string, unknown>[])[0].recordedBy as Record<
+            string,
+            unknown
+          >
+        ).id,
+      ).toBeDefined();
     });
 
     it('un terapeuta sin relación con el paciente recibe 404', () => {

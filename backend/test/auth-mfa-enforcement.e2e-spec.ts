@@ -122,12 +122,17 @@ describe('MFA enforcement obligatorio (e2e)', () => {
         .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
         .expect(201);
 
-      expect(res.body.requiresMfaSetup).toBe(true);
-      expect(typeof res.body.setupToken).toBe('string');
-      expect(res.body.accessToken).toBeUndefined();
-      expect(res.body.userId).toBeUndefined();
+      expect((res.body as Record<string, unknown>).requiresMfaSetup).toBe(true);
+      expect(
+        typeof (res.body as Record<string, unknown>).setupToken as string,
+      ).toBe('string');
+      expect(
+        (res.body as Record<string, unknown>).accessToken as string,
+      ).toBeUndefined();
+      expect((res.body as Record<string, unknown>).userId).toBeUndefined();
 
-      adminSetupToken = res.body.setupToken;
+      adminSetupToken = (res.body as Record<string, unknown>)
+        .setupToken as string;
     });
 
     it('responde requiresMfaSetup también para una cuenta recién creada, sin excepción de rol', async () => {
@@ -136,9 +141,13 @@ describe('MFA enforcement obligatorio (e2e)', () => {
         .send({ email: secondUserEmail, password: TEST_PASSWORD })
         .expect(201);
 
-      expect(res.body.requiresMfaSetup).toBe(true);
-      expect(typeof res.body.setupToken).toBe('string');
-      expect(res.body.accessToken).toBeUndefined();
+      expect((res.body as Record<string, unknown>).requiresMfaSetup).toBe(true);
+      expect(
+        typeof (res.body as Record<string, unknown>).setupToken as string,
+      ).toBe('string');
+      expect(
+        (res.body as Record<string, unknown>).accessToken as string,
+      ).toBeUndefined();
     });
   });
 
@@ -160,11 +169,15 @@ describe('MFA enforcement obligatorio (e2e)', () => {
         .send({ setupToken: adminSetupToken })
         .expect(201);
 
-      expect(typeof beginRes.body.secret).toBe('string');
-      expect(typeof beginRes.body.qrCode).toBe('string');
+      expect(
+        typeof (beginRes.body as Record<string, unknown>).secret as string,
+      ).toBe('string');
+      expect(typeof (beginRes.body as Record<string, unknown>).qrCode).toBe(
+        'string',
+      );
 
       const totp = speakeasy.totp({
-        secret: beginRes.body.secret,
+        secret: (beginRes.body as Record<string, unknown>).secret as string,
         encoding: 'base32',
       });
 
@@ -173,10 +186,22 @@ describe('MFA enforcement obligatorio (e2e)', () => {
         .send({ setupToken: adminSetupToken, token: totp })
         .expect(201);
 
-      expect(typeof confirmRes.body.accessToken).toBe('string');
-      expect(confirmRes.body.user.email).toBe(ADMIN_EMAIL);
+      expect(
+        typeof (confirmRes.body as Record<string, unknown>)
+          .accessToken as string,
+      ).toBe('string');
+      expect(
+        (
+          (confirmRes.body as Record<string, unknown>).user as Record<
+            string,
+            unknown
+          >
+        ).email,
+      ).toBe(ADMIN_EMAIL);
 
-      const admin = await prisma.user.findUnique({ where: { email: ADMIN_EMAIL } });
+      const admin = await prisma.user.findUnique({
+        where: { email: ADMIN_EMAIL },
+      });
       expect(admin?.mfaEnabled).toBe(true);
     });
 
@@ -204,7 +229,8 @@ describe('MFA enforcement obligatorio (e2e)', () => {
         .send({ email: secondUserEmail, password: TEST_PASSWORD })
         .expect(201);
 
-      const freshSetupToken = loginRes.body.setupToken;
+      const freshSetupToken = (loginRes.body as Record<string, unknown>)
+        .setupToken as string;
       expect(typeof freshSetupToken).toBe('string');
 
       await request(app.getHttpServer())

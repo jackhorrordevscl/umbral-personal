@@ -41,17 +41,32 @@ describe('MFA recovery codes (e2e)', () => {
 
     const beginSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/begin')
-      .send({ setupToken: bootstrapLogin.body.setupToken })
+      .send({
+        setupToken: (bootstrapLogin.body as Record<string, unknown>)
+          .setupToken as string,
+      })
       .expect(201);
 
-    const totp = speakeasy.totp({ secret: beginSetup.body.secret, encoding: 'base32' });
+    const totp = speakeasy.totp({
+      secret: (beginSetup.body as Record<string, unknown>).secret as string,
+      encoding: 'base32',
+    });
 
     const confirmSetup = await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/setup/confirm')
-      .send({ setupToken: bootstrapLogin.body.setupToken, token: totp })
+      .send({
+        setupToken: (bootstrapLogin.body as Record<string, unknown>)
+          .setupToken as string,
+        token: totp,
+      })
       .expect(201);
 
-    return { email, id: user.id, recoveryCodes: confirmSetup.body.recoveryCodes as string[] };
+    return {
+      email,
+      id: user.id,
+      recoveryCodes: (confirmSetup.body as Record<string, unknown>)
+        .recoveryCodes as string[],
+    };
   }
 
   beforeAll(async () => {
@@ -123,7 +138,11 @@ describe('MFA recovery codes (e2e)', () => {
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/mfa/recover')
-        .send({ email, password: 'ClaveIncorrecta1!', recoveryCode: 'aaaa-bbbb' })
+        .send({
+          email,
+          password: 'ClaveIncorrecta1!',
+          recoveryCode: 'aaaa-bbbb',
+        })
         .expect(401);
     });
 
@@ -132,7 +151,11 @@ describe('MFA recovery codes (e2e)', () => {
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/mfa/recover')
-        .send({ email, password: TEST_PASSWORD, recoveryCode: 'ffff-0000-ffff-0000-ffff' })
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          recoveryCode: 'ffff-0000-ffff-0000-ffff',
+        })
         .expect(401);
     });
 
@@ -151,14 +174,23 @@ describe('MFA recovery codes (e2e)', () => {
     });
 
     it('camino feliz: consume el código, desactiva MFA, y permite re-enrolar en el próximo login', async () => {
-      const { email, id, recoveryCodes } = await createUserWithMfaEnabled('recover.happy');
+      const { email, id, recoveryCodes } =
+        await createUserWithMfaEnabled('recover.happy');
 
       const recoverRes = await request(app.getHttpServer())
         .post('/api/v1/auth/mfa/recover')
-        .send({ email, password: TEST_PASSWORD, recoveryCode: recoveryCodes[0] })
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          recoveryCode: recoveryCodes[0],
+        })
         .expect(201);
-      expect(typeof recoverRes.body.message).toBe('string');
-      expect(recoverRes.body.accessToken).toBeUndefined();
+      expect(typeof (recoverRes.body as Record<string, unknown>).message).toBe(
+        'string',
+      );
+      expect(
+        (recoverRes.body as Record<string, unknown>).accessToken as string,
+      ).toBeUndefined();
 
       const user = await prisma.user.findUnique({ where: { id } });
       expect(user!.mfaEnabled).toBe(false);
@@ -170,15 +202,22 @@ describe('MFA recovery codes (e2e)', () => {
         .post('/api/v1/auth/login')
         .send({ email, password: TEST_PASSWORD })
         .expect(201);
-      expect(loginRes.body.requiresMfaSetup).toBe(true);
+      expect((loginRes.body as Record<string, unknown>).requiresMfaSetup).toBe(
+        true,
+      );
     });
 
     it('reusar el mismo código ya consumido rechaza con 401 (replay guard)', async () => {
-      const { email, recoveryCodes } = await createUserWithMfaEnabled('recover.replay');
+      const { email, recoveryCodes } =
+        await createUserWithMfaEnabled('recover.replay');
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/mfa/recover')
-        .send({ email, password: TEST_PASSWORD, recoveryCode: recoveryCodes[0] })
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          recoveryCode: recoveryCodes[0],
+        })
         .expect(201);
 
       // Segundo intento con el mismo código: MFA ya quedó deshabilitado por
@@ -186,14 +225,17 @@ describe('MFA recovery codes (e2e)', () => {
       // mfaEnabled, no en el de "código ya usado" -- ambos caminos son 401.
       await request(app.getHttpServer())
         .post('/api/v1/auth/mfa/recover')
-        .send({ email, password: TEST_PASSWORD, recoveryCode: recoveryCodes[0] })
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          recoveryCode: recoveryCodes[0],
+        })
         .expect(401);
     });
 
     it('volver a habilitar MFA invalida los recovery codes de la tanda anterior', async () => {
-      const { email, recoveryCodes: firstBatch } = await createUserWithMfaEnabled(
-        'recover.superseded',
-      );
+      const { email, recoveryCodes: firstBatch } =
+        await createUserWithMfaEnabled('recover.superseded');
 
       // Deshabilita MFA con un código de la primera tanda.
       await request(app.getHttpServer())
@@ -208,12 +250,22 @@ describe('MFA recovery codes (e2e)', () => {
         .expect(201);
       const beginSetup = await request(app.getHttpServer())
         .post('/api/v1/auth/mfa/setup/begin')
-        .send({ setupToken: bootstrapLogin.body.setupToken })
+        .send({
+          setupToken: (bootstrapLogin.body as Record<string, unknown>)
+            .setupToken as string,
+        })
         .expect(201);
-      const totp = speakeasy.totp({ secret: beginSetup.body.secret, encoding: 'base32' });
+      const totp = speakeasy.totp({
+        secret: (beginSetup.body as Record<string, unknown>).secret as string,
+        encoding: 'base32',
+      });
       await request(app.getHttpServer())
         .post('/api/v1/auth/mfa/setup/confirm')
-        .send({ setupToken: bootstrapLogin.body.setupToken, token: totp })
+        .send({
+          setupToken: (bootstrapLogin.body as Record<string, unknown>)
+            .setupToken as string,
+          token: totp,
+        })
         .expect(201);
 
       // Un código sin usar de la tanda VIEJA ya no sirve.
