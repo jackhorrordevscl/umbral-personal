@@ -98,23 +98,17 @@ públicas que los proveedores pueden actualizar):
   Ley 21.719 -- ojo que la validez de esa aprobación ministerial también
   está en debate legal (¿le correspondía a la futura Agencia de Protección
   de Datos Personales, no al Ministerio?).
-- **Resend**: mismo mecanismo de incorporación automática del DPA al
-  aceptar los Términos de Servicio (`resend.com/legal/dpa`). Procesamiento
-  primario en Estados Unidos; lista de subprocesadores en
-  `resend.com/legal/subprocessors`. El alcance del DPA es amplio (EU
-  SCCs/GDPR, UK SCCs, Suiza FADP, CCPA) pero, igual que con Backblaze, no
-  menciona Chile ni la Ley 21.719 explícitamente. Snapshot en PDF con fecha
-  todavía **pendiente de capturar** en `docs/evidencia-compliance/`
-  (issue #66) — el resumen de arriba es investigación textual, no evidencia
-  archivada.
+- **Resend**: `resend-dpa-2026-08-04.pdf` — mismo mecanismo de incorporación
+  automática del DPA al aceptar los Términos de Servicio
+  (`resend.com/legal/dpa`). Procesamiento primario en Estados Unidos; lista
+  de subprocesadores en `resend.com/legal/subprocessors`. El alcance del
+  DPA es amplio (EU SCCs/GDPR, UK SCCs, Suiza FADP, CCPA) pero, igual que
+  con Backblaze, no menciona Chile ni la Ley 21.719 explícitamente.
 
 ## Pendientes conocidos
 
 - **Transferencia internacional de datos** — ver sección de arriba. Es el
   pendiente más importante de este documento hoy.
-- **Evidencia de Resend sin archivar**: falta capturar el snapshot en PDF
-  del DPA/ToS de Resend en `docs/evidencia-compliance/`, siguiendo el mismo
-  patrón que Supabase/Backblaze (issue #66).
 - **Firma electrónica avanzada** (filas 2 y 6, a futuro): la firma de cada
   consulta/corrección y el sello de tiempo en los PDF exportados dependen de
   elegir un proveedor acreditado por la Ley 19.799 — ver issues #24, #25, #26
