@@ -15,3 +15,8 @@ b2-local-mirror/
 # que usa el terapeuta -- llevan su nombre propio, no deben terminar en un
 # repo público (issue #59).
 docs/CONSENTIMIENTO*.docx
+
+# ~$*: lock file temporal que Word crea mientras un .docx está abierto
+# (issue #67) -- mismo riesgo que el patrón de arriba, cubre cualquier
+# archivo de Office abierto en cualquier carpeta del repo.
+**/~$*
