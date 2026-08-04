@@ -303,7 +303,7 @@ export default function LoginPage() {
       <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12"
         style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1a2e1a 50%, #0f2318 100%)' }}>
         <div>
-          <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-40 w-auto" />
+          <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-[120px] w-auto" />
         </div>
         <div>
           <blockquote className="font-display text-2xl text-white leading-relaxed italic">
