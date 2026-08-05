@@ -35,7 +35,12 @@ describe('Reenvío de verificación de email (e2e)', () => {
     const email = `${emailPrefix}.${runId}@umbral.cl`;
     const passwordHash = await argon2.hash(TEST_PASSWORD);
     const user = await prisma.user.create({
-      data: { email, passwordHash, name: 'Resend Verification Test', emailVerified },
+      data: {
+        email,
+        passwordHash,
+        name: 'Resend Verification Test',
+        emailVerified,
+      },
     });
     createdUserIds.push(user.id);
     return { email, id: user.id };
@@ -91,7 +96,10 @@ describe('Reenvío de verificación de email (e2e)', () => {
         'resend.unverified',
         false,
       );
-      const { email: verifiedEmail } = await createUser('resend.verified', true);
+      const { email: verifiedEmail } = await createUser(
+        'resend.verified',
+        true,
+      );
 
       const resUnverified = await request(app.getHttpServer())
         .post('/api/v1/auth/verify-email/resend')
@@ -130,9 +138,7 @@ describe('Reenvío de verificación de email (e2e)', () => {
         .send({ email })
         .expect(201);
 
-      expect(
-        (res.body as Record<string, unknown>).accessToken,
-      ).toBeUndefined();
+      expect((res.body as Record<string, unknown>).accessToken).toBeUndefined();
     });
 
     it('no modifica emailVerified de la cuenta (solo dispara el email, no verifica nada)', async () => {
