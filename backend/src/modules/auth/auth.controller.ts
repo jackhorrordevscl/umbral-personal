@@ -8,6 +8,7 @@ import { MfaSetupConfirmDto } from './dto/mfa-setup-confirm.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SignupDto } from './dto/signup.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
+import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { MfaRecoverDto } from './dto/mfa-recover.dto';
@@ -38,6 +39,7 @@ export class AuthController {
     'verify-email': true,
     'password-reset': true,
     'mfa-recover': true,
+    'resend-verification': true,
   })
   @Post('login')
   login(@Body() dto: LoginDto) {
@@ -58,6 +60,7 @@ export class AuthController {
     'verify-email': true,
     'password-reset': true,
     'mfa-recover': true,
+    'resend-verification': true,
   })
   @Post('mfa/verify')
   verifyMfa(@Body() dto: VerifyMfaDto) {
@@ -76,6 +79,7 @@ export class AuthController {
     'verify-email': true,
     'password-reset': true,
     'mfa-recover': true,
+    'resend-verification': true,
   })
   @Post('signup')
   signup(@Body() dto: SignupDto) {
@@ -97,10 +101,35 @@ export class AuthController {
     'password-change': true,
     'password-reset': true,
     'mfa-recover': true,
+    'resend-verification': true,
   })
   @Post('verify-email')
   verifyEmail(@Body() dto: VerifyEmailDto) {
     return this.authService.verifyEmail(dto.token);
+  }
+
+  // Reenvío del link de verificación (compliance: la única salida
+  // self-service cuando el primer email de signup se perdió o expiró en 24h,
+  // ver resendVerificationEmail en AuthService). Sin JwtAuthGuard a
+  // propósito, mismo motivo que verify-email/mfa/setup/*: la cuenta todavía
+  // no puede loguear. Throttler propio ('resend-verification') para no
+  // compartir presupuesto con signup/verify-email -- de lo contrario alguien
+  // podría spamear reenvíos de email consumiendo el cupo de otra ruta sin
+  // que ninguna de las dos lo refleje.
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle({
+    login: true,
+    'mfa-verify': true,
+    signup: true,
+    'mfa-setup': true,
+    'password-change': true,
+    'verify-email': true,
+    'password-reset': true,
+    'mfa-recover': true,
+  })
+  @Post('verify-email/resend')
+  resendVerification(@Body() dto: ResendVerificationDto) {
+    return this.authService.resendVerificationEmail(dto);
   }
 
   // Sin JwtAuthGuard a propósito: el usuario todavía no tiene sesión durante
@@ -120,6 +149,7 @@ export class AuthController {
     'verify-email': true,
     'password-reset': true,
     'mfa-recover': true,
+    'resend-verification': true,
   })
   @Post('mfa/setup/begin')
   beginMfaSetup(@Body() dto: MfaSetupBeginDto) {
@@ -135,6 +165,7 @@ export class AuthController {
     'verify-email': true,
     'password-reset': true,
     'mfa-recover': true,
+    'resend-verification': true,
   })
   @Post('mfa/setup/confirm')
   confirmMfaSetup(@Body() dto: MfaSetupConfirmDto) {
@@ -154,6 +185,7 @@ export class AuthController {
     'verify-email': true,
     'password-reset': true,
     'mfa-recover': true,
+    'resend-verification': true,
   })
   @Post('password/change')
   changePassword(@Body() dto: ChangePasswordDto) {
@@ -174,6 +206,7 @@ export class AuthController {
     'password-change': true,
     'verify-email': true,
     'mfa-recover': true,
+    'resend-verification': true,
   })
   @Post('password/forgot')
   forgotPassword(@Body() dto: ForgotPasswordDto) {
@@ -189,6 +222,7 @@ export class AuthController {
     'password-change': true,
     'verify-email': true,
     'mfa-recover': true,
+    'resend-verification': true,
   })
   @Post('password/reset')
   resetPassword(@Body() dto: ResetPasswordDto) {
@@ -211,6 +245,7 @@ export class AuthController {
     'password-change': true,
     'verify-email': true,
     'password-reset': true,
+    'resend-verification': true,
   })
   @Post('mfa/recover')
   recoverMfa(@Body() dto: MfaRecoverDto) {

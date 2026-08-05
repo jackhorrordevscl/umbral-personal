@@ -12,6 +12,7 @@ import { LoginDto } from './dto/login.dto';
 import { VerifyMfaDto } from './dto/verify-mfa.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SignupDto } from './dto/signup.dto';
+import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { MfaRecoverDto } from './dto/mfa-recover.dto';
@@ -46,6 +47,15 @@ const PASSWORD_RESET_EXPIRES_IN = '30m';
 const FORGOT_PASSWORD_GENERIC_MESSAGE = {
   message:
     'Si el email está registrado, vas a recibir un enlace para restablecer tu contraseña.',
+};
+
+// Mismo criterio que FORGOT_PASSWORD_GENERIC_MESSAGE: la respuesta no debe
+// distinguir entre email inexistente, ya verificado, o recién reenviado --
+// cualquier diferencia de respuesta filtraría qué cuentas existen y en qué
+// estado están.
+const RESEND_VERIFICATION_GENERIC_MESSAGE = {
+  message:
+    'Si el email está registrado y pendiente de verificar, vas a recibir un nuevo enlace.',
 };
 
 // Hash argon2 dummy contra el que verificar cuando el email no existe -- sin
@@ -157,6 +167,39 @@ export class AuthService {
     });
 
     return { message: 'Email verificado. Ya puedes iniciar sesión.' };
+  }
+
+  /**
+   * Reenvío del link de verificación (compliance: login() ya bloquea a una
+   * cuenta sin verificar sin darle ninguna salida self-service si el primer
+   * email se perdió/expiró en 24h). Mismo patrón anti-enumeración que
+   * forgotPassword: respuesta genérica siempre, exista o no el email, esté o
+   * no ya verificado -- así no se filtra qué cuentas están registradas ni en
+   * qué estado de verificación quedaron.
+   */
+  async resendVerificationEmail(dto: ResendVerificationDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+    if (!user || user.deletedAt || user.emailVerified) {
+      return RESEND_VERIFICATION_GENERIC_MESSAGE;
+    }
+
+    const token = this.jwtService.sign(
+      { sub: user.id, purpose: EMAIL_VERIFY_PURPOSE },
+      { expiresIn: EMAIL_VERIFY_EXPIRES_IN },
+    );
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
+    const verifyUrl = `${frontendUrl}/verify-email?token=${token}`;
+
+    await this.mailService.sendVerificationEmail(
+      user.email,
+      user.name,
+      verifyUrl,
+    );
+
+    return RESEND_VERIFICATION_GENERIC_MESSAGE;
   }
 
   async login(dto: LoginDto) {

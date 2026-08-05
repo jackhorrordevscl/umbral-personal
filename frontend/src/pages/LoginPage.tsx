@@ -16,11 +16,21 @@ const loginSchema = z.object({
 
 type LoginForm = z.infer<typeof loginSchema>;
 
+// Texto exacto que devuelve AuthService.login() cuando emailVerified es
+// false (ver auth.service.ts) -- se compara así, no por código de error,
+// porque login() no distingue esta causa con nada más que el mensaje.
+const EMAIL_NOT_VERIFIED_MESSAGE =
+  'Debes verificar tu email antes de iniciar sesión';
+
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [emailNotVerified, setEmailNotVerified] = useState(false);
+  const [resendEmail, setResendEmail] = useState('');
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendMessage, setResendMessage] = useState('');
   const [mfaRequired, setMfaRequired] = useState(false);
   const [userId, setUserId] = useState('');
   const [mfaToken, setMfaToken] = useState('');
@@ -76,6 +86,8 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginForm) => {
     setLoading(true);
     setError('');
+    setEmailNotVerified(false);
+    setResendMessage('');
     try {
       const res = await api.post('/auth/login', data);
       if (res.data.requiresPasswordChange) {
@@ -88,14 +100,38 @@ export default function LoginPage() {
         handleLoginResult(res.data);
       }
     } catch (error) {
-      setError(
-        getApiErrorMessage(
-          error,
-          'Credenciales inválidas. Verifica tu email y contraseña.',
-        ),
+      const message = getApiErrorMessage(
+        error,
+        'Credenciales inválidas. Verifica tu email y contraseña.',
       );
+      setError(message);
+      if (message === EMAIL_NOT_VERIFIED_MESSAGE) {
+        setEmailNotVerified(true);
+        setResendEmail(data.email);
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Compliance: mismo mensaje genérico que devuelve el backend exista o no
+  // el email, esté o no ya verificado -- no hay forma de saber acá si el
+  // reenvío realmente disparó un email, y no debería mostrarse como si la
+  // hubiera (filtraría esa misma información en el frontend).
+  const onResendVerification = async () => {
+    setResendLoading(true);
+    setResendMessage('');
+    try {
+      const res = await api.post('/auth/verify-email/resend', {
+        email: resendEmail,
+      });
+      setResendMessage(res.data.message);
+    } catch (error) {
+      setResendMessage(
+        getApiErrorMessage(error, 'No se pudo reenviar el email. Intenta más tarde.'),
+      );
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -355,6 +391,23 @@ export default function LoginPage() {
             </div>
 
             {error && <ErrorBanner message={error} />}
+
+            {emailNotVerified && (
+              <div className="text-center">
+                {resendMessage ? (
+                  <ErrorBanner message={resendMessage} variant="success" />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onResendVerification}
+                    disabled={resendLoading}
+                    className="text-xs text-slate-400 lg:text-slate-500 hover:underline disabled:opacity-50"
+                  >
+                    {resendLoading ? 'Reenviando...' : 'Reenviar email de verificación'}
+                  </button>
+                )}
+              </div>
+            )}
 
             <button
               type="submit"

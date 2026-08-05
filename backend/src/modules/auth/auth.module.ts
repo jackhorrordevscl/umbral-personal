@@ -204,6 +204,21 @@ export function buildAuthThrottlerOptions(
     'VERIFY_EMAIL_THROTTLE_TTL_MS',
   );
 
+  // Reenvío de verificación de email, mismo criterio que verify-email/
+  // mfa-setup: ruta sin sesión, throttler propio para no compartir
+  // presupuesto con signup/verify-email -- de lo contrario alguien podría
+  // spamear reenvíos consumiendo el cupo de otra ruta.
+  const resendVerificationLimit = parsePositiveInt(
+    config.get<string>('RESEND_VERIFICATION_THROTTLE_LIMIT'),
+    isTest ? 1000 : 5,
+    'RESEND_VERIFICATION_THROTTLE_LIMIT',
+  );
+  const resendVerificationTtl = parsePositiveInt(
+    config.get<string>('RESEND_VERIFICATION_THROTTLE_TTL_MS'),
+    60000,
+    'RESEND_VERIFICATION_THROTTLE_TTL_MS',
+  );
+
   // Issue #50: password/forgot y password/reset, mismo criterio que
   // verify-email/mfa-setup (rutas sin sesión, throttler propio para no
   // compartir presupuesto con login/mfa-verify/signup). Comparten un único
@@ -251,6 +266,11 @@ export function buildAuthThrottlerOptions(
         ttl: passwordChangeTtl,
       },
       { name: 'verify-email', limit: verifyEmailLimit, ttl: verifyEmailTtl },
+      {
+        name: 'resend-verification',
+        limit: resendVerificationLimit,
+        ttl: resendVerificationTtl,
+      },
       {
         name: 'password-reset',
         limit: passwordResetLimit,
