@@ -50,18 +50,24 @@ jobs:
       - name: Instalar rclone (versión fijada + checksum verificado)
         if: steps.check-secrets.outputs.configured == 'true'
         env:
-          RCLONE_VERSION: '1.75.0'
+          # NO llamar esto RCLONE_VERSION: el binario rclone mapea
+          # automáticamente cualquier env var RCLONE_<FLAG> a su flag
+          # equivalente, y --version es un flag booleano -- con
+          # RCLONE_VERSION=1.75.0 seteada, `rclone version` fallaba con
+          # "strconv.ParseBool: parsing \"1.75.0\": invalid syntax" (ver
+          # incidente de los runs fallidos de 2026-08-04/05).
+          PINNED_RCLONE_VERSION: '1.75.0'
         run: |
           set -euo pipefail
 
-          ARCHIVE="rclone-v${RCLONE_VERSION}-linux-amd64.zip"
-          curl -fsSL -o "$ARCHIVE" "https://downloads.rclone.org/v${RCLONE_VERSION}/${ARCHIVE}"
-          curl -fsSL -o SHA256SUMS "https://downloads.rclone.org/v${RCLONE_VERSION}/SHA256SUMS"
+          ARCHIVE="rclone-v${PINNED_RCLONE_VERSION}-linux-amd64.zip"
+          curl -fsSL -o "$ARCHIVE" "https://downloads.rclone.org/v${PINNED_RCLONE_VERSION}/${ARCHIVE}"
+          curl -fsSL -o SHA256SUMS "https://downloads.rclone.org/v${PINNED_RCLONE_VERSION}/SHA256SUMS"
           grep " ${ARCHIVE}\$" SHA256SUMS | sha256sum -c -
 
           unzip -q "$ARCHIVE"
-          sudo install -m 755 "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/rclone
-          rm -rf "$ARCHIVE" SHA256SUMS "rclone-v${RCLONE_VERSION}-linux-amd64"
+          sudo install -m 755 "rclone-v${PINNED_RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/rclone
+          rm -rf "$ARCHIVE" SHA256SUMS "rclone-v${PINNED_RCLONE_VERSION}-linux-amd64"
           rclone version
 
       - name: Backup cifrado -> Backblaze B2
