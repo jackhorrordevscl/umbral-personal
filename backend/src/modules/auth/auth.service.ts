@@ -474,10 +474,20 @@ export class AuthService {
    * accessToken real — el enrolamiento forzado termina la sesión, no solo
    * activa MFA.
    */
-  async confirmMfaSetup(setupToken: string, token: string) {
+  async confirmMfaSetup(
+    setupToken: string,
+    token: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
     const payload = this.verifySetupToken(setupToken);
     await this.rejectIfAlreadyEnrolled(payload.sub);
-    const { recoveryCodes } = await this.enableMfa(payload.sub, token);
+    const { recoveryCodes } = await this.enableMfa(
+      payload.sub,
+      token,
+      ipAddress,
+      userAgent,
+    );
 
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
@@ -592,7 +602,12 @@ export class AuthService {
     };
   }
 
-  async enableMfa(userId: string, token: string) {
+  async enableMfa(
+    userId: string,
+    token: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.mfaSecret) {
       throw new UnauthorizedException('Primero genera el secreto MFA');
@@ -625,11 +640,30 @@ export class AuthService {
       resource: 'User',
       resourceId: userId,
     });
+    // Compliance: registro explícito de cuándo y desde qué dispositivo se
+    // activó MFA (cubre tanto el enrolamiento forzado de confirmMfaSetup
+    // como una reactivación voluntaria posterior a un disableMfa) -- antes
+    // de esto, el único rastro era el genérico que deja AuditInterceptor
+    // (action CREATE, sin distinguir MFA de cualquier otro POST) y no
+    // llegaba a ejecutarse en mfa/setup/confirm por no llevar JwtAuthGuard.
+    await this.auditService.log({
+      userId,
+      action: 'MFA_ENABLED',
+      resource: 'User',
+      resourceId: userId,
+      ipAddress,
+      userAgent,
+    });
 
     return { message: 'MFA activado correctamente', recoveryCodes };
   }
 
-  async disableMfa(userId: string, token: string) {
+  async disableMfa(
+    userId: string,
+    token: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.mfaSecret) {
       throw new UnauthorizedException('MFA no está configurado');
@@ -649,6 +683,18 @@ export class AuthService {
     await this.prisma.user.update({
       where: { id: userId },
       data: { mfaEnabled: false, mfaSecret: null },
+    });
+
+    // Compliance: mismo criterio que enableMfa -- registro explícito con
+    // ip/user-agent de la desactivación voluntaria (distinto de
+    // MFA_DISABLED_VIA_RECOVERY, que ya lo tenía).
+    await this.auditService.log({
+      userId,
+      action: 'MFA_DISABLED',
+      resource: 'User',
+      resourceId: userId,
+      ipAddress,
+      userAgent,
     });
 
     return { message: 'MFA desactivado correctamente' };

@@ -27,6 +27,37 @@ export class ProfileService {
     return user;
   }
 
+  // Compliance: historial de activación/desactivación de MFA visible para el
+  // propio dueño de la cuenta -- ownership por userId, mismo criterio que el
+  // resto de la app (un solo rol, cada quien ve únicamente sus propios
+  // datos). TOTP no permite distinguir "dispositivos" reales (cualquier app
+  // que escanee el mismo secreto es indistinguible para el backend); esto es
+  // el registro de CUÁNDO y desde qué IP/user-agent se tocó MFA, no un
+  // listado de dispositivos registrados.
+  async getMfaHistory(userId: string) {
+    return this.prisma.auditLog.findMany({
+      where: {
+        userId,
+        action: {
+          in: [
+            'MFA_ENABLED',
+            'MFA_DISABLED',
+            'MFA_DISABLED_VIA_RECOVERY',
+            'MFA_RECOVERY_CODES_GENERATED',
+          ],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: {
+        action: true,
+        createdAt: true,
+        ipAddress: true,
+        userAgent: true,
+      },
+    });
+  }
+
   async update(id: string, dto: UpdateProfileDto) {
     if (dto.email) {
       const exists = await this.prisma.user.findFirst({

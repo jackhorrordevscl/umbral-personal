@@ -204,6 +204,7 @@ enum AuditAction {
   MFA_RECOVERY_CODES_GENERATED
   MFA_DISABLED_VIA_RECOVERY
   MANUAL_ACCOUNT_RECOVERY
+  MFA_DISABLED
 }
 
 // El nombre (modelo y @@map) viene de la versión institucional multi-

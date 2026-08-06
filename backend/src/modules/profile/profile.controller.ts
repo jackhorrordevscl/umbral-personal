@@ -17,6 +17,11 @@ export class ProfileController {
     return this.profileService.findOne(user.id);
   }
 
+  @Get('mfa-history')
+  getMfaHistory(@CurrentUser() user: RequestUser) {
+    return this.profileService.getMfaHistory(user.id);
+  }
+
   @Patch()
   update(@Body() dto: UpdateProfileDto, @CurrentUser() user: RequestUser) {
     return this.profileService.update(user.id, dto);

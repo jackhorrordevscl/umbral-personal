@@ -1,4 +1,5 @@
-import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Req, UseGuards } from '@nestjs/common';
+import type { Request } from 'express';
 import { ThrottlerGuard, SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -168,8 +169,13 @@ export class AuthController {
     'resend-verification': true,
   })
   @Post('mfa/setup/confirm')
-  confirmMfaSetup(@Body() dto: MfaSetupConfirmDto) {
-    return this.authService.confirmMfaSetup(dto.setupToken, dto.token);
+  confirmMfaSetup(@Body() dto: MfaSetupConfirmDto, @Req() req: Request) {
+    return this.authService.confirmMfaSetup(
+      dto.setupToken,
+      dto.token,
+      req.ip,
+      req.headers['user-agent'],
+    );
   }
 
   // T4.4 (issue #22): sin JwtAuthGuard por el mismo motivo que mfa/setup/*:
@@ -258,15 +264,38 @@ export class AuthController {
     return this.authService.generateMfaSecret(user.id);
   }
 
+  // Issue de compliance: enableMfa/disableMfa no dejaban rastro de
+  // ip/user-agent propio (solo el genérico que deja AuditInterceptor con
+  // action CREATE) -- se pasan acá para que AuthService registre
+  // MFA_ENABLED/MFA_DISABLED con el dispositivo real, visible después en
+  // Seguridad.
   @UseGuards(JwtAuthGuard)
   @Post('mfa/enable')
-  enableMfa(@CurrentUser() user: RequestUser, @Body('token') token: string) {
-    return this.authService.enableMfa(user.id, token);
+  enableMfa(
+    @CurrentUser() user: RequestUser,
+    @Body('token') token: string,
+    @Req() req: Request,
+  ) {
+    return this.authService.enableMfa(
+      user.id,
+      token,
+      req.ip,
+      req.headers['user-agent'],
+    );
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('mfa/disable')
-  disableMfa(@CurrentUser() user: RequestUser, @Body('token') token: string) {
-    return this.authService.disableMfa(user.id, token);
+  disableMfa(
+    @CurrentUser() user: RequestUser,
+    @Body('token') token: string,
+    @Req() req: Request,
+  ) {
+    return this.authService.disableMfa(
+      user.id,
+      token,
+      req.ip,
+      req.headers['user-agent'],
+    );
   }
 }
