@@ -1,0 +1,17 @@
+-- Continuación de la migración 20260804170000 (issue "rls_disabled_in_public"):
+-- en esa oportunidad se habilitó RLS en las 10 tablas del schema public que
+-- pertenecen al modelo de datos de la app, pero quedó afuera
+-- "_prisma_migrations" -- la tabla interna que el propio Prisma usa para
+-- registrar qué migraciones ya corrieron (no está declarada en schema.prisma,
+-- la crea y mantiene el motor de migraciones).
+--
+-- Al vivir en el schema public, Supabase la expone igual vía la API
+-- PostgREST autogenerada, así que sin RLS cualquiera con la anon key podría
+-- leer el historial de migraciones (nombres de archivo, checksums, fechas).
+-- No es tan sensible como datos de pacientes, pero es la misma superficie de
+-- exposición innecesaria que ya se cerró para el resto de las tablas.
+--
+-- Mismo dueño que las tablas normales (el rol de runtime vía DATABASE_URL,
+-- no el rol separado audit_log_owner), así que no hace falta el
+-- GRANT/REVOKE temporal que sí necesita "AuditLog".
+ALTER TABLE "_prisma_migrations" ENABLE ROW LEVEL SECURITY;
