@@ -52,6 +52,15 @@ model User {
   // de contraseña también los limpia.
   pendingEmail               String?
   pendingEmailTokenIssuedAt  DateTime?
+  // Issue #76 (PR B): invalidación de sesión tras un cambio de contraseña.
+  // Nullable y SIN backfill a propósito -- la migración que agrega esta
+  // columna deja a todo usuario existente en NULL, así que ningún token
+  // vigente se rechaza el día del deploy (JwtStrategy.validate trata NULL
+  // como "sin chequeo de invalidación"). Se setea desde PATCH /profile,
+  // AuthService.resetPassword y el completion de mustChangePassword
+  // (AuthService.changePassword) -- los tres puntos donde cambia la
+  // contraseña de la cuenta.
+  passwordChangedAt          DateTime?
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
   deletedAt                  DateTime?

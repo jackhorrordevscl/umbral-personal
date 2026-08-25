@@ -22,6 +22,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     email: string;
     role: string;
     purpose?: string;
+    iat: number;
   }) {
     // Los JWT de corta duración emitidos para forzar el enrolamiento MFA
     // (purpose: 'mfa-setup', ver AuthService.login/verifySetupToken), el
@@ -56,11 +57,31 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         role: true,
         name: true,
         deletedAt: true,
+        passwordChangedAt: true,
       },
     });
 
     if (!user || user.deletedAt) {
       throw new UnauthorizedException('Usuario no autorizado');
+    }
+
+    // Issue #76 (PR B): invalida cualquier token emitido ANTES del último
+    // cambio de contraseña (PATCH /profile, resetPassword o el completion de
+    // mustChangePassword -- ver AuthService/ProfileService). `iat` es un
+    // timestamp en segundos enteros; se compara contra passwordChangedAt
+    // "piso"-eado a segundos (no ms) para que el token recién emitido en ESE
+    // mismo cambio (mismo segundo) no se autorrechace, sin necesitar ningún
+    // margen de clock-skew. NULL (usuario pre-deploy, o que nunca cambió su
+    // contraseña) desactiva el chequeo por completo -- sin esto, la
+    // migración que agrega la columna forzaría un logout retroactivo de
+    // TODA la base de usuarios existente.
+    if (
+      user.passwordChangedAt &&
+      payload.iat < Math.floor(user.passwordChangedAt.getTime() / 1000)
+    ) {
+      throw new UnauthorizedException(
+        'Sesión expirada por cambio de contraseña',
+      );
     }
 
     return { id: user.id, email: user.email, role: user.role, name: user.name };

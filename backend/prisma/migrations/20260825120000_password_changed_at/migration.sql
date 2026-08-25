@@ -1,0 +1,11 @@
+-- Issue #76 (PR B): invalidación de sesión tras un cambio de contraseña.
+-- Columna nullable, SIN backfill -- todo usuario existente queda en NULL,
+-- así que ningún token vigente se rechaza el día del deploy
+-- (JwtStrategy.validate trata NULL como "sin chequeo de invalidación").
+--
+-- Hereda las RLS policies ya existentes sobre "User"
+-- (20260804170000_enable_rls_public_tables): RLS es deny-all a nivel de fila
+-- para los roles `anon`/`authenticated` de PostgREST, no depende de qué
+-- columnas tenga la tabla, así que no hace falta ninguna policy nueva acá.
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN "passwordChangedAt" TIMESTAMP(3);
