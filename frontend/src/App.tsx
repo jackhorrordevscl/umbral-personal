@@ -19,6 +19,9 @@ import Layout from "./components/Layout";
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
 const VerifyEmailPage = lazy(() => import("./pages/VerifyEmailPage"));
+const ConfirmEmailChangePage = lazy(
+  () => import("./pages/ConfirmEmailChangePage"),
+);
 const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const MfaRecoverPage = lazy(() => import("./pages/MfaRecoverPage"));
@@ -93,6 +96,10 @@ function AppRoutes() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route
+          path="/confirm-email-change"
+          element={<ConfirmEmailChangePage />}
+        />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/mfa/recover" element={<MfaRecoverPage />} />

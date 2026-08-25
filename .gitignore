@@ -1,6 +1,13 @@
 .atl/
 .codegraph/
 .claude/worktrees/
+.claude/settings.local.json
+
+# .magi/ y magi.config.json: config local del hook MAGI (PreToolUse en modo
+# shadow) que apunta por ruta absoluta a la instalación de magi en la máquina
+# del usuario -- no debe trackearse, es específico de esta clonación.
+.magi/
+magi.config.json
 
 # backups/files/: destino histórico de backup.sh corrido a mano -- nunca debe
 # trackearse (issue de seguridad resuelto: 4 dumps sin cifrar quedaron
