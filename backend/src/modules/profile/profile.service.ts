@@ -131,6 +131,11 @@ export class ProfileService {
         { id: user.id, email: user.email, name: user.name },
         dto.email as string,
       );
+      // `updated` se leyó antes de que requestChange escribiera pendingEmail
+      // en la DB (segunda query, separada a propósito -- ver comentario de
+      // clase); el caller necesita ver el pendingEmail recién seteado en la
+      // respuesta sin pagar un tercer round-trip.
+      updated.pendingEmail = dto.email as string;
     }
 
     if (dto.password) {
@@ -139,6 +144,7 @@ export class ProfileService {
         action: 'PASSWORD_CHANGED',
         resource: 'User',
         resourceId: id,
+        detail: 'Contraseña actualizada por el propio usuario (step-up auth)',
       });
     }
 

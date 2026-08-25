@@ -130,7 +130,7 @@ describe('ProfileService', () => {
       mockArgon2.verify.mockResolvedValue(true as never);
       prisma.user.update.mockResolvedValue(buildUser());
 
-      await service.update('user-1', {
+      const result = await service.update('user-1', {
         email: 'new@example.com',
         currentPassword: 'correct-password',
       });
@@ -147,6 +147,10 @@ describe('ProfileService', () => {
           boolean
         >,
       });
+      // Regresión (#76 PR A, hallado en CI): el select de arriba corre ANTES
+      // de que requestChange escriba pendingEmail, así que la respuesta debe
+      // reflejarlo explícitamente en vez de devolver el valor stale leído.
+      expect(result.pendingEmail).toBe('new@example.com');
     });
 
     it('lanza 409 si el email solicitado ya está registrado por otra cuenta y no delega nada', async () => {
@@ -205,6 +209,9 @@ describe('ProfileService', () => {
         action: 'PASSWORD_CHANGED',
         resource: 'User',
         resourceId: 'user-1',
+        detail: expect.not.stringContaining(
+          'NuevaPassword789!',
+        ) as unknown as string,
       });
     });
 
