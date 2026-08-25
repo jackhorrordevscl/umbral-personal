@@ -10,6 +10,7 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { ProfileModule } from './modules/profile/profile.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SharedFilesModule } from './shared-files/shared-files.module';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { AppController } from './app.controller';
@@ -29,6 +30,7 @@ import { AppService } from './app.service';
     ConsultationsModule,
     ReportsModule,
     DocumentsModule,
+    NotificationsModule,
     SharedFilesModule,
   ],
   controllers: [AppController],
