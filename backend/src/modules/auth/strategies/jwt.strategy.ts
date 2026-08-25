@@ -68,16 +68,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // Issue #76 (PR B): invalida cualquier token emitido ANTES del último
     // cambio de contraseña (PATCH /profile, resetPassword o el completion de
     // mustChangePassword -- ver AuthService/ProfileService). `iat` es un
-    // timestamp en segundos enteros; se compara contra passwordChangedAt
-    // "piso"-eado a segundos (no ms) para que el token recién emitido en ESE
-    // mismo cambio (mismo segundo) no se autorrechace, sin necesitar ningún
-    // margen de clock-skew. NULL (usuario pre-deploy, o que nunca cambió su
-    // contraseña) desactiva el chequeo por completo -- sin esto, la
-    // migración que agrega la columna forzaría un logout retroactivo de
-    // TODA la base de usuarios existente.
+    // timestamp en segundos enteros (precision de JWT), mientras que
+    // passwordChangedAt tiene precision de milisegundos; comparar con `<=`
+    // (no `<`) contra passwordChangedAt "piso"-eado a segundos es necesario
+    // porque ningun flujo de este backend emite un token nuevo en el mismo
+    // instante en que cambia la contraseña -- con `<` un token emitido en el
+    // MISMO segundo (antes, en terminos reales) sobrevivia el cambio,
+    // ventana confirmada por los e2e de session-invalidation.e2e-spec.ts.
+    // NULL (usuario pre-deploy, o que nunca cambio su contraseña) desactiva
+    // el chequeo por completo -- sin esto, la migracion que agrega la
+    // columna forzaria un logout retroactivo de TODA la base de usuarios
+    // existente.
     if (
       user.passwordChangedAt &&
-      payload.iat < Math.floor(user.passwordChangedAt.getTime() / 1000)
+      payload.iat <= Math.floor(user.passwordChangedAt.getTime() / 1000)
     ) {
       throw new UnauthorizedException(
         'Sesión expirada por cambio de contraseña',

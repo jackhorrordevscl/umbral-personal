@@ -117,19 +117,16 @@ describe('JwtStrategy', () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
-    it('acepta un token cuyo iat es exactamente igual (piso) a passwordChangedAt -- el token recién emitido en ese cambio no se autorrechaza', async () => {
+    it('rechaza (401) un token cuyo iat cae en el mismo segundo (piso) que passwordChangedAt -- ningún flujo emite un token nuevo en ese instante, así que el segundo completo se invalida', async () => {
       const changedAt = new Date('2026-01-01T00:00:10.500Z');
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ passwordChangedAt: changedAt }),
       );
       const iatSameSecond = Math.floor(changedAt.getTime() / 1000);
 
-      const result = await strategy.validate({
-        ...basePayload,
-        iat: iatSameSecond,
-      });
-
-      expect(result.id).toBe('user-1');
+      await expect(
+        strategy.validate({ ...basePayload, iat: iatSameSecond }),
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it('acepta un token con iat posterior al cambio', async () => {
