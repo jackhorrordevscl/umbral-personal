@@ -43,6 +43,15 @@ model User {
   // Se limpia a null al usarlo (o al pedir un reset nuevo, invalidando
   // cualquier link previo sin usar).
   passwordResetTokenIssuedAt DateTime?
+  // Issue #76: estado pendiente del cambio de email self-service vía
+  // PATCH /profile. El email activo (`email`) nunca se pisa directo -- se
+  // guarda acá hasta que el dueño confirma desde la nueva casilla (mismo
+  // patrón de replay guard que passwordResetTokenIssuedAt, pero con un
+  // purpose de JWT propio: 'email-change', ver EmailChangeService). Una
+  // segunda solicitud pisa ambos campos (supersede la anterior); un cambio
+  // de contraseña también los limpia.
+  pendingEmail               String?
+  pendingEmailTokenIssuedAt  DateTime?
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
   deletedAt                  DateTime?
@@ -205,6 +214,9 @@ enum AuditAction {
   MFA_DISABLED_VIA_RECOVERY
   MANUAL_ACCOUNT_RECOVERY
   MFA_DISABLED
+  EMAIL_CHANGE_REQUESTED
+  EMAIL_CHANGE_CONFIRMED
+  PASSWORD_CHANGED
 }
 
 // El nombre (modelo y @@map) viene de la versión institucional multi-
