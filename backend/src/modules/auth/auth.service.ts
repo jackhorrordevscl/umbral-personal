@@ -309,9 +309,32 @@ export class AuthService {
     }
 
     const newPasswordHash = await argon2.hash(dto.newPassword);
+    // Issue #76 (PR B): passwordChangedAt invalida (vía JwtStrategy) todo
+    // token emitido antes de este cambio -- mismo campo que PATCH /profile y
+    // resetPassword, único punto de verdad para "cuándo cambió la
+    // contraseña de esta cuenta" sin importar por qué flujo haya sido.
+    // También limpia un pendingEmail existente (design.md, "Any password
+    // change also clears pending"): si un atacante con el passwordChangeToken
+    // robado (o con la sesión previa) dejó un cambio de email pendiente, el
+    // cambio de contraseña forzado no debe dejarlo sobrevivir -- mismo
+    // criterio que el branch de password de ProfileService.update.
     const updated = await this.prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash: newPasswordHash, mustChangePassword: false },
+      data: {
+        passwordHash: newPasswordHash,
+        mustChangePassword: false,
+        passwordChangedAt: new Date(),
+        pendingEmail: null,
+        pendingEmailTokenIssuedAt: null,
+      },
+    });
+
+    await this.auditService.log({
+      userId: user.id,
+      action: 'PASSWORD_CHANGED',
+      resource: 'User',
+      resourceId: user.id,
+      detail: 'Contraseña actualizada (cambio forzado, mustChangePassword)',
     });
 
     return this.completeLogin(updated);
@@ -434,11 +457,24 @@ export class AuthService {
     }
 
     const newPasswordHash = await argon2.hash(dto.newPassword);
+    // Issue #76 (PR B): mismo passwordChangedAt que PATCH /profile y el
+    // completion de mustChangePassword -- JwtStrategy.validate() lo usa para
+    // rechazar cualquier token emitido antes de este reset, en TODOS los
+    // dispositivos donde la cuenta tuviera sesión activa.
+    // También limpia un pendingEmail existente (design.md, "Any password
+    // change also clears pending"): si un atacante con un token robado dejó
+    // un cambio de email pendiente abierto, el reset self-service de la
+    // víctima (el flujo pensado justamente para expulsar al atacante) no
+    // debe dejar sobrevivir ese cambio pendiente -- mismo criterio que el
+    // branch de password de ProfileService.update.
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
         passwordHash: newPasswordHash,
         passwordResetTokenIssuedAt: null,
+        passwordChangedAt: new Date(),
+        pendingEmail: null,
+        pendingEmailTokenIssuedAt: null,
       },
     });
 
@@ -447,6 +483,13 @@ export class AuthService {
       action: 'PASSWORD_RESET_COMPLETED',
       resource: 'User',
       resourceId: user.id,
+    });
+    await this.auditService.log({
+      userId: user.id,
+      action: 'PASSWORD_CHANGED',
+      resource: 'User',
+      resourceId: user.id,
+      detail: 'Contraseña actualizada vía reset self-service',
     });
 
     return { message: 'Contraseña actualizada. Ya puedes iniciar sesión.' };
