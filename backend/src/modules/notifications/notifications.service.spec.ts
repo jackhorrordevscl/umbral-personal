@@ -137,7 +137,7 @@ describe('NotificationsService', () => {
 
       expect(prisma.notification.updateMany).toHaveBeenCalledWith({
         where: { id: 'notification-1', userId: 'therapist-b' },
-        data: { readAt: expect.any(Date) },
+        data: { readAt: expect.any(Date) as unknown as Date },
       });
       // No debe intentar leer/devolver nada tras un updateMany que no afectó filas
       expect(prisma.notification.findFirst).not.toHaveBeenCalled();
@@ -152,7 +152,7 @@ describe('NotificationsService', () => {
 
       expect(prisma.notification.updateMany).toHaveBeenCalledWith({
         where: { id: 'notification-1', userId: 'therapist-a' },
-        data: { readAt: expect.any(Date) },
+        data: { readAt: expect.any(Date) as unknown as Date },
       });
       expect(result).toBe(updated);
     });
@@ -166,7 +166,7 @@ describe('NotificationsService', () => {
 
       expect(prisma.notification.updateMany).toHaveBeenCalledWith({
         where: { userId: 'therapist-a', readAt: null },
-        data: { readAt: expect.any(Date) },
+        data: { readAt: expect.any(Date) as unknown as Date },
       });
       expect(result).toEqual({ count: 5 });
     });
