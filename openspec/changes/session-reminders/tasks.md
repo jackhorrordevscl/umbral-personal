@@ -73,7 +73,7 @@ Chain strategy: stacked-to-main
 - [x] 6.12 Integration: two consecutive `scan()` runs → exactly one dispatch per tuple.
 
 ## Phase 7: Frontend — Notification Surface (PR 3)
-- [ ] 7.1 Create bell badge component polling `GET /notifications/unread-count`.
-- [ ] 7.2 Create notification list; mark-read calls `PATCH /notifications/:id/read`.
-- [ ] 7.3 Wire badge/list into existing layout/nav.
-- [ ] 7.4 Frontend tests: badge count updates, mark-read updates list state.
+- [x] 7.1 Create bell badge component polling `GET /notifications/unread-count`.
+- [x] 7.2 Create notification list; mark-read calls `PATCH /notifications/:id/read`.
+- [x] 7.3 Wire badge/list into existing layout/nav.
+- [x] 7.4 Frontend tests: badge count updates, mark-read updates list state.
