@@ -39,6 +39,10 @@ jobs:
       DOCUMENT_ENCRYPTION_KEY: MoDh8f3G8V0hR0m5wq8V0hR0m5wq8V0hR0m5wq8V0h8=
       SEED_ADMIN_EMAIL: admin@umbral.cl
       SEED_ADMIN_PASSWORD: Umbral2024!
+      # sdd/session-reminders (design.md, "Migration / Rollout"): el cron de
+      # RemindersService debe quedar apagado en el entorno e2e -- sin esto,
+      # AppModule arrancaría el scan real en cada boot de CI.
+      REMINDERS_ENABLED: 'false'
     steps:
       - uses: actions/checkout@v4
 
