@@ -271,7 +271,10 @@ umbral-personal/
 │   │   │   ├── patients/         # CRUD, consentimientos e historial de pacientes propios
 │   │   │   ├── consultations/    # Registro clínico versionado
 │   │   │   ├── documents/        # Documentos adjuntos por paciente
-│   │   │   ├── profile/          # Ver/editar los propios datos de cuenta
+│   │   │   ├── profile/          # Ver/editar los propios datos de cuenta + cambio de email diferido
+│   │   │   ├── notifications/    # Modelo genérico de notificaciones in-app (sdd/session-reminders)
+│   │   │   ├── reminders/        # Cron de recordatorios de sesión (24h/2h, in-app + email)
+│   │   │   ├── calendar-integration/ # OAuth + sync push-only con Google Calendar (issue #78)
 │   │   │   ├── mail/             # Envío de emails transaccionales (Resend)
 │   │   │   ├── reports/          # Generación de PDF
 │   │   │   └── audit/            # Bitácora inmutable (interceptor global)
@@ -280,15 +283,17 @@ umbral-personal/
 │   └── .env.example
 ├── frontend/
 │   └── src/
-│       ├── api/                  # Cliente HTTP (Axios)
+│       ├── api/                  # Cliente HTTP (Axios), notifications.ts
 │       ├── context/              # AuthContext
-│       ├── components/           # Layout, Sidebar, RecoveryCodesReveal
+│       ├── components/           # Layout, Sidebar, RecoveryCodesReveal,
+│       │                         # notifications/ (NotificationBell, NotificationList)
 │       ├── hooks/                # usePatients, usePatientDocuments,
 │       │                         # usePatientHistory, useIdleTimeout
 │       ├── utils/                # api-error, datetime, download, rut
 │       └── pages/                # Login, Signup, VerifyEmail, ForgotPassword,
 │                                  # ResetPassword, MfaRecover, Dashboard, Patients,
-│                                  # Consultations, Settings (MFA), SharedFiles
+│                                  # Consultations, SettingsPage (MFA, datos de
+│                                  # cuenta, conexión Google Calendar), SharedFiles
 ├── docs/                         # Manual de uso, caso de testing, RAT
 └── README.md
 ```
@@ -339,10 +344,49 @@ umbral-personal/
   privada por cuenta, no se comparte entre profesionales ni está ligada a
   pacientes
 
-### Perfil
+### Perfil (issue #76)
 - Cada cuenta puede ver y editar sus propios datos (email, nombre,
   contraseña) vía `GET`/`PATCH /profile` — sin panel de administración de
   terceros, porque no hay terceros que administrar
+- Cambio de nombre inmediato; cambio de email diferido hasta confirmarlo
+  desde un enlace de un solo uso enviado a la casilla nueva (`POST
+  /profile/email-change/confirm`), con aviso a la casilla antigua
+- Cambiar la contraseña invalida la sesión en **todos** los dispositivos,
+  no solo el actual (`passwordChangedAt` comparado contra el `iat` del
+  JWT en cada request)
+- Throttler propio (`profile-update`, keyed por `userId`) en `PATCH
+  /profile`, independiente del resto de los throttlers de `auth`
+
+### Recordatorios y notificaciones (sdd/session-reminders)
+- Modelo genérico de notificaciones in-app (`GET /notifications`, contador
+  de no leídas, marcar una o todas como leídas)
+- Recordatorio automático de sesión 24h y 2h antes de cada consulta
+  agendada, por dos canales independientes (in-app + email) con garantía
+  de envío exactamente una vez por (consulta, offset, canal) — un fallo en
+  un canal no bloquea ni duplica el otro
+- Cron de escaneo cada 5 minutos (`RemindersService`, desactivable con
+  `REMINDERS_ENABLED=false` sin necesitar un deploy/revert)
+
+### Integración con Google Calendar (sdd/google-calendar-integration, issue #78)
+- Conexión OAuth 2.0 por cuenta de terapeuta (`calendar.events`, acceso
+  offline), con refresh token cifrado AES-256-GCM en reposo
+  (`GOOGLE_TOKEN_ENCRYPTION_KEY`, clave propia distinta de
+  `DOCUMENT_ENCRYPTION_KEY`)
+- Sincronización de una sola vía (Umbral → Google): crear/corregir una
+  consulta crea o actualiza el evento; un paciente eliminado borra sus
+  eventos futuros. Lo que se edite en Google nunca se refleja en Umbral
+- Contenido minimizado: el evento solo lleva iniciales del paciente, un
+  código corto no reversible y un link a Umbral — nunca el nombre
+  completo, el RUT, el tipo de sesión ni texto clínico
+- Backfill acotado a una ventana al conectar; reconciliador periódico que
+  repara links fallidos y eventos desincronizados
+- Ante un token revocado o expirado (401/`invalid_grant`), la conexión se
+  marca desconectada y se notifica una sola vez — nunca reintenta en loop
+- Toda falla de sincronización es un efecto secundario no bloqueante: la
+  escritura clínica que la dispara siempre se guarda igual
+- Desactivable por completo con `GOOGLE_CALENDAR_SYNC_ENABLED=false`; sin
+  `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` el módulo se registra
+  deshabilitado sin bloquear el arranque
 
 ### Exportación PDF
 - Generación de ficha clínica completa en PDF
@@ -396,8 +440,10 @@ POST /api/v1/auth/password/reset       (resetToken, issue #50)
 
 ### Perfil
 ```
-GET   /api/v1/profile    🔒
-PATCH /api/v1/profile    🔒
+GET   /api/v1/profile                        🔒
+PATCH /api/v1/profile                        🔒
+GET   /api/v1/profile/mfa-history            🔒
+POST  /api/v1/profile/email-change/confirm      (token de un solo uso)
 ```
 
 ### Pacientes
@@ -442,6 +488,22 @@ DELETE /api/v1/shared-files/:id          🔒
 ### Reportes
 ```
 GET /api/v1/reports/patient/:patientId    🔒
+```
+
+### Notificaciones
+```
+GET   /api/v1/notifications                 🔒
+GET   /api/v1/notifications/unread-count    🔒
+PATCH /api/v1/notifications/read-all        🔒
+PATCH /api/v1/notifications/:id/read        🔒
+```
+
+### Integración con Google Calendar
+```
+GET  /api/v1/calendar-integration/status        🔒
+POST /api/v1/calendar-integration/authorize     🔒
+GET  /api/v1/calendar-integration/callback         (redirect de Google, sin auth)
+POST /api/v1/calendar-integration/disconnect    🔒
 ```
 
 > 🔒 Requiere token JWT en el header `Authorization: Bearer <token>`
@@ -708,6 +770,7 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Credenciales OAuth del proyecto de Google Cloud. Sin setear, el módulo de integración con Google Calendar se registra deshabilitado (mismo criterio que `MailService` sin `RESEND_API_KEY`) — no bloquea el arranque en dev/test/CI | Conseguir en Google Cloud Console |
 | `GOOGLE_REDIRECT_URI` | Redirect URI del handshake OAuth, registrada en Google Cloud Console | `http://localhost:3001/api/v1/calendar-integration/callback` |
 | `GOOGLE_CALENDAR_SYNC_ENABLED` | Si es `false`, desactiva el cron de reconciliación y los intents de sync sin necesitar un deploy/revert | `false` en CI/e2e |
+| `REMINDERS_ENABLED` | Si es `false`, desactiva el cron de recordatorios de sesión (`RemindersService`, cada 5 min) sin necesitar un deploy/revert | `false` en CI/e2e |
 
 > ⚠️ Si el comando de arranque del hosting ya corre `prisma migrate deploy` antes de iniciar el server (recomendado), **no** setees `RUN_MIGRATIONS=true` también — no rompe nada (la migración es idempotente), pero la corre dos veces innecesariamente.
 
