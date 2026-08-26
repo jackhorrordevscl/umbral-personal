@@ -73,7 +73,7 @@ jobs:
           retention-days: 14
 
       - name: Tests e2e
-        run: npx jest --config ./test/jest-e2e.json
+        run: npx jest --config ./test/jest-e2e.json --forceExit
 
       - name: npm audit (producción)
         run: npm audit --omit=dev --audit-level=high
