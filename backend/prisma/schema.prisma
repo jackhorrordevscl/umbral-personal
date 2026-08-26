@@ -64,6 +64,7 @@ model User {
   consultationEdits    ConsultationHistory[] @relation("ConsultationEdits")
   patientConsentEvents PatientConsent[]      @relation("PatientConsentEvents")
   mfaRecoveryCodes     MfaRecoveryCode[]
+  notifications        Notification[]
 }
 
 // Un solo rol: el profesional dueño de todas sus fichas. Se mantiene como
@@ -310,4 +311,30 @@ enum ConsentPurpose {
 enum ConsentAction {
   GRANT
   REVOKE
+}
+
+// sdd/session-reminders PR 1: modelo genérico de notificaciones in-app,
+// dueño-scoped por userId. `type` es el único punto de extensión para
+// futuras fuentes (reminders en PR 2, google-calendar-sync más adelante):
+// se agrega un miembro al enum, nunca una columna nueva. Sin FK a
+// Consultation a propósito -- `linkPath`/`metadata` cargan cualquier
+// referencia estructurada sin acoplar este modelo a un dominio puntual.
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+  type      NotificationType
+  title     String
+  body      String
+  linkPath  String?
+  metadata  Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+enum NotificationType {
+  SESSION_REMINDER
 }
