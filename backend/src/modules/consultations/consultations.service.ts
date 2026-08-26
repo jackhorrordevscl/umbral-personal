@@ -227,7 +227,6 @@ export class ConsultationsService {
             : original.nextSessionDate,
           sessionType: dto.sessionType ?? original.sessionType,
           scheduledAt: original.scheduledAt,
-          reminderSent: original.reminderSent,
           patientRut: original.patientRut,
           correctsId: id,
         },

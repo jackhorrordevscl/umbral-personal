@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
@@ -11,6 +12,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { ProfileModule } from './modules/profile/profile.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { RemindersModule } from './modules/reminders/reminders.module';
 import { SharedFilesModule } from './shared-files/shared-files.module';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { AppController } from './app.controller';
@@ -22,6 +24,11 @@ import { AppService } from './app.service';
       isGlobal: true,
       validate: validateEnv,
     }),
+    // sdd/session-reminders PR 2: timers en proceso, no spawnea nada --
+    // RemindersService.scan() está guardado detrás de REMINDERS_ENABLED
+    // (T4.5), así que registrar ScheduleModule acá no dispara el cron por
+    // sí solo en entornos donde ese flag esté en "false" (p. ej. e2e).
+    ScheduleModule.forRoot(),
     PrismaModule,
     AuditModule,
     AuthModule,
@@ -31,6 +38,7 @@ import { AppService } from './app.service';
     ReportsModule,
     DocumentsModule,
     NotificationsModule,
+    RemindersModule,
     SharedFilesModule,
   ],
   controllers: [AppController],

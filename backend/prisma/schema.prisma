@@ -159,7 +159,6 @@ model Consultation {
   sessionType     SessionType @default(IN_PERSON)
   createdAt       DateTime    @default(now())
   scheduledAt     DateTime
-  reminderSent    Boolean     @default(false)
   patientRut      String
   // Paridad con Patient: ninguna ruta expone un delete físico hoy, pero el
   // modelo ya queda listo para soft delete si alguna vez se agrega esa
@@ -172,7 +171,8 @@ model Consultation {
   corrects    Consultation? @relation("ConsultationVersion", fields: [correctsId], references: [id])
   correctedBy Consultation? @relation("ConsultationVersion")
 
-  history ConsultationHistory[]
+  history           ConsultationHistory[]
+  reminderDispatches ReminderDispatch[]
 
   @@index([groupId])
   @@index([patientId])
@@ -337,4 +337,47 @@ model Notification {
 
 enum NotificationType {
   SESSION_REMINDER
+}
+
+// sdd/session-reminders PR 2: log de despachos de recordatorios, uno por
+// tupla (groupId, sessionDate, offsetKind, channel). La garantía de "a lo
+// más un envío" NO es lógica de aplicación: es la restricción @@unique de
+// abajo. Mover sessionDate (correct()) genera una clave nueva => re-arma
+// automáticamente todos los offsets; una corrección que no toca sessionDate
+// reutiliza la misma clave y no reenvía nada. Reemplaza a
+// Consultation.reminderSent (columna muerta desde el schema original,
+// siempre false, eliminada en esta misma migración).
+model ReminderDispatch {
+  id             String                 @id @default(uuid())
+  groupId        String
+  sessionDate    DateTime
+  offsetKind     ReminderOffset
+  channel        ReminderChannel
+  consultationId String
+  consultation   Consultation           @relation(fields: [consultationId], references: [id])
+  therapistId    String
+  status         ReminderDispatchStatus @default(PENDING)
+  error          String?
+  sentAt         DateTime?
+  createdAt      DateTime               @default(now())
+
+  @@unique([groupId, sessionDate, offsetKind, channel])
+  @@index([consultationId])
+}
+
+enum ReminderOffset {
+  H24
+  H2
+}
+
+enum ReminderChannel {
+  IN_APP
+  EMAIL
+}
+
+enum ReminderDispatchStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
 }

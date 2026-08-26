@@ -75,6 +75,20 @@ function validateMainTsEnvVars(config: Record<string, unknown>): void {
       `RUN_MIGRATIONS inválido: "${describeValue(config.RUN_MIGRATIONS)}" -- debe ser exactamente "true" o "false".`,
     );
   }
+
+  // sdd/session-reminders PR 2: opcional, default true en RemindersService
+  // (ausente = cron habilitado) -- se valida igual que RUN_MIGRATIONS para
+  // que un typo falle en el arranque en vez de desactivar el cron en
+  // silencio.
+  if (
+    config.REMINDERS_ENABLED !== undefined &&
+    config.REMINDERS_ENABLED !== 'true' &&
+    config.REMINDERS_ENABLED !== 'false'
+  ) {
+    throw new Error(
+      `REMINDERS_ENABLED inválido: "${describeValue(config.REMINDERS_ENABLED)}" -- debe ser exactamente "true" o "false".`,
+    );
+  }
 }
 
 export function validateEnv(

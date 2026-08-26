@@ -155,4 +155,51 @@ export class MailService {
       );
     }
   }
+
+  // sdd/session-reminders PR 2 (T5.1): llamado por RemindersService por cada
+  // (consultation, offset) despachado por el canal EMAIL. Mismo contrato
+  // "nunca lanza" que el resto de esta clase -- design.md "Email Channel
+  // Degrades Gracefully": sin RESEND_API_KEY el envío se saltea con un log,
+  // y RemindersService igual crea la notificación in-app para ese mismo
+  // (consultation, offset) sin bloquearse por esto (design.md "Channels
+  // dispatch independently").
+  async sendSessionReminderEmail(
+    to: string,
+    therapistName: string,
+    patientFullName: string,
+    when: Date,
+    offsetLabel: string,
+  ): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn(
+        `RESEND_API_KEY no configurada: se salteó el recordatorio de sesión (${offsetLabel}) a ${to}.`,
+      );
+      return;
+    }
+
+    // Zona horaria fija a propósito (America/Santiago, mismo criterio que
+    // design.md "UTC instant arithmetic; explicit render zone"): esta clase
+    // solo renderiza texto humano, nunca decide due-ness.
+    const formattedWhen = new Intl.DateTimeFormat('es-CL', {
+      timeZone: 'America/Santiago',
+      dateStyle: 'full',
+      timeStyle: 'short',
+    }).format(when);
+
+    const { error } = await this.resend.emails.send({
+      from: this.from,
+      to,
+      subject: `Recordatorio de sesión en ${offsetLabel}`,
+      html: `
+        <p>Hola ${therapistName},</p>
+        <p>Tu sesión con <strong>${patientFullName}</strong> está programada para ${formattedWhen} (en ${offsetLabel}).</p>
+      `,
+    });
+
+    if (error) {
+      this.logger.error(
+        `Falló el envío del recordatorio de sesión a ${to}: ${error.message}`,
+      );
+    }
+  }
 }

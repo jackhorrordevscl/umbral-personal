@@ -193,4 +193,27 @@ describe('validateEnv', () => {
 
     expect(validateEnv(config)).toBe(config);
   });
+
+  // sdd/session-reminders PR 2 (T4.5): REMINDERS_ENABLED es opcional
+  // (RemindersService trata "ausente" como habilitado por default), pero si
+  // está presente debe ser exactamente "true" o "false" -- mismo criterio
+  // que RUN_MIGRATIONS, para que un typo falle rápido en el arranque en vez
+  // de silenciosamente desactivar el cron.
+  it('rechaza un REMINDERS_ENABLED que no es "true" ni "false"', () => {
+    const config = { NODE_ENV: 'test', REMINDERS_ENABLED: 'nope' };
+
+    expect(() => validateEnv(config)).toThrow(/REMINDERS_ENABLED inválido/);
+  });
+
+  it('permite REMINDERS_ENABLED="false"', () => {
+    const config = { NODE_ENV: 'test', REMINDERS_ENABLED: 'false' };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
+  it('permite REMINDERS_ENABLED ausente', () => {
+    const config = { NODE_ENV: 'test' };
+
+    expect(validateEnv(config)).toBe(config);
+  });
 });
