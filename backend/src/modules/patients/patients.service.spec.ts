@@ -3,6 +3,7 @@ import { Patient } from '@prisma/client';
 import { PatientsService } from './patients.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 
 function buildPatient(overrides: Partial<Patient> = {}): Patient {
   return {
@@ -42,6 +43,7 @@ describe('PatientsService', () => {
     patientHistory: { create: jest.Mock; findMany: jest.Mock };
     $transaction: jest.Mock;
   };
+  let calendarSync: { deletePatientEvents: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -73,10 +75,14 @@ describe('PatientsService', () => {
     };
 
     const auditService = { log: jest.fn() } as unknown as AuditService;
+    calendarSync = {
+      deletePatientEvents: jest.fn().mockResolvedValue(undefined),
+    };
 
     service = new PatientsService(
       prisma as unknown as PrismaService,
       auditService,
+      calendarSync as unknown as CalendarSyncService,
     );
   });
 
@@ -299,6 +305,37 @@ describe('PatientsService', () => {
         service.softDelete('patient-1', 'therapist-1'),
       ).rejects.toThrow(NotFoundException);
       expect(prisma.patient.update).not.toHaveBeenCalled();
+    });
+
+    // sdd/google-calendar-integration T5.7: design.md "Confirmed Decisions"
+    // -- DELETE /patients/:id es el único disparador real de borrado de
+    // eventos de Google hoy (ningún endpoint escribe Consultation.deletedAt
+    // todavía).
+    it('dispara calendarSync.deletePatientEvents(id) tras el soft-delete', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patient.update.mockResolvedValue(
+        buildPatient({ deletedAt: new Date() }),
+      );
+
+      await service.softDelete('patient-1', 'therapist-1');
+
+      expect(calendarSync.deletePatientEvents).toHaveBeenCalledWith(
+        'patient-1',
+      );
+    });
+
+    it('un rechazo de calendarSync.deletePatientEvents no impide que softDelete() se resuelva (non-blocking)', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patient.update.mockResolvedValue(
+        buildPatient({ deletedAt: new Date() }),
+      );
+      calendarSync.deletePatientEvents.mockRejectedValue(
+        new Error('Google no disponible'),
+      );
+
+      await expect(
+        service.softDelete('patient-1', 'therapist-1'),
+      ).resolves.toEqual(expect.objectContaining({ id: 'patient-1' }));
     });
   });
 

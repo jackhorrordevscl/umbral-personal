@@ -58,37 +58,37 @@ Chain strategy: stacked-to-main
 
 ## Phase 4: Sync Propagation — Foundation (PR 2)
 
-- [ ] 4.1 Create `calendar-integration/patient-code.util.ts`: `initials(fullName)`, `shortCode(patientId)` (`sha256("umbral/patient-code/v1|" + id)`, Crockford base32, 6 chars), `patientLabel(patient)`.
-- [ ] 4.2 Create `calendar-integration/google-calendar.client.ts`: `insertEvent`/`patchEvent`/`deleteEvent` via `google-auth-library` `OAuth2Client` + native `fetch`; typed error classification (`invalid_grant`/401, 404/410, 403/5xx/network).
+- [x] 4.1 Create `calendar-integration/patient-code.util.ts`: `initials(fullName)`, `shortCode(patientId)` (`sha256("umbral/patient-code/v1|" + id)`, Crockford base32, 6 chars), `patientLabel(patient)`.
+- [x] 4.2 Create `calendar-integration/google-calendar.client.ts`: `insertEvent`/`patchEvent`/`deleteEvent` via `google-auth-library` `OAuth2Client` + native `fetch`; typed error classification (`invalid_grant`/401, 404/410, 403/5xx/network).
 
 ## Phase 5: Sync Propagation — Core (PR 2)
 
-- [ ] 5.1 Create `calendar-integration/calendar-sync.service.ts`: `syncGroup(groupId)` — builds minimized event body (initials+code+deep link, no `rut`/`fullName`/`sessionType`/clinical text, `DEFAULT_SESSION_MINUTES = 50`, no attendees), upserts `CalendarEventLink` keyed `(connectionId, groupId)`.
-- [ ] 5.2 `calendar-sync.service.ts`: `reconcile()` `@Cron(EVERY_15_MINUTES)` — repairs `FAILED` links, date drift, `consultation.deletedAt`/`patient.deletedAt` deletions, and one bounded backfill pass (`(now, now+90d]`) per `CONNECTED` connection.
-- [ ] 5.3 `calendar-sync.service.ts`: `invalid_grant`/401 handling — `updateMany({ where: { id, status: CONNECTED } })` so only a winning transition notifies once via `NotificationsService`; token wiped; no retry.
-- [ ] 5.4 On reconnect with a different `googleAccountEmail`, purge all `CalendarEventLink` rows for that connection.
-- [ ] 5.5 `backend/src/modules/consultations/consultations.service.ts`: emit `void this.calendarSync.syncGroup(groupId).catch(log)` after `create()` transaction commits.
-- [ ] 5.6 `consultations.service.ts`: same emission after `correct()` transaction commits.
-- [ ] 5.7 Wire patient soft-delete (`DELETE /patients/:id`) to delete every mapped future event and its `CalendarEventLink` rows for that patient's consultations.
-- [ ] 5.8 `backend/src/modules/consultations/consultations.module.ts`: import `CalendarIntegrationModule` (no cycle).
-- [ ] 5.9 `calendar-integration.module.ts`: implement the `CalendarSyncService` export stubbed in PR 1.
+- [x] 5.1 Create `calendar-integration/calendar-sync.service.ts`: `syncGroup(groupId)` — builds minimized event body (initials+code+deep link, no `rut`/`fullName`/`sessionType`/clinical text, `DEFAULT_SESSION_MINUTES = 50`, no attendees), upserts `CalendarEventLink` keyed `(connectionId, groupId)`.
+- [x] 5.2 `calendar-sync.service.ts`: `reconcile()` `@Cron(EVERY_15_MINUTES)` — repairs `FAILED` links, date drift, `consultation.deletedAt`/`patient.deletedAt` deletions, and one bounded backfill pass (`(now, now+90d]`) per `CONNECTED` connection.
+- [x] 5.3 `calendar-sync.service.ts`: `invalid_grant`/401 handling — `updateMany({ where: { id, status: CONNECTED } })` so only a winning transition notifies once via `NotificationsService`; token wiped; no retry.
+- [x] 5.4 On reconnect with a different `googleAccountEmail`, purge all `CalendarEventLink` rows for that connection. **(implemented and unit-tested as `CalendarSyncService.purgeLinksOnAccountChange`; not yet wired into `CalendarOauthService.exchangeCodeAndPersist` — see Deviations.)**
+- [x] 5.5 `backend/src/modules/consultations/consultations.service.ts`: emit `void this.calendarSync.syncGroup(groupId).catch(log)` after `create()` transaction commits.
+- [x] 5.6 `consultations.service.ts`: same emission after `correct()` transaction commits.
+- [x] 5.7 Wire patient soft-delete (`DELETE /patients/:id`) to delete every mapped future event and its `CalendarEventLink` rows for that patient's consultations.
+- [x] 5.8 `backend/src/modules/consultations/consultations.module.ts`: import `CalendarIntegrationModule` (no cycle).
+- [x] 5.9 `calendar-integration.module.ts`: implement the `CalendarSyncService` export stubbed in PR 1.
 
 ## Phase 6: Sync Propagation — Testing (PR 2)
 
-- [ ] 6.1 RED unit `patient-code.util.spec.ts`: `patientLabel` determinism, 2/3/4-token names, diacritics, code stability across a `fullName` change.
-- [ ] 6.2 GREEN: implement `initials`/`shortCode` per the Chilean-name convention.
-- [ ] 6.3 RED unit: event body contains initials+code+deep link and **no** `rut`, `fullName`, `consultReason`, `intervention`, `agreements`, `sessionType` — assert on serialized payload.
-- [ ] 6.4 GREEN: implement minimized event-body builder.
-- [ ] 6.5 RED unit: `invalid_grant` → DISCONNECTED + exactly one notification; a second failure on an already-`DISCONNECTED` connection emits none.
-- [ ] 6.6 GREEN: gate notification on the winning `updateMany` transition.
-- [ ] 6.7 RED unit: reconciler never deletes an event merely for leaving the 90-day window (move `sessionDate` to +200d → assert `patch`, not `delete`).
-- [ ] 6.8 GREEN: reconciler deletion path keyed only on `deletedAt`, not window membership.
-- [ ] 6.9 RED integration: `correct()` on `sessionDate` patches the **same** `googleEventId`; a text-only `correct()` still patches once, never inserts.
-- [ ] 6.10 GREEN: `syncGroup` resolves the existing link before deciding insert vs patch.
-- [ ] 6.11 RED integration: Google client throwing on every call → `create()`/`correct()` still return 201/200 (real Prisma, mocked client, force rejection).
-- [ ] 6.12 GREEN: confirm sync call sites never `await` inside the write's critical path.
-- [ ] 6.13 Integration: backfill = one scoped reconcile pass — N future sessions in-window pushed, 0 out-of-window pushed (real Prisma against the test DB).
-- [ ] 6.14 Integration: patient soft-delete removes every mapped future event and its links; past/already-deleted links untouched.
+- [x] 6.1 RED unit `patient-code.util.spec.ts`: `patientLabel` determinism, 2/3/4-token names, diacritics, code stability across a `fullName` change.
+- [x] 6.2 GREEN: implement `initials`/`shortCode` per the Chilean-name convention.
+- [x] 6.3 RED unit: event body contains initials+code+deep link and **no** `rut`, `fullName`, `consultReason`, `intervention`, `agreements`, `sessionType` — assert on serialized payload.
+- [x] 6.4 GREEN: implement minimized event-body builder.
+- [x] 6.5 RED unit: `invalid_grant` → DISCONNECTED + exactly one notification; a second failure on an already-`DISCONNECTED` connection emits none.
+- [x] 6.6 GREEN: gate notification on the winning `updateMany` transition.
+- [x] 6.7 RED unit: reconciler never deletes an event merely for leaving the 90-day window (move `sessionDate` to +200d → assert `patch`, not `delete`).
+- [x] 6.8 GREEN: reconciler deletion path keyed only on `deletedAt`, not window membership.
+- [x] 6.9 RED integration: `correct()` on `sessionDate` patches the **same** `googleEventId`; a text-only `correct()` still patches once, never inserts.
+- [x] 6.10 GREEN: `syncGroup` resolves the existing link before deciding insert vs patch.
+- [x] 6.11 RED integration: Google client throwing on every call → `create()`/`correct()` still return 201/200 (real Prisma, mocked client, force rejection).
+- [x] 6.12 GREEN: confirm sync call sites never `await` inside the write's critical path.
+- [x] 6.13 Integration: backfill = one scoped reconcile pass — N future sessions in-window pushed, 0 out-of-window pushed (real Prisma against the test DB).
+- [x] 6.14 Integration: patient soft-delete removes every mapped future event and its links; past/already-deleted links untouched.
 
 ## Phase 7: Frontend + Documentation (PR 3)
 

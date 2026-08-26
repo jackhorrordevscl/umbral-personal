@@ -8,6 +8,7 @@ import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
+import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { CorrectConsultationDto } from './dto/correct-consultation.dto';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
@@ -29,7 +30,20 @@ export class ConsultationsService {
   constructor(
     private prisma: PrismaService,
     private patientsService: PatientsService,
+    private calendarSync: CalendarSyncService,
   ) {}
+
+  // design.md "Fire-and-forget intents plus a bounded reconciler": nunca se
+  // await -- un fallo de Google (o el flag GOOGLE_CALENDAR_SYNC_ENABLED en
+  // false) jamás debe bloquear ni revertir la escritura clínica que lo
+  // origina (spec.md "Non-Blocking Sync Failures").
+  private emitCalendarSync(groupId: string): void {
+    void this.calendarSync.syncGroup(groupId).catch((err: unknown) => {
+      this.logger.error(
+        `Fallo no bloqueante al sincronizar con Google Calendar (groupId=${groupId}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }
 
   async create(dto: CreateConsultationDto, therapistId: string) {
     // assertAccess lanza NotFoundException si el paciente no existe o no
@@ -69,6 +83,7 @@ export class ConsultationsService {
     this.logger.log(
       `Consulta creada: id=${consultation.id} patientId=${dto.patientId} therapistId=${therapistId}`,
     );
+    this.emitCalendarSync(consultation.groupId);
     return consultation;
   }
 
@@ -241,6 +256,7 @@ export class ConsultationsService {
     this.logger.log(
       `Consulta corregida: originalId=${id} nuevaId=${result.id} groupId=${original.groupId} therapistId=${therapistId}`,
     );
+    this.emitCalendarSync(original.groupId);
     return result;
   }
 }
