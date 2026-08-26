@@ -6,7 +6,10 @@ import { MailService } from './mail.service';
 // sendVerificationEmail) -- sin RESEND_API_KEY, el envío se saltea con un
 // log en vez de fallar, para que el canal in-app nunca quede bloqueado por
 // el canal de email (design.md "Channels dispatch independently").
-const sendMock = jest.fn();
+const sendMock = jest.fn<
+  Promise<{ data: { id: string } | null; error: { message: string } | null }>,
+  [{ from: string; to: string; subject: string; html: string }]
+>();
 
 jest.mock('resend', () => ({
   Resend: jest.fn().mockImplementation(() => ({
