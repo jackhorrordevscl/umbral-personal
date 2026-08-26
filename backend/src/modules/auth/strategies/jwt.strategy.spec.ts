@@ -65,6 +65,22 @@ describe('JwtStrategy', () => {
       ).rejects.toThrow('Token no autorizado para esta operación');
       expect(prisma.user.findUnique).not.toHaveBeenCalled();
     });
+
+    // sdd/google-calendar-integration PR 1: el `state` del handshake OAuth
+    // (CalendarOauthService.buildAuthorizationUrl) es un JWT firmado con
+    // JWT_SECRET, igual que password-reset/mfa-setup -- sin este bloqueo,
+    // ese token de 10 minutos podría usarse como Bearer de sesión contra
+    // cualquier ruta protegida por JwtAuthGuard mientras no expire.
+    it('rechaza un purpose bloqueado (google-calendar-oauth) sin siquiera consultar prisma', async () => {
+      await expect(
+        strategy.validate({
+          ...basePayload,
+          purpose: 'google-calendar-oauth',
+          iat: 1000,
+        }),
+      ).rejects.toThrow('Token no autorizado para esta operación');
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
   });
 
   describe('usuario inexistente o soft-deleted (regresión)', () => {

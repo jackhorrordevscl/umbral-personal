@@ -74,6 +74,7 @@ model User {
   patientConsentEvents PatientConsent[]      @relation("PatientConsentEvents")
   mfaRecoveryCodes     MfaRecoveryCode[]
   notifications        Notification[]
+  calendarConnection   GoogleCalendarConnection?
 }
 
 // Un solo rol: el profesional dueño de todas sus fichas. Se mantiene como
@@ -346,6 +347,11 @@ model Notification {
 
 enum NotificationType {
   SESSION_REMINDER
+  // sdd/google-calendar-integration PR 2: emitida cuando invalid_grant/401
+  // marca una conexión CONNECTED como DISCONNECTED (ver CalendarSyncService,
+  // design.md "Failure classification"). El campo existe desde PR 1 junto
+  // con el resto del schema aditivo aunque todavía no lo emite nadie.
+  GOOGLE_CALENDAR_DISCONNECTED
 }
 
 // sdd/session-reminders PR 2: log de despachos de recordatorios, uno por
@@ -389,4 +395,69 @@ enum ReminderDispatchStatus {
   SENT
   FAILED
   SKIPPED
+}
+
+// sdd/google-calendar-integration PR 1: una conexión por terapeuta (nunca por
+// sesión, ver proposal.md "Granularity"). `stateNonceHash`/`stateExpiresAt`
+// custodian el nonce de un solo uso del handshake OAuth (design.md "The
+// OAuth callback is unauthenticated; identity travels in a signed,
+// single-use state") -- se limpian al consumirse, así un replay del mismo
+// `state` firmado nunca vuelve a encontrar match. `refreshTokenEncrypted` es
+// el único crédito persistido (nunca el access token, ver design.md "The
+// access token is never persisted"): [IV(12)][authTag(16)][ciphertext],
+// cifrado con GoogleTokenCryptoService (GOOGLE_TOKEN_ENCRYPTION_KEY, no
+// DOCUMENT_ENCRYPTION_KEY).
+model GoogleCalendarConnection {
+  id                    String                  @id @default(uuid())
+  therapistId           String                  @unique
+  therapist             User                    @relation(fields: [therapistId], references: [id])
+  status                GoogleConnectionStatus  @default(PENDING)
+  disconnectReason      GoogleDisconnectReason?
+  googleAccountEmail    String?
+  calendarId            String                  @default("primary")
+  refreshTokenEncrypted Bytes?
+  scope                 String?
+  stateNonceHash        String?
+  stateExpiresAt        DateTime?
+  connectedAt           DateTime?
+  disconnectedAt        DateTime?
+  lastSyncAt            DateTime?
+  lastError             String?
+  links                 CalendarEventLink[]
+}
+
+// Clave (connectionId, groupId): groupId sobrevive a correct() (ver
+// Consultation.groupId); connectionId permite purgar los links si al
+// reconectar la cuenta de Google resulta ser otra (design.md "Event link
+// keyed on (connectionId, groupId)"). Implementado/consumido recién en PR 2
+// (CalendarSyncService) -- este PR solo agrega el modelo.
+model CalendarEventLink {
+  id              String                   @id @default(uuid())
+  connectionId    String
+  connection      GoogleCalendarConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  groupId         String
+  googleEventId   String
+  lastSessionDate DateTime
+  syncStatus      CalendarSyncStatus       @default(SYNCED)
+  lastError       String?
+  lastSyncedAt    DateTime                 @updatedAt
+
+  @@unique([connectionId, groupId])
+  @@index([syncStatus])
+}
+
+enum GoogleConnectionStatus {
+  PENDING
+  CONNECTED
+  DISCONNECTED
+}
+
+enum GoogleDisconnectReason {
+  USER_REQUEST
+  INVALID_GRANT
+}
+
+enum CalendarSyncStatus {
+  SYNCED
+  FAILED
 }

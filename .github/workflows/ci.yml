@@ -43,6 +43,22 @@ jobs:
       # RemindersService debe quedar apagado en el entorno e2e -- sin esto,
       # AppModule arrancaría el scan real en cada boot de CI.
       REMINDERS_ENABLED: 'false'
+      # sdd/google-calendar-integration PR 1: GoogleTokenCryptoService.onModuleInit
+      # exige esta clave siempre (mirrors DocumentEncryptionService), sin
+      # importar si GOOGLE_CLIENT_ID está seteado -- sin esto, AppModule no
+      # arranca en CI.
+      GOOGLE_TOKEN_ENCRYPTION_KEY: MoDh8f3G8V0hR0m5wq8V0hR0m5wq8V0hR0m5wq8V0i8=
+      # Fake, solo para que CalendarOauthService quede "enabled" y
+      # generateAuthUrl (sin llamada de red) funcione en calendar-integration.e2e-spec.ts
+      # -- getToken()/revokeToken() (los únicos que sí llaman a Google) están
+      # siempre stubbeados vía jest.spyOn en esos tests, nunca se ejecutan de
+      # verdad en CI.
+      GOOGLE_CLIENT_ID: ci-only-fake-client-id.apps.googleusercontent.com
+      GOOGLE_CLIENT_SECRET: ci-only-fake-client-secret
+      GOOGLE_REDIRECT_URI: http://localhost:3001/api/v1/calendar-integration/callback
+      # design.md "Migration / Rollout": debe estar en 'false' en el entorno
+      # e2e, mismo motivo que REMINDERS_ENABLED.
+      GOOGLE_CALENDAR_SYNC_ENABLED: 'false'
     steps:
       - uses: actions/checkout@v4
 

@@ -95,6 +95,16 @@ MAIL_FROM="Umbral - RCE <onboarding@resend.dev>"
 # Clave de cifrado de documentos (T8.1) -- genera la tuya con:
 # openssl rand -base64 32
 DOCUMENT_ENCRYPTION_KEY="+rPRh0H2ayZ4yAIjhOWbvOghetuNtScBP8g2VgNuBik="
+# sdd/google-calendar-integration: clave AES-256-GCM propia para el refresh
+# token de Google Calendar (distinta de DOCUMENT_ENCRYPTION_KEY a propósito,
+# ver design.md) -- genera la tuya con: openssl rand -base64 32
+GOOGLE_TOKEN_ENCRYPTION_KEY="vihs9JiRKVRGjurFGk+YqxhpvD7zanIZJgbHGeSOMi4="
+# Opcionales: sin GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET, la integración con
+# Google Calendar se registra deshabilitada (no bloquea el arranque).
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
+GOOGLE_REDIRECT_URI="http://localhost:3001/api/v1/calendar-integration/callback"
+GOOGLE_CALENDAR_SYNC_ENABLED="false"
 EOL
   echo "✅ .env creado"
 else

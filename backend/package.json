@@ -36,6 +36,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "dotenv": "^17.3.1",
+    "google-auth-library": "^11.0.2",
     "helmet": "^8.1.0",
     "multer": "^2.1.1",
     "passport": "^0.7.0",
@@ -100,5 +101,12 @@
       }
     },
     "testEnvironment": "node"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "argon2@0.44.0": true,
+    "prisma@6.19.3": true,
+    "unrs-resolver@1.11.1": true
   }
 }
