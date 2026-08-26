@@ -44,33 +44,33 @@ Chain strategy: stacked-to-main
 - [x] 3.7 Test: unauthenticated request → 401.
 
 ## Phase 4: Reminders — Foundation (PR 2)
-- [ ] 4.1 `package.json`: add `@nestjs/schedule`.
-- [ ] 4.2 `schema.prisma`: add `ReminderDispatch` + 3 enums, `@@unique([groupId, sessionDate, offsetKind, channel])`; drop `Consultation.reminderSent`.
-- [ ] 4.3 Migration `prisma/migrations/*_session_reminders/`: additive tables + `DROP COLUMN "reminderSent"`.
-- [ ] 4.4 Create `reminders.constants.ts`: offsets table, `MAX_LOOKAHEAD_MS`, `SCAN_BATCH_LIMIT`, `RENDER_TIME_ZONE`.
-- [ ] 4.5 `env.validation.ts`: optional `REMINDERS_ENABLED` (default true).
+- [x] 4.1 `package.json`: add `@nestjs/schedule`.
+- [x] 4.2 `schema.prisma`: add `ReminderDispatch` + 3 enums, `@@unique([groupId, sessionDate, offsetKind, channel])`; drop `Consultation.reminderSent`.
+- [x] 4.3 Migration `prisma/migrations/*_session_reminders/`: additive tables + `DROP COLUMN "reminderSent"`.
+- [x] 4.4 Create `reminders.constants.ts`: offsets table, `MAX_LOOKAHEAD_MS`, `SCAN_BATCH_LIMIT`, `RENDER_TIME_ZONE`.
+- [x] 4.5 `env.validation.ts`: optional `REMINDERS_ENABLED` (default true).
 
 ## Phase 5: Reminders — Core (PR 2)
-- [ ] 5.1 `mail.service.ts`: add `sendSessionReminderEmail(to, therapistName, patientFullName, when, offsetLabel)`.
-- [ ] 5.2 Create `reminders.service.ts`: `@Cron` scan (`deletedAt:null`, `correctedBy:null`, `sessionDate` in `(now, now+24h]`); due-ness predicate; claim via `ReminderDispatch.create(PENDING)` catching `P2002`; nearest-offset-only, rest `SKIPPED`; update `SENT`/`FAILED`.
-- [ ] 5.3 Create `reminders.module.ts`: import `NotificationsModule`, `MailModule`.
-- [ ] 5.4 `app.module.ts`: `ScheduleModule.forRoot()` + `RemindersModule`.
-- [ ] 5.5 `consultations.service.ts`: remove `reminderSent` copy-forward (line 230).
-- [ ] 5.6 `consultations.service.spec.ts`: drop `reminderSent` fixture assertion.
+- [x] 5.1 `mail.service.ts`: add `sendSessionReminderEmail(to, therapistName, patientFullName, when, offsetLabel)`.
+- [x] 5.2 Create `reminders.service.ts`: `@Cron` scan (`deletedAt:null`, `correctedBy:null`, `sessionDate` in `(now, now+24h]`); due-ness predicate; claim via `ReminderDispatch.create(PENDING)` catching `P2002`; nearest-offset-only, rest `SKIPPED`; update `SENT`/`FAILED`.
+- [x] 5.3 Create `reminders.module.ts`: import `NotificationsModule`, `MailModule`.
+- [x] 5.4 `app.module.ts`: `ScheduleModule.forRoot()` + `RemindersModule`.
+- [x] 5.5 `consultations.service.ts`: remove `reminderSent` copy-forward (line 230).
+- [x] 5.6 `consultations.service.spec.ts`: drop `reminderSent` fixture assertion.
 
 ## Phase 6: Reminders — Testing (PR 2)
-- [ ] 6.1 RED: due-ness at 24h/2h boundaries, past sessions, DST-crossing (fake `now`, table-driven).
-- [ ] 6.2 GREEN: implement due-ness predicate.
-- [ ] 6.3 RED: re-arm matrix — date moved → 4 new dispatches; text-only `correct()` → 0.
-- [ ] 6.4 GREEN: `groupId+sessionDate` key drives re-arm.
-- [ ] 6.5 RED: `P2002` on claim → skip, email not sent.
-- [ ] 6.6 GREEN: catch unique-violation, skip silently.
-- [ ] 6.7 RED: session 10min out — only H2 dispatched, H24 `SKIPPED`, one email/notification not two.
-- [ ] 6.8 GREEN: nearest-offset-only claim logic.
-- [ ] 6.9 RED: missing `RESEND_API_KEY` still yields in-app notification; email throw doesn't block in-app.
-- [ ] 6.10 GREEN: mail null-client fallback; channels dispatch independently.
-- [ ] 6.11 Integration: scan excludes `deletedAt`/`correctedBy` rows (real Prisma, test DB).
-- [ ] 6.12 Integration: two consecutive `scan()` runs → exactly one dispatch per tuple.
+- [x] 6.1 RED: due-ness at 24h/2h boundaries, past sessions, DST-crossing (fake `now`, table-driven).
+- [x] 6.2 GREEN: implement due-ness predicate.
+- [x] 6.3 RED: re-arm matrix — date moved → 4 new dispatches; text-only `correct()` → 0.
+- [x] 6.4 GREEN: `groupId+sessionDate` key drives re-arm.
+- [x] 6.5 RED: `P2002` on claim → skip, email not sent.
+- [x] 6.6 GREEN: catch unique-violation, skip silently.
+- [x] 6.7 RED: session 10min out — only H2 dispatched, H24 `SKIPPED`, one email/notification not two.
+- [x] 6.8 GREEN: nearest-offset-only claim logic.
+- [x] 6.9 RED: missing `RESEND_API_KEY` still yields in-app notification; email throw doesn't block in-app.
+- [x] 6.10 GREEN: mail null-client fallback; channels dispatch independently.
+- [x] 6.11 Integration: scan excludes `deletedAt`/`correctedBy` rows (real Prisma, test DB).
+- [x] 6.12 Integration: two consecutive `scan()` runs → exactly one dispatch per tuple.
 
 ## Phase 7: Frontend — Notification Surface (PR 3)
 - [ ] 7.1 Create bell badge component polling `GET /notifications/unread-count`.

@@ -20,7 +20,6 @@ function buildConsultation(
     sessionType: 'IN_PERSON',
     createdAt: new Date(),
     scheduledAt: new Date('2026-01-10T12:00:00'),
-    reminderSent: false,
     patientRut: '11111111-1',
     deletedAt: null,
     correctsId: null,
