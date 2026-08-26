@@ -31,6 +31,7 @@ este repositorio.
 | 8 | Historial de cambios de ficha | `PatientHistory` (snapshot + diff) | Ficha completa antes/después de cada edición | Trazabilidad de modificaciones a datos clínicos | Deriva de `TREATMENT` | Quien edita (`changedBy`), auditoría | Igual que ficha |
 | 9 | Archivos compartidos (biblioteca interna) | `SharedFile` | Plantillas, formularios, protocolos — no son datos de pacientes | Recursos operativos del equipo | No aplica (no es dato personal de paciente) | Todo el staff autenticado | Sin retención legal específica — política interna |
 | 10 | Backups | Workflow `.github/workflows/backup.yml` (fuera de Prisma; reemplaza a `backups/backup.sh`, pensado para una VM propia que ya no existe) | Volcado cifrado (AES-256, `openssl`) de toda la base | Continuidad operativa / recuperación ante desastre | Obligación de seguridad (Ley 19.628 art. 11 bis) | Quien tenga las credenciales de Backblaze B2 y la frase de cifrado (gestor de contraseñas del terapeuta) | Sin rotación: se conserva **todo, indefinidamente** — a este volumen (~40 KB/backup diario) 15 años de historial completo ocupan ~230 MB, muy por debajo de los 10 GB gratis de B2, así que no hace falta distinguir "operativo" de "custodia legal" con políticas de borrado distintas (issue #8, cerrado 2026-08-03) |
+| 11 | Sincronización con Google Calendar (opcional, por terapeuta) | `GoogleCalendarConnection`, `CalendarEventLink` (`backend/src/modules/calendar-integration/`) | Iniciales del paciente + código corto no reversible (`sha256` truncado sobre `patient.id`, sin clave), fecha/hora de la sesión, link de vuelta a Umbral. Nunca RUT, nombre completo, `sessionType` ni texto clínico. El refresh token OAuth del terapeuta se cifra AES-256-GCM (`GOOGLE_TOKEN_ENCRYPTION_KEY`, dedicada — no comparte clave con `DocumentEncryptionService`) | Que el terapeuta vea sus sesiones de Umbral en su propia agenda de Google, sin re-tipearlas | No es un dato del paciente identificable fuera de Umbral (contenido minimizado por diseño) — la base habilitante es la necesidad contractual de operar la cuenta del terapeuta, quien conecta voluntariamente su propia cuenta de Google (`calendar.events`, `access_type=offline`) | El terapeuta dueño de la conexión (su propio Google Calendar); Google LLC como procesador de los eventos minimizados | Mientras la conexión esté `CONNECTED`; el evento y el mapeo (`CalendarEventLink`) se borran al eliminar la sesión/paciente o al desconectar; una revocación (`invalid_grant`) marca la conexión `DISCONNECTED` y detiene el envío sin reintentos |
 
 > **Nota sobre la fila 1 (versiones previas de este documento):** este RAT
 > describía anteriormente roles `SUPERVISOR`/`COORDINATOR`/`ADMIN` y un modo
@@ -65,6 +66,16 @@ Chile, pero eso ya no es así:
   paciente. No es una transferencia de datos de salud, así que la base
   habilitante que aplica no es el consentimiento informado del paciente sino
   la necesidad contractual de operar la cuenta del profesional.
+- La sincronización opcional con Google Calendar (fila 11) envía a la
+  **Google Calendar API (Google LLC, Estados Unidos)** únicamente contenido
+  ya minimizado: iniciales + código no reversible + fecha/hora + link de
+  vuelta a Umbral. Igual que con Resend, el dato que sale es del
+  **terapeuta** operando su propia cuenta de Google, no una identificación
+  directa del paciente — pero al tratarse de metadata de una sesión clínica
+  (fecha/hora de atención), no está resuelto si la Ley 21.719 lo trata igual
+  que el email transaccional de la fila 4 o si, por derivarse de un dato de
+  salud, requiere la misma base habilitante que las filas 1-9. Pendiente de
+  revisión legal, igual que el resto de esta sección.
 
 Esto constituye una transferencia internacional de datos de salud, que la
 Ley 21.719 regula explícitamente (requiere alguna base habilitante: nivel de
@@ -108,7 +119,12 @@ públicas que los proveedores pueden actualizar):
 ## Pendientes conocidos
 
 - **Transferencia internacional de datos** — ver sección de arriba. Es el
-  pendiente más importante de este documento hoy.
+  pendiente más importante de este documento hoy. Incluye, desde esta
+  versión, la sincronización opcional con Google Calendar (fila 11):
+  falta recopilar evidencia del DPA de Google (mismo criterio que
+  `supabase-dpa-2026-08-03.pdf`/`resend-dpa-2026-08-04.pdf` en
+  `docs/evidencia-compliance/`) y resolver si aplica la base habilitante de
+  dato de salud o la de cuenta de profesional.
 - **Firma electrónica avanzada** (filas 2 y 6, a futuro): la firma de cada
   consulta/corrección y el sello de tiempo en los PDF exportados dependen de
   elegir un proveedor acreditado por la Ley 19.799 — ver issues #24, #25, #26
