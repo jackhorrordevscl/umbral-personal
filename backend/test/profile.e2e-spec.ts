@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { getOptionsToken } from '@nestjs/throttler';
 import request from 'supertest';
 import { App } from 'supertest/types';
@@ -87,7 +87,7 @@ describe('ProfileModule (e2e)', () => {
     sub: string,
     pendingEmail: string,
     changeIssuedAt: number,
-    expiresIn: string | number = '24h',
+    expiresIn: JwtSignOptions['expiresIn'] = '24h',
   ) {
     return jwtService.sign(
       { sub, purpose: 'email-change', pendingEmail, changeIssuedAt },
