@@ -271,9 +271,9 @@ describe('Session invalidation tras cambio de contraseña (e2e)', () => {
         .post('/api/v1/auth/login')
         .send({ email, password: TEST_PASSWORD })
         .expect(201);
-      expect((login.body as Record<string, unknown>).requiresPasswordChange).toBe(
-        true,
-      );
+      expect(
+        (login.body as Record<string, unknown>).requiresPasswordChange,
+      ).toBe(true);
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/password/change')
