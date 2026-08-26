@@ -3,6 +3,7 @@ import { Consultation } from '@prisma/client';
 import { ConsultationsService } from './consultations.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
+import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 
 function buildConsultation(
   overrides: Partial<Consultation> = {},
@@ -41,6 +42,7 @@ describe('ConsultationsService', () => {
     $transaction: jest.Mock;
   };
   let patientsService: { assertAccess: jest.Mock };
+  let calendarSync: { syncGroup: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -66,10 +68,12 @@ describe('ConsultationsService', () => {
         .fn()
         .mockResolvedValue({ id: 'patient-1', rut: '11111111-1' }),
     };
+    calendarSync = { syncGroup: jest.fn().mockResolvedValue(undefined) };
 
     service = new ConsultationsService(
       prisma as unknown as PrismaService,
       patientsService as unknown as PatientsService,
+      calendarSync as unknown as CalendarSyncService,
     );
   });
 
@@ -132,6 +136,44 @@ describe('ConsultationsService', () => {
       );
 
       expect(result.groupId).toBe(result.id);
+    });
+
+    // sdd/google-calendar-integration T5.5: design.md "create()/correct()
+    // call void this.calendarSync.syncGroup(groupId).catch(log) after their
+    // transaction commits".
+    it('dispara calendarSync.syncGroup(groupId) tras persistir la consulta', async () => {
+      prisma.consultation.create.mockResolvedValue(buildConsultation());
+
+      await service.create(
+        {
+          patientId: 'patient-1',
+          sessionDate: '2026-01-10',
+          consultReason: 'Motivo',
+          intervention: 'Intervención',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(calendarSync.syncGroup).toHaveBeenCalledWith('consultation-1');
+    });
+
+    it('un rechazo de calendarSync.syncGroup no impide que create() se resuelva (T non-blocking)', async () => {
+      prisma.consultation.create.mockResolvedValue(buildConsultation());
+      calendarSync.syncGroup.mockRejectedValue(
+        new Error('Google no disponible'),
+      );
+
+      await expect(
+        service.create(
+          {
+            patientId: 'patient-1',
+            sessionDate: '2026-01-10',
+            consultReason: 'Motivo',
+            intervention: 'Intervención',
+          } as never,
+          'therapist-1',
+        ),
+      ).resolves.toEqual(expect.objectContaining({ id: 'consultation-1' }));
     });
   });
 
@@ -250,6 +292,50 @@ describe('ConsultationsService', () => {
         }),
       );
       expect(result.id).toBe('consultation-2');
+    });
+
+    // sdd/google-calendar-integration T5.6
+    it('dispara calendarSync.syncGroup(groupId) tras persistir la corrección', async () => {
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation())
+        .mockResolvedValueOnce(null);
+      prisma.consultation.create.mockResolvedValue(
+        buildConsultation({
+          id: 'consultation-2',
+          correctsId: 'consultation-1',
+        }),
+      );
+
+      await service.correct(
+        'consultation-1',
+        { consultReason: 'Motivo corregido' } as never,
+        'therapist-1',
+      );
+
+      expect(calendarSync.syncGroup).toHaveBeenCalledWith('consultation-1');
+    });
+
+    it('un rechazo de calendarSync.syncGroup no impide que correct() se resuelva (T non-blocking)', async () => {
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation())
+        .mockResolvedValueOnce(null);
+      prisma.consultation.create.mockResolvedValue(
+        buildConsultation({
+          id: 'consultation-2',
+          correctsId: 'consultation-1',
+        }),
+      );
+      calendarSync.syncGroup.mockRejectedValue(
+        new Error('Google no disponible'),
+      );
+
+      await expect(
+        service.correct(
+          'consultation-1',
+          { consultReason: 'Motivo corregido' } as never,
+          'therapist-1',
+        ),
+      ).resolves.toEqual(expect.objectContaining({ id: 'consultation-2' }));
     });
   });
 });

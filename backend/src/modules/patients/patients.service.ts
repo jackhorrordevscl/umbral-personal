@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { RecordConsentDto } from './dto/record-consent.dto';
@@ -37,6 +38,7 @@ export class PatientsService {
   constructor(
     private prisma: PrismaService,
     private auditService: AuditService,
+    private calendarSync: CalendarSyncService,
   ) {}
 
   async create(dto: CreatePatientDto, therapistId: string) {
@@ -243,6 +245,15 @@ export class PatientsService {
     this.logger.log(
       `Paciente eliminado (soft delete): id=${id} userId=${userId}`,
     );
+    // design.md "Confirmed Decisions": único disparador real de borrado de
+    // eventos de Google hoy (ningún endpoint escribe Consultation.deletedAt
+    // todavía). Fire-and-forget, igual que ConsultationsService.create/
+    // correct (spec.md "Non-Blocking Sync Failures").
+    void this.calendarSync.deletePatientEvents(id).catch((err: unknown) => {
+      this.logger.error(
+        `Fallo no bloqueante al eliminar eventos de Google Calendar para patientId=${id}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
     return deleted;
   }
 
