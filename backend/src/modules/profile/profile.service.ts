@@ -36,6 +36,7 @@ export class ProfileService {
         name: true,
         mfaEnabled: true,
         createdAt: true,
+        pendingEmail: true,
       },
     });
 

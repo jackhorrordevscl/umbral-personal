@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, Route, Routes } from 'react-router'
 import { AuthProvider } from '../context/AuthContext'
 import LoginPage from './LoginPage'
 import api from '../api/client'
@@ -141,6 +141,29 @@ describe('LoginPage', () => {
       })
     })
     expect(screen.getByAltText('Código QR para configurar MFA')).toBeInTheDocument()
+  })
+
+  it('muestra el mensaje de redirección cuando location.state lo trae (ej. tras cambiar la contraseña en /settings)', () => {
+    render(
+      <MemoryRouter
+        initialEntries={[
+          {
+            pathname: '/login',
+            state: { message: 'Tu contraseña fue actualizada. Inicia sesión de nuevo.' },
+          },
+        ]}
+      >
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    expect(
+      screen.getByText('Tu contraseña fue actualizada. Inicia sesión de nuevo.'),
+    ).toBeInTheDocument()
   })
 
   it('requiresPasswordChange pide la nueva contraseña antes de continuar', async () => {

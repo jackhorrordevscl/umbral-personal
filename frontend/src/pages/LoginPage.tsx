@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router';
+import { useNavigate, useLocation, Link } from 'react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -25,6 +25,13 @@ const EMAIL_NOT_VERIFIED_MESSAGE =
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Issue #76 (PR B, follow-up): tras un cambio de contraseña exitoso en
+  // /settings, la sesión actual queda invalidada de inmediato (sin token de
+  // reemplazo) -- se redirige acá con un mensaje explicando por qué, en vez
+  // de dejar que el interceptor 401 genérico saque al usuario sin aviso.
+  const redirectMessage = (location.state as { message?: string } | null)
+    ?.message;
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [emailNotVerified, setEmailNotVerified] = useState(false);
@@ -355,6 +362,10 @@ export default function LoginPage() {
               Ingresa tus credenciales para acceder al sistema
             </p>
           </div>
+
+          {redirectMessage && (
+            <ErrorBanner message={redirectMessage} variant="success" className="mb-4" />
+          )}
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             <div>
