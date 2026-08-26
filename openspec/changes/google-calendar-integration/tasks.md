@@ -92,13 +92,13 @@ Chain strategy: stacked-to-main
 
 ## Phase 7: Frontend + Documentation (PR 3)
 
-- [ ] 7.1 `frontend/src/pages/SettingsPage.tsx`: "Google Calendar" card — status display, connect button (calls `POST /authorize`, redirects to returned `url`), disconnect button.
-- [ ] 7.2 `SettingsPage.tsx`: handle `?calendar=connected|error` return banner after the OAuth redirect.
-- [ ] 7.3 Frontend tests: card renders each connection status; connect/disconnect trigger the right API calls.
-- [ ] 7.4 `docs/registro-actividades-tratamiento.md`: add Google as a processor (new data flow, minimized content only).
+- [x] 7.1 `frontend/src/pages/SettingsPage.tsx`: "Google Calendar" card — status display, connect button (calls `POST /authorize`, redirects to returned `url`), disconnect button.
+- [x] 7.2 `SettingsPage.tsx`: handle `?calendar=connected|error` return banner after the OAuth redirect.
+- [x] 7.3 Frontend tests: card renders each connection status; connect/disconnect trigger the right API calls.
+- [x] 7.4 `docs/registro-actividades-tratamiento.md`: add Google as a processor (new data flow, minimized content only).
 
 ## Phase 8: Cross-Cutting Verification
 
-- [ ] 8.1 Confirm `GOOGLE_CLIENT_ID` unset → module registers, no-ops with `logger.warn` (mirrors `MailService` without `RESEND_API_KEY`); local/CI/e2e boot unaffected.
-- [ ] 8.2 Confirm `GOOGLE_CALENDAR_SYNC_ENABLED=false` kills the cron and write-path intents without a deploy revert; set it in the e2e env.
-- [ ] 8.3 Full backend test suite green (`cd backend && npx jest`), full e2e suite green (`npx jest --config test/jest-e2e.json`).
+- [x] 8.1 Confirm `GOOGLE_CLIENT_ID` unset → module registers, no-ops with `logger.warn` (mirrors `MailService` without `RESEND_API_KEY`); local/CI/e2e boot unaffected.
+- [x] 8.2 Confirm `GOOGLE_CALENDAR_SYNC_ENABLED=false` kills the cron and write-path intents without a deploy revert; set it in the e2e env.
+- [x] 8.3 Full backend test suite green (`cd backend && npx jest`), full e2e suite green (`npx jest --config test/jest-e2e.json`).
