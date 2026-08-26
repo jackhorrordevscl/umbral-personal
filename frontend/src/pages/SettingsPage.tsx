@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { ShieldCheck, ShieldOff, QrCode } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import api from '../api/client';
@@ -25,7 +26,33 @@ const MFA_HISTORY_LABELS: Record<string, string> = {
 };
 
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  // Issue #76 (PR B, follow-up): datos de cuenta (nombre/email/password) --
+  // se leen del mismo GET /profile que ya se usaba para el estado de MFA, en
+  // vez de un segundo fetch. Nombre y email quedan "confirmados" (lo que hay
+  // en la DB); pendingEmail refleja un cambio de email diferido en curso
+  // (ver EmailChangeService/ConfirmEmailChangePage).
+  const [accountName, setAccountName] = useState('');
+  const [accountEmail, setAccountEmail] = useState('');
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+
+  const [nameInput, setNameInput] = useState('');
+  const [nameSaving, setNameSaving] = useState(false);
+  const [nameError, setNameError] = useState('');
+  const [nameMessage, setNameMessage] = useState('');
+
+  const [emailInput, setEmailInput] = useState('');
+  const [emailCurrentPassword, setEmailCurrentPassword] = useState('');
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailError, setEmailError] = useState('');
+
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordCurrentPassword, setPasswordCurrentPassword] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+
   const [qrCode, setQrCode] = useState('');
   const [secret, setSecret] = useState('');
   const [token, setToken] = useState('');
@@ -59,6 +86,10 @@ export default function SettingsPage() {
       try {
         const res = await api.get('/profile');
         setStep(res.data.mfaEnabled ? 'done' : 'idle');
+        setAccountName(res.data.name ?? '');
+        setNameInput(res.data.name ?? '');
+        setAccountEmail(res.data.email ?? '');
+        setPendingEmail(res.data.pendingEmail ?? null);
       } catch {
         // Sin estado confirmado, se mantiene el 'idle' por default -- el
         // backend igual rechaza generar un secreto nuevo si MFA ya está
@@ -70,6 +101,81 @@ export default function SettingsPage() {
     };
     void init();
   }, []);
+
+  // Issue #76 (PR B, follow-up): update de solo `name` -- ProfileService no
+  // exige currentPassword para este caso, así que nunca se manda bundleado
+  // con email/password (esos van en su propio PATCH, cada uno con su propia
+  // currentPassword).
+  const handleUpdateName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNameSaving(true);
+    setNameError('');
+    setNameMessage('');
+    try {
+      const res = await api.patch('/profile', { name: nameInput });
+      setAccountName(res.data.name);
+      setNameMessage('Nombre actualizado correctamente.');
+    } catch (err) {
+      setNameError(getApiErrorMessage(err, 'No se pudo actualizar el nombre.'));
+    } finally {
+      setNameSaving(false);
+    }
+  };
+
+  // El cambio de email queda diferido en el backend (pendingEmail) hasta que
+  // se confirme desde la casilla nueva -- la respuesta ya trae el
+  // pendingEmail recién seteado, sin necesidad de un GET adicional.
+  const handleUpdateEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEmailSaving(true);
+    setEmailError('');
+    try {
+      const res = await api.patch('/profile', {
+        email: emailInput,
+        currentPassword: emailCurrentPassword,
+      });
+      setPendingEmail(res.data.pendingEmail ?? emailInput);
+      setEmailInput('');
+      setEmailCurrentPassword('');
+    } catch (err) {
+      setEmailError(
+        getApiErrorMessage(err, 'No se pudo solicitar el cambio de email.'),
+      );
+    } finally {
+      setEmailSaving(false);
+    }
+  };
+
+  // Issue #76 (PR B): un cambio de password exitoso NO entrega un token de
+  // reemplazo -- el token actual queda inválido en el próximo request
+  // (JwtStrategy.validate compara contra passwordChangedAt). Hay que cerrar
+  // sesión y redirigir de inmediato, antes de que cualquier otra llamada
+  // caiga en el interceptor 401 genérico de api/client.ts (que redirige sin
+  // mensaje).
+  const handleUpdatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordSaving(true);
+    setPasswordError('');
+    try {
+      await api.patch('/profile', {
+        password: newPassword,
+        currentPassword: passwordCurrentPassword,
+      });
+      logout();
+      navigate('/login', {
+        state: {
+          message:
+            'Tu contraseña fue actualizada. Por tu seguridad, inicia sesión de nuevo.',
+        },
+      });
+    } catch (err) {
+      setPasswordError(
+        getApiErrorMessage(err, 'No se pudo actualizar la contraseña.'),
+      );
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
 
   const handleGenerateQR = async () => {
     setLoading(true);
@@ -127,6 +233,113 @@ export default function SettingsPage() {
         <p className="text-slate-500 text-sm mt-1">
           Configura el doble factor de autenticación (MFA)
         </p>
+      </div>
+
+      <div className="card max-w-lg mb-6">
+        <div className="mb-6">
+          <h3 className="font-medium text-slate-800">Datos de la cuenta</h3>
+          <p className="text-xs text-slate-500">
+            Actualiza tu nombre, tu email o tu contraseña
+          </p>
+        </div>
+
+        {checkingStatus ? (
+          <p className="text-sm text-slate-500">Cargando datos de la cuenta...</p>
+        ) : (
+          <div className="space-y-8">
+            {/* Nombre */}
+            <form onSubmit={handleUpdateName} className="space-y-3">
+              <input
+                type="text"
+                aria-label="Nombre"
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                className="input-field"
+              />
+              {nameMessage && <ErrorBanner message={nameMessage} variant="success" />}
+              {nameError && <ErrorBanner message={nameError} />}
+              <button
+                type="submit"
+                disabled={nameSaving || !nameInput.trim() || nameInput === accountName}
+                className="btn-primary disabled:opacity-50"
+              >
+                {nameSaving ? 'Guardando...' : 'Guardar nombre'}
+              </button>
+            </form>
+
+            {/* Email */}
+            <div className="border-t border-slate-100 pt-6 space-y-3">
+              <p className="text-sm font-medium text-slate-700">Email</p>
+              <p className="text-sm text-slate-600">{accountEmail}</p>
+              {pendingEmail && (
+                <ErrorBanner
+                  variant="success"
+                  message={`Tienes un cambio de email pendiente a ${pendingEmail} — revisa esa casilla para confirmarlo.`}
+                />
+              )}
+              <form onSubmit={handleUpdateEmail} className="space-y-3">
+                <input
+                  type="email"
+                  aria-label="Nuevo email"
+                  placeholder="nuevo@email.com"
+                  value={emailInput}
+                  onChange={e => setEmailInput(e.target.value)}
+                  className="input-field"
+                />
+                <input
+                  type="password"
+                  aria-label="Contraseña actual para cambiar email"
+                  placeholder="Contraseña actual"
+                  value={emailCurrentPassword}
+                  onChange={e => setEmailCurrentPassword(e.target.value)}
+                  className="input-field"
+                />
+                {emailError && <ErrorBanner message={emailError} />}
+                <button
+                  type="submit"
+                  disabled={emailSaving || !emailInput || !emailCurrentPassword}
+                  className="btn-primary disabled:opacity-50"
+                >
+                  {emailSaving ? 'Enviando...' : 'Cambiar email'}
+                </button>
+              </form>
+            </div>
+
+            {/* Contraseña */}
+            <div className="border-t border-slate-100 pt-6 space-y-3">
+              <p className="text-sm font-medium text-slate-700">Contraseña</p>
+              <form onSubmit={handleUpdatePassword} className="space-y-3">
+                <input
+                  type="password"
+                  aria-label="Nueva contraseña"
+                  placeholder="Nueva contraseña"
+                  minLength={8}
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  className="input-field"
+                />
+                <input
+                  type="password"
+                  aria-label="Contraseña actual para cambiar contraseña"
+                  placeholder="Contraseña actual"
+                  value={passwordCurrentPassword}
+                  onChange={e => setPasswordCurrentPassword(e.target.value)}
+                  className="input-field"
+                />
+                {passwordError && <ErrorBanner message={passwordError} />}
+                <button
+                  type="submit"
+                  disabled={
+                    passwordSaving || newPassword.length < 8 || !passwordCurrentPassword
+                  }
+                  className="btn-primary disabled:opacity-50"
+                >
+                  {passwordSaving ? 'Actualizando...' : 'Cambiar contraseña'}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="card max-w-lg">

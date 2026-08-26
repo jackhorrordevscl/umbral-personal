@@ -63,6 +63,28 @@ describe('ProfileService', () => {
     jest.clearAllMocks();
   });
 
+  describe('findOne', () => {
+    // Issue #76 (PR B, gap encontrado en frontend): sin pendingEmail en la
+    // respuesta de GET /profile, un usuario que recarga la página después de
+    // pedir un cambio de email no tiene forma de saber que tiene uno
+    // pendiente -- la UI depende de este campo para mostrar el banner.
+    it('incluye pendingEmail en la respuesta', async () => {
+      prisma.user.findFirst.mockResolvedValue(
+        buildUser({ pendingEmail: 'nuevo@example.com' }),
+      );
+
+      const result = await service.findOne('user-1');
+
+      expect(prisma.user.findFirst).toHaveBeenCalledWith({
+        where: { id: 'user-1', deletedAt: null },
+        select: expect.objectContaining({
+          pendingEmail: true,
+        }) as unknown as Record<string, boolean>,
+      });
+      expect(result.pendingEmail).toBe('nuevo@example.com');
+    });
+  });
+
   describe('update — step-up auth', () => {
     it('lanza 401 si falta currentPassword y viene email', async () => {
       prisma.user.findFirst.mockResolvedValue(buildUser());
