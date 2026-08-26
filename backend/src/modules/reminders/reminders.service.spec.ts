@@ -47,10 +47,17 @@ interface CreateCallArgs {
   };
 }
 
+interface UpdateCallArgs {
+  data: { status: string };
+}
+
 describe('RemindersService.scan', () => {
   let prisma: {
     consultation: { findMany: jest.Mock };
-    reminderDispatch: { create: jest.Mock; update: jest.Mock };
+    reminderDispatch: {
+      create: jest.Mock<Promise<{ id: string }>, [CreateCallArgs]>;
+      update: jest.Mock<Promise<unknown>, [UpdateCallArgs]>;
+    };
   };
   let notificationsService: { create: jest.Mock };
   let mailService: { sendSessionReminderEmail: jest.Mock };
@@ -61,8 +68,12 @@ describe('RemindersService.scan', () => {
     prisma = {
       consultation: { findMany: jest.fn() },
       reminderDispatch: {
-        create: jest.fn().mockResolvedValue({ id: 'dispatch-default' }),
-        update: jest.fn().mockResolvedValue({}),
+        create: jest
+          .fn<Promise<{ id: string }>, [CreateCallArgs]>()
+          .mockResolvedValue({ id: 'dispatch-default' }),
+        update: jest
+          .fn<Promise<unknown>, [UpdateCallArgs]>()
+          .mockResolvedValue({}),
       },
     };
     notificationsService = { create: jest.fn().mockResolvedValue(undefined) };
@@ -100,7 +111,10 @@ describe('RemindersService.scan', () => {
 
     expect(prisma.consultation.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ deletedAt: null, correctedBy: null }),
+        where: expect.objectContaining({
+          deletedAt: null,
+          correctedBy: null,
+        }) as { deletedAt: null; correctedBy: null },
       }),
     );
   });
@@ -117,7 +131,9 @@ describe('RemindersService.scan', () => {
     expect(prisma.reminderDispatch.update).toHaveBeenCalledTimes(2);
     expect(prisma.reminderDispatch.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ status: 'SENT' }),
+        data: expect.objectContaining({ status: 'SENT' }) as {
+          status: string;
+        },
       }),
     );
   });
@@ -134,7 +150,7 @@ describe('RemindersService.scan', () => {
 
     expect(prisma.reminderDispatch.create).toHaveBeenCalledTimes(4);
     const calls = prisma.reminderDispatch.create.mock.calls.map(
-      (call) => (call[0] as CreateCallArgs).data,
+      (call) => call[0].data,
     );
     expect(
       calls.filter((d) => d.offsetKind === 'H24' && d.status === 'SKIPPED'),
@@ -179,13 +195,11 @@ describe('RemindersService.scan', () => {
     expect(notificationsService.create).toHaveBeenCalledTimes(1);
     expect(mailService.sendSessionReminderEmail).toHaveBeenCalledTimes(1);
     const skippedCalls = prisma.reminderDispatch.create.mock.calls.filter(
-      (call) => (call[0] as CreateCallArgs).data.status === 'SKIPPED',
+      (call) => call[0].data.status === 'SKIPPED',
     );
     expect(skippedCalls).toHaveLength(2);
     expect(
-      skippedCalls.every(
-        (call) => (call[0] as CreateCallArgs).data.offsetKind === 'H24',
-      ),
+      skippedCalls.every((call) => call[0].data.offsetKind === 'H24'),
     ).toBe(true);
   });
 
@@ -201,7 +215,9 @@ describe('RemindersService.scan', () => {
     expect(notificationsService.create).toHaveBeenCalledTimes(1);
     expect(prisma.reminderDispatch.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ status: 'FAILED' }),
+        data: expect.objectContaining({ status: 'FAILED' }) as {
+          status: string;
+        },
       }),
     );
   });
