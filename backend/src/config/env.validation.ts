@@ -16,8 +16,18 @@ const KNOWN_EXAMPLE_DOCUMENT_KEY_HASHES = new Set([
   'bfd70f22ed33a32b2847176ccf1508589f36b5a53d6a9cb009cf991b25e6245a', // README.md / install.sh
 ]);
 
+// sdd/google-calendar-integration PR 1: mismo criterio que
+// KNOWN_EXAMPLE_DOCUMENT_KEY_HASHES, para GOOGLE_TOKEN_ENCRYPTION_KEY (clave
+// AES-256-GCM propia, no compartida con DOCUMENT_ENCRYPTION_KEY -- ver
+// design.md "Dedicated GOOGLE_TOKEN_ENCRYPTION_KEY, not
+// DOCUMENT_ENCRYPTION_KEY").
+const KNOWN_EXAMPLE_GOOGLE_TOKEN_KEY_HASHES = new Set([
+  '094d3c3bbfff1444be7d8d88eeb3dfe83744157d71b950bc9e5cb7e95715100e', // README.md / install.sh
+]);
+
 const MIN_JWT_SECRET_LENGTH = 32;
 const DOCUMENT_ENCRYPTION_KEY_BYTE_LENGTH = 32;
+const GOOGLE_TOKEN_ENCRYPTION_KEY_BYTE_LENGTH = 32;
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -89,6 +99,21 @@ function validateMainTsEnvVars(config: Record<string, unknown>): void {
       `REMINDERS_ENABLED inválido: "${describeValue(config.REMINDERS_ENABLED)}" -- debe ser exactamente "true" o "false".`,
     );
   }
+
+  // sdd/google-calendar-integration PR 1 (design.md, "Migration / Rollout"):
+  // mismo criterio que REMINDERS_ENABLED -- opcional (CalendarSyncService,
+  // PR 2, trata "ausente" como habilitado por default), pero un typo debe
+  // fallar en el arranque en vez de desactivar el cron/los intents en
+  // silencio.
+  if (
+    config.GOOGLE_CALENDAR_SYNC_ENABLED !== undefined &&
+    config.GOOGLE_CALENDAR_SYNC_ENABLED !== 'true' &&
+    config.GOOGLE_CALENDAR_SYNC_ENABLED !== 'false'
+  ) {
+    throw new Error(
+      `GOOGLE_CALENDAR_SYNC_ENABLED inválido: "${describeValue(config.GOOGLE_CALENDAR_SYNC_ENABLED)}" -- debe ser exactamente "true" o "false".`,
+    );
+  }
 }
 
 export function validateEnv(
@@ -121,6 +146,27 @@ export function validateEnv(
     ) {
       throw new Error(
         `DOCUMENT_ENCRYPTION_KEY inválida: en producción debe decodificar a ${DOCUMENT_ENCRYPTION_KEY_BYTE_LENGTH} bytes en base64 y no puede ser el valor de ejemplo de README.md/.env.example/install.sh. Generala con: openssl rand -base64 32`,
+      );
+    }
+
+    // sdd/google-calendar-integration PR 1: mismo criterio que
+    // DOCUMENT_ENCRYPTION_KEY, clave independiente (design.md "Dedicated
+    // GOOGLE_TOKEN_ENCRYPTION_KEY, not DOCUMENT_ENCRYPTION_KEY"). Se exige
+    // siempre en producción, sin importar si GOOGLE_CLIENT_ID está
+    // configurado -- GoogleTokenCryptoService.onModuleInit la valida igual
+    // (mirrors DocumentEncryptionService) apenas arranca el módulo.
+    const googleTokenKeyRaw =
+      typeof config.GOOGLE_TOKEN_ENCRYPTION_KEY === 'string'
+        ? config.GOOGLE_TOKEN_ENCRYPTION_KEY
+        : '';
+    const googleTokenKeyBytes = Buffer.from(googleTokenKeyRaw, 'base64');
+
+    if (
+      googleTokenKeyBytes.length !== GOOGLE_TOKEN_ENCRYPTION_KEY_BYTE_LENGTH ||
+      KNOWN_EXAMPLE_GOOGLE_TOKEN_KEY_HASHES.has(sha256(googleTokenKeyRaw))
+    ) {
+      throw new Error(
+        `GOOGLE_TOKEN_ENCRYPTION_KEY inválida: en producción debe decodificar a ${GOOGLE_TOKEN_ENCRYPTION_KEY_BYTE_LENGTH} bytes en base64 y no puede ser el valor de ejemplo de README.md/.env.example/install.sh. Generala con: openssl rand -base64 32`,
       );
     }
   }

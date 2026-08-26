@@ -33,9 +33,26 @@ const installShExampleDocumentKey = extractExample(
   'DOCUMENT_ENCRYPTION_KEY',
 );
 
+// sdd/google-calendar-integration PR 1: mismo criterio que
+// DOCUMENT_ENCRYPTION_KEY -- el valor de ejemplo de README.md/install.sh es
+// público, así que se rechaza igual en producción.
+const readmeExampleGoogleTokenKey = extractExample(
+  readmePath,
+  'GOOGLE_TOKEN_ENCRYPTION_KEY',
+);
+const installShExampleGoogleTokenKey = extractExample(
+  installShPath,
+  'GOOGLE_TOKEN_ENCRYPTION_KEY',
+);
+
 // Clave válida (32 bytes en base64) para no interferir con los tests de
 // JWT_SECRET, que no le conciernen a DOCUMENT_ENCRYPTION_KEY.
 const validDocumentKey = Buffer.alloc(32, 7).toString('base64');
+
+// Idem para GOOGLE_TOKEN_ENCRYPTION_KEY -- valor distinto al de
+// validDocumentKey para no confundir cuál validación falla si un test se
+// rompe.
+const validGoogleTokenKey = Buffer.alloc(32, 11).toString('base64');
 
 describe('validateEnv', () => {
   it('permite un JWT_SECRET largo y no genérico en producción', () => {
@@ -43,6 +60,7 @@ describe('validateEnv', () => {
       NODE_ENV: 'production',
       JWT_SECRET: 'a'.repeat(32),
       DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
+      GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
     };
 
     expect(validateEnv(config)).toBe(config);
@@ -98,6 +116,7 @@ describe('validateEnv', () => {
       NODE_ENV: 'production',
       JWT_SECRET: 'a'.repeat(32),
       DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
+      GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
     };
 
     expect(validateEnv(config)).toBe(config);
@@ -141,6 +160,67 @@ describe('validateEnv', () => {
   });
 
   it('no valida DOCUMENT_ENCRYPTION_KEY fuera de producción', () => {
+    const config = { NODE_ENV: 'test' };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
+  // sdd/google-calendar-integration PR 1: GOOGLE_TOKEN_ENCRYPTION_KEY sigue
+  // exactamente el mismo criterio que DOCUMENT_ENCRYPTION_KEY (design.md
+  // "Dedicated GOOGLE_TOKEN_ENCRYPTION_KEY, not DOCUMENT_ENCRYPTION_KEY") --
+  // clave AES-256-GCM propia, distinta, requerida en producción.
+  it('permite un GOOGLE_TOKEN_ENCRYPTION_KEY válido en producción', () => {
+    const config = {
+      NODE_ENV: 'production',
+      JWT_SECRET: 'a'.repeat(32),
+      DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
+      GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
+    };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
+  it('rechaza un GOOGLE_TOKEN_ENCRYPTION_KEY que no decodifica a 32 bytes en producción', () => {
+    const config = {
+      NODE_ENV: 'production',
+      JWT_SECRET: 'a'.repeat(32),
+      DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
+      GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(16, 11).toString('base64'),
+    };
+
+    expect(() => validateEnv(config)).toThrow(
+      /GOOGLE_TOKEN_ENCRYPTION_KEY inválida/,
+    );
+  });
+
+  it('rechaza el valor de ejemplo de README.md/install.sh para GOOGLE_TOKEN_ENCRYPTION_KEY en producción', () => {
+    expect(readmeExampleGoogleTokenKey).toBe(installShExampleGoogleTokenKey);
+
+    const config = {
+      NODE_ENV: 'production',
+      JWT_SECRET: 'a'.repeat(32),
+      DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
+      GOOGLE_TOKEN_ENCRYPTION_KEY: readmeExampleGoogleTokenKey,
+    };
+
+    expect(() => validateEnv(config)).toThrow(
+      /GOOGLE_TOKEN_ENCRYPTION_KEY inválida/,
+    );
+  });
+
+  it('rechaza GOOGLE_TOKEN_ENCRYPTION_KEY ausente en producción', () => {
+    const config = {
+      NODE_ENV: 'production',
+      JWT_SECRET: 'a'.repeat(32),
+      DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
+    };
+
+    expect(() => validateEnv(config)).toThrow(
+      /GOOGLE_TOKEN_ENCRYPTION_KEY inválida/,
+    );
+  });
+
+  it('no valida GOOGLE_TOKEN_ENCRYPTION_KEY fuera de producción', () => {
     const config = { NODE_ENV: 'test' };
 
     expect(validateEnv(config)).toBe(config);
@@ -212,6 +292,30 @@ describe('validateEnv', () => {
   });
 
   it('permite REMINDERS_ENABLED ausente', () => {
+    const config = { NODE_ENV: 'test' };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
+  // sdd/google-calendar-integration PR 1 (design.md, "Migration / Rollout"):
+  // mismo criterio que REMINDERS_ENABLED -- opcional, GOOGLE_CALENDAR_SYNC_ENABLED
+  // ausente lo trata CalendarSyncService (PR 2) como habilitado por default,
+  // pero un typo en el valor debe fallar rápido en el arranque.
+  it('rechaza un GOOGLE_CALENDAR_SYNC_ENABLED que no es "true" ni "false"', () => {
+    const config = { NODE_ENV: 'test', GOOGLE_CALENDAR_SYNC_ENABLED: 'nope' };
+
+    expect(() => validateEnv(config)).toThrow(
+      /GOOGLE_CALENDAR_SYNC_ENABLED inválido/,
+    );
+  });
+
+  it('permite GOOGLE_CALENDAR_SYNC_ENABLED="false"', () => {
+    const config = { NODE_ENV: 'test', GOOGLE_CALENDAR_SYNC_ENABLED: 'false' };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
+  it('permite GOOGLE_CALENDAR_SYNC_ENABLED ausente', () => {
     const config = { NODE_ENV: 'test' };
 
     expect(validateEnv(config)).toBe(config);

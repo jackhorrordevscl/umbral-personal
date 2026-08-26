@@ -13,6 +13,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
 import { ProfileModule } from './modules/profile/profile.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { RemindersModule } from './modules/reminders/reminders.module';
+import { CalendarIntegrationModule } from './modules/calendar-integration/calendar-integration.module';
 import { SharedFilesModule } from './shared-files/shared-files.module';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { AppController } from './app.controller';
@@ -39,6 +40,7 @@ import { AppService } from './app.service';
     DocumentsModule,
     NotificationsModule,
     RemindersModule,
+    CalendarIntegrationModule,
     SharedFilesModule,
   ],
   controllers: [AppController],
