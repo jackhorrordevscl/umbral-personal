@@ -5,6 +5,7 @@ import {
   LogOut, ShieldCheck, Menu, X, FolderOpen
 } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
+import NotificationBell from './notifications/NotificationBell';
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -79,14 +80,16 @@ export default function Layout() {
         </div>
       </aside>
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="lg:hidden bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-3">
+        <header className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-3">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="text-slate-600 hover:text-slate-900"
+            className="lg:hidden text-slate-600 hover:text-slate-900"
           >
             <Menu size={22} />
           </button>
-          <img src="/favicon.svg" alt="Umbral" className="h-9 w-9 rounded" />
+          <img src="/favicon.svg" alt="Umbral" className="lg:hidden h-9 w-9 rounded" />
+          <div className="flex-1" />
+          <NotificationBell />
         </header>
         <main className="flex-1 overflow-auto">
           <Outlet />
