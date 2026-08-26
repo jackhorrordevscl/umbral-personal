@@ -394,7 +394,7 @@ describe('AuthService', () => {
       ).rejects.toThrow('La contraseña ya fue actualizada anteriormente');
     });
 
-    it('cambia la contraseña, limpia el flag y delega en completeLogin (MFA obligatorio: requiresMfaSetup)', async () => {
+    it('cambia la contraseña, limpia el flag, setea passwordChangedAt, audita PASSWORD_CHANGED y delega en completeLogin (MFA obligatorio: requiresMfaSetup)', async () => {
       jwtService.verify.mockReturnValue({
         sub: 'user-1',
         purpose: 'password-change',
@@ -417,11 +417,53 @@ describe('AuthService', () => {
         data: {
           passwordHash: 'new-hashed-password',
           mustChangePassword: false,
+          passwordChangedAt: expect.any(Date) as unknown as Date,
+          pendingEmail: null,
+          pendingEmailTokenIssuedAt: null,
         },
+      });
+      expect(auditService.log).toHaveBeenCalledWith({
+        userId: 'user-1',
+        action: 'PASSWORD_CHANGED',
+        resource: 'User',
+        resourceId: 'user-1',
+        detail: expect.not.stringContaining(
+          'newpassword1',
+        ) as unknown as string,
       });
       expect(result).toEqual({
         requiresMfaSetup: true,
         setupToken: 'signed-token',
+      });
+    });
+
+    it('limpia un pendingEmail existente al completar el cambio forzado (issue #76, PR B: si un atacante con el token robado dejó un cambio de email pendiente, el dueño real lo cancela al cambiar la contraseña)', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'password-change',
+      });
+      const user = buildUser({
+        mustChangePassword: true,
+        pendingEmail: 'attacker@evil.com',
+        pendingEmailTokenIssuedAt: new Date(),
+      });
+      prisma.user.findUnique.mockResolvedValue(user);
+      mockArgon2.hash.mockResolvedValue('new-hashed-password' as never);
+      prisma.user.update.mockResolvedValue(
+        buildUser({ mustChangePassword: false }),
+      );
+
+      await service.changePassword({
+        passwordChangeToken,
+        newPassword: 'newpassword1',
+      });
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: expect.objectContaining({
+          pendingEmail: null,
+          pendingEmailTokenIssuedAt: null,
+        }) as unknown as Record<string, unknown>,
       });
     });
   });
@@ -571,7 +613,7 @@ describe('AuthService', () => {
       ).rejects.toThrow('Token de restablecimiento inválido o ya utilizado');
     });
 
-    it('resetea la contraseña, limpia el timestamp y no emite accessToken en el camino feliz', async () => {
+    it('resetea la contraseña, limpia el timestamp, setea passwordChangedAt y no emite accessToken en el camino feliz', async () => {
       jwtService.verify.mockReturnValue({
         sub: 'user-1',
         purpose: 'password-reset',
@@ -593,6 +635,9 @@ describe('AuthService', () => {
         data: {
           passwordHash: 'new-hashed-password',
           passwordResetTokenIssuedAt: null,
+          passwordChangedAt: expect.any(Date) as unknown as Date,
+          pendingEmail: null,
+          pendingEmailTokenIssuedAt: null,
         },
       });
       expect(auditService.log).toHaveBeenCalledWith({
@@ -601,8 +646,51 @@ describe('AuthService', () => {
         resource: 'User',
         resourceId: 'user-1',
       });
+      // Issue #76 (PR B): además del audit específico de reset, se registra
+      // el genérico PASSWORD_CHANGED -- mismo trail que usan PATCH /profile
+      // y el completion de mustChangePassword, para tener un único punto de
+      // consulta de "cuándo cambió la contraseña de esta cuenta".
+      expect(auditService.log).toHaveBeenCalledWith({
+        userId: 'user-1',
+        action: 'PASSWORD_CHANGED',
+        resource: 'User',
+        resourceId: 'user-1',
+        detail: expect.not.stringContaining(
+          'newpassword1',
+        ) as unknown as string,
+      });
+      expect(auditService.log).toHaveBeenCalledTimes(2);
       expect(result).toEqual({
         message: 'Contraseña actualizada. Ya puedes iniciar sesión.',
+      });
+    });
+
+    it('limpia un pendingEmail existente al resetear la contraseña vía forgot-password (issue #76, PR B: si un atacante con un token robado dejó un cambio de email pendiente, la víctima lo cancela al resetear su contraseña)', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'password-reset',
+        resetIssuedAt: 1000,
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({
+          passwordResetTokenIssuedAt: new Date(1000),
+          pendingEmail: 'attacker@evil.com',
+          pendingEmailTokenIssuedAt: new Date(),
+        }),
+      );
+      mockArgon2.hash.mockResolvedValue('new-hashed-password' as never);
+
+      await service.resetPassword({
+        resetToken: 'token',
+        newPassword: 'newpassword1',
+      });
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: expect.objectContaining({
+          pendingEmail: null,
+          pendingEmailTokenIssuedAt: null,
+        }) as unknown as Record<string, unknown>,
       });
     });
   });

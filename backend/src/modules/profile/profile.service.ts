@@ -116,9 +116,26 @@ export class ProfileService {
       if (exists) throw new ConflictException('El email ya está registrado');
     }
 
-    const data: { name?: string; passwordHash?: string } = {};
+    const data: {
+      name?: string;
+      passwordHash?: string;
+      passwordChangedAt?: Date;
+      pendingEmail?: null;
+      pendingEmailTokenIssuedAt?: null;
+    } = {};
     if (dto.name) data.name = dto.name;
-    if (dto.password) data.passwordHash = await argon2.hash(dto.password);
+    if (dto.password) {
+      data.passwordHash = await argon2.hash(dto.password);
+      // Issue #76 (PR B): JwtStrategy.validate() invalida cualquier token
+      // emitido antes de este timestamp. También limpia un pendingEmail
+      // existente (design.md, "Any password change also clears pending") --
+      // si alguien más pidió un cambio de email con una sesión robada, el
+      // dueño real recupera la cuenta cambiando la password sin depender de
+      // que el token de email-change expire solo.
+      data.passwordChangedAt = new Date();
+      data.pendingEmail = null;
+      data.pendingEmailTokenIssuedAt = null;
+    }
 
     const updated = await this.prisma.user.update({
       where: { id },

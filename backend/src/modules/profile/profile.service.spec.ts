@@ -184,7 +184,7 @@ describe('ProfileService', () => {
   });
 
   describe('update — cambio de password', () => {
-    it('camino feliz: hashea la nueva password y audita PASSWORD_CHANGED', async () => {
+    it('camino feliz: hashea la nueva password, setea passwordChangedAt y audita PASSWORD_CHANGED', async () => {
       prisma.user.findFirst.mockResolvedValue(buildUser());
       mockArgon2.verify.mockResolvedValue(true as never);
       mockArgon2.hash.mockResolvedValue('new-hashed-password' as never);
@@ -198,7 +198,12 @@ describe('ProfileService', () => {
       expect(mockArgon2.hash).toHaveBeenCalledWith('NuevaPassword789!');
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { passwordHash: 'new-hashed-password' },
+        data: {
+          passwordHash: 'new-hashed-password',
+          passwordChangedAt: expect.any(Date) as unknown as Date,
+          pendingEmail: null,
+          pendingEmailTokenIssuedAt: null,
+        },
         select: expect.objectContaining({ id: true }) as unknown as Record<
           string,
           boolean
@@ -215,13 +220,52 @@ describe('ProfileService', () => {
       });
     });
 
-    it('un update de solo name NO audita PASSWORD_CHANGED', async () => {
+    // Issue #76 (PR B): un cambio de password limpia cualquier cambio de
+    // email pendiente (design.md, "Any password change also clears
+    // pending") -- si alguien más pidió el cambio de email con una sesión
+    // robada, el dueño real recupera la cuenta cambiando la password sin
+    // depender de que el token de email-change expire solo.
+    it('cambiar la password limpia un pendingEmail/pendingEmailTokenIssuedAt existente', async () => {
+      prisma.user.findFirst.mockResolvedValue(
+        buildUser({
+          pendingEmail: 'attacker@example.com',
+          pendingEmailTokenIssuedAt: new Date(),
+        }),
+      );
+      mockArgon2.verify.mockResolvedValue(true as never);
+      mockArgon2.hash.mockResolvedValue('new-hashed-password' as never);
+      prisma.user.update.mockResolvedValue(buildUser());
+
+      await service.update('user-1', {
+        password: 'NuevaPassword789!',
+        currentPassword: 'correct-password',
+      });
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            pendingEmail: null,
+            pendingEmailTokenIssuedAt: null,
+          }) as unknown as Record<string, unknown>,
+        }),
+      );
+    });
+
+    it('un update de solo name NO audita PASSWORD_CHANGED ni toca passwordChangedAt/pendingEmail', async () => {
       prisma.user.findFirst.mockResolvedValue(buildUser());
       prisma.user.update.mockResolvedValue(buildUser());
 
       await service.update('user-1', { name: 'Nombre Nuevo' });
 
       expect(auditService.log).not.toHaveBeenCalled();
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { name: 'Nombre Nuevo' },
+        select: expect.objectContaining({ id: true }) as unknown as Record<
+          string,
+          boolean
+        >,
+      });
     });
   });
 });
