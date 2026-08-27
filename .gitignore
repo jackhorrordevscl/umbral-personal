@@ -32,3 +32,8 @@ docs/CONSENTIMIENTO*.docx
 # .db-password.local: password aleatoria que install.sh genera para el
 # usuario de Postgres local (issue #70) -- nunca debe commitearse.
 .db-password.local
+
+# *.dev.log: logs de los procesos backend/frontend levantados en local para
+# pruebas manuales -- no aportan nada versionados.
+.backend-dev.log
+.frontend-dev.log
