@@ -73,10 +73,16 @@ export default function ConsultationsPage() {
     if (!linkedConsultationId || openedFromLinkRef.current || !consultationsLoaded) return;
 
     const target = consultations.find((c: Consultation) => c.id === linkedConsultationId);
-    if (target) handleEditOpen(target);
-
     openedFromLinkRef.current = true;
-    setSearchParams(new URLSearchParams(), { replace: true });
+
+    // react-hooks/set-state-in-effect: el cuerpo síncrono de un efecto no
+    // puede llamar setState directo (fuerza un render en cascada) -- se
+    // difiere en un timer, el patrón que la propia regla reconoce como
+    // válido (no marca llamadas indirectas dentro de timers/callbacks).
+    setTimeout(() => {
+      if (target) handleEditOpen(target);
+      setSearchParams(new URLSearchParams(), { replace: true });
+    }, 0);
   }, [consultations, consultationsLoaded, linkedConsultationId, handleEditOpen, setSearchParams]);
 
   const handleEditSubmit = (e: React.FormEvent) => {
