@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router';
 import {
-  LayoutDashboard, Users, ClipboardList,
+  LayoutDashboard, Users, ClipboardList, CalendarDays,
   LogOut, ShieldCheck, UserCog, Menu, X, FolderOpen
 } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
@@ -17,12 +17,15 @@ export default function Layout() {
     navigate('/login');
   };
 
-  // PR2a (session-calendar-view, design.md nav order): Calendario se agrega
-  // en PR4, adyacente a Consultas -- no se inventa acá.
+  // PR4 (session-calendar-view, design.md nav order): Dashboard, Pacientes,
+  // Consultas, Calendario, Repositorio, Perfil, Seguridad -- flujo clínico
+  // primero, Calendario adyacente a Consultas porque lee las mismas filas,
+  // config de cuenta al final.
   const navLinks = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/patients', icon: Users, label: 'Pacientes' },
     { to: '/consultations', icon: ClipboardList, label: 'Consultas' },
+    { to: '/calendar', icon: CalendarDays, label: 'Calendario' },
     { to: '/archivos', icon: FolderOpen, label: 'Repositorio' },
     { to: '/profile', icon: UserCog, label: 'Perfil' },
     { to: '/security', icon: ShieldCheck, label: 'Seguridad' },

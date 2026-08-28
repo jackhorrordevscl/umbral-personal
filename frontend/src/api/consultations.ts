@@ -38,3 +38,24 @@ export function correctConsultation(id: string, data: ConsultationPayload) {
     .patch<Consultation>(`/consultations/${id}/correct`, data)
     .then((r) => r.data);
 }
+
+// PR4 (session-calendar-view, design.md "Interfaces / Contracts"): mismo
+// shape que devuelve GET /consultations/range en el backend
+// (ConsultationsService.CalendarSession) -- el payload del grid excluye
+// consultReason/intervention/agreements/history a propósito (design.md
+// "Decision: Grid payload excludes clinical narrative").
+export interface CalendarSession {
+  id: string;
+  groupId: string;
+  sessionDate: string;
+  sessionType: 'IN_PERSON' | 'TELEMED';
+  patientId: string;
+  patientName: string;
+  calendarSync: 'SYNCED' | 'FAILED' | null;
+}
+
+export function listConsultationsByRange(from: string, to: string) {
+  return api
+    .get<CalendarSession[]>('/consultations/range', { params: { from, to } })
+    .then((r) => r.data);
+}

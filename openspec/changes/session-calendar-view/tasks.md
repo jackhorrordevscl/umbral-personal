@@ -67,13 +67,17 @@ Chain strategy: stacked-to-main
 
 ## Phase 5: Calendar UI (PR4, depends on PR1 + PR3)
 
-- [ ] 5.1 `utils/datetime.ts`: `toChileDayKey(iso)`, `chileMonthGridRange(y,m)` — half-open, includes spillover cells.
-- [ ] 5.2 `api/consultations.ts`: `listConsultationsByRange(from,to)` + `CalendarSession` type.
-- [ ] 5.3 `hooks/useCalendarSessions.ts`: `queryKey:['consultations','range',from,to]`.
-- [ ] 5.4 `components/calendar/MonthGrid.tsx`: 7-col Tailwind grid, weekday header, renders adjacent-month spillover cells.
-- [ ] 5.5 `components/calendar/DayCell.tsx`: day number, session chips, `+N más` overflow.
-- [ ] 5.6 `components/calendar/DayDetailModal.tsx`: read-only session list, "Agendar sesión" mounts `ConsultationForm` (session-calendar Req: Read-Only Day Detail Modal).
-- [ ] 5.7 `components/calendar/CalendarSyncBadge.tsx`: status-only, links `/security`, no connect/disconnect control (session-calendar Req: Google Calendar Status Badge).
-- [ ] 5.8 `pages/CalendarPage.tsx`: month state, `groupByChileDay`, modal wiring.
-- [ ] 5.9 `App.tsx` + `Layout.tsx`: `/calendar` route + `Calendario` navLink (`CalendarDays`).
-- [ ] 5.10 RED `CalendarPage.spec.tsx`: Chile day bucketing across DST; grid renders spillover cells; modal is read-only (no edit/cancel); badge has no inline control (session-calendar Req: Month Range Read Endpoint, Session Date Anchoring).
+- [x] 5.1 `utils/datetime.ts`: `toChileDayKey(iso)`, `chileMonthGridRange(y,m)` — half-open, includes spillover cells.
+- [x] 5.2 `api/consultations.ts`: `listConsultationsByRange(from,to)` + `CalendarSession` type.
+- [x] 5.3 `hooks/useCalendarSessions.ts`: `queryKey:['consultations','range',from,to]`.
+- [x] 5.4 `components/calendar/MonthGrid.tsx`: 7-col Tailwind grid, weekday header, renders adjacent-month spillover cells.
+- [x] 5.5 `components/calendar/DayCell.tsx`: day number, session chips, `+N más` overflow.
+- [x] 5.6 `components/calendar/DayDetailModal.tsx`: read-only session list, "Agendar sesión" mounts `ConsultationForm` (session-calendar Req: Read-Only Day Detail Modal).
+- [x] 5.7 `components/calendar/CalendarSyncBadge.tsx`: status-only, links `/security`, no connect/disconnect control (session-calendar Req: Google Calendar Status Badge).
+- [x] 5.8 `pages/CalendarPage.tsx`: month state, `groupByChileDay`, modal wiring.
+- [x] 5.9 `App.tsx` + `Layout.tsx`: `/calendar` route + `Calendario` navLink (`CalendarDays`).
+- [x] 5.10 RED `CalendarPage.spec.tsx`: Chile day bucketing across DST; grid renders spillover cells; modal is read-only (no edit/cancel); badge has no inline control (session-calendar Req: Month Range Read Endpoint, Session Date Anchoring).
+
+**Estado del change**: PR1 (#98), PR3 (#99), PR2a (#100), PR2b (#101) mergeados a `main`. PR4 (Calendar UI, este batch) implementado y verificado en worktree `session-calendar-view-pr4`, pendiente de revisión/commit/PR.
+
+Change session-calendar-view completo, todas las fases mergeadas.
