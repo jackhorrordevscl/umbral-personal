@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Consultation } from '@prisma/client';
 import { ConsultationsService } from './consultations.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -39,6 +43,7 @@ describe('ConsultationsService', () => {
       findFirst: jest.Mock;
     };
     consultationHistory: { findMany: jest.Mock; create: jest.Mock };
+    calendarEventLink: { findMany: jest.Mock };
     $transaction: jest.Mock;
   };
   let patientsService: { assertAccess: jest.Mock };
@@ -55,6 +60,9 @@ describe('ConsultationsService', () => {
       consultationHistory: {
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn(),
+      },
+      calendarEventLink: {
+        findMany: jest.fn().mockResolvedValue([]),
       },
       $transaction: jest.fn((arg: unknown) => {
         if (typeof arg === 'function') {
@@ -336,6 +344,189 @@ describe('ConsultationsService', () => {
           'therapist-1',
         ),
       ).resolves.toEqual(expect.objectContaining({ id: 'consultation-2' }));
+    });
+  });
+
+  // sdd/session-calendar-view PR1 (T1.2-1.4): design.md "Range query params
+  // are ISO instants with explicit offset, half-open" + "Sync badge resolved
+  // in the same response, via in-memory map" + "Grid payload excludes
+  // clinical narrative".
+  describe('findByRange', () => {
+    const therapistId = 'therapist-1';
+
+    function buildRangeConsultation(
+      overrides: Partial<Consultation> & {
+        patient?: { fullName: string };
+      } = {},
+    ) {
+      const { patient, ...rest } = overrides;
+      return {
+        ...buildConsultation(rest),
+        patient: patient ?? { fullName: 'Paciente Uno' },
+      };
+    }
+
+    it('consulta filtrando therapistId, correctedBy null y deletedAt null dentro del rango solicitado', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+
+      await service.findByRange(therapistId, {
+        from: '2026-09-01T00:00:00-04:00',
+        to: '2026-10-01T00:00:00-03:00',
+      });
+
+      expect(prisma.consultation.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            therapistId,
+            correctedBy: null,
+            deletedAt: null,
+            sessionDate: {
+              gte: new Date('2026-09-01T00:00:00-04:00'),
+              lt: new Date('2026-10-01T00:00:00-03:00'),
+            },
+          },
+        }) as unknown,
+      );
+    });
+
+    it('el límite "to" es exclusivo (half-open) y "from" es inclusivo', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+
+      await service.findByRange(therapistId, {
+        from: '2026-09-01T00:00:00-04:00',
+        to: '2026-09-02T00:00:00-04:00',
+      });
+
+      expect(prisma.consultation.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            sessionDate: {
+              gte: new Date('2026-09-01T00:00:00-04:00'),
+              lt: new Date('2026-09-02T00:00:00-04:00'),
+            },
+          }) as unknown,
+        }) as unknown,
+      );
+    });
+
+    it('lanza BadRequestException si "to" es menor o igual a "from"', async () => {
+      await expect(
+        service.findByRange(therapistId, {
+          from: '2026-09-05T00:00:00-04:00',
+          to: '2026-09-05T00:00:00-04:00',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.consultation.findMany).not.toHaveBeenCalled();
+    });
+
+    it('lanza BadRequestException si el rango solicitado supera los 62 días', async () => {
+      await expect(
+        service.findByRange(therapistId, {
+          // 68 días
+          from: '2026-01-01T00:00:00-04:00',
+          to: '2026-03-10T00:00:00-04:00',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.consultation.findMany).not.toHaveBeenCalled();
+    });
+
+    it('acepta un rango de exactamente 62 días', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.findByRange(therapistId, {
+          // exactamente 62 días
+          from: '2026-01-01T00:00:00-04:00',
+          to: '2026-03-04T00:00:00-04:00',
+        }),
+      ).resolves.toEqual([]);
+    });
+
+    it('arma un mapa de sincronización por groupId y lo fusiona en la respuesta', async () => {
+      prisma.consultation.findMany.mockResolvedValue([
+        buildRangeConsultation({
+          id: 'c-1',
+          groupId: 'group-1',
+          patient: { fullName: 'Ana Paz' },
+        }),
+        buildRangeConsultation({
+          id: 'c-2',
+          groupId: 'group-2',
+          patient: { fullName: 'Beto Ruiz' },
+        }),
+        buildRangeConsultation({
+          id: 'c-3',
+          groupId: 'group-3',
+          patient: { fullName: 'Caro Diaz' },
+        }),
+      ] as never);
+      prisma.calendarEventLink.findMany.mockResolvedValue([
+        { groupId: 'group-1', syncStatus: 'SYNCED' },
+        { groupId: 'group-2', syncStatus: 'FAILED' },
+      ]);
+
+      const result = await service.findByRange(therapistId, {
+        from: '2026-09-01T00:00:00-04:00',
+        to: '2026-10-01T00:00:00-03:00',
+      });
+
+      expect(result.find((s) => s.groupId === 'group-1')?.calendarSync).toBe(
+        'SYNCED',
+      );
+      expect(result.find((s) => s.groupId === 'group-2')?.calendarSync).toBe(
+        'FAILED',
+      );
+      expect(
+        result.find((s) => s.groupId === 'group-3')?.calendarSync,
+      ).toBeNull();
+      expect(prisma.calendarEventLink.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            connection: { therapistId },
+            groupId: { in: ['group-1', 'group-2', 'group-3'] },
+          }) as unknown,
+        }) as unknown,
+      );
+    });
+
+    it('devuelve solo los campos del contrato CalendarSession, sin PHI clínico', async () => {
+      prisma.consultation.findMany.mockResolvedValue([
+        buildRangeConsultation({
+          id: 'c-1',
+          groupId: 'group-1',
+          patientId: 'patient-9',
+          sessionDate: new Date('2026-09-10T15:00:00.000Z'),
+          sessionType: 'TELEMED',
+          patient: { fullName: 'Dana Vera' },
+        }),
+      ] as never);
+
+      const [session] = await service.findByRange(therapistId, {
+        from: '2026-09-01T00:00:00-04:00',
+        to: '2026-10-01T00:00:00-03:00',
+      });
+
+      expect(session).toEqual({
+        id: 'c-1',
+        groupId: 'group-1',
+        sessionDate: '2026-09-10T15:00:00.000Z',
+        sessionType: 'TELEMED',
+        patientId: 'patient-9',
+        patientName: 'Dana Vera',
+        calendarSync: null,
+      });
+    });
+
+    it('no consulta calendarEventLink cuando no hay sesiones en el rango', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+
+      const result = await service.findByRange(therapistId, {
+        from: '2026-09-01T00:00:00-04:00',
+        to: '2026-10-01T00:00:00-03:00',
+      });
+
+      expect(result).toEqual([]);
+      expect(prisma.calendarEventLink.findMany).not.toHaveBeenCalled();
     });
   });
 });

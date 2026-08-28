@@ -202,7 +202,11 @@ describe('Calendar Integration (e2e)', () => {
         .query({ code: 'codigo-cualquiera', state: forgedState })
         .expect(302);
 
-      expect(res.headers.location).toContain('calendar=error');
+      // design.md "Decision: OAuth return path is a module constant pointing
+      // at /security" -- el callback debe redirigir a /security (Seguridad,
+      // no /settings, que ya no existe como página real tras PR2a) tanto en
+      // éxito como en error (account-settings Req: OAuth Redirect Resolution).
+      expect(res.headers.location).toContain('/security?calendar=error');
 
       const connection = await prisma.googleCalendarConnection.findUnique({
         where: { therapistId: therapistAId },
@@ -255,7 +259,9 @@ describe('Calendar Integration (e2e)', () => {
         .get('/api/v1/calendar-integration/callback')
         .query({ code: 'codigo-de-google', state })
         .expect(302);
-      expect(first.headers.location).toContain('calendar=connected');
+      // design.md "Decision: OAuth return path is a module constant pointing
+      // at /security" -- éxito también aterriza en /security.
+      expect(first.headers.location).toContain('/security?calendar=connected');
 
       const afterFirst = await prisma.googleCalendarConnection.findUnique({
         where: { therapistId: therapistAId },

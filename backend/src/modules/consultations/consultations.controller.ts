@@ -11,6 +11,7 @@ import {
 import { ConsultationsService } from './consultations.service';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { CorrectConsultationDto } from './dto/correct-consultation.dto';
+import { ConsultationRangeQueryDto } from './dto/consultation-range-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import {
   CurrentUser,
@@ -44,6 +45,17 @@ export class ConsultationsController {
   @Get('stats')
   getStats(@CurrentUser() user: RequestUser) {
     return this.consultationsService.getStats(user.id);
+  }
+
+  // sdd/session-calendar-view PR1: mismo hazard de wildcard que "stats" --
+  // debe declararse ANTES de :id o Nest matchea "range" contra ese wildcard
+  // de un solo segmento.
+  @Get('range')
+  findByRange(
+    @Query() query: ConsultationRangeQueryDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.consultationsService.findByRange(user.id, query);
   }
 
   @Get(':id')

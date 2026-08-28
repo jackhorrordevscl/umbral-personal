@@ -18,6 +18,16 @@ import {
 
 const DEFAULT_FRONTEND_URL = 'http://localhost:5173';
 
+// design.md "Decision: OAuth return path is a module constant pointing at
+// /security": el panel de Google Calendar vive en SecurityPage tras el split
+// de SettingsPage.tsx (PR2a) -- una env var sería un contrato de despliegue
+// para lo que en realidad es la forma de una ruta del frontend (un typo acá
+// 404earía sin señal de compilación). `/settings` se mantiene además como
+// alias en App.tsx (`<Navigate to="/security" replace />`) para que un
+// backend viejo en despliegue o un bookmark existente sigan aterrizando bien
+// durante el rollout.
+const CALENDAR_RETURN_PATH = '/security';
+
 // design.md REST table: GET /status y POST /authorize|disconnect quedan
 // scoped al terapeuta autenticado (@CurrentUser(), nunca un :id de ruta) --
 // no existe superficie para pedir la conexión de otro terapeuta por id. GET
@@ -66,12 +76,12 @@ export class CalendarIntegrationController {
       const { therapistId } =
         await this.oauthService.verifyAndConsumeState(state);
       await this.oauthService.exchangeCodeAndPersist(therapistId, code);
-      res.redirect(`${frontendUrl}/settings?calendar=connected`);
+      res.redirect(`${frontendUrl}${CALENDAR_RETURN_PATH}?calendar=connected`);
     } catch (err) {
       this.logger.error(
         `Fallo en el callback de Google Calendar: ${err instanceof Error ? err.message : err}`,
       );
-      res.redirect(`${frontendUrl}/settings?calendar=error`);
+      res.redirect(`${frontendUrl}${CALENDAR_RETURN_PATH}?calendar=error`);
     }
   }
 
