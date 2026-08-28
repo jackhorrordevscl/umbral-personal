@@ -2,7 +2,7 @@
 
 This artifact aggregates all apply batches across worktrees/PRs for this change. Each batch section below is self-contained (own worktree, branch, evidence); do not overwrite prior sections when adding a new batch.
 
-**Chain status**: PR1 (#98), PR3 (#99), PR2a (#100), PR2b (#101) all merged to `main`. Only Phase 5 (PR4, Calendar UI) remains.
+**Chain status**: PR1 (#98), PR3 (#99), PR2a (#100), PR2b (#101) all merged to `main`. Phase 5 (PR4, Calendar UI) implemented and verified in worktree `session-calendar-view-pr4`, pending review/commit/PR.
 
 ---
 
@@ -102,6 +102,68 @@ Merged to `main` as PR #101 (commits `98434a9`, `ab2b738` + merge `d4fcc34`).
 
 ---
 
+## Batch: PR4 — Calendar UI (Phase 5, tasks 5.1-5.10)
+
+**Mode**: Strict TDD
+**Worktree**: C:\desarrollo\umbral-personal-worktrees\session-calendar-view-pr4
+**Branch**: session-calendar-view-pr4-calendar-ui (created from `origin/main`, not yet committed/pushed)
+
+### Safety Net
+Baseline before any change: `npm test` → 11 test files, 61 tests passing. Re-run after all changes: 14 test files, 75 tests passing (+14 new: 5 `datetime.spec.ts`, 2 `useCalendarSessions.spec.tsx`, 7 `CalendarPage.spec.tsx`).
+
+### Completed Tasks
+- [x] 5.1 `utils/datetime.ts` — added `toChileDayKey(iso)` (Chile-local day bucketing via `en-CA` `Intl` formatting) and `chileMonthGridRange(year, month)` (fixed 42-cell/6x7 grid, week starts Monday, half-open `{from, to, days}`, reuses existing `buildLocalISO` to resolve the correct Chile offset per grid boundary). Also added `formatChileTime(iso)` (HH:mm in Chile) as a small supporting helper shared by `DayCell`/`DayDetailModal` — not in the original task list but a natural extension of the same file, avoids duplicating the Intl time-formatting logic twice.
+- [x] 5.2 `api/consultations.ts` — `CalendarSession` interface (mirrors backend `ConsultationsService.CalendarSession` exactly, confirmed by reading the real service, not guessed: `id, groupId, sessionDate, sessionType, patientId, patientName, calendarSync`, `calendarSync: 'SYNCED' | 'FAILED' | null` confirmed against the Prisma `CalendarSyncStatus` enum) + `listConsultationsByRange(from, to)` (`GET /consultations/range` with `{ params: { from, to } }`).
+- [x] 5.3 `hooks/useCalendarSessions.ts` — `queryKey: ['consultations', 'range', from, to]`, exact key verified by a dedicated test reading `queryClient.getQueryData([...])` under that literal key (not just asserting the fetch happened).
+- [x] 5.4 `components/calendar/MonthGrid.tsx` — 7-col Tailwind grid, Lunes-first weekday header (`Lun..Dom`, consistent with `chileMonthGridRange`'s Monday-start), renders all 42 `days` from the grid range including spillover cells; `isCurrentMonth` derived by comparing each day's month segment to the requested month.
+- [x] 5.5 `components/calendar/DayCell.tsx` — day number, up to 3 session chips (`HH:mm patientName`, via `formatChileTime`), `+N más` overflow text when `sessions.length > 3`. Whole cell is one `<button>` (no nested interactive elements) with `data-testid="day-cell-{day}"`.
+- [x] 5.6 `components/calendar/DayDetailModal.tsx` — read-only session list (patientName, time, sessionType label), "Agendar sesión" button toggles to mount `ConsultationForm` (from PR3) with `initialDate={day}` / `initialTime="09:00"`, `onSuccess={onClose}` (closes the whole modal — the grid refetches automatically via the existing `['consultations']` invalidation), `onCancel` returns to the read-only list. No edit/cancel control on any listed session (session-calendar Req: Read-Only Day Detail Modal).
+- [x] 5.7 `components/calendar/CalendarSyncBadge.tsx` — reads `GET /calendar-integration/status` directly (confirmed against spec.md's own wording: "MUST show a read-only Google Calendar status badge from `GET /calendar-integration/status`" — not derived from each row's `calendarSync`), renders a `react-router` `Link` to `/security` with a status label, no connect/disconnect button (session-calendar Req: Google Calendar Status Badge).
+- [x] 5.8 `pages/CalendarPage.tsx` — `viewMonth` state defaulting to "today" anchored in Chile (`toChileDayKey(new Date().toISOString())`, not device-local time, consistent with the rest of the module), `groupByChileDay(sessions)` (buckets by `toChileDayKey(session.sessionDate)` — session-calendar Req: Session Date Anchoring), prev/next month navigation, `DayDetailModal` wiring on day click.
+- [x] 5.9 `App.tsx` + `Layout.tsx` — `/calendar` lazy route next to `/consultations`; `Layout.tsx` navLinks now Dashboard/Pacientes/Consultas/**Calendario**/Repositorio/Perfil/Seguridad (`CalendarDays` icon), matching design.md's nav order exactly.
+- [x] 5.10 RED `CalendarPage.spec.tsx` (7 tests, all written before their production code): exact grid range fetch (`from`/`to` cross-checked against the same DST-derived values as `datetime.spec.ts`); grid spillover cells present (`day-cell-2026-08-31`, `day-cell-2026-10-11`); Chile-day bucketing across the spring-forward instant (`2026-09-06T04:00:00Z`) placing two sessions one minute apart on different day cells; 4-session overflow ("+1 más"); read-only day modal (no "corregir"/"cancelar sesión" controls, "Agendar sesión" present); "Agendar sesión" opens `ConsultationForm` prefilled with the clicked day; badge shows status + links to `/security` with no connect/disconnect button.
+
+### TDD Cycle Evidence
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 5.1 | `frontend/src/utils/datetime.spec.ts` | Unit | ✅ 61/61 (full suite, no pre-existing direct spec for this file) | ✅ Written | ✅ 5/5 passed | ✅ 2 months (Sept/April) + 3 DST-boundary cases for `toChileDayKey` | ✅ Clean (shared `dateKeyFromUTCComponents`/`pad2` helpers) |
+| 5.2 | Covered by `useCalendarSessions.spec.tsx` (5.3) and `CalendarPage.spec.tsx` (5.10) | Unit (indirect) | N/A (new fields on existing file) | N/A | ✅ Exercised via 5.3/5.10 | ➖ Single (thin passthrough, same shape as `listConsultationsByPatient` — matches repo convention of not unit-testing `api/*.ts` directly) | ➖ None needed |
+| 5.3 | `frontend/src/hooks/useCalendarSessions.spec.tsx` | Unit (react-query hook) | N/A (new) | ✅ Written | ✅ 2/2 passed | ✅ 2 cases (fetch/data shape + exact queryKey via `getQueryData`) | ➖ None needed |
+| 5.4-5.8 | `frontend/src/pages/CalendarPage.spec.tsx` | Integration (page + subcomponents, react-query + react-router) | N/A (new) | ✅ Written first (confirmed `Failed to resolve import "./CalendarPage"`) | ✅ 7/7 passed after 2 test-assertion fixes (async `within(...).findByText` for late-loading cell data, `toHaveAttribute` instead of nested `getByRole('link')` since the testid element IS the anchor) | ✅ 7 scenarios covering all sub-components together (grid range fetch, spillover, DST bucketing, overflow, read-only modal, prefill, badge) | ✅ Clean |
+| 5.9 | Covered by `CalendarPage.spec.tsx` rendering the page itself; route/navLink wiring is structural (no `App.spec.tsx`/`Layout.spec.tsx` exists in this repo's convention) | N/A | N/A | N/A | ✅ `tsc -b` + `eslint` clean, manual read of `App.tsx`/`Layout.tsx` diff | ➖ Single (mechanical wiring, one possible correct shape) | ➖ None needed |
+| 5.10 | `frontend/src/pages/CalendarPage.spec.tsx` | Integration | N/A (new) | ✅ Written before any component existed | ✅ 7/7 | ✅ 7 distinct scenarios | ✅ Clean |
+
+### Test Summary
+- **Total tests written**: 14 (5 + 2 + 7)
+- **Total tests passing**: 14/14 new, 75/75 full frontend suite
+- **Layers used**: Unit (7 — datetime + hook), Integration (7 — CalendarPage + all calendar subcomponents rendered together)
+- **Approval tests** (refactoring): None — no refactoring tasks, all new behavior
+- **Pure functions created**: `toChileDayKey`, `chileMonthGridRange`, `formatChileTime`, `groupByChileDay`, `addMonths`, `chileTodayViewMonth` (all in `datetime.ts`/`CalendarPage.tsx`, zero side effects)
+
+### Work Unit Evidence
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `npx vitest run src/pages/CalendarPage.spec.tsx` → 7/7 passed (also `src/utils/datetime.spec.ts` 5/5, `src/hooks/useCalendarSessions.spec.tsx` 2/2) |
+| Runtime harness command/scenario and exact result | manual: month nav + day click — not executed live (no dev server in this batch); covered instead by the full `CalendarPage.spec.tsx` integration test exercising the real `MonthGrid`→`DayCell`→`DayDetailModal`→`ConsultationForm` tree with mocked `api/client`, per tasks.md's own "Runtime harness" column for Unit 5 |
+| Rollback boundary | Revert `App.tsx`/`Layout.tsx` route+navLink additions and delete `pages/CalendarPage.tsx` + `components/calendar/`; page becomes unreachable, zero impact on PR1/PR3/PR2a/PR2b code (matches tasks.md's own rollback boundary for Unit 5) |
+
+### Full Verification (before returning control)
+- `npm test` (frontend, full suite): 14 test files, 75 tests passed.
+- `npm run lint` (`eslint .`): clean, zero warnings/errors.
+- `npx tsc -b`: clean, zero errors.
+- Backend untouched in this batch (PR4 is frontend-only per design.md's File Changes table) — backend suite not re-run.
+
+### Deviations from Design
+None — implementation matches design.md's "File Changes", "Interfaces / Contracts", "Data Flow", and nav-order sections exactly. Two additions beyond the literal task list, both minor and in-scope: `formatChileTime` helper in `datetime.ts` (natural extension, avoids duplicating Intl formatting across `DayCell`/`DayDetailModal`), and `CalendarSyncBadge` confirmed to call `GET /calendar-integration/status` directly (per spec.md's own wording) rather than reading `calendarSync` off each `CalendarSession` row — the per-row field exists in the payload but is unused by the badge; it remains available for a future per-session sync indicator if ever needed, out of scope here.
+
+### Issues Found
+Two test-assertion bugs caught during the GREEN run (not production bugs): (1) `within(cell).getByText(...)` on the 4-session overflow test queried before the async `useCalendarSessions` fetch resolved — fixed with `findByText` for the first assertion in that block. (2) `within(badge).getByRole('link')` searched for a *descendant* link, but `data-testid="calendar-sync-badge"` is set on the anchor itself (`CalendarSyncBadge` renders a bare `react-router` `Link`) — fixed to assert `toHaveAttribute('href', ...)` directly on `badge`.
+
+### Status
+Implemented and verified (75/75 tests, lint clean, typecheck clean). Not yet committed — left for the requester to review the diff before commit/PR. Ready for `sdd-verify`.
+
+---
+
 ## Post-Chain Housekeeping (orchestrator)
 
 - Worktrees for PR1/PR3/PR2a/PR2b removed (`git worktree remove --force`); local and remote branches deleted post-merge.
@@ -110,4 +172,4 @@ Merged to `main` as PR #101 (commits `98434a9`, `ab2b738` + merge `d4fcc34`).
 
 ## Next
 
-Phase 5 (PR4, Calendar UI) — depends on PR1 (merged) and PR3 (merged), both now satisfied. Ready to start.
+Phase 5 (PR4, Calendar UI) implemented (see "Batch: PR4" above), all tasks 5.1-5.10 complete, 75/75 frontend tests passing, lint/typecheck clean. Working tree left uncommitted for review. Next: review diff, commit, open PR4, then `sdd-verify` and archive once merged.
