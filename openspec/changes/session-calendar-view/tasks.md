@@ -42,25 +42,28 @@ Chain strategy: stacked-to-main
 
 ## Phase 2: Extract ConsultationForm (PR3, parallel to PR1)
 
-- [ ] 2.1 Create `components/consultations/ConsultationForm.tsx`: form state, 4 validations, `useCreateConsultation`, `buildLocalISO`; props `{initialDate?, initialTime?, onSuccess, onCancel}`.
-- [ ] 2.2 `ConsultationsPage.tsx`: replace inline create form with `ConsultationForm`.
-- [ ] 2.3 Regression: existing `ConsultationsPage.spec.tsx` create flow passes unchanged (no behavior change).
+- [x] 2.1 Create `components/consultations/ConsultationForm.tsx`: form state, 4 validations, `useCreateConsultation`, `buildLocalISO`; props `{initialDate?, initialTime?, onSuccess, onCancel}`.
+- [x] 2.2 `ConsultationsPage.tsx`: replace inline create form with `ConsultationForm`.
+- [x] 2.3 Regression: existing `ConsultationsPage.spec.tsx` create flow passes unchanged (no behavior change).
 
 ## Phase 3: Settings Split — Pages + Routing (PR2a)
 
-- [ ] 3.1 `hooks/useProfile.ts`: `queryKey:['profile']`, 30s `staleTime`, wraps `GET /profile`.
-- [ ] 3.2 Create `pages/ProfilePage.tsx`: name/email/password only, no MFA/Calendar control.
-- [ ] 3.3 Create `pages/SecurityPage.tsx`: MFA + history + Google Calendar panel + `?calendar=` banner.
-- [ ] 3.4 `App.tsx`: routes `/profile`, `/security`; `/settings` → `<Navigate to="/security" replace/>`.
-- [ ] 3.5 `Layout.tsx`: navLinks Perfil (`UserCog`) + Seguridad (`ShieldCheck`), order Dashboard/Pacientes/Consultas/Calendario/Repositorio/Perfil/Seguridad.
-- [ ] 3.6 Delete `SettingsPage.tsx`.
+- [x] 3.1 `hooks/useProfile.ts`: `queryKey:['profile']`, 30s `staleTime`, wraps `GET /profile`.
+- [x] 3.2 Create `pages/ProfilePage.tsx`: name/email/password only, no MFA/Calendar control.
+- [x] 3.3 Create `pages/SecurityPage.tsx`: MFA + history + Google Calendar panel + `?calendar=` banner.
+- [x] 3.4 `App.tsx`: routes `/profile`, `/security`; `/settings` → `<Navigate to="/security" replace/>`.
+- [x] 3.5 `Layout.tsx`: navLinks Perfil (`UserCog`) + Seguridad (`ShieldCheck`) — orden actual Dashboard/Pacientes/Consultas/Repositorio/Perfil/Seguridad; Calendario se agrega en PR4 (Phase 5), no se adelantó acá.
+- [x] 3.6 Delete `SettingsPage.tsx`.
+- [x] **(movida desde 4.4, ver nota abajo)** Delete `SettingsPage.spec.tsx` — se hizo en este PR (2a), no en PR2b: dejarla viva importando la página ya borrada habría roto el build de `main` si PR2a se mergeaba solo.
 
 ## Phase 4: Settings Split — OAuth Constant + Specs (PR2b)
 
-- [ ] 4.1 `calendar-integration.controller.ts`: `CALENDAR_RETURN_PATH='/security'` constant, replace L69/L74 hardcode.
-- [ ] 4.2 Create `ProfilePage.spec.tsx`: identity fields render; no MFA/Calendar control present (account-settings Req: Profile Section Scope).
-- [ ] 4.3 Create `SecurityPage.spec.tsx`: MFA + Calendar controls render; `?calendar=connected|error` banner both cases; controls not duplicated in Calendario (account-settings Req: Security Section Scope, OAuth Redirect Resolution).
-- [ ] 4.4 Delete `SettingsPage.spec.tsx`.
+- [x] 4.1 `calendar-integration.controller.ts`: `CALENDAR_RETURN_PATH='/security'` constant, replace L69/L74 hardcode.
+- [x] 4.2 Create `ProfilePage.spec.tsx`: identity fields render; no MFA/Calendar control present (account-settings Req: Profile Section Scope).
+- [x] 4.3 Create `SecurityPage.spec.tsx`: MFA + Calendar controls render; `?calendar=connected|error` banner both cases; controls not duplicated in Calendario (account-settings Req: Security Section Scope, OAuth Redirect Resolution).
+- [x] ~~4.4 Delete `SettingsPage.spec.tsx`~~ — reasignada y completada en PR2a (ver Phase 3), no en este PR. Motivo: PR2a debía quedar mergeable de forma independiente a `main` sin romper CI.
+
+**Estado del change**: PR1 (#98), PR3 (#99), PR2a (#100) y PR2b (#101) mergeados a `main`. Queda solo Phase 5 (PR4).
 
 ## Phase 5: Calendar UI (PR4, depends on PR1 + PR3)
 
