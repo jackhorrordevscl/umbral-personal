@@ -14,6 +14,7 @@ import { MailService } from '../mail/mail.service';
 interface MockConsultation {
   id: string;
   groupId: string;
+  patientId: string;
   sessionDate: Date;
   therapistId: string;
   patient: { fullName: string };
@@ -26,6 +27,7 @@ function buildConsultation(
   return {
     id: 'consultation-1',
     groupId: 'group-1',
+    patientId: 'patient-1',
     sessionDate: new Date(Date.now() + 10 * 60 * 60 * 1000),
     therapistId: 'therapist-1',
     patient: { fullName: 'Juan Soto' },
@@ -127,6 +129,15 @@ describe('RemindersService.scan', () => {
 
     expect(prisma.reminderDispatch.create).toHaveBeenCalledTimes(2);
     expect(notificationsService.create).toHaveBeenCalledTimes(1);
+    // linkPath debe traer patientId + consultationId como query params -- la
+    // ruta real (/consultations, ver App.tsx) no tiene :id, así que
+    // ConsultationsPage necesita ambos para preseleccionar el paciente y
+    // abrir el modal de Corregir sesión.
+    expect(notificationsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        linkPath: `/consultations?patientId=${consultation.patientId}&consultationId=${consultation.id}`,
+      }),
+    );
     expect(mailService.sendSessionReminderEmail).toHaveBeenCalledTimes(1);
     expect(prisma.reminderDispatch.update).toHaveBeenCalledTimes(2);
     expect(prisma.reminderDispatch.update).toHaveBeenCalledWith(

@@ -24,7 +24,7 @@ function renderList(overrides: Partial<React.ComponentProps<typeof NotificationL
     notifications: [buildNotification()],
     isLoading: false,
     isError: false,
-    onMarkRead: vi.fn(),
+    onOpen: vi.fn(),
     ...overrides,
   }
   render(<NotificationList {...props} />)
@@ -64,27 +64,41 @@ describe('NotificationList', () => {
     expect(screen.getByText('Sesión en 2 horas')).toBeInTheDocument()
   })
 
-  it('click en una notificación no leída llama a onMarkRead con su id', async () => {
+  it('click en una notificación no leída llama a onOpen con la notificación completa', async () => {
     const user = userEvent.setup()
-    const props = renderList({
-      notifications: [buildNotification({ id: 'notif-1', readAt: null })],
-    })
+    const notification = buildNotification({ id: 'notif-1', readAt: null })
+    const props = renderList({ notifications: [notification] })
 
-    await user.click(screen.getByRole('button', { name: /marcar como leída/i }))
+    await user.click(screen.getByRole('button', { name: 'Sesión en 24 horas' }))
 
-    expect(props.onMarkRead).toHaveBeenCalledWith('notif-1')
+    expect(props.onOpen).toHaveBeenCalledWith(notification)
   })
 
-  it('click en una notificación ya leída no llama a onMarkRead', async () => {
+  it('click en una notificación ya leída también llama a onOpen (para poder navegar)', async () => {
     const user = userEvent.setup()
-    const props = renderList({
-      notifications: [
-        buildNotification({ id: 'notif-1', title: 'Ya leída', readAt: '2026-08-24T09:00:00.000Z' }),
-      ],
+    const notification = buildNotification({
+      id: 'notif-1',
+      title: 'Ya leída',
+      readAt: '2026-08-24T09:00:00.000Z',
     })
+    const props = renderList({ notifications: [notification] })
 
     await user.click(screen.getByRole('button', { name: 'Ya leída' }))
 
-    expect(props.onMarkRead).not.toHaveBeenCalled()
+    expect(props.onOpen).toHaveBeenCalledWith(notification)
+  })
+
+  it('agrupa las notificaciones de hoy bajo "Hoy" y el resto bajo "Anteriores"', () => {
+    renderList({
+      notifications: [
+        buildNotification({ id: 'a', title: 'De hoy', createdAt: new Date().toISOString() }),
+        buildNotification({ id: 'b', title: 'De antes', createdAt: '2026-01-01T10:00:00.000Z' }),
+      ],
+    })
+
+    expect(screen.getByText('Hoy')).toBeInTheDocument()
+    expect(screen.getByText('Anteriores')).toBeInTheDocument()
+    expect(screen.getByText('De hoy')).toBeInTheDocument()
+    expect(screen.getByText('De antes')).toBeInTheDocument()
   })
 })

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle } from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import ErrorBanner from '../components/ui/ErrorBanner';
@@ -12,10 +13,23 @@ import { normalizeRut } from '../utils/rut';
 import { getApiErrorMessage } from '../utils/api-error';
 
 export default function ConsultationsPage() {
+  // Notificaciones de sesión (linkPath) llegan como
+  // /consultations?patientId=X&consultationId=Y -- seedear el estado inicial
+  // acá (lazy initializer, no useEffect) evita el parpadeo "sin paciente" +
+  // el patrón de sincronizar estado derivado vía efecto que ya mordió a este
+  // repo (ver PR2a session-calendar-view).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedConsultationId = searchParams.get('consultationId');
+  const openedFromLinkRef = useRef(false);
+
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
-  const [selectedPatientId, setSelectedPatientId] = useState('');
-  const [showPatientList, setShowPatientList] = useState(true);
+  const [selectedPatientId, setSelectedPatientId] = useState(
+    () => searchParams.get('patientId') ?? '',
+  );
+  const [showPatientList, setShowPatientList] = useState(
+    () => !searchParams.get('patientId'),
+  );
   const [editingConsultation, setEditingConsultation] = useState<Consultation | null>(null);
   const [editError, setEditError] = useState('');
   const [editForm, setEditForm] = useState({
@@ -28,12 +42,12 @@ export default function ConsultationsPage() {
 
   const { data: patients = [], isError: patientsError } = usePatients();
 
-  const { data: consultations = [], isError: consultationsError } =
+  const { data: consultations = [], isError: consultationsError, isSuccess: consultationsLoaded } =
     useConsultations(selectedPatientId || undefined);
 
   const correctMutation = useCorrectConsultation();
 
-  const handleEditOpen = (c: Consultation) => {
+  const handleEditOpen = useCallback((c: Consultation) => {
     const sd = new Date(c.sessionDate);
     const nd = c.nextSessionDate ? new Date(c.nextSessionDate) : null;
     const toLocalDate = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
@@ -50,7 +64,20 @@ export default function ConsultationsPage() {
     });
     setEditingConsultation(c);
     setEditError('');
-  };
+  }, []);
+
+  // Abre el modal de Corregir sesión una sola vez cuando la consulta
+  // referenciada por la notificación (?consultationId=) termina de cargar --
+  // openedFromLinkRef evita reabrirlo si el usuario lo cierra manualmente.
+  useEffect(() => {
+    if (!linkedConsultationId || openedFromLinkRef.current || !consultationsLoaded) return;
+
+    const target = consultations.find((c: Consultation) => c.id === linkedConsultationId);
+    if (target) handleEditOpen(target);
+
+    openedFromLinkRef.current = true;
+    setSearchParams(new URLSearchParams(), { replace: true });
+  }, [consultations, consultationsLoaded, linkedConsultationId, handleEditOpen, setSearchParams]);
 
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();

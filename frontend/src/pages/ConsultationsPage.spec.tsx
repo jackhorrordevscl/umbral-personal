@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ConsultationsPage from './ConsultationsPage'
 import api from '../api/client'
@@ -40,13 +41,15 @@ function buildConsultation(overrides: Partial<Consultation> = {}): Consultation 
   } as unknown as Consultation
 }
 
-function renderConsultationsPage() {
+function renderConsultationsPage(initialEntry = '/consultations') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <ConsultationsPage />
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <ConsultationsPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }
@@ -151,5 +154,20 @@ describe('ConsultationsPage', () => {
 
     expect(await screen.findByText('Motivo de la sesión')).toBeInTheDocument()
     expect(screen.getByText('Intervención realizada')).toBeInTheDocument()
+  })
+
+  it('con ?patientId y consultationId en la URL, preselecciona el paciente y abre el modal de Corregir sesión (deep link desde una notificación)', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url.startsWith('/consultations/patient/'))
+        return Promise.resolve({ data: [buildConsultation()] })
+      return Promise.resolve({ data: [] })
+    })
+
+    renderConsultationsPage('/consultations?patientId=patient-1&consultationId=consultation-1')
+
+    expect(
+      await screen.findByRole('heading', { name: 'Corregir Sesión' }),
+    ).toBeInTheDocument()
   })
 })

@@ -40,6 +40,7 @@ const CHANNELS: readonly ReminderChannel[] = [
 interface ScannedConsultation {
   id: string;
   groupId: string;
+  patientId: string;
   sessionDate: Date;
   therapistId: string;
   patient: { fullName: string };
@@ -180,7 +181,10 @@ export class RemindersService {
           type: NotificationType.SESSION_REMINDER,
           title: `Recordatorio de sesión en ${offsetLabel}`,
           body: `Tu sesión con ${consultation.patient.fullName} está programada para ${consultation.sessionDate.toISOString()} (en ${offsetLabel}).`,
-          linkPath: `/consultations/${consultation.id}`,
+          // La ruta real (App.tsx) es /consultations sin :id -- el detalle
+          // vive en query params que ConsultationsPage lee para
+          // preseleccionar el paciente y abrir el modal de Corregir sesión.
+          linkPath: `/consultations?patientId=${consultation.patientId}&consultationId=${consultation.id}`,
         });
       } else {
         // MailService.sendSessionReminderEmail nunca lanza por contrato

@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router';
 import { Bell } from 'lucide-react';
 import NotificationList from './NotificationList';
+import type { Notification } from '../../types/notification';
 import {
   useMarkNotificationRead,
   useNotificationsList,
@@ -16,6 +18,7 @@ import {
 // de overlay + panel ya existe para el sidebar móvil en Layout.tsx.
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
 
   const { data: unread } = useUnreadNotificationsCount();
   const {
@@ -26,6 +29,12 @@ export default function NotificationBell() {
   const markReadMutation = useMarkNotificationRead();
 
   const unreadCount = unread?.count ?? 0;
+
+  const handleOpen = (notification: Notification) => {
+    if (!notification.readAt) markReadMutation.mutate(notification.id);
+    setOpen(false);
+    if (notification.linkPath) navigate(notification.linkPath);
+  };
 
   return (
     <div className="relative">
@@ -68,7 +77,7 @@ export default function NotificationBell() {
               notifications={notifications}
               isLoading={isLoading}
               isError={isError}
-              onMarkRead={(id) => markReadMutation.mutate(id)}
+              onOpen={handleOpen}
             />
           </div>
         </>

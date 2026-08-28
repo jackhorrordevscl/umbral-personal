@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Routes, Route } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import NotificationBell from './NotificationBell'
 import api from '../../api/client'
@@ -33,7 +34,12 @@ function renderBell() {
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <NotificationBell />
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <Routes>
+          <Route path="/dashboard" element={<NotificationBell />} />
+          <Route path="/consultations" element={<p>Página de consultas</p>} />
+        </Routes>
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }
@@ -118,7 +124,7 @@ describe('NotificationBell', () => {
     await screen.findByTestId('notification-badge')
 
     await user.click(screen.getByRole('button', { name: /notificaciones/i }))
-    const item = await screen.findByRole('button', { name: /marcar como leída/i })
+    const item = await screen.findByRole('button', { name: 'Sesión en 24 horas' })
     await user.click(item)
 
     await waitFor(() => {
@@ -127,5 +133,61 @@ describe('NotificationBell', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('notification-badge')).not.toBeInTheDocument()
     })
+  })
+
+  it('click en una notificación con linkPath navega y cierra el panel', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/notifications/unread-count') {
+        return Promise.resolve({ data: { count: 1 } })
+      }
+      if (url === '/notifications') {
+        return Promise.resolve({
+          data: [buildNotification({ linkPath: '/consultations' })],
+        })
+      }
+      return Promise.resolve({ data: [] })
+    })
+    mockedApi.patch.mockResolvedValue({
+      data: buildNotification({ readAt: new Date().toISOString() }),
+    })
+
+    renderBell()
+    await screen.findByTestId('notification-badge')
+
+    await user.click(screen.getByRole('button', { name: /notificaciones/i }))
+    await user.click(await screen.findByRole('button', { name: 'Sesión en 24 horas' }))
+
+    expect(await screen.findByText('Página de consultas')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Notificaciones' })).not.toBeInTheDocument()
+  })
+
+  it('click en una notificación sin linkPath solo marca como leída, sin navegar', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/notifications/unread-count') {
+        return Promise.resolve({ data: { count: 1 } })
+      }
+      if (url === '/notifications') {
+        return Promise.resolve({
+          data: [buildNotification({ linkPath: null })],
+        })
+      }
+      return Promise.resolve({ data: [] })
+    })
+    mockedApi.patch.mockResolvedValue({
+      data: buildNotification({ readAt: new Date().toISOString() }),
+    })
+
+    renderBell()
+    await screen.findByTestId('notification-badge')
+
+    await user.click(screen.getByRole('button', { name: /notificaciones/i }))
+    await user.click(await screen.findByRole('button', { name: 'Sesión en 24 horas' }))
+
+    await waitFor(() => {
+      expect(mockedApi.patch).toHaveBeenCalledWith('/notifications/notif-1/read')
+    })
+    expect(screen.queryByText('Página de consultas')).not.toBeInTheDocument()
   })
 })
