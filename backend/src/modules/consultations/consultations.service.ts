@@ -1,16 +1,18 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { Prisma } from '@prisma/client';
+import { CalendarSyncStatus, Prisma, SessionType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { CorrectConsultationDto } from './dto/correct-consultation.dto';
+import { ConsultationRangeQueryDto } from './dto/consultation-range-query.dto';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 
 function parseDate(dateStr: string): Date {
@@ -22,6 +24,26 @@ function parseDate(dateStr: string): Date {
 }
 
 const THERAPIST_SELECT = { therapist: { select: { name: true, email: true } } };
+
+// design.md "Range query params are ISO instants with explicit offset,
+// half-open": el rango solicitado no puede superar 62 días (cubre el grid
+// completo de 6x7 semanas con margen).
+const MAX_RANGE_SPAN_DAYS = 62;
+const MAX_RANGE_SPAN_MS = MAX_RANGE_SPAN_DAYS * 24 * 60 * 60 * 1000;
+
+// design.md "Interfaces / Contracts": el payload del grid excluye
+// consultReason/intervention/agreements/history a propósito -- una vista de
+// mes no debe sobre-exponer PHI clínico (design.md "Decision: Grid payload
+// excludes clinical narrative").
+export interface CalendarSession {
+  id: string;
+  groupId: string;
+  sessionDate: string;
+  sessionType: SessionType;
+  patientId: string;
+  patientName: string;
+  calendarSync: CalendarSyncStatus | null;
+}
 
 @Injectable()
 export class ConsultationsService {
@@ -258,5 +280,76 @@ export class ConsultationsService {
     );
     this.emitCalendarSync(original.groupId);
     return result;
+  }
+
+  // design.md "Range query params are ISO instants with explicit offset,
+  // half-open": sessionDate: { gte: from, lt: to } -- half-open evita perder
+  // el borde superior por redondeo (23:59:59.999). Reutiliza el mismo filtro
+  // de versión vigente que findByPatient (correctedBy: null, deletedAt:
+  // null).
+  async findByRange(
+    therapistId: string,
+    query: ConsultationRangeQueryDto,
+  ): Promise<CalendarSession[]> {
+    const from = new Date(query.from);
+    const to = new Date(query.to);
+
+    if (to.getTime() <= from.getTime()) {
+      throw new BadRequestException(
+        'El rango solicitado es inválido: "to" debe ser posterior a "from".',
+      );
+    }
+    if (to.getTime() - from.getTime() > MAX_RANGE_SPAN_MS) {
+      throw new BadRequestException(
+        `El rango solicitado no puede superar ${MAX_RANGE_SPAN_DAYS} días.`,
+      );
+    }
+
+    const consultations = await this.prisma.consultation.findMany({
+      where: {
+        therapistId,
+        correctedBy: null,
+        deletedAt: null,
+        sessionDate: { gte: from, lt: to },
+      },
+      include: { patient: { select: { fullName: true } } },
+      orderBy: { sessionDate: 'asc' },
+    });
+
+    if (consultations.length === 0) return [];
+
+    const syncMap = await this.getSyncStatusMap(
+      therapistId,
+      consultations.map((c) => c.groupId),
+    );
+
+    return consultations.map((c) => ({
+      id: c.id,
+      groupId: c.groupId,
+      sessionDate: c.sessionDate.toISOString(),
+      sessionType: c.sessionType,
+      patientId: c.patientId,
+      patientName: c.patient.fullName,
+      calendarSync: syncMap.get(c.groupId) ?? null,
+    }));
+  }
+
+  // design.md "Sync badge resolved in the same response, via in-memory map":
+  // CalendarEventLink no tiene FK a Consultation (se relaciona con
+  // GoogleCalendarConnection + un groupId suelto), así que un `include` de
+  // Prisma es imposible -- una sola query extra mapeada por groupId, mismo
+  // patrón anti-N+1 que historyMap en findByPatient.
+  private async getSyncStatusMap(
+    therapistId: string,
+    groupIds: string[],
+  ): Promise<Map<string, CalendarSyncStatus>> {
+    const links = await this.prisma.calendarEventLink.findMany({
+      where: { connection: { therapistId }, groupId: { in: groupIds } },
+      select: { groupId: true, syncStatus: true },
+    });
+
+    const map = new Map<string, CalendarSyncStatus>();
+    for (const link of links) map.set(link.groupId, link.syncStatus);
+    return map;
   }
 }
