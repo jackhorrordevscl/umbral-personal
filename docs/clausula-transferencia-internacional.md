@@ -63,3 +63,14 @@ Encabezado sugerido para el subpunto nuevo en ambos documentos:
       profesional use la versión actualizada de los documentos con cada
       paciente nuevo desde ahora, y --si aplica-- actualice la fecha de
       vigencia en `docs/manual-terapeutas.md`.
+- [ ] **No incluido todavía: sincronización con Google Calendar**
+      (sdd/google-calendar-integration, issue #78). El RAT
+      (`docs/registro-actividades-tratamiento.md`, fila 11) ya documenta
+      esta transferencia a Google LLC (Estados Unidos), pero deja
+      explícitamente sin resolver si aplica la misma base habilitante que
+      esta cláusula (consentimiento informado del paciente) o la de
+      cuenta de profesional — el contenido enviado es metadata minimizada
+      (iniciales + código no reversible + fecha/hora), no una
+      identificación directa del paciente. No se agrega texto a esta
+      cláusula hasta que esa base habilitante se resuelva en el RAT; no
+      corresponde redactarlo por adelantado sin esa decisión.
