@@ -2,7 +2,7 @@
 
 This artifact aggregates all apply batches across worktrees/PRs for this change. Each batch section below is self-contained (own worktree, branch, evidence); do not overwrite prior sections when adding a new batch.
 
-**Chain status**: PR1 (#98), PR3 (#99), PR2a (#100), PR2b (#101) all merged to `main`. Phase 5 (PR4, Calendar UI) implemented and verified in worktree `session-calendar-view-pr4`, pending review/commit/PR.
+**Chain status**: PR1 (#98), PR3 (#99), PR2a (#100), PR2b (#101), PR4 (#102) all merged to `main`. Change complete, all 5 phases done. Ready for `sdd-verify` and archive.
 
 ---
 
@@ -160,7 +160,7 @@ None — implementation matches design.md's "File Changes", "Interfaces / Contra
 Two test-assertion bugs caught during the GREEN run (not production bugs): (1) `within(cell).getByText(...)` on the 4-session overflow test queried before the async `useCalendarSessions` fetch resolved — fixed with `findByText` for the first assertion in that block. (2) `within(badge).getByRole('link')` searched for a *descendant* link, but `data-testid="calendar-sync-badge"` is set on the anchor itself (`CalendarSyncBadge` renders a bare `react-router` `Link`) — fixed to assert `toHaveAttribute('href', ...)` directly on `badge`.
 
 ### Status
-Implemented and verified (75/75 tests, lint clean, typecheck clean). Not yet committed — left for the requester to review the diff before commit/PR. Ready for `sdd-verify`.
+Merged to `main` as PR #102 (commit `ce26c70` + merge `39ce6c6`).
 
 ---
 
@@ -172,4 +172,4 @@ Implemented and verified (75/75 tests, lint clean, typecheck clean). Not yet com
 
 ## Next
 
-Phase 5 (PR4, Calendar UI) implemented (see "Batch: PR4" above), all tasks 5.1-5.10 complete, 75/75 frontend tests passing, lint/typecheck clean. Working tree left uncommitted for review. Next: review diff, commit, open PR4, then `sdd-verify` and archive once merged.
+Change complete — all 5 phases merged to `main` (PRs #98, #99, #100, #101, #102). Next: `sdd-verify` against spec/tasks, then `sdd-archive`.

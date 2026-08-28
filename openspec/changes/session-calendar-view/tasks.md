@@ -78,6 +78,6 @@ Chain strategy: stacked-to-main
 - [x] 5.9 `App.tsx` + `Layout.tsx`: `/calendar` route + `Calendario` navLink (`CalendarDays`).
 - [x] 5.10 RED `CalendarPage.spec.tsx`: Chile day bucketing across DST; grid renders spillover cells; modal is read-only (no edit/cancel); badge has no inline control (session-calendar Req: Month Range Read Endpoint, Session Date Anchoring).
 
-**Estado del change**: PR1 (#98), PR3 (#99), PR2a (#100), PR2b (#101) mergeados a `main`. PR4 (Calendar UI, este batch) implementado y verificado en worktree `session-calendar-view-pr4`, pendiente de revisión/commit/PR.
+**Estado del change**: PR1 (#98), PR3 (#99), PR2a (#100), PR2b (#101), PR4 (#102) mergeados a `main`. Las 5 fases están completas.
 
-Change session-calendar-view completo, todas las fases mergeadas.
+Change session-calendar-view completo, todas las fases mergeadas. Listo para `sdd-verify` y archivo.
