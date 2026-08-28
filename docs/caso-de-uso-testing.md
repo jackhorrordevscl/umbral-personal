@@ -80,7 +80,23 @@ Genera el PDF de la ficha de Jorge. Revisa que tenga la consulta con su historia
 
 > 📝 Anota: ¿el PDF se ve profesional? ¿falta algo que tú esperarías ver en una ficha clínica real?
 
-### 10:45 — El cierre del día
+### 10:45 — Revisas tus Ajustes de cuenta
+
+Antes de cerrar el día, entra a "Ajustes" y prueba tres cosas:
+
+- Cambia tu nombre (no pide contraseña) y confirma que se actualiza.
+- Mira la campana de notificaciones: deberías tener al menos una notificación si programaste una consulta cerca de las 24h o 2h de anticipación. Márcala como leída.
+- Si tienes una cuenta de Google a mano, prueba conectar Google Calendar y revisa que la consulta de Antonia o Jorge aparezca ahí — fíjate que **no** muestre el nombre completo del paciente, solo iniciales y un código. Si no tienes cuenta de Google disponible, al menos revisa que el botón "Conectar" te lleve a la pantalla de permisos de Google (puedes cancelar ahí sin problema).
+
+> 📝 Anota: ¿el cambio de nombre te dio alguna confirmación clara? ¿el evento en Google Calendar (si lo probaste) te pareció que exponía menos información de la que esperabas, o más?
+
+### 11:00 — Cambias tu contraseña a propósito
+
+Cambia tu contraseña desde "Ajustes". Deberías quedar deslogueado de inmediato y tener que volver a entrar con la contraseña nueva.
+
+> 📝 Anota: ¿el mensaje al desloguearte explicó por qué pasó, o se sintió como un error?
+
+### 11:15 — El cierre del día
 
 Cierra sesión manualmente (no esperes a que expire sola). Vuelve a entrar. Confirma que todo lo que hiciste sigue ahí — los dos pacientes, sus consultas, sus consentimientos, el documento subido.
 

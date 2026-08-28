@@ -182,6 +182,78 @@ Desde la ficha de un paciente se puede exportar un PDF con la ficha clínica com
 
 ---
 
+## 9. Ajustes de tu cuenta
+
+Desde "Ajustes" (además de la sección de MFA descrita en el punto 1) puedes
+editar tus propios datos:
+
+- **Nombre**: se actualiza al instante, sin pedir contraseña.
+- **Email**: pide tu contraseña actual. El cambio **no se aplica de
+  inmediato** — queda pendiente hasta que confirmes desde un enlace enviado
+  a la casilla nueva (válido 24 horas). Tu email actual sigue funcionando
+  para loguear mientras tanto, y además te llega un aviso a esa casilla
+  antigua avisando que se solicitó el cambio (por si no fuiste tú).
+- **Contraseña**: pide tu contraseña actual y la nueva (mínimo 8
+  caracteres). Al guardar, **se cierra tu sesión de inmediato** — y no solo
+  en este dispositivo: cualquier otra sesión abierta en otro navegador o
+  celular también queda invalidada. Vuelve a loguear con la contraseña
+  nueva.
+
+> 📝 Observaciones UX:
+>
+>
+
+---
+
+## 10. Notificaciones y recordatorios de sesión
+
+El ícono de campana en la barra superior muestra tus notificaciones, con un
+contador de las que no has leído. Al abrirlas puedes marcarlas una por una
+como leídas, o todas de una vez.
+
+Dos tipos de notificación llegan hoy:
+
+- **Recordatorio de sesión**: se genera automáticamente 24 horas y 2 horas
+  antes de cada consulta agendada, y llega por dos canales independientes —
+  una notificación en la app y, si tienes email configurado, un correo. Si
+  uno de los dos canales falla, el otro igual te llega.
+- **Aviso de Google Calendar desconectado**: si tu conexión con Google
+  Calendar (ver punto 11) deja de funcionar, te avisa una sola vez.
+
+> 📝 Observaciones UX: (¿el contador de no leídas se nota fácil? ¿los recordatorios llegan con tiempo suficiente para prepararte?)
+>
+>
+
+---
+
+## 11. Conectar tu Google Calendar (opcional)
+
+Desde "Ajustes" puedes conectar tu cuenta de Google para que tus consultas
+aparezcan automáticamente en tu Google Calendar personal.
+
+- Es **por cuenta**, no por sesión: conectas una vez y queda activo hasta
+  que lo desconectes.
+- El evento que se crea en Google **no muestra el nombre completo del
+  paciente** — solo sus iniciales, un código corto que no revela más datos,
+  y un enlace de vuelta a Umbral. Tampoco incluye el motivo de consulta ni
+  si la sesión es presencial o telemedicina.
+- Es de **una sola dirección**: lo que edites en Google no se refleja en
+  Umbral. Si corriges o eliminas una consulta en Umbral, el evento en
+  Google se actualiza o se borra solo; lo contrario no ocurre.
+- Puedes desconectar en cualquier momento desde el mismo lugar. Los eventos
+  ya creados en tu Google Calendar no se borran al desconectar.
+- Si Google revoca el acceso por su cuenta (por ejemplo, cambiaste la
+  contraseña de tu cuenta de Google), la conexión se marca como
+  desconectada sola y te llega un aviso (ver punto 10) — no vas a ver un
+  error a mitad de tu trabajo clínico: el registro de la consulta en Umbral
+  nunca depende de que Google Calendar esté disponible.
+
+> 📝 Observaciones UX: (¿el botón de conectar/desconectar es fácil de encontrar? ¿el mensaje de "conectado" o "error" al volver de Google se entiende?)
+>
+>
+
+---
+
 ## Notas generales de UX (espacio libre)
 
 >
