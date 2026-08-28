@@ -28,7 +28,8 @@ const MfaRecoverPage = lazy(() => import("./pages/MfaRecoverPage"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const PatientsPage = lazy(() => import("./pages/PatientsPage"));
 const ConsultationsPage = lazy(() => import("./pages/ConsultationsPage"));
-const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+const SecurityPage = lazy(() => import("./pages/SecurityPage"));
 const SharedFilesPage = lazy(() => import("./pages/SharedFilesPage"));
 
 function RouteFallback() {
@@ -114,7 +115,14 @@ function AppRoutes() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="patients" element={<PatientsPage />} />
           <Route path="consultations" element={<ConsultationsPage />} />
-          <Route path="settings" element={<SettingsPage />} />
+          <Route path="profile" element={<ProfilePage />} />
+          <Route path="security" element={<SecurityPage />} />
+          {/* PR2a (session-calendar-view): /settings queda como alias --
+              cualquier deploy de backend viejo o bookmark que redirija acá
+              (p. ej. el 302 de CalendarIntegrationController.callback,
+              actualizado recién en PR2b) sigue aterrizando en la pantalla
+              correcta. */}
+          <Route path="settings" element={<Navigate to="/security" replace />} />
           <Route path="archivos" element={<SharedFilesPage />} />
         </Route>
       </Routes>
