@@ -29,6 +29,7 @@ const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const PatientsPage = lazy(() => import("./pages/PatientsPage"));
 const ConsultationsPage = lazy(() => import("./pages/ConsultationsPage"));
 const CalendarPage = lazy(() => import("./pages/CalendarPage"));
+const PaymentsPage = lazy(() => import("./pages/PaymentsPage"));
 const ProfilePage = lazy(() => import("./pages/ProfilePage"));
 const SecurityPage = lazy(() => import("./pages/SecurityPage"));
 const SharedFilesPage = lazy(() => import("./pages/SharedFilesPage"));
@@ -119,6 +120,9 @@ function AppRoutes() {
           {/* PR4 (session-calendar-view, design.md "nav order"): adyacente a
               Consultas -- lee las mismas filas de sesiones. */}
           <Route path="calendar" element={<CalendarPage />} />
+          {/* sdd/online-payment-integration PR 3 (design.md "nav order"):
+              adyacente a Repositorio, antes de la config de cuenta. */}
+          <Route path="payments" element={<PaymentsPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="security" element={<SecurityPage />} />
           {/* PR2a (session-calendar-view): /settings queda como alias --

@@ -191,12 +191,56 @@ export class ConsultationsService {
       }
     }
 
+    // sdd/online-payment-integration PR 3 (T9.6, design.md "Key File
+    // Changes"): resuelto vía el mismo groupId-map anti-N+1 que historyMap
+    // arriba (Payment no tiene FK a Consultation -- @@unique([groupId]),
+    // ver design.md "Decision: Payment keyed on groupId"). Solo
+    // ConsultationsPage (findByPatient) necesita esta superficie en este
+    // PR -- CalendarPage/findByRange queda fuera de alcance de la Fase 9.
+    const paymentMap = await this.getPaymentMap(
+      consultations.map((c) => c.groupId),
+    );
+
     const data = consultations.map((c) => ({
       ...c,
       history: historyMap.get(c.groupId) ?? [],
+      payment: paymentMap.get(c.groupId) ?? null,
     }));
 
     return isPaginated ? { data, total, page, pageSize } : data;
+  }
+
+  private async getPaymentMap(groupIds: string[]) {
+    const map = new Map<
+      string,
+      {
+        status: string;
+        linkDelivery: string;
+        paymentUrl: string | null;
+        amount: number;
+      }
+    >();
+    if (groupIds.length === 0) return map;
+
+    const payments = await this.prisma.payment.findMany({
+      where: { groupId: { in: groupIds } },
+      select: {
+        groupId: true,
+        status: true,
+        linkDelivery: true,
+        paymentUrl: true,
+        amount: true,
+      },
+    });
+    for (const payment of payments) {
+      map.set(payment.groupId, {
+        status: payment.status,
+        linkDelivery: payment.linkDelivery,
+        paymentUrl: payment.paymentUrl,
+        amount: payment.amount,
+      });
+    }
+    return map;
   }
 
   // Issue #40: 2 queries de agregación en vez de traer todas las filas.

@@ -45,6 +45,7 @@ describe('ConsultationsService', () => {
     };
     consultationHistory: { findMany: jest.Mock; create: jest.Mock };
     calendarEventLink: { findMany: jest.Mock };
+    payment: { findMany: jest.Mock };
     $transaction: jest.Mock;
   };
   let patientsService: { assertAccess: jest.Mock };
@@ -64,6 +65,9 @@ describe('ConsultationsService', () => {
         create: jest.fn(),
       },
       calendarEventLink: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      payment: {
         findMany: jest.fn().mockResolvedValue([]),
       },
       $transaction: jest.fn((arg: unknown) => {

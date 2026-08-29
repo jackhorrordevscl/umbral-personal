@@ -26,6 +26,12 @@ export interface Patient {
   treatingPsychiatrist: string;
   treatingDoctor: string;
   address: string;
+  // sdd/online-payment-integration PR 3 (T9.7): monto de sesión por defecto
+  // usado por PaymentsService.ensureCharge para snapshotear el amount de
+  // cada cargo -- null/undefined significa "sin monto configurado", el
+  // paciente simplemente nunca genera cargo (backend: Patient.
+  // defaultSessionAmount, schema.prisma).
+  defaultSessionAmount?: number | null;
 }
 
 export interface PatientHistoryEntry {
@@ -57,8 +63,28 @@ export interface ConsultationHistory {
   };
 }
 
+// sdd/online-payment-integration PR 3 (T9.6): mismo shape que
+// ConsultationsService.getPaymentMap devuelve por groupId en
+// GET /consultations/patient/:id -- Payment no tiene FK a Consultation
+// (design.md "Decision: Payment keyed on groupId"), así que llega resuelto
+// en la propia fila en vez de un `include` de Prisma.
+export type PaymentStatus = 'PENDING' | 'PAID' | 'LATE' | 'CANCELLED';
+export type PaymentLinkDelivery =
+  | 'PENDING'
+  | 'SENT'
+  | 'SKIPPED_NO_EMAIL'
+  | 'FAILED';
+
+export interface PaymentSummary {
+  status: PaymentStatus;
+  linkDelivery: PaymentLinkDelivery;
+  paymentUrl: string | null;
+  amount: number;
+}
+
 export interface Consultation {
   id: string;
+  groupId: string;
   patientId: string;
   sessionDate: string;
   consultReason: string;
@@ -68,6 +94,7 @@ export interface Consultation {
   sessionType: string;
   therapist: { name: string; email: string };
   history: ConsultationHistory[];
+  payment: PaymentSummary | null;
 }
 
 export const FIELD_LABELS: Record<string, string> = {
@@ -83,4 +110,5 @@ export const FIELD_LABELS: Record<string, string> = {
   treatingPsychiatrist: "Psiquiatra tratante",
   treatingDoctor: "Médico tratante",
   isActive: "Activo",
+  defaultSessionAmount: "Monto de sesión por defecto",
 };

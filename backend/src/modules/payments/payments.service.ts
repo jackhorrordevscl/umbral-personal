@@ -1,9 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { Payment } from '@prisma/client';
+import { NotificationType, Payment } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentGatewayClient } from './payment-gateway.client';
+import { MailService } from '../mail/mail.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   PAYMENT_CONFIRM_PATH,
   PAYMENT_RETURN_PATH,
@@ -42,6 +44,8 @@ export class PaymentsService {
     private prisma: PrismaService,
     private gateway: PaymentGatewayClient,
     private config: ConfigService,
+    private mailService: MailService,
+    private notificationsService: NotificationsService,
   ) {
     // Ausente => habilitado por default, mismo criterio que
     // RemindersService/CalendarSyncService -- solo "false" explícito
@@ -72,7 +76,13 @@ export class PaymentsService {
       where: { groupId, correctedBy: null, deletedAt: null },
       include: {
         patient: {
-          select: { id: true, defaultSessionAmount: true, deletedAt: true },
+          select: {
+            id: true,
+            defaultSessionAmount: true,
+            deletedAt: true,
+            email: true,
+            fullName: true,
+          },
         },
       },
     });
@@ -112,7 +122,65 @@ export class PaymentsService {
       },
     });
 
-    await this.issueOrder(created.id, account.merchantId, amount, groupId);
+    const order = await this.issueOrder(
+      created.id,
+      account.merchantId,
+      amount,
+      groupId,
+    );
+    await this.deliverPaymentLink(
+      created.id,
+      consultation.patient,
+      order,
+      amount,
+    );
+  }
+
+  // T8.3 + design.md "Link delivery has an explicit persisted state and
+  // never blocks the charge": llamado UNA vez, justo tras crear el cargo
+  // (spec.md "Automatic Payment-Link Email Delivery" -- "at charge
+  // creation", nunca en cada ensureCharge() posterior sobre un cargo ya
+  // existente). Sin patient.email no se llama a MailService en absoluto
+  // (SKIPPED_NO_EMAIL); sin `order` (merchantId ausente o
+  // gateway.createOrder rechazando, ver issueOrder) tampoco hay un link
+  // real que enviar (FAILED). En ambos casos el cargo ya quedó creado --
+  // esto nunca puede impedir que ensureCharge() se resuelva.
+  private async deliverPaymentLink(
+    paymentId: string,
+    patient: { email: string | null; fullName: string },
+    order: { paymentUrl: string } | null,
+    amount: number,
+  ): Promise<void> {
+    if (!patient.email) {
+      await this.prisma.payment.update({
+        where: { id: paymentId },
+        data: { linkDelivery: 'SKIPPED_NO_EMAIL' },
+      });
+      return;
+    }
+
+    if (!order) {
+      await this.prisma.payment.update({
+        where: { id: paymentId },
+        data: { linkDelivery: 'FAILED' },
+      });
+      return;
+    }
+
+    const sent = await this.mailService.sendPaymentLinkEmail(
+      patient.email,
+      patient.fullName,
+      order.paymentUrl,
+      amount,
+    );
+
+    await this.prisma.payment.update({
+      where: { id: paymentId },
+      data: {
+        linkDelivery: sent ? 'SENT' : 'FAILED',
+        linkSentAt: sent ? new Date() : null,
+      },
+    });
   }
 
   // T6.3 + design.md "Reschedule to future runs the inverse gated update
@@ -244,8 +312,8 @@ export class PaymentsService {
     merchantId: string | null,
     amount: number,
     groupId: string,
-  ): Promise<void> {
-    if (!merchantId) return;
+  ): Promise<{ paymentUrl: string } | null> {
+    if (!merchantId) return null;
 
     const frontendUrl =
       this.config.get<string>('FRONTEND_URL') ?? DEFAULT_FRONTEND_URL;
@@ -278,6 +346,10 @@ export class PaymentsService {
           lastError: null,
         },
       });
+      // T8.3: el caller (ensureCharge -> deliverPaymentLink) necesita el
+      // paymentUrl recién emitido para el email -- se devuelve acá en vez de
+      // forzar un re-fetch del Payment ya actualizado arriba.
+      return { paymentUrl: order.paymentUrl };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(
@@ -286,14 +358,14 @@ export class PaymentsService {
       await this.prisma.payment
         .update({ where: { id: paymentId }, data: { lastError: message } })
         .catch(() => undefined);
+      return null;
     }
   }
 
   // T6.1-6.2 + design.md "Data Flow": mismo shape que
-  // CalendarSyncService.reconcile -- dos pasadas independientes, ninguna
-  // notifica todavía (PR 3, T8.4: "transición + reconcile únicamente" en
-  // este PR). @nestjs/schedule's EVERY_30_MINUTES cubre exactamente la
-  // cadencia de design.md ("@Cron(EVERY_30_MINUTES) sweep()").
+  // CalendarSyncService.reconcile -- dos pasadas independientes.
+  // @nestjs/schedule's EVERY_30_MINUTES cubre exactamente la cadencia de
+  // design.md ("@Cron(EVERY_30_MINUTES) sweep()").
   @Cron(CronExpression.EVERY_30_MINUTES)
   async sweep(): Promise<void> {
     if (!this.enabled) return;
@@ -302,15 +374,67 @@ export class PaymentsService {
     await this.reconcilePendingPayments();
   }
 
-  // T6.1: bulk updateMany, no por-fila -- sin notificación en este PR
-  // (T8.4, PR 3) no hace falta reclamar cada fila individualmente; el WHERE
-  // (status: 'PENDING') es la propia garantía de "count-gated" (T7.5: una
-  // segunda corrida sobre un cargo ya LATE queda fuera del WHERE, 0 filas
-  // afectadas).
+  // T8.4 + design.md "Data Flow": a diferencia de PR 2 (bulk updateMany,
+  // sin notificar), este PR necesita saber CUÁLES filas ganaron la
+  // transición para disparar el email + notificación exactamente una vez
+  // por cargo -- mismo shape de candidatos-batcheados-y-procesados-uno-a-uno
+  // que reconcilePendingPayments/reconcileOne. batcheado a
+  // SWEEP_BATCH_LIMIT por la misma razón que pass 2 (cota de filas por
+  // corrida de cron).
   private async transitionLatePayments(): Promise<void> {
-    await this.prisma.payment.updateMany({
+    const candidates = await this.prisma.payment.findMany({
       where: { status: 'PENDING', dueDate: { lte: new Date() } },
-      data: { status: 'LATE' },
+      take: SWEEP_BATCH_LIMIT,
+    });
+
+    for (const payment of candidates) {
+      await this.transitionOneToLate(payment).catch((err: unknown) => {
+        this.logger.error(
+          `Sweep: fallo al transicionar a LATE paymentId=${payment.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    }
+  }
+
+  // design.md "PENDING -> LATE is a stored transition, not computed" + "The
+  // Payment row IS the claim -- no ReminderDispatch-style table needed":
+  // el mismo updateMany count-gated que el resto del módulo (id + status:
+  // 'PENDING' en el WHERE) decide quién "gana" la transición -- 1 fila
+  // afectada dispara exactamente un email + una notificación in-app (spec.md
+  // "One-Shot Late-Payment Notification"); 0 filas (ya transicionado por
+  // otro tick/instancia, o el cargo se pagó/canceló entre el findMany y este
+  // update) es un no-op silencioso, SIN volver a notificar (T10.3: "a second
+  // tick emits none"). lateNotifiedAt se persiste en el mismo write que gana
+  // la carrera -- "ya transicionado" y "ya notificado" son el mismo hecho
+  // atómico.
+  private async transitionOneToLate(payment: Payment): Promise<void> {
+    const result = await this.prisma.payment.updateMany({
+      where: { id: payment.id, status: 'PENDING' },
+      data: { status: 'LATE', lateNotifiedAt: new Date() },
+    });
+    if (result.count === 0) return;
+
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: payment.patientId },
+      select: { email: true, fullName: true },
+    });
+    if (!patient) return;
+
+    if (patient.email) {
+      await this.mailService.sendLatePaymentEmail(
+        patient.email,
+        patient.fullName,
+        payment.amount,
+        payment.dueDate,
+      );
+    }
+
+    await this.notificationsService.create({
+      userId: payment.therapistId,
+      type: NotificationType.PAYMENT_LATE,
+      title: 'Cobro vencido',
+      body: `El cobro de la sesión con ${patient.fullName} venció sin pago.`,
+      linkPath: `/consultations?patientId=${payment.patientId}`,
     });
   }
 

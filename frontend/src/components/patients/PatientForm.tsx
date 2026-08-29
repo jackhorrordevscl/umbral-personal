@@ -19,6 +19,10 @@ export interface PatientFormValues {
   emergencyContactPhone: string;
   treatingPsychiatrist: string;
   treatingDoctor: string;
+  // sdd/online-payment-integration PR 3 (T9.7): string en el form state
+  // (mismo criterio que el resto de los inputs controlados) -- se convierte
+  // a number|undefined recién al armar el payload (CreatePatientPayload).
+  defaultSessionAmount: string;
 }
 
 interface PatientFormProps {
@@ -143,6 +147,18 @@ export default function PatientForm({
             className="input-field"
             value={form.treatingPsychiatrist}
             onChange={(e) => onChange({ ...form, treatingPsychiatrist: e.target.value })}
+          />
+        </FormField>
+        <FormField id="patient-defaultSessionAmount" label="Monto de sesión por defecto (CLP)">
+          <input
+            id="patient-defaultSessionAmount"
+            type="number"
+            min="0"
+            step="1"
+            className="input-field"
+            placeholder="Sin cobro automático"
+            value={form.defaultSessionAmount}
+            onChange={(e) => onChange({ ...form, defaultSessionAmount: e.target.value })}
           />
         </FormField>
         <div className="flex flex-wrap items-center gap-6 pt-2">

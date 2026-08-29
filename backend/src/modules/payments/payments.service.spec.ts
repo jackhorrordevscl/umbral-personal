@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { PaymentsService } from './payments.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentGatewayClient } from './payment-gateway.client';
+import { MailService } from '../mail/mail.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 interface ConsultationRow {
   id: string;
@@ -14,6 +16,8 @@ interface ConsultationRow {
     id: string;
     defaultSessionAmount: number | null;
     deletedAt: Date | null;
+    email: string | null;
+    fullName: string;
   };
 }
 
@@ -31,6 +35,8 @@ function buildConsultation(
       id: 'patient-1',
       defaultSessionAmount: 30000,
       deletedAt: null,
+      email: 'paciente@example.com',
+      fullName: 'Juan Soto',
       ...patientOverrides,
     },
     ...overrides,
@@ -67,6 +73,7 @@ describe('PaymentsService', () => {
   let prisma: {
     consultation: { findFirst: jest.Mock };
     paymentAccount: { findUnique: jest.Mock };
+    patient: { findUnique: jest.Mock };
     payment: {
       findUnique: jest.Mock;
       findFirst: jest.Mock;
@@ -84,6 +91,11 @@ describe('PaymentsService', () => {
     verifyCallbackSignature: jest.Mock;
   };
   let config: { get: jest.Mock };
+  let mailService: {
+    sendPaymentLinkEmail: jest.Mock;
+    sendLatePaymentEmail: jest.Mock;
+  };
+  let notificationsService: { create: jest.Mock };
 
   function buildService(enabled = true): PaymentsService {
     config = {
@@ -96,6 +108,8 @@ describe('PaymentsService', () => {
       prisma as unknown as PrismaService,
       gateway as unknown as PaymentGatewayClient,
       config as unknown as ConfigService,
+      mailService as unknown as MailService,
+      notificationsService as unknown as NotificationsService,
     );
   }
 
@@ -103,6 +117,7 @@ describe('PaymentsService', () => {
     prisma = {
       consultation: { findFirst: jest.fn() },
       paymentAccount: { findUnique: jest.fn() },
+      patient: { findUnique: jest.fn() },
       payment: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
@@ -122,6 +137,11 @@ describe('PaymentsService', () => {
       getOrderStatus: jest.fn(),
       verifyCallbackSignature: jest.fn(),
     };
+    mailService = {
+      sendPaymentLinkEmail: jest.fn().mockResolvedValue(true),
+      sendLatePaymentEmail: jest.fn().mockResolvedValue(undefined),
+    };
+    notificationsService = { create: jest.fn().mockResolvedValue(undefined) };
     service = buildService(true);
   });
 
@@ -196,6 +216,89 @@ describe('PaymentsService', () => {
           gatewayToken: 'order-token',
           paymentUrl: 'https://flow.cl/pay/order-token',
         }) as unknown,
+      });
+    });
+
+    // sdd/online-payment-integration PR 3 (T8.3): spec.md "Automatic
+    // Payment-Link Email Delivery" -- design.md "Link delivery has an
+    // explicit persisted state and never blocks the charge".
+    describe('entrega del link de pago (linkDelivery)', () => {
+      it('con email del paciente y orden emitida: envía el link y setea linkDelivery=SENT', async () => {
+        prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
+        prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+        prisma.payment.findUnique.mockResolvedValue(null);
+        prisma.payment.create.mockResolvedValue(buildPayment());
+
+        await service.ensureCharge('group-1');
+
+        expect(mailService.sendPaymentLinkEmail).toHaveBeenCalledWith(
+          'paciente@example.com',
+          'Juan Soto',
+          'https://flow.cl/pay/order-token',
+          30000,
+        );
+        expect(prisma.payment.update).toHaveBeenCalledWith({
+          where: { id: 'payment-1' },
+          data: expect.objectContaining({
+            linkDelivery: 'SENT',
+            linkSentAt: expect.any(Date) as unknown,
+          }) as unknown,
+        });
+      });
+
+      // T10.1/T10.2 (RED/GREEN): patient sin email -> SKIPPED_NO_EMAIL, el
+      // cargo queda creado y PENDING igual, y nunca se llama a MailService.
+      it('sin email del paciente: no llama a MailService y setea linkDelivery=SKIPPED_NO_EMAIL', async () => {
+        prisma.consultation.findFirst.mockResolvedValue(
+          buildConsultation({}, { email: null }),
+        );
+        prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+        prisma.payment.findUnique.mockResolvedValue(null);
+        prisma.payment.create.mockResolvedValue(buildPayment());
+
+        await expect(service.ensureCharge('group-1')).resolves.toBeUndefined();
+
+        expect(prisma.payment.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ status: 'PENDING' }) as unknown,
+          }) as unknown,
+        );
+        expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+        expect(prisma.payment.update).toHaveBeenCalledWith({
+          where: { id: 'payment-1' },
+          data: { linkDelivery: 'SKIPPED_NO_EMAIL' },
+        });
+      });
+
+      it('con email pero sin orden emitida (gateway rechazó): setea linkDelivery=FAILED sin llamar a MailService', async () => {
+        prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
+        prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+        prisma.payment.findUnique.mockResolvedValue(null);
+        prisma.payment.create.mockResolvedValue(buildPayment());
+        gateway.createOrder.mockRejectedValue(new Error('Flow no disponible'));
+
+        await service.ensureCharge('group-1');
+
+        expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+        expect(prisma.payment.update).toHaveBeenCalledWith({
+          where: { id: 'payment-1' },
+          data: { linkDelivery: 'FAILED' },
+        });
+      });
+
+      it('con email y orden emitida pero el proveedor de email falla: setea linkDelivery=FAILED', async () => {
+        prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
+        prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+        prisma.payment.findUnique.mockResolvedValue(null);
+        prisma.payment.create.mockResolvedValue(buildPayment());
+        mailService.sendPaymentLinkEmail.mockResolvedValue(false);
+
+        await service.ensureCharge('group-1');
+
+        expect(prisma.payment.update).toHaveBeenCalledWith({
+          where: { id: 'payment-1' },
+          data: { linkDelivery: 'FAILED', linkSentAt: null },
+        });
       });
     });
 
@@ -517,13 +620,26 @@ describe('PaymentsService', () => {
     });
   });
 
-  // sdd/online-payment-integration PR 2 (T6.1-6.3): @Cron sweep -- pass 1
-  // (transición PENDING -> LATE) y pass 2 (reconciliación de callbacks
-  // perdidos), "transición + reconcile únicamente" (design.md "Migration /
-  // Rollout" table) -- sin notificación todavía (PR 3, T8.4).
+  // sdd/online-payment-integration PR 2/3 (T6.1-6.3, T8.4, T10.3-10.4):
+  // @Cron sweep -- pass 1 (transición PENDING -> LATE, notifica exactamente
+  // una vez por cargo) y pass 2 (reconciliación de callbacks perdidos).
+  // pass1 y pass2 comparten el mismo `prisma.payment.findMany` mock -- se
+  // distinguen por la forma del WHERE (pass2 siempre filtra por
+  // gatewayToken), no por orden de invocación, para que cada test pueda
+  // fijar candidatos de una sola pasada sin acoplarse a cuál corre primero.
   describe('sweep', () => {
+    let pass1Candidates: unknown[];
+    let pass2Candidates: unknown[];
+
     beforeEach(() => {
-      prisma.payment.findMany.mockResolvedValue([]);
+      pass1Candidates = [];
+      pass2Candidates = [];
+      prisma.payment.findMany.mockImplementation(
+        (args: { where: Record<string, unknown> }) =>
+          Promise.resolve(
+            'gatewayToken' in args.where ? pass2Candidates : pass1Candidates,
+          ),
+      );
     });
 
     it('respeta PAYMENTS_ENABLED=false (no-op completo)', async () => {
@@ -535,31 +651,99 @@ describe('PaymentsService', () => {
       expect(prisma.payment.findMany).not.toHaveBeenCalled();
     });
 
-    it('transiciona a LATE los cargos PENDING vencidos (pass 1, count-gated por WHERE)', async () => {
+    it('pass 1 consulta candidatos PENDING vencidos, batcheados a SWEEP_BATCH_LIMIT', async () => {
       await service.sweep();
 
-      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+      expect(prisma.payment.findMany).toHaveBeenCalledWith({
         where: {
           status: 'PENDING',
           dueDate: { lte: expect.any(Date) as unknown },
         },
-        data: { status: 'LATE' },
+        take: 200,
       });
     });
 
-    // T7.5 (RED): el WHERE de pass 1 excluye status !== 'PENDING' por
-    // construcción -- una segunda corrida sobre un cargo ya LATE queda fuera
-    // de ese WHERE y por lo tanto afecta 0 filas, sin necesitar lógica
-    // adicional (mismo criterio que cancelUnpaid: la garantía está en el
-    // WHERE, no en un chequeo explícito).
-    it('el WHERE de pass 1 nunca incluye cargos que no estén en PENDING', async () => {
+    // T8.4 + spec.md "One-Shot Late-Payment Notification": la transición
+    // ganadora (count-gated updateMany, count===1) dispara exactamente un
+    // email y una notificación PAYMENT_LATE.
+    it('transiciona a LATE un cargo PENDING vencido y notifica exactamente una vez (email + notificación in-app)', async () => {
+      const duePayment = buildPayment({
+        id: 'payment-due',
+        status: 'PENDING',
+        patientId: 'patient-1',
+        therapistId: 'therapist-1',
+        amount: 30000,
+      });
+      pass1Candidates = [duePayment];
+      prisma.payment.updateMany.mockImplementation(
+        (args: { where: { status?: string } }) =>
+          Promise.resolve({ count: args.where.status === 'PENDING' ? 1 : 0 }),
+      );
+      prisma.patient.findUnique.mockResolvedValue({
+        email: 'paciente@example.com',
+        fullName: 'Juan Soto',
+      });
+
       await service.sweep();
 
-      const [pass1Call] = prisma.payment.updateMany.mock.calls.find(
-        (call: [{ data?: { status?: string } }]) =>
-          call[0].data?.status === 'LATE',
-      ) as [{ where: { status: string } }];
-      expect(pass1Call.where.status).toBe('PENDING');
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment-due', status: 'PENDING' },
+        data: { status: 'LATE', lateNotifiedAt: expect.any(Date) as unknown },
+      });
+      expect(mailService.sendLatePaymentEmail).toHaveBeenCalledTimes(1);
+      expect(mailService.sendLatePaymentEmail).toHaveBeenCalledWith(
+        'paciente@example.com',
+        'Juan Soto',
+        30000,
+        duePayment.dueDate,
+      );
+      expect(notificationsService.create).toHaveBeenCalledTimes(1);
+      expect(notificationsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'therapist-1',
+          type: 'PAYMENT_LATE',
+        }) as unknown,
+      );
+    });
+
+    // T7.5/T10.3 (RED): el updateMany por fila filtra status: 'PENDING' --
+    // un cargo que otro tick/instancia ya transicionó (count 0) no vuelve a
+    // notificar.
+    it('un cargo que ya no está PENDING (0 filas afectadas) no notifica de nuevo', async () => {
+      const alreadyLate = buildPayment({
+        id: 'payment-already-late',
+        status: 'PENDING', // aparece en el candidate scan, pero el updateMany pierde la carrera
+      });
+      pass1Candidates = [alreadyLate];
+      prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+
+      await service.sweep();
+
+      expect(mailService.sendLatePaymentEmail).not.toHaveBeenCalled();
+      expect(notificationsService.create).not.toHaveBeenCalled();
+    });
+
+    it('un cargo sin email de paciente no envía email pero igual crea la notificación in-app', async () => {
+      const duePayment = buildPayment({
+        id: 'payment-due',
+        status: 'PENDING',
+        patientId: 'patient-1',
+        therapistId: 'therapist-1',
+      });
+      pass1Candidates = [duePayment];
+      prisma.payment.updateMany.mockImplementation(
+        (args: { where: { status?: string } }) =>
+          Promise.resolve({ count: args.where.status === 'PENDING' ? 1 : 0 }),
+      );
+      prisma.patient.findUnique.mockResolvedValue({
+        email: null,
+        fullName: 'Juan Soto',
+      });
+
+      await service.sweep();
+
+      expect(mailService.sendLatePaymentEmail).not.toHaveBeenCalled();
+      expect(notificationsService.create).toHaveBeenCalledTimes(1);
     });
 
     it('pass 2 reconcilia un cargo PENDING con token viejo y lo marca PAID si el gateway confirma', async () => {
@@ -568,7 +752,7 @@ describe('PaymentsService', () => {
         status: 'PENDING',
         gatewayToken: 'flow-token-stale',
       });
-      prisma.payment.findMany.mockResolvedValue([stalePayment]);
+      pass2Candidates = [stalePayment];
       gateway.getOrderStatus.mockResolvedValue({
         status: 'PAID',
         gatewayPaymentId: 'flow-payment-stale',
@@ -589,14 +773,17 @@ describe('PaymentsService', () => {
         status: 'PENDING',
         gatewayToken: 'flow-token-stale',
       });
-      prisma.payment.findMany.mockResolvedValue([stalePayment]);
+      pass2Candidates = [stalePayment];
       gateway.getOrderStatus.mockResolvedValue({ status: 'PENDING' });
 
       await service.sweep();
 
       expect(prisma.payment.updateMany).not.toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ id: 'payment-stale' }) as unknown,
+          where: expect.objectContaining({
+            id: 'payment-stale',
+            status: { in: ['PENDING', 'LATE'] },
+          }) as unknown,
         }) as unknown,
       );
     });

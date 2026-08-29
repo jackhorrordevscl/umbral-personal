@@ -17,6 +17,7 @@ function buildForm(overrides: Partial<PatientFormValues> = {}): PatientFormValue
     emergencyContactPhone: '',
     treatingPsychiatrist: '',
     treatingDoctor: '',
+    defaultSessionAmount: '',
     ...overrides,
   }
 }

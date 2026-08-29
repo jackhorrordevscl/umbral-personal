@@ -98,31 +98,31 @@ Chain strategy: stacked-to-main
 
 ## Phase 8: Mail + Late-Payment Notify Wiring (PR3)
 
-- [ ] 8.1 `backend/src/modules/mail/mail.service.ts`: `sendPaymentLinkEmail(patient, paymentUrl, amount)` — never-throws contract (mail.service.ts:166).
-- [ ] 8.2 `mail.service.ts`: `sendLatePaymentEmail(patient, payment)` — never-throws contract.
-- [ ] 8.3 `payments.service.ts`: `ensureCharge` — after order + link creation, call `sendPaymentLinkEmail`, set `linkDelivery = SENT|SKIPPED_NO_EMAIL|FAILED`.
-- [ ] 8.4 `payments.service.ts`: `sweep()` pass 1 — on the winning `PENDING → LATE` transition, call `sendLatePaymentEmail` + `NotificationsService.create(PAYMENT_LATE)`, gated by the same `updateMany` count.
+- [x] 8.1 `backend/src/modules/mail/mail.service.ts`: `sendPaymentLinkEmail(patient, paymentUrl, amount)` — never-throws contract (mail.service.ts:166).
+- [x] 8.2 `mail.service.ts`: `sendLatePaymentEmail(patient, payment)` — never-throws contract.
+- [x] 8.3 `payments.service.ts`: `ensureCharge` — after order + link creation, call `sendPaymentLinkEmail`, set `linkDelivery = SENT|SKIPPED_NO_EMAIL|FAILED`.
+- [x] 8.4 `payments.service.ts`: `sweep()` pass 1 — on the winning `PENDING → LATE` transition, call `sendLatePaymentEmail` + `NotificationsService.create(PAYMENT_LATE)`, gated by the same `updateMany` count.
 
 ## Phase 9: Frontend Surfaces (PR3)
 
-- [ ] 9.1 Create `frontend/src/hooks/usePaymentAccount.ts`: `queryKey: ['payment-account']`, wraps `GET/POST/DELETE /payments/account` (matches `useProfile` pattern).
-- [ ] 9.2 Create `frontend/src/pages/PaymentsPage.tsx`: merchant onboarding form + account status.
-- [ ] 9.3 `frontend/src/App.tsx`: `/payments` route.
-- [ ] 9.4 `frontend/src/components/Layout.tsx`: navLinks 7 → 8, `Pagos` (`CreditCard`), order Dashboard/Pacientes/Consultas/Calendario/Repositorio/Pagos/Perfil/Seguridad.
-- [ ] 9.5 Create `frontend/src/components/payments/PaymentStatusBadge.tsx`: inserted into the chip row after `sessionType` (ConsultationsPage.tsx:318).
-- [ ] 9.6 `frontend/src/pages/ConsultationsPage.tsx`: resolve payment by `groupId` from the range/patient response; render badge + copy-link control; amount control kept out of the "Corregir sesión" modal.
-- [ ] 9.7 `frontend/src/pages/PatientsPage.tsx` + `types/*.ts`: `defaultSessionAmount` field on the patient form.
-- [ ] 9.8 `docs/registro-actividades-tratamiento.md`: add Flow as a processor row.
+- [x] 9.1 Create `frontend/src/hooks/usePaymentAccount.ts`: `queryKey: ['payment-account']`, wraps `GET/POST/DELETE /payments/account` (matches `useProfile` pattern).
+- [x] 9.2 Create `frontend/src/pages/PaymentsPage.tsx`: merchant onboarding form + account status.
+- [x] 9.3 `frontend/src/App.tsx`: `/payments` route.
+- [x] 9.4 `frontend/src/components/Layout.tsx`: navLinks 7 → 8, `Pagos` (`CreditCard`), order Dashboard/Pacientes/Consultas/Calendario/Repositorio/Pagos/Perfil/Seguridad.
+- [x] 9.5 Create `frontend/src/components/payments/PaymentStatusBadge.tsx`: inserted into the chip row after `sessionType` (ConsultationsPage.tsx:318).
+- [x] 9.6 `frontend/src/pages/ConsultationsPage.tsx`: resolve payment by `groupId` from the range/patient response; render badge + copy-link control; amount control kept out of the "Corregir sesión" modal.
+- [x] 9.7 `frontend/src/pages/PatientsPage.tsx` + `types/*.ts`: `defaultSessionAmount` field on the patient form.
+- [x] 9.8 `docs/registro-actividades-tratamiento.md`: add Flow as a processor row.
 
 ## Phase 10: PR3 Testing
 
-- [ ] 10.1 RED unit `mail.service.spec.ts`: patient without email → `SKIPPED_NO_EMAIL`, charge stays `PENDING`, no throw.
-- [ ] 10.2 GREEN: implement the never-throws `SKIPPED_NO_EMAIL` path.
-- [ ] 10.3 RED unit: `sweep()` notifies exactly once on `PENDING → LATE`; a second tick emits none; reschedule-to-future re-arms (fake clock, mocked Prisma).
-- [ ] 10.4 GREEN: gate notify on the winning transition; clear `lateNotifiedAt` on re-arm.
-- [ ] 10.5 Unit (FE) `PaymentStatusBadge.spec.tsx`: renders each status + `SKIPPED_NO_EMAIL`; absent when there is no charge.
-- [ ] 10.6 Unit (FE) `ConsultationsPage.spec.tsx`: amount control is not present in the "Corregir sesión" modal.
-- [ ] 10.7 Full backend suite green (`cd backend && npx jest`); full e2e suite green (`npx jest --config test/jest-e2e.json`).
+- [x] 10.1 RED unit `mail.service.spec.ts`: patient without email → `SKIPPED_NO_EMAIL`, charge stays `PENDING`, no throw.
+- [x] 10.2 GREEN: implement the never-throws `SKIPPED_NO_EMAIL` path.
+- [x] 10.3 RED unit: `sweep()` notifies exactly once on `PENDING → LATE`; a second tick emits none; reschedule-to-future re-arms (fake clock, mocked Prisma).
+- [x] 10.4 GREEN: gate notify on the winning transition; clear `lateNotifiedAt` on re-arm.
+- [x] 10.5 Unit (FE) `PaymentStatusBadge.spec.tsx`: renders each status + `SKIPPED_NO_EMAIL`; absent when there is no charge.
+- [x] 10.6 Unit (FE) `ConsultationsPage.spec.tsx`: amount control is not present in the "Corregir sesión" modal.
+- [x] 10.7 Full backend suite green (`cd backend && npx jest`); full e2e suite green (`npx jest --config test/jest-e2e.json`).
 
 ## Out of Scope (do not create tasks)
 

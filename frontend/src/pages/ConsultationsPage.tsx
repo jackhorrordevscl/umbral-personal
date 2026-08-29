@@ -1,16 +1,50 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle } from 'lucide-react';
+import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle, Copy, Check } from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import FormField from '../components/ui/FormField';
 import ConsultationForm from '../components/consultations/ConsultationForm';
+import PaymentStatusBadge from '../components/payments/PaymentStatusBadge';
 import { usePatients } from '../hooks/usePatients';
 import { useConsultations, useCorrectConsultation } from '../hooks/useConsultations';
 import type { Consultation, ConsultationHistory, Patient } from '../types/patient';
 import { buildLocalISO, formatChileDateTime, formatChileDate } from '../utils/datetime';
 import { normalizeRut } from '../utils/rut';
 import { getApiErrorMessage } from '../utils/api-error';
+
+// sdd/online-payment-integration PR 3 (T9.6): control manual de "copiar
+// link" -- complementa el envío automático por email (spec.md "Automatic
+// Payment-Link Email Delivery"); útil sobre todo cuando linkDelivery quedó
+// en SKIPPED_NO_EMAIL/FAILED y el terapeuta necesita compartir el link por
+// otro canal (WhatsApp, SMS, etc).
+function CopyPaymentLinkButton({ paymentUrl }: { paymentUrl: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(paymentUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Sin acceso al portapapeles (permiso denegado, contexto no seguro):
+      // no hay nada más que ofrecer acá, el link sigue disponible copiando
+      // manualmente desde el atributo title del botón.
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleCopy()}
+      title={paymentUrl}
+      className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors inline-flex items-center gap-1"
+    >
+      {copied ? <Check size={11} /> : <Copy size={11} />}
+      {copied ? 'Copiado' : 'Copiar link de pago'}
+    </button>
+  );
+}
 
 export default function ConsultationsPage() {
   // Notificaciones de sesión (linkPath) llegan como
@@ -327,6 +361,10 @@ export default function ConsultationsPage() {
                           }`}>
                             {c.sessionType === 'TELEMED' ? 'Telemedicina' : 'Presencial'}
                           </span>
+                          <PaymentStatusBadge payment={c.payment} />
+                          {c.payment?.paymentUrl && (
+                            <CopyPaymentLinkButton paymentUrl={c.payment.paymentUrl} />
+                          )}
                           {c.history.length > 0 && (
                             <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
                               {c.history.length} corrección{c.history.length > 1 ? 'es' : ''}
