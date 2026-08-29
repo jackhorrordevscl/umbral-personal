@@ -45,6 +45,14 @@ const installShExampleGoogleTokenKey = extractExample(
   'GOOGLE_TOKEN_ENCRYPTION_KEY',
 );
 
+// sdd/online-payment-integration PR 1: mismo criterio que
+// GOOGLE_TOKEN_ENCRYPTION_KEY -- el valor de ejemplo del README es público,
+// así que se rechaza igual en producción.
+const readmeExamplePaymentKey = extractExample(
+  readmePath,
+  'PAYMENT_CREDENTIALS_ENCRYPTION_KEY',
+);
+
 // Clave válida (32 bytes en base64) para no interferir con los tests de
 // JWT_SECRET, que no le conciernen a DOCUMENT_ENCRYPTION_KEY.
 const validDocumentKey = Buffer.alloc(32, 7).toString('base64');
@@ -54,6 +62,10 @@ const validDocumentKey = Buffer.alloc(32, 7).toString('base64');
 // rompe.
 const validGoogleTokenKey = Buffer.alloc(32, 11).toString('base64');
 
+// Idem para PAYMENT_CREDENTIALS_ENCRYPTION_KEY -- valor distinto a los
+// anteriores.
+const validPaymentKey = Buffer.alloc(32, 13).toString('base64');
+
 describe('validateEnv', () => {
   it('permite un JWT_SECRET largo y no genérico en producción', () => {
     const config = {
@@ -61,6 +73,7 @@ describe('validateEnv', () => {
       JWT_SECRET: 'a'.repeat(32),
       DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
       GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
+      PAYMENT_CREDENTIALS_ENCRYPTION_KEY: validPaymentKey,
     };
 
     expect(validateEnv(config)).toBe(config);
@@ -117,6 +130,7 @@ describe('validateEnv', () => {
       JWT_SECRET: 'a'.repeat(32),
       DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
       GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
+      PAYMENT_CREDENTIALS_ENCRYPTION_KEY: validPaymentKey,
     };
 
     expect(validateEnv(config)).toBe(config);
@@ -175,6 +189,7 @@ describe('validateEnv', () => {
       JWT_SECRET: 'a'.repeat(32),
       DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
       GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
+      PAYMENT_CREDENTIALS_ENCRYPTION_KEY: validPaymentKey,
     };
 
     expect(validateEnv(config)).toBe(config);
@@ -316,6 +331,94 @@ describe('validateEnv', () => {
   });
 
   it('permite GOOGLE_CALENDAR_SYNC_ENABLED ausente', () => {
+    const config = { NODE_ENV: 'test' };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
+  // sdd/online-payment-integration PR 1: mismo criterio que
+  // REMINDERS_ENABLED/GOOGLE_CALENDAR_SYNC_ENABLED -- opcional, PaymentsService
+  // (PR 2) trata "ausente" como habilitado por default, pero un typo en el
+  // valor debe fallar rápido en el arranque en vez de desactivar el flujo de
+  // pagos en silencio.
+  it('rechaza un PAYMENTS_ENABLED que no es "true" ni "false"', () => {
+    const config = { NODE_ENV: 'test', PAYMENTS_ENABLED: 'nope' };
+
+    expect(() => validateEnv(config)).toThrow(/PAYMENTS_ENABLED inválido/);
+  });
+
+  it('permite PAYMENTS_ENABLED="false"', () => {
+    const config = { NODE_ENV: 'test', PAYMENTS_ENABLED: 'false' };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
+  it('permite PAYMENTS_ENABLED ausente', () => {
+    const config = { NODE_ENV: 'test' };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
+  // sdd/online-payment-integration PR 1: mismo criterio que
+  // GOOGLE_TOKEN_ENCRYPTION_KEY -- clave AES-256-GCM propia (cifra
+  // PaymentAccount.credentialEncrypted, PR 2), requerida siempre en
+  // producción sin importar si ya hay una cuenta Flow conectada.
+  it('permite un PAYMENT_CREDENTIALS_ENCRYPTION_KEY válido en producción', () => {
+    const config = {
+      NODE_ENV: 'production',
+      JWT_SECRET: 'a'.repeat(32),
+      DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
+      GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
+      PAYMENT_CREDENTIALS_ENCRYPTION_KEY: validPaymentKey,
+    };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
+  it('rechaza un PAYMENT_CREDENTIALS_ENCRYPTION_KEY que no decodifica a 32 bytes en producción', () => {
+    const config = {
+      NODE_ENV: 'production',
+      JWT_SECRET: 'a'.repeat(32),
+      DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
+      GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
+      PAYMENT_CREDENTIALS_ENCRYPTION_KEY: Buffer.alloc(16, 13).toString(
+        'base64',
+      ),
+    };
+
+    expect(() => validateEnv(config)).toThrow(
+      /PAYMENT_CREDENTIALS_ENCRYPTION_KEY inválida/,
+    );
+  });
+
+  it('rechaza el valor de ejemplo de README.md para PAYMENT_CREDENTIALS_ENCRYPTION_KEY en producción', () => {
+    const config = {
+      NODE_ENV: 'production',
+      JWT_SECRET: 'a'.repeat(32),
+      DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
+      GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
+      PAYMENT_CREDENTIALS_ENCRYPTION_KEY: readmeExamplePaymentKey,
+    };
+
+    expect(() => validateEnv(config)).toThrow(
+      /PAYMENT_CREDENTIALS_ENCRYPTION_KEY inválida/,
+    );
+  });
+
+  it('rechaza PAYMENT_CREDENTIALS_ENCRYPTION_KEY ausente en producción', () => {
+    const config = {
+      NODE_ENV: 'production',
+      JWT_SECRET: 'a'.repeat(32),
+      DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
+      GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
+    };
+
+    expect(() => validateEnv(config)).toThrow(
+      /PAYMENT_CREDENTIALS_ENCRYPTION_KEY inválida/,
+    );
+  });
+
+  it('no valida PAYMENT_CREDENTIALS_ENCRYPTION_KEY fuera de producción', () => {
     const config = { NODE_ENV: 'test' };
 
     expect(validateEnv(config)).toBe(config);

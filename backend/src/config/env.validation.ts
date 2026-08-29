@@ -25,9 +25,17 @@ const KNOWN_EXAMPLE_GOOGLE_TOKEN_KEY_HASHES = new Set([
   '094d3c3bbfff1444be7d8d88eeb3dfe83744157d71b950bc9e5cb7e95715100e', // README.md / install.sh
 ]);
 
+// sdd/online-payment-integration PR 1: mismo criterio que
+// KNOWN_EXAMPLE_GOOGLE_TOKEN_KEY_HASHES, para PAYMENT_CREDENTIALS_ENCRYPTION_KEY
+// (clave AES-256-GCM propia, no compartida con las anteriores).
+const KNOWN_EXAMPLE_PAYMENT_KEY_HASHES = new Set([
+  '8f655db9f918bd78d2b1c856385a52a0125a768fe6b14aad80ce9330a99653b5', // README.md
+]);
+
 const MIN_JWT_SECRET_LENGTH = 32;
 const DOCUMENT_ENCRYPTION_KEY_BYTE_LENGTH = 32;
 const GOOGLE_TOKEN_ENCRYPTION_KEY_BYTE_LENGTH = 32;
+const PAYMENT_CREDENTIALS_ENCRYPTION_KEY_BYTE_LENGTH = 32;
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -114,6 +122,21 @@ function validateMainTsEnvVars(config: Record<string, unknown>): void {
       `GOOGLE_CALENDAR_SYNC_ENABLED inválido: "${describeValue(config.GOOGLE_CALENDAR_SYNC_ENABLED)}" -- debe ser exactamente "true" o "false".`,
     );
   }
+
+  // sdd/online-payment-integration PR 1: mismo criterio que
+  // REMINDERS_ENABLED/GOOGLE_CALENDAR_SYNC_ENABLED -- opcional
+  // (PaymentsService, PR 2, trata "ausente" como habilitado por default),
+  // pero un typo debe fallar en el arranque en vez de desactivar el flujo
+  // de pagos en silencio.
+  if (
+    config.PAYMENTS_ENABLED !== undefined &&
+    config.PAYMENTS_ENABLED !== 'true' &&
+    config.PAYMENTS_ENABLED !== 'false'
+  ) {
+    throw new Error(
+      `PAYMENTS_ENABLED inválido: "${describeValue(config.PAYMENTS_ENABLED)}" -- debe ser exactamente "true" o "false".`,
+    );
+  }
 }
 
 export function validateEnv(
@@ -167,6 +190,27 @@ export function validateEnv(
     ) {
       throw new Error(
         `GOOGLE_TOKEN_ENCRYPTION_KEY inválida: en producción debe decodificar a ${GOOGLE_TOKEN_ENCRYPTION_KEY_BYTE_LENGTH} bytes en base64 y no puede ser el valor de ejemplo de README.md/.env.example/install.sh. Generala con: openssl rand -base64 32`,
+      );
+    }
+
+    // sdd/online-payment-integration PR 1: mismo criterio que
+    // GOOGLE_TOKEN_ENCRYPTION_KEY -- clave independiente, exigida siempre
+    // en producción sin importar si ya existe una PaymentAccount conectada
+    // (PaymentAccountService.onboard, PR 2, la valida igual apenas cifra la
+    // primera credencial).
+    const paymentKeyRaw =
+      typeof config.PAYMENT_CREDENTIALS_ENCRYPTION_KEY === 'string'
+        ? config.PAYMENT_CREDENTIALS_ENCRYPTION_KEY
+        : '';
+    const paymentKeyBytes = Buffer.from(paymentKeyRaw, 'base64');
+
+    if (
+      paymentKeyBytes.length !==
+        PAYMENT_CREDENTIALS_ENCRYPTION_KEY_BYTE_LENGTH ||
+      KNOWN_EXAMPLE_PAYMENT_KEY_HASHES.has(sha256(paymentKeyRaw))
+    ) {
+      throw new Error(
+        `PAYMENT_CREDENTIALS_ENCRYPTION_KEY inválida: en producción debe decodificar a ${PAYMENT_CREDENTIALS_ENCRYPTION_KEY_BYTE_LENGTH} bytes en base64 y no puede ser el valor de ejemplo de README.md. Generala con: openssl rand -base64 32`,
       );
     }
   }

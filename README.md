@@ -122,6 +122,15 @@ DOCUMENT_ENCRYPTION_KEY="+rPRh0H2ayZ4yAIjhOWbvOghetuNtScBP8g2VgNuBik="
 # DOCUMENT_ENCRYPTION_KEY a propósito) para el refresh token de Google
 # Calendar -- genera la tuya con: openssl rand -base64 32
 GOOGLE_TOKEN_ENCRYPTION_KEY="vihs9JiRKVRGjurFGk+YqxhpvD7zanIZJgbHGeSOMi4="
+# sdd/online-payment-integration: clave AES-256-GCM propia (distinta de
+# DOCUMENT_ENCRYPTION_KEY/GOOGLE_TOKEN_ENCRYPTION_KEY) para la credencial del
+# merchant Flow de cada terapeuta (PaymentAccount.credentialEncrypted, PR 2)
+# -- genera la tuya con: openssl rand -base64 32
+PAYMENT_CREDENTIALS_ENCRYPTION_KEY="wgh8ZnZbpZMfvKifp5ufX9uFp+WoISHDRsDCRFkRP1U="
+# Desactiva por completo la creación de cargos, el checkout, los emails de
+# pago y el cron de vencimiento sin necesitar un deploy/revert (default:
+# habilitado si está ausente)
+PAYMENTS_ENABLED="false"
 ```
 
 Ejecutar migraciones y seed inicial:
@@ -387,6 +396,25 @@ umbral-personal/
 - Desactivable por completo con `GOOGLE_CALENDAR_SYNC_ENABLED=false`; sin
   `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` el módulo se registra
   deshabilitado sin bloquear el arranque
+
+### Cobro en línea (sdd/online-payment-integration)
+- Cargo pendiente automático al crear una consulta, solo si el terapeuta
+  dueño tiene una cuenta Flow conectada (split Comercios Asociados —
+  Umbral nunca custodia los fondos del paciente)
+- El cargo queda identificado por el `groupId` de la consulta (no por su
+  id de versión): corregir una sesión actualiza el mismo cargo y mueve su
+  fecha de vencimiento en vez de crear uno segundo
+- Monto snapshoteado al crear el cargo (`Patient.defaultSessionAmount` o un
+  override por sesión) — un cambio posterior del monto por defecto nunca
+  reescribe un cargo ya emitido
+- **PR 1** (este PR) solo agrega el schema y el ciclo de vida del cargo
+  (`PaymentsService.ensureCharge`/`updateAmount`/`cancelUnpaid`) detrás de
+  un puerto de gateway todavía sin implementación real — checkout,
+  confirmación de pago, aviso de vencimiento y superficie de frontend
+  llegan en PR 2 y PR 3
+- Desactivable por completo con `PAYMENTS_ENABLED=false` sin necesitar un
+  deploy/revert; sin una cuenta Flow conectada, agendar sesiones se
+  comporta exactamente igual que sin este módulo
 
 ### Exportación PDF
 - Generación de ficha clínica completa en PDF
@@ -771,6 +799,8 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `GOOGLE_REDIRECT_URI` | Redirect URI del handshake OAuth, registrada en Google Cloud Console | `http://localhost:3001/api/v1/calendar-integration/callback` |
 | `GOOGLE_CALENDAR_SYNC_ENABLED` | Si es `false`, desactiva el cron de reconciliación y los intents de sync sin necesitar un deploy/revert | `false` en CI/e2e |
 | `REMINDERS_ENABLED` | Si es `false`, desactiva el cron de recordatorios de sesión (`RemindersService`, cada 5 min) sin necesitar un deploy/revert | `false` en CI/e2e |
+| `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar la credencial del merchant Flow de cada terapeuta en reposo — distinta de `DOCUMENT_ENCRYPTION_KEY`/`GOOGLE_TOKEN_ENCRYPTION_KEY` (sdd/online-payment-integration) | Generar con `openssl rand -base64 32` |
+| `PAYMENTS_ENABLED` | Si es `false`, desactiva por completo la creación de cargos, el checkout, los emails de pago y el cron de vencimiento sin necesitar un deploy/revert | `false` en CI/e2e |
 
 > ⚠️ Si el comando de arranque del hosting ya corre `prisma migrate deploy` antes de iniciar el server (recomendado), **no** setees `RUN_MIGRATIONS=true` también — no rompe nada (la migración es idempotente), pero la corre dos veces innecesariamente.
 

@@ -10,6 +10,7 @@ import { CalendarSyncStatus, Prisma, SessionType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
+import { PaymentsService } from '../payments/payments.service';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { CorrectConsultationDto } from './dto/correct-consultation.dto';
 import { ConsultationRangeQueryDto } from './dto/consultation-range-query.dto';
@@ -53,6 +54,7 @@ export class ConsultationsService {
     private prisma: PrismaService,
     private patientsService: PatientsService,
     private calendarSync: CalendarSyncService,
+    private paymentsService: PaymentsService,
   ) {}
 
   // design.md "Fire-and-forget intents plus a bounded reconciler": nunca se
@@ -63,6 +65,19 @@ export class ConsultationsService {
     void this.calendarSync.syncGroup(groupId).catch((err: unknown) => {
       this.logger.error(
         `Fallo no bloqueante al sincronizar con Google Calendar (groupId=${groupId}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }
+
+  // sdd/online-payment-integration PR 1 (T2.5): mismo patrón fire-and-forget
+  // que emitCalendarSync -- un fallo del gateway de pago (o
+  // PAYMENTS_ENABLED en false) jamás debe bloquear ni revertir la
+  // escritura clínica que lo origina (design.md "Nothing in this module can
+  // fail a clinical write").
+  private emitPaymentCharge(groupId: string): void {
+    void this.paymentsService.ensureCharge(groupId).catch((err: unknown) => {
+      this.logger.error(
+        `Fallo no bloqueante al gestionar el cargo de pago (groupId=${groupId}): ${err instanceof Error ? err.message : String(err)}`,
       );
     });
   }
@@ -106,6 +121,7 @@ export class ConsultationsService {
       `Consulta creada: id=${consultation.id} patientId=${dto.patientId} therapistId=${therapistId}`,
     );
     this.emitCalendarSync(consultation.groupId);
+    this.emitPaymentCharge(consultation.groupId);
     return consultation;
   }
 
@@ -279,6 +295,7 @@ export class ConsultationsService {
       `Consulta corregida: originalId=${id} nuevaId=${result.id} groupId=${original.groupId} therapistId=${therapistId}`,
     );
     this.emitCalendarSync(original.groupId);
+    this.emitPaymentCharge(original.groupId);
     return result;
   }
 

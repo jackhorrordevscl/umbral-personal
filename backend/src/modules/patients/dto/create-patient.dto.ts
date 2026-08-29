@@ -1,8 +1,10 @@
 import {
+  IsInt,
   IsString,
   IsEmail,
   IsOptional,
   IsDateString,
+  Min,
   ValidateIf,
 } from 'class-validator';
 
@@ -52,4 +54,13 @@ export class CreatePatientDto {
   @IsOptional()
   @IsString()
   treatingDoctor?: string;
+
+  // sdd/online-payment-integration PR 1: monto de sesión por defecto que
+  // PaymentsService.ensureCharge snapshotea al crear un cargo (design.md
+  // "Charge Amount Resolution and Snapshot") -- opcional, un paciente sin
+  // este campo nunca genera cargo automático.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  defaultSessionAmount?: number;
 }

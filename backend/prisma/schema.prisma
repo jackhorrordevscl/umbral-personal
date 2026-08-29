@@ -75,6 +75,7 @@ model User {
   mfaRecoveryCodes     MfaRecoveryCode[]
   notifications        Notification[]
   calendarConnection   GoogleCalendarConnection?
+  paymentAccount       PaymentAccount?
 }
 
 // Un solo rol: el profesional dueño de todas sus fichas. Se mantiene como
@@ -121,6 +122,12 @@ model Patient {
   deletedAt             DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
+  // sdd/online-payment-integration PR 1: monto de sesión por defecto usado
+  // por PaymentsService.ensureCharge para snapshotear el amount de una
+  // carga al crearla -- nullable porque un paciente sin monto configurado
+  // simplemente nunca genera cargo (design.md "Charge Amount Resolution and
+  // Snapshot").
+  defaultSessionAmount  Int?
 
   therapistId   String
   therapist     User              @relation(fields: [therapistId], references: [id])
@@ -352,6 +359,11 @@ enum NotificationType {
   // design.md "Failure classification"). El campo existe desde PR 1 junto
   // con el resto del schema aditivo aunque todavía no lo emite nadie.
   GOOGLE_CALENDAR_DISCONNECTED
+  // sdd/online-payment-integration PR 1: emitida en la transición
+  // PENDING -> LATE de un Payment (PaymentsService.sweep(), PR 2). El
+  // miembro existe desde PR 1 junto con el resto del schema aditivo aunque
+  // todavía no lo emite nadie.
+  PAYMENT_LATE
 }
 
 // sdd/session-reminders PR 2: log de despachos de recordatorios, uno por
@@ -460,4 +472,79 @@ enum GoogleDisconnectReason {
 enum CalendarSyncStatus {
   SYNCED
   FAILED
+}
+
+// sdd/online-payment-integration PR 1: una carga por cadena clínica --
+// groupId sobrevive a correct() (Consultation.groupId, invariante a través
+// de toda la cadena de versiones), así que corregir actualiza la MISMA
+// carga y un reagendamiento mueve dueDate en vez de crear una segunda
+// (design.md "Decision: Payment keyed on groupId, amount snapshotted at
+// creation"). amount es Int (no Decimal): CLP no tiene decimales y Flow
+// espera un monto entero.
+model Payment {
+  id               String              @id @default(uuid())
+  groupId          String              @unique
+  patientId        String
+  therapistId      String
+  amount           Int
+  currency         String              @default("CLP")
+  status           PaymentStatus       @default(PENDING)
+  dueDate          DateTime
+  gatewayToken     String?
+  gatewayPaymentId String?
+  paymentUrl       String?
+  linkDelivery     PaymentLinkDelivery @default(PENDING)
+  linkSentAt       DateTime?
+  lateNotifiedAt   DateTime?
+  paidAt           DateTime?
+  cancelledAt      DateTime?
+  lastError        String?
+  orderIssuedAt    DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([status, dueDate])
+  @@index([therapistId])
+}
+
+// sdd/online-payment-integration PR 1: una cuenta Flow por terapeuta (modo
+// Comercios Asociados split -- cada terapeuta es el merchant de sus propias
+// cargas). credentialEncrypted se cifra con AES-256-GCM bajo
+// PAYMENT_CREDENTIALS_ENCRYPTION_KEY (design.md "Decision: Therapist
+// payment account is its own page") -- el onboarding real que la persiste
+// llega en PR 2 (PaymentAccountService), este PR solo agrega el modelo.
+model PaymentAccount {
+  id                  String               @id @default(uuid())
+  therapistId         String               @unique
+  therapist           User                 @relation(fields: [therapistId], references: [id])
+  provider            PaymentProvider      @default(FLOW)
+  status              PaymentAccountStatus @default(PENDING)
+  merchantId          String?
+  credentialEncrypted Bytes?
+  connectedAt         DateTime?
+  lastError           String?
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  LATE
+  CANCELLED
+}
+
+enum PaymentLinkDelivery {
+  PENDING
+  SENT
+  SKIPPED_NO_EMAIL
+  FAILED
+}
+
+enum PaymentProvider {
+  FLOW
+}
+
+enum PaymentAccountStatus {
+  PENDING
+  CONNECTED
+  DISCONNECTED
 }
