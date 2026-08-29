@@ -22,6 +22,7 @@ const emptyForm: PatientFormValues = {
   emergencyContactPhone: "",
   treatingPsychiatrist: "",
   treatingDoctor: "",
+  defaultSessionAmount: "",
 };
 
 type ModalIntent = { patient: Patient; tab: "detail" | "edit" } | null;
@@ -72,8 +73,18 @@ export default function PatientsPage() {
       return;
     }
     setFormError("");
+    // sdd/online-payment-integration PR 3 (T9.7): el input queda vacío por
+    // default ("Sin cobro automático") -- string vacío nunca se envía como
+    // 0, se omite del payload (mismo criterio que defaultSessionAmount
+    // ausente en el backend: PaymentsService.ensureCharge no genera cargo).
+    const defaultSessionAmount = form.defaultSessionAmount.trim()
+      ? Number(form.defaultSessionAmount)
+      : undefined;
     createMutation.mutate(
-      { data: { ...form, rut: normalizeRut(form.rut) }, consents: formConsents },
+      {
+        data: { ...form, rut: normalizeRut(form.rut), defaultSessionAmount },
+        consents: formConsents,
+      },
       {
         onSuccess: ({ failedPurposes }) => {
           setShowForm(false);

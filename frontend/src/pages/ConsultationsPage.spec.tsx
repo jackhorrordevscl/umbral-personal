@@ -170,4 +170,90 @@ describe('ConsultationsPage', () => {
       await screen.findByRole('heading', { name: 'Corregir Sesión' }),
     ).toBeInTheDocument()
   })
+
+  // sdd/online-payment-integration PR 3 (T10.6): design.md REST table --
+  // "PATCH /payments/:groupId ... NEVER part of the clinical Corregir
+  // sesión modal". El monto por sesión se administra por un endpoint
+  // separado (PaymentsPage / control dedicado), nunca desde este modal.
+  it('el modal de Corregir sesión no tiene ningún control de monto de cobro', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url.startsWith('/consultations/patient/'))
+        return Promise.resolve({
+          data: [
+            buildConsultation({
+              payment: {
+                status: 'PENDING',
+                linkDelivery: 'SENT',
+                paymentUrl: 'https://flow.cl/pay/token-1',
+                amount: 30000,
+              },
+            }),
+          ],
+        })
+      return Promise.resolve({ data: [] })
+    })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+    await user.click(await screen.findByTitle('Corregir sesión'))
+
+    expect(
+      await screen.findByRole('heading', { name: 'Corregir Sesión' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText(/monto/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/\$30\.000/)).not.toBeInTheDocument()
+  })
+
+  // sdd/online-payment-integration PR 3 (T9.6): el badge de estado de cobro
+  // se resuelve directamente desde `c.payment` (ya viene armado por
+  // ConsultationsService.getPaymentMap) -- sin cargo asociado no renderiza
+  // nada (mismo comportamiento que PaymentStatusBadge con payment=null).
+  it('muestra el badge de estado de cobro y el control de copiar link cuando la sesión tiene un cargo con link emitido', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url.startsWith('/consultations/patient/'))
+        return Promise.resolve({
+          data: [
+            buildConsultation({
+              payment: {
+                status: 'LATE',
+                linkDelivery: 'SENT',
+                paymentUrl: 'https://flow.cl/pay/token-1',
+                amount: 30000,
+              },
+            }),
+          ],
+        })
+      return Promise.resolve({ data: [] })
+    })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByText('Cobro atrasado')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /copiar link de pago/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('no muestra badge de cobro ni control de copiar link cuando la sesión no tiene cargo asociado', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url.startsWith('/consultations/patient/'))
+        return Promise.resolve({ data: [buildConsultation({ payment: null })] })
+      return Promise.resolve({ data: [] })
+    })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByText('Motivo de la sesión')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /copiar link de pago/i }),
+    ).not.toBeInTheDocument()
+  })
 })

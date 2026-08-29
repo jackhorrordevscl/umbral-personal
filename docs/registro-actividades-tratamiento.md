@@ -32,6 +32,7 @@ este repositorio.
 | 9 | Archivos compartidos (biblioteca interna) | `SharedFile` | Plantillas, formularios, protocolos — no son datos de pacientes | Recursos operativos del equipo | No aplica (no es dato personal de paciente) | Todo el staff autenticado | Sin retención legal específica — política interna |
 | 10 | Backups | Workflow `.github/workflows/backup.yml` (fuera de Prisma; reemplaza a `backups/backup.sh`, pensado para una VM propia que ya no existe) | Volcado cifrado (AES-256, `openssl`) de toda la base | Continuidad operativa / recuperación ante desastre | Obligación de seguridad (Ley 19.628 art. 11 bis) | Quien tenga las credenciales de Backblaze B2 y la frase de cifrado (gestor de contraseñas del terapeuta) | Sin rotación: se conserva **todo, indefinidamente** — a este volumen (~40 KB/backup diario) 15 años de historial completo ocupan ~230 MB, muy por debajo de los 10 GB gratis de B2, así que no hace falta distinguir "operativo" de "custodia legal" con políticas de borrado distintas (issue #8, cerrado 2026-08-03) |
 | 11 | Sincronización con Google Calendar (opcional, por terapeuta) | `GoogleCalendarConnection`, `CalendarEventLink` (`backend/src/modules/calendar-integration/`) | Iniciales del paciente + código corto no reversible (`sha256` truncado sobre `patient.id`, sin clave), fecha/hora de la sesión, link de vuelta a Umbral. Nunca RUT, nombre completo, `sessionType` ni texto clínico. El refresh token OAuth del terapeuta se cifra AES-256-GCM (`GOOGLE_TOKEN_ENCRYPTION_KEY`, dedicada — no comparte clave con `DocumentEncryptionService`) | Que el terapeuta vea sus sesiones de Umbral en su propia agenda de Google, sin re-tipearlas | No es un dato del paciente identificable fuera de Umbral (contenido minimizado por diseño) — la base habilitante es la necesidad contractual de operar la cuenta del terapeuta, quien conecta voluntariamente su propia cuenta de Google (`calendar.events`, `access_type=offline`) | El terapeuta dueño de la conexión (su propio Google Calendar); Google LLC como procesador de los eventos minimizados | Mientras la conexión esté `CONNECTED`; el evento y el mapeo (`CalendarEventLink`) se borran al eliminar la sesión/paciente o al desconectar; una revocación (`invalid_grant`) marca la conexión `DISCONNECTED` y detiene el envío sin reintentos |
+| 12 | Cobro en línea por sesión (opcional, por terapeuta) | `Payment`, `PaymentAccount` (`backend/src/modules/payments/`) | Nombre del paciente + email (para el link de pago y el aviso de cobro vencido), monto y fecha de la sesión (`amount`, `dueDate`). Del terapeuta: nombre/email/RUT o identificador tributario para el onboarding del comercio asociado (`PaymentAccount.merchantId`, cifrado en reposo bajo `PAYMENT_CREDENTIALS_ENCRYPTION_KEY`, dedicada — mismo criterio que `GOOGLE_TOKEN_ENCRYPTION_KEY`/`DOCUMENT_ENCRYPTION_KEY`). Nunca datos de tarjeta ni credenciales bancarias — el checkout hospedado corre íntegramente en Flow (modo Comercios Asociados), Umbral nunca custodia el dinero ni ve el medio de pago | Cobrar automáticamente cada sesión al paciente, liquidando directo a la cuenta del terapeuta que la dictó | Necesidad contractual de operar el cobro de la sesión — el terapeuta conecta voluntariamente su propia cuenta de Flow; **pendiente de revisión legal** si el envío del email con el link de pago (`MailService.sendPaymentLinkEmail`) requiere su propia finalidad de consentimiento (`ConsentPurpose`) distinta de `TREATMENT`, dado que hoy no existe ese member en el schema (ver design.md, Open Questions) | El terapeuta dueño del cargo (su propia cuenta de Flow); Flow S.A. como procesador del checkout y la liquidación | Mientras el cargo exista (`Payment`, mismo ciclo de vida que la sesión que factura — ligado por `groupId`, nunca se borra al pagarse); la cuenta de pagos (`PaymentAccount`) persiste hasta que el terapeuta la desconecte |
 
 > **Nota sobre la fila 1 (versiones previas de este documento):** este RAT
 > describía anteriormente roles `SUPERVISOR`/`COORDINATOR`/`ADMIN` y un modo
@@ -129,6 +130,19 @@ públicas que los proveedores pueden actualizar):
   consulta/corrección y el sello de tiempo en los PDF exportados dependen de
   elegir un proveedor acreditado por la Ley 19.799 — ver issues #24, #25, #26
   (T5.1, T5.2, T5.3).
+- **Consentimiento específico para el email de link de pago** (fila 12): a
+  diferencia de las demás filas, el envío automático del link de pago al
+  email del paciente (`sendPaymentLinkEmail`) no está gateado hoy por ningún
+  `ConsentPurpose` propio — la implementación (`sdd/online-payment-integration`)
+  deliberadamente no inventó un member nuevo del enum sin definición legal
+  confirmada. Si legal determina que corresponde una finalidad separada de
+  `TREATMENT`, agregar el member y el gate es un cambio aditivo que no
+  altera ninguna otra decisión de este módulo.
+- **Ubicación de procesamiento de Flow (fila 12)**: no se recopiló evidencia
+  del DPA/ubicación de procesamiento de Flow S.A. (mismo criterio de
+  evidencia documentada que Supabase/Backblaze/Resend en
+  `docs/evidencia-compliance/`) — pendiente antes de poder afirmar si la
+  fila 12 constituye o no una transferencia internacional de datos.
 
 ## Mantenimiento de este documento
 

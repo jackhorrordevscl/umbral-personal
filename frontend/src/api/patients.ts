@@ -13,6 +13,10 @@ export interface CreatePatientPayload {
   emergencyContactPhone?: string;
   treatingPsychiatrist?: string;
   treatingDoctor?: string;
+  // sdd/online-payment-integration PR 3 (T9.7): backend DTO
+  // (create-patient.dto.ts, PR 1) -- ausente/undefined = sin cobro
+  // automático para este paciente.
+  defaultSessionAmount?: number;
 }
 
 export function listPatients() {

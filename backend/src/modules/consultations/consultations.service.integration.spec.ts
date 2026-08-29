@@ -13,11 +13,18 @@ import {
 import { ConsultationsService } from './consultations.service';
 import { PaymentsService } from '../payments/payments.service';
 import { UnconfiguredPaymentGatewayClient } from '../payments/payment-gateway.client';
+import { MailService } from '../mail/mail.service';
 
 // Los describe blocks preexistentes de este archivo (calendar/findByRange)
 // no ejercitan PaymentsService -- se les inyecta una instancia con
 // PAYMENTS_ENABLED="false" para que ensureCharge() sea un no-op inmediato y
 // no requiera una PaymentAccount/defaultSessionAmount de fixture.
+//
+// sdd/online-payment-integration PR 3: PaymentsService ahora también recibe
+// MailService/NotificationsService (T8.3/T8.4) -- con PAYMENTS_ENABLED
+// "false" ninguno de los dos se invoca nunca, así que basta con instancias
+// reales sin RESEND_API_KEY configurada (mismo criterio "nunca lanza" que
+// el resto de MailService) en vez de mocks.
 function buildDisabledPaymentsService(prisma: PrismaService): PaymentsService {
   const config = {
     get: (key: string) => (key === 'PAYMENTS_ENABLED' ? 'false' : undefined),
@@ -26,6 +33,8 @@ function buildDisabledPaymentsService(prisma: PrismaService): PaymentsService {
     prisma,
     new UnconfiguredPaymentGatewayClient(),
     config,
+    new MailService(config),
+    new NotificationsService(prisma),
   );
 }
 
@@ -495,6 +504,8 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
       prisma,
       new UnconfiguredPaymentGatewayClient(),
       buildConfig(),
+      new MailService(buildConfig()),
+      new NotificationsService(prisma),
     );
     consultationsService = new ConsultationsService(
       prisma,

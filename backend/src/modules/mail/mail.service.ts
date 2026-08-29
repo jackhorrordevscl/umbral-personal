@@ -202,4 +202,101 @@ export class MailService {
       );
     }
   }
+
+  // sdd/online-payment-integration PR 3 (T8.1): a diferencia del resto de
+  // esta clase (siempre Promise<void>), este método SÍ devuelve un booleano
+  // -- design.md "Link delivery has an explicit persisted state and never
+  // blocks the charge": PaymentsService.ensureCharge necesita saber si el
+  // envío realmente ocurrió para persistir linkDelivery = SENT|FAILED (la
+  // decisión SKIPPED_NO_EMAIL se toma antes, en el caller, cuando no hay
+  // patient.email -- este método nunca se llama en ese caso). El contrato
+  // "nunca lanza" se mantiene igual: sin RESEND_API_KEY o con error del
+  // proveedor, resuelve `false` en vez de propagar una excepción.
+  async sendPaymentLinkEmail(
+    to: string,
+    patientName: string,
+    paymentUrl: string,
+    amount: number,
+  ): Promise<boolean> {
+    if (!this.resend) {
+      this.logger.warn(
+        `RESEND_API_KEY no configurada: se salteó el envío del link de pago a ${to}.`,
+      );
+      return false;
+    }
+
+    const formattedAmount = new Intl.NumberFormat('es-CL', {
+      style: 'currency',
+      currency: 'CLP',
+      maximumFractionDigits: 0,
+    }).format(amount);
+
+    const { error } = await this.resend.emails.send({
+      from: this.from,
+      to,
+      subject: 'Link de pago de tu sesión en Umbral - RCE',
+      html: `
+        <p>Hola ${patientName},</p>
+        <p>Tu sesión tiene un cobro pendiente de ${formattedAmount}. Puedes pagarlo haciendo clic en el siguiente enlace:</p>
+        <p><a href="${paymentUrl}">${paymentUrl}</a></p>
+      `,
+    });
+
+    if (error) {
+      this.logger.error(
+        `Falló el envío del link de pago a ${to}: ${error.message}`,
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  // sdd/online-payment-integration PR 3 (T8.2): alerta única en la
+  // transición PENDING -> LATE (spec.md "One-Shot Late-Payment
+  // Notification") -- mismo contrato "nunca lanza" que el resto de la clase.
+  // A diferencia de sendPaymentLinkEmail, no hay un campo persistido de
+  // "delivery status" propio para el email de mora (solo Payment.
+  // lateNotifiedAt, que PaymentsService ya setea como parte del mismo
+  // updateMany count-gated que decide quién notifica) -- Promise<void> basta
+  // acá.
+  async sendLatePaymentEmail(
+    to: string,
+    patientName: string,
+    amount: number,
+    dueDate: Date,
+  ): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn(
+        `RESEND_API_KEY no configurada: se salteó el aviso de cobro vencido a ${to}.`,
+      );
+      return;
+    }
+
+    const formattedAmount = new Intl.NumberFormat('es-CL', {
+      style: 'currency',
+      currency: 'CLP',
+      maximumFractionDigits: 0,
+    }).format(amount);
+    const formattedDueDate = new Intl.DateTimeFormat('es-CL', {
+      timeZone: 'America/Santiago',
+      dateStyle: 'long',
+    }).format(dueDate);
+
+    const { error } = await this.resend.emails.send({
+      from: this.from,
+      to,
+      subject: 'Tu cobro en Umbral - RCE está vencido',
+      html: `
+        <p>Hola ${patientName},</p>
+        <p>El cobro de ${formattedAmount} correspondiente a tu sesión del ${formattedDueDate} sigue pendiente de pago.</p>
+      `,
+    });
+
+    if (error) {
+      this.logger.error(
+        `Falló el envío del aviso de cobro vencido a ${to}: ${error.message}`,
+      );
+    }
+  }
 }

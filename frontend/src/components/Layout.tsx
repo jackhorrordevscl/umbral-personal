@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router';
 import {
   LayoutDashboard, Users, ClipboardList, CalendarDays,
-  LogOut, ShieldCheck, UserCog, Menu, X, FolderOpen
+  LogOut, ShieldCheck, UserCog, Menu, X, FolderOpen, CreditCard
 } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import NotificationBell from './notifications/NotificationBell';
@@ -17,16 +17,17 @@ export default function Layout() {
     navigate('/login');
   };
 
-  // PR4 (session-calendar-view, design.md nav order): Dashboard, Pacientes,
-  // Consultas, Calendario, Repositorio, Perfil, Seguridad -- flujo clínico
-  // primero, Calendario adyacente a Consultas porque lee las mismas filas,
-  // config de cuenta al final.
+  // sdd/online-payment-integration PR 3 (design.md "nav order"): Dashboard,
+  // Pacientes, Consultas, Calendario, Repositorio, Pagos, Perfil, Seguridad
+  // -- flujo clínico primero, Calendario adyacente a Consultas porque lee
+  // las mismas filas, Pagos junto a Repositorio, config de cuenta al final.
   const navLinks = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/patients', icon: Users, label: 'Pacientes' },
     { to: '/consultations', icon: ClipboardList, label: 'Consultas' },
     { to: '/calendar', icon: CalendarDays, label: 'Calendario' },
     { to: '/archivos', icon: FolderOpen, label: 'Repositorio' },
+    { to: '/payments', icon: CreditCard, label: 'Pagos' },
     { to: '/profile', icon: UserCog, label: 'Perfil' },
     { to: '/security', icon: ShieldCheck, label: 'Seguridad' },
   ];

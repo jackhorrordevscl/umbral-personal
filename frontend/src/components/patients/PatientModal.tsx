@@ -73,6 +73,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
     emergencyContactPhone: patient.emergencyContactPhone,
     treatingPsychiatrist: patient.treatingPsychiatrist,
     treatingDoctor: patient.treatingDoctor,
+    defaultSessionAmount: patient.defaultSessionAmount,
   });
   const [editConsents, setEditConsents] = useState<ConsentStatus>(
     patient.consents ?? EMPTY_CONSENTS,
@@ -96,6 +97,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
       emergencyContactPhone: selected.emergencyContactPhone,
       treatingPsychiatrist: selected.treatingPsychiatrist,
       treatingDoctor: selected.treatingDoctor,
+      defaultSessionAmount: selected.defaultSessionAmount,
     });
     setEditConsents(selected.consents ?? EMPTY_CONSENTS);
     setEditReason("");
@@ -463,6 +465,23 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                     className="input-field"
                     value={editForm.treatingDoctor ?? ""}
                     onChange={(e) => setEditForm({ ...editForm, treatingDoctor: e.target.value })}
+                  />
+                </FormField>
+                <FormField id="edit-defaultSessionAmount" label="Monto de sesión por defecto (CLP)">
+                  <input
+                    id="edit-defaultSessionAmount"
+                    type="number"
+                    min="0"
+                    step="1"
+                    className="input-field"
+                    placeholder="Sin cobro automático"
+                    value={editForm.defaultSessionAmount ?? ""}
+                    onChange={(e) =>
+                      setEditForm({
+                        ...editForm,
+                        defaultSessionAmount: e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
                   />
                 </FormField>
                 <div className="flex flex-wrap items-center gap-6 pt-2 md:col-span-2">
