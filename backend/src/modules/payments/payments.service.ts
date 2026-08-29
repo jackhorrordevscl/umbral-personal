@@ -1,11 +1,21 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Payment } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentGatewayClient } from './payment-gateway.client';
-import { PAYMENT_RETURN_PATH } from './payments.constants';
+import {
+  PAYMENT_CONFIRM_PATH,
+  PAYMENT_RETURN_PATH,
+  RECONCILE_MIN_AGE_MS,
+  SWEEP_BATCH_LIMIT,
+} from './payments.constants';
 
 const DEFAULT_FRONTEND_URL = 'http://localhost:5173';
+// T5.6: default local del backend (mismo puerto por default que main.ts,
+// process.env.PORT || 3001) -- en despliegue real, BACKEND_PUBLIC_URL debe
+// apuntar a la URL pública HTTPS donde Flow puede alcanzar el servidor.
+const DEFAULT_BACKEND_URL = 'http://localhost:3001';
 const DEFAULT_CURRENCY = 'CLP';
 const CHARGE_SUBJECT = 'Sesión clínica';
 
@@ -105,6 +115,13 @@ export class PaymentsService {
     await this.issueOrder(created.id, account.merchantId, amount, groupId);
   }
 
+  // T6.3 + design.md "Reschedule to future runs the inverse gated update
+  // (LATE -> PENDING, clearing lateNotifiedAt), re-arming a genuinely new
+  // late event": un cargo LATE cuyo dueDate se mueve a una fecha futura
+  // vuelve a PENDING y limpia lateNotifiedAt, para que sweep() (T6.1) pueda
+  // volver a transicionarlo (y, en PR 3, volver a notificar) como un evento
+  // de mora genuinamente nuevo. Mover dueDate a otra fecha que sigue en el
+  // pasado NO re-arma nada -- el cargo sigue LATE.
   private async moveDueDateIfNeeded(
     existing: Payment,
     sessionDate: Date,
@@ -112,9 +129,17 @@ export class PaymentsService {
     if (existing.status !== 'PENDING' && existing.status !== 'LATE') return;
     if (existing.dueDate.getTime() === sessionDate.getTime()) return;
 
+    const isRescheduleToFuture =
+      existing.status === 'LATE' && sessionDate.getTime() > Date.now();
+
     await this.prisma.payment.update({
       where: { id: existing.id },
-      data: { dueDate: sessionDate },
+      data: {
+        dueDate: sessionDate,
+        ...(isRescheduleToFuture
+          ? { status: 'PENDING' as const, lateNotifiedAt: null }
+          : {}),
+      },
     });
   }
 
@@ -158,6 +183,57 @@ export class PaymentsService {
     });
   }
 
+  // T5.7 + design.md "The confirmation callback is a signal, never a source
+  // of truth": este método NUNCA recibe ni confía en el status que trajo el
+  // POST público -- payments.controller.ts (T5.6) ya validó la firma HMAC
+  // ANTES de llamar acá, pero confirm() igual re-consulta getOrderStatus con
+  // el token guardado como única fuente de verdad. El gate
+  // updateMany(status in CANCELLABLE_STATUSES) es la misma garantía de
+  // idempotencia que cancelUnpaid: un cargo ya PAID o CANCELLED queda fuera
+  // del where (spec.md "Replayed webhook is a no-op" / "CANCELLED never
+  // becomes PAID") -- devuelto temprano ANTES de llamar al gateway, para no
+  // gastar una consulta de red en un replay.
+  async confirm(token: string): Promise<void> {
+    const payment = await this.prisma.payment.findFirst({
+      where: { gatewayToken: token },
+    });
+    if (!payment) return;
+    if (!(CANCELLABLE_STATUSES as readonly string[]).includes(payment.status)) {
+      return;
+    }
+
+    const orderStatus = await this.gateway.getOrderStatus(token);
+    if (orderStatus.status !== 'PAID') return;
+
+    await this.prisma.payment.updateMany({
+      where: { id: payment.id, status: { in: [...CANCELLABLE_STATUSES] } },
+      data: {
+        status: 'PAID',
+        paidAt: new Date(),
+        gatewayPaymentId: orderStatus.gatewayPaymentId,
+      },
+    });
+  }
+
+  // T5.4/T5.5/T7.7/T7.8: usado por PaymentsController.updateAmount (PATCH
+  // /payments/:groupId, scoped por @CurrentUser()) para resolver un 404
+  // uniforme -- terapeuta B pidiendo el groupId de terapeuta A recibe
+  // exactamente el mismo NotFoundException que un groupId inexistente,
+  // nunca un 403-with-leak que confirme que el recurso existe (mismo
+  // criterio que PatientsService.assertAccess).
+  async assertOwnership(
+    groupId: string,
+    therapistId: string,
+  ): Promise<Payment> {
+    const payment = await this.prisma.payment.findFirst({
+      where: { groupId, therapistId },
+    });
+    if (!payment) {
+      throw new NotFoundException('No existe un cargo para esta sesión.');
+    }
+    return payment;
+  }
+
   // design.md "Decision: One PaymentGatewayClient port": createOrder puede
   // rechazar (PR 1 provee UnconfiguredPaymentGatewayClient por default, que
   // rechaza siempre) sin que eso impida que ensureCharge()/updateAmount()
@@ -173,6 +249,8 @@ export class PaymentsService {
 
     const frontendUrl =
       this.config.get<string>('FRONTEND_URL') ?? DEFAULT_FRONTEND_URL;
+    const backendUrl =
+      this.config.get<string>('BACKEND_PUBLIC_URL') ?? DEFAULT_BACKEND_URL;
 
     try {
       const order = await this.gateway.createOrder({
@@ -181,11 +259,15 @@ export class PaymentsService {
         currency: DEFAULT_CURRENCY,
         subject: CHARGE_SUBJECT,
         externalId: groupId,
+        // returnUrl es dónde Flow devuelve al PACIENTE tras el checkout
+        // hospedado (frontend) -- confirmUrl es dónde Flow hace el POST
+        // servidor-a-servidor (backend, sin guard, T5.6). Nunca la misma
+        // URL: PR 1 dejó ambas apuntando al frontend como placeholder
+        // porque la ruta pública del backend todavía no existía (ver
+        // apply-progress de PR 1) -- corregido acá ahora que
+        // payments.controller.ts ya existe.
         returnUrl: `${frontendUrl}${PAYMENT_RETURN_PATH}`,
-        // Placeholder hasta que exista la ruta pública real (payments.
-        // controller.ts, PR 2, task 5.6) -- el token/paymentUrl que llega
-        // acá son los únicos datos que ensureCharge() persiste hoy.
-        confirmUrl: `${frontendUrl}${PAYMENT_RETURN_PATH}/confirm`,
+        confirmUrl: `${backendUrl}${PAYMENT_CONFIRM_PATH}`,
       });
       await this.prisma.payment.update({
         where: { id: paymentId },
@@ -205,5 +287,73 @@ export class PaymentsService {
         .update({ where: { id: paymentId }, data: { lastError: message } })
         .catch(() => undefined);
     }
+  }
+
+  // T6.1-6.2 + design.md "Data Flow": mismo shape que
+  // CalendarSyncService.reconcile -- dos pasadas independientes, ninguna
+  // notifica todavía (PR 3, T8.4: "transición + reconcile únicamente" en
+  // este PR). @nestjs/schedule's EVERY_30_MINUTES cubre exactamente la
+  // cadencia de design.md ("@Cron(EVERY_30_MINUTES) sweep()").
+  @Cron(CronExpression.EVERY_30_MINUTES)
+  async sweep(): Promise<void> {
+    if (!this.enabled) return;
+
+    await this.transitionLatePayments();
+    await this.reconcilePendingPayments();
+  }
+
+  // T6.1: bulk updateMany, no por-fila -- sin notificación en este PR
+  // (T8.4, PR 3) no hace falta reclamar cada fila individualmente; el WHERE
+  // (status: 'PENDING') es la propia garantía de "count-gated" (T7.5: una
+  // segunda corrida sobre un cargo ya LATE queda fuera del WHERE, 0 filas
+  // afectadas).
+  private async transitionLatePayments(): Promise<void> {
+    await this.prisma.payment.updateMany({
+      where: { status: 'PENDING', dueDate: { lte: new Date() } },
+      data: { status: 'LATE' },
+    });
+  }
+
+  // T6.2: reconciliación de callbacks perdidos -- candidatos con token
+  // emitido hace más de RECONCILE_MIN_AGE_MS, batcheados a
+  // SWEEP_BATCH_LIMIT por corrida (mismo patrón de reconcile acotado que
+  // CalendarSyncService.repairFailedLinks/backfill). Cada candidato se
+  // procesa individualmente porque requiere una llamada de red por fila
+  // (gateway.getOrderStatus) -- un fallo aislado no debe abortar el resto
+  // del batch.
+  private async reconcilePendingPayments(): Promise<void> {
+    const cutoff = new Date(Date.now() - RECONCILE_MIN_AGE_MS);
+    const candidates = await this.prisma.payment.findMany({
+      where: {
+        status: { in: [...CANCELLABLE_STATUSES] },
+        gatewayToken: { not: null },
+        orderIssuedAt: { lte: cutoff },
+      },
+      take: SWEEP_BATCH_LIMIT,
+    });
+
+    for (const payment of candidates) {
+      await this.reconcileOne(payment).catch((err: unknown) => {
+        this.logger.error(
+          `Sweep: fallo al reconciliar paymentId=${payment.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    }
+  }
+
+  private async reconcileOne(payment: Payment): Promise<void> {
+    if (!payment.gatewayToken) return;
+
+    const orderStatus = await this.gateway.getOrderStatus(payment.gatewayToken);
+    if (orderStatus.status !== 'PAID') return;
+
+    await this.prisma.payment.updateMany({
+      where: { id: payment.id, status: { in: [...CANCELLABLE_STATUSES] } },
+      data: {
+        status: 'PAID',
+        paidAt: new Date(),
+        gatewayPaymentId: orderStatus.gatewayPaymentId,
+      },
+    });
   }
 }

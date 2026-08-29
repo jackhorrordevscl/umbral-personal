@@ -69,6 +69,8 @@ describe('PaymentsService', () => {
     paymentAccount: { findUnique: jest.Mock };
     payment: {
       findUnique: jest.Mock;
+      findFirst: jest.Mock;
+      findMany: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
       updateMany: jest.Mock;
@@ -103,9 +105,11 @@ describe('PaymentsService', () => {
       paymentAccount: { findUnique: jest.fn() },
       payment: {
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn().mockResolvedValue(undefined),
-        updateMany: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         findUniqueOrThrow: jest.fn(),
       },
     };
@@ -245,6 +249,52 @@ describe('PaymentsService', () => {
       );
     });
 
+    // sdd/online-payment-integration PR 2 (T6.3): design.md "Reschedule to
+    // future runs the inverse gated update (LATE -> PENDING, clearing
+    // lateNotifiedAt), re-arming a genuinely new late event."
+    it('un cargo LATE cuyo dueDate se mueve al futuro se re-arma a PENDING y limpia lateNotifiedAt', async () => {
+      const futureDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      prisma.consultation.findFirst.mockResolvedValue(
+        buildConsultation({ sessionDate: futureDate }),
+      );
+      prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      prisma.payment.findUnique.mockResolvedValue(
+        buildPayment({
+          status: 'LATE',
+          dueDate: new Date('2026-07-01T15:00:00.000Z'),
+          lateNotifiedAt: new Date('2026-07-01T15:05:00.000Z'),
+        }),
+      );
+
+      await service.ensureCharge('group-1');
+
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: { dueDate: futureDate, status: 'PENDING', lateNotifiedAt: null },
+      });
+    });
+
+    it('un cargo LATE cuyo nuevo dueDate sigue en el pasado solo mueve dueDate, sin re-armarse', async () => {
+      const stillPastDate = new Date('2026-08-15T15:00:00.000Z');
+      prisma.consultation.findFirst.mockResolvedValue(
+        buildConsultation({ sessionDate: stillPastDate }),
+      );
+      prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      prisma.payment.findUnique.mockResolvedValue(
+        buildPayment({
+          status: 'LATE',
+          dueDate: new Date('2026-07-01T15:00:00.000Z'),
+        }),
+      );
+
+      await service.ensureCharge('group-1');
+
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: { dueDate: stillPastDate },
+      });
+    });
+
     it('un cargo existente cuyo dueDate no cambió no dispara ningún update', async () => {
       prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
       prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
@@ -354,6 +404,208 @@ describe('PaymentsService', () => {
             status: { in: expect.not.arrayContaining(['PAID']) as unknown },
           }) as unknown,
         }) as unknown,
+      );
+    });
+  });
+
+  // sdd/online-payment-integration PR 2 (T5.7): design.md "The confirmation
+  // callback is a signal, never a source of truth" -- confirm() nunca recibe
+  // ni confía en el status que trajo el POST; siempre re-consulta
+  // getOrderStatus con el token guardado y aplica el mismo gate
+  // updateMany(status in [PENDING, LATE]) que el resto del módulo. La
+  // verificación de firma (verifyCallbackSignature) vive en el controller
+  // (T5.6), NUNCA acá -- este método asume que ya se llamó con un token
+  // legítimo.
+  describe('confirm', () => {
+    it('confirma un cargo PENDING cuando el gateway re-consultado reporta PAID', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({
+          id: 'payment-1',
+          status: 'PENDING',
+          gatewayToken: 'flow-token',
+        }),
+      );
+      gateway.getOrderStatus.mockResolvedValue({
+        status: 'PAID',
+        gatewayPaymentId: 'flow-payment-1',
+      });
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.confirm('flow-token');
+
+      expect(gateway.getOrderStatus).toHaveBeenCalledWith('flow-token');
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment-1', status: { in: ['PENDING', 'LATE'] } },
+        data: expect.objectContaining({
+          status: 'PAID',
+          gatewayPaymentId: 'flow-payment-1',
+          paidAt: expect.any(Date) as unknown,
+        }) as unknown,
+      });
+    });
+
+    it('un token que no corresponde a ningún cargo no hace nada (no llama al gateway)', async () => {
+      prisma.payment.findFirst.mockResolvedValue(null);
+
+      await service.confirm('token-inexistente');
+
+      expect(gateway.getOrderStatus).not.toHaveBeenCalled();
+      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+    });
+
+    // T7.3: "replayed confirm affects 0 rows; PAID -> PAID no-op" -- un
+    // cargo ya PAID ni siquiera vuelve a llamar al gateway (idempotencia sin
+    // trabajo redundante).
+    it('un cargo ya PAID es un no-op (replay) sin volver a consultar el gateway', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ status: 'PAID' }),
+      );
+
+      await service.confirm('flow-token');
+
+      expect(gateway.getOrderStatus).not.toHaveBeenCalled();
+      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+    });
+
+    // T7.3: "CANCELLED never becomes PAID".
+    it('un cargo CANCELLED nunca pasa a PAID', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ status: 'CANCELLED' }),
+      );
+
+      await service.confirm('flow-token');
+
+      expect(gateway.getOrderStatus).not.toHaveBeenCalled();
+      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('si el gateway re-consultado todavía reporta PENDING, no actualiza nada', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ status: 'PENDING', gatewayToken: 'flow-token' }),
+      );
+      gateway.getOrderStatus.mockResolvedValue({ status: 'PENDING' });
+
+      await service.confirm('flow-token');
+
+      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+    });
+  });
+
+  // T7.7/T7.8: tenancy -- PATCH /payments/:groupId (payments.controller.ts)
+  // usa este método para resolver 404 uniforme antes de llamar a
+  // updateAmount, nunca un 403-with-leak que revele que el cargo existe pero
+  // es de otro terapeuta.
+  describe('assertOwnership', () => {
+    it('devuelve el cargo cuando pertenece al terapeuta', async () => {
+      const payment = buildPayment({ therapistId: 'therapist-1' });
+      prisma.payment.findFirst.mockResolvedValue(payment);
+
+      const result = await service.assertOwnership('group-1', 'therapist-1');
+
+      expect(result).toBe(payment);
+      expect(prisma.payment.findFirst).toHaveBeenCalledWith({
+        where: { groupId: 'group-1', therapistId: 'therapist-1' },
+      });
+    });
+
+    it('lanza NotFoundException (404 uniforme) si el cargo es de otro terapeuta o no existe', async () => {
+      prisma.payment.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.assertOwnership('group-1', 'therapist-2'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // sdd/online-payment-integration PR 2 (T6.1-6.3): @Cron sweep -- pass 1
+  // (transición PENDING -> LATE) y pass 2 (reconciliación de callbacks
+  // perdidos), "transición + reconcile únicamente" (design.md "Migration /
+  // Rollout" table) -- sin notificación todavía (PR 3, T8.4).
+  describe('sweep', () => {
+    beforeEach(() => {
+      prisma.payment.findMany.mockResolvedValue([]);
+    });
+
+    it('respeta PAYMENTS_ENABLED=false (no-op completo)', async () => {
+      service = buildService(false);
+
+      await service.sweep();
+
+      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+      expect(prisma.payment.findMany).not.toHaveBeenCalled();
+    });
+
+    it('transiciona a LATE los cargos PENDING vencidos (pass 1, count-gated por WHERE)', async () => {
+      await service.sweep();
+
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: {
+          status: 'PENDING',
+          dueDate: { lte: expect.any(Date) as unknown },
+        },
+        data: { status: 'LATE' },
+      });
+    });
+
+    // T7.5 (RED): el WHERE de pass 1 excluye status !== 'PENDING' por
+    // construcción -- una segunda corrida sobre un cargo ya LATE queda fuera
+    // de ese WHERE y por lo tanto afecta 0 filas, sin necesitar lógica
+    // adicional (mismo criterio que cancelUnpaid: la garantía está en el
+    // WHERE, no en un chequeo explícito).
+    it('el WHERE de pass 1 nunca incluye cargos que no estén en PENDING', async () => {
+      await service.sweep();
+
+      const [pass1Call] = prisma.payment.updateMany.mock.calls.find(
+        (call: [{ data?: { status?: string } }]) =>
+          call[0].data?.status === 'LATE',
+      ) as [{ where: { status: string } }];
+      expect(pass1Call.where.status).toBe('PENDING');
+    });
+
+    it('pass 2 reconcilia un cargo PENDING con token viejo y lo marca PAID si el gateway confirma', async () => {
+      const stalePayment = buildPayment({
+        id: 'payment-stale',
+        status: 'PENDING',
+        gatewayToken: 'flow-token-stale',
+      });
+      prisma.payment.findMany.mockResolvedValue([stalePayment]);
+      gateway.getOrderStatus.mockResolvedValue({
+        status: 'PAID',
+        gatewayPaymentId: 'flow-payment-stale',
+      });
+
+      await service.sweep();
+
+      expect(gateway.getOrderStatus).toHaveBeenCalledWith('flow-token-stale');
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment-stale', status: { in: ['PENDING', 'LATE'] } },
+        data: expect.objectContaining({ status: 'PAID' }) as unknown,
+      });
+    });
+
+    it('pass 2 no modifica un cargo cuyo gateway re-consultado todavía reporta PENDING', async () => {
+      const stalePayment = buildPayment({
+        id: 'payment-stale',
+        status: 'PENDING',
+        gatewayToken: 'flow-token-stale',
+      });
+      prisma.payment.findMany.mockResolvedValue([stalePayment]);
+      gateway.getOrderStatus.mockResolvedValue({ status: 'PENDING' });
+
+      await service.sweep();
+
+      expect(prisma.payment.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: 'payment-stale' }) as unknown,
+        }) as unknown,
+      );
+    });
+
+    it('pass 2 batchea la consulta de candidatos con take: SWEEP_BATCH_LIMIT', async () => {
+      await service.sweep();
+
+      expect(prisma.payment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 200 }) as unknown,
       );
     });
   });
