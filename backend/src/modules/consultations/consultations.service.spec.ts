@@ -8,6 +8,7 @@ import { ConsultationsService } from './consultations.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
+import { PaymentsService } from '../payments/payments.service';
 
 function buildConsultation(
   overrides: Partial<Consultation> = {},
@@ -48,6 +49,7 @@ describe('ConsultationsService', () => {
   };
   let patientsService: { assertAccess: jest.Mock };
   let calendarSync: { syncGroup: jest.Mock };
+  let paymentsService: { ensureCharge: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -77,11 +79,13 @@ describe('ConsultationsService', () => {
         .mockResolvedValue({ id: 'patient-1', rut: '11111111-1' }),
     };
     calendarSync = { syncGroup: jest.fn().mockResolvedValue(undefined) };
+    paymentsService = { ensureCharge: jest.fn().mockResolvedValue(undefined) };
 
     service = new ConsultationsService(
       prisma as unknown as PrismaService,
       patientsService as unknown as PatientsService,
       calendarSync as unknown as CalendarSyncService,
+      paymentsService as unknown as PaymentsService,
     );
   });
 
@@ -169,6 +173,45 @@ describe('ConsultationsService', () => {
       prisma.consultation.create.mockResolvedValue(buildConsultation());
       calendarSync.syncGroup.mockRejectedValue(
         new Error('Google no disponible'),
+      );
+
+      await expect(
+        service.create(
+          {
+            patientId: 'patient-1',
+            sessionDate: '2026-01-10',
+            consultReason: 'Motivo',
+            intervention: 'Intervención',
+          } as never,
+          'therapist-1',
+        ),
+      ).resolves.toEqual(expect.objectContaining({ id: 'consultation-1' }));
+    });
+
+    // sdd/online-payment-integration PR 1 (T2.5): design.md "Data Flow"
+    // create()/correct() ──tx commit──→ void PaymentsService.ensureCharge(groupId)
+    it('dispara paymentsService.ensureCharge(groupId) tras persistir la consulta', async () => {
+      prisma.consultation.create.mockResolvedValue(buildConsultation());
+
+      await service.create(
+        {
+          patientId: 'patient-1',
+          sessionDate: '2026-01-10',
+          consultReason: 'Motivo',
+          intervention: 'Intervención',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(paymentsService.ensureCharge).toHaveBeenCalledWith(
+        'consultation-1',
+      );
+    });
+
+    it('un rechazo de paymentsService.ensureCharge no impide que create() se resuelva (non-blocking)', async () => {
+      prisma.consultation.create.mockResolvedValue(buildConsultation());
+      paymentsService.ensureCharge.mockRejectedValue(
+        new Error('Flow no disponible'),
       );
 
       await expect(
@@ -344,6 +387,29 @@ describe('ConsultationsService', () => {
           'therapist-1',
         ),
       ).resolves.toEqual(expect.objectContaining({ id: 'consultation-2' }));
+    });
+
+    // sdd/online-payment-integration PR 1 (T2.5)
+    it('dispara paymentsService.ensureCharge(groupId) tras persistir la corrección', async () => {
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation())
+        .mockResolvedValueOnce(null);
+      prisma.consultation.create.mockResolvedValue(
+        buildConsultation({
+          id: 'consultation-2',
+          correctsId: 'consultation-1',
+        }),
+      );
+
+      await service.correct(
+        'consultation-1',
+        { consultReason: 'Motivo corregido' } as never,
+        'therapist-1',
+      );
+
+      expect(paymentsService.ensureCharge).toHaveBeenCalledWith(
+        'consultation-1',
+      );
     });
   });
 
