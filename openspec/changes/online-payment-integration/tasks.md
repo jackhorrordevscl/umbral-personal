@@ -61,40 +61,40 @@ Chain strategy: stacked-to-main
 
 ## Phase 4: Flow Gateway Client (PR2)
 
-- [ ] 4.1 Create `payments/flow-gateway.client.ts`: HMAC-SHA256 request signing, native `fetch`, `createMerchant` → `/merchant/create`.
-- [ ] 4.2 `flow-gateway.client.ts`: `createOrder` → `payment/create`; resolve the merchant-attribution parameter against the Flow sandbox.
-- [ ] 4.3 `flow-gateway.client.ts`: `getOrderStatus` → `payment/getStatus`, maps to `GatewayOrderStatus`.
-- [ ] 4.4 `flow-gateway.client.ts`: `verifyCallbackSignature` — HMAC-SHA256 over received params via `crypto.timingSafeEqual`.
-- [ ] 4.5 `payments.module.ts`: provide `FlowPaymentGatewayClient` as the `PaymentGatewayClient` implementation.
+- [x] 4.1 Create `payments/flow-gateway.client.ts`: HMAC-SHA256 request signing, native `fetch`, `createMerchant` → `/merchant/create`.
+- [x] 4.2 `flow-gateway.client.ts`: `createOrder` → `payment/create`; resolve the merchant-attribution parameter against the Flow sandbox.
+- [x] 4.3 `flow-gateway.client.ts`: `getOrderStatus` → `payment/getStatus`, maps to `GatewayOrderStatus`.
+- [x] 4.4 `flow-gateway.client.ts`: `verifyCallbackSignature` — HMAC-SHA256 over received params via `crypto.timingSafeEqual`.
+- [x] 4.5 `payments.module.ts`: provide `FlowPaymentGatewayClient` as the `PaymentGatewayClient` implementation.
 
 ## Phase 5: Onboarding + Confirmation Controller (PR2)
 
-- [ ] 5.1 Create `payments/payment-account.service.ts`: `onboard(therapistId, input)` — `gateway.createMerchant`, encrypts credential via `common/crypto/aes-gcm.ts` under `PAYMENT_CREDENTIALS_ENCRYPTION_KEY`.
-- [ ] 5.2 `payment-account.service.ts`: `status(therapistId)` — never returns the credential.
-- [ ] 5.3 `payment-account.service.ts`: `disconnect(therapistId)` — existing charges untouched.
-- [ ] 5.4 Create `payments/payments.controller.ts`: `GET/POST/DELETE /payments/account` (`JwtAuthGuard`).
-- [ ] 5.5 `payments.controller.ts`: `PATCH /payments/:groupId` (`JwtAuthGuard`) — per-session amount override while `PENDING`, re-issues order + link; never wired into the clinical "Corregir sesión" modal.
-- [ ] 5.6 `payments.controller.ts`: `POST /payments/confirm` (no guard) — verify signature via `timingSafeEqual`, reject before any DB read with 400.
-- [ ] 5.7 `payments.service.ts`: `confirm(token)` — re-fetch authoritative status via `getOrderStatus`, idempotent `updateMany({status in [PENDING,LATE]} → PAID)`, keyed by the stored token.
+- [x] 5.1 Create `payments/payment-account.service.ts`: `onboard(therapistId, input)` — `gateway.createMerchant`, encrypts credential via `common/crypto/aes-gcm.ts` under `PAYMENT_CREDENTIALS_ENCRYPTION_KEY`.
+- [x] 5.2 `payment-account.service.ts`: `status(therapistId)` — never returns the credential.
+- [x] 5.3 `payment-account.service.ts`: `disconnect(therapistId)` — existing charges untouched.
+- [x] 5.4 Create `payments/payments.controller.ts`: `GET/POST/DELETE /payments/account` (`JwtAuthGuard`).
+- [x] 5.5 `payments.controller.ts`: `PATCH /payments/:groupId` (`JwtAuthGuard`) — per-session amount override while `PENDING`, re-issues order + link; never wired into the clinical "Corregir sesión" modal.
+- [x] 5.6 `payments.controller.ts`: `POST /payments/confirm` (no guard) — verify signature via `timingSafeEqual`, reject before any DB read with 400.
+- [x] 5.7 `payments.service.ts`: `confirm(token)` — re-fetch authoritative status via `getOrderStatus`, idempotent `updateMany({status in [PENDING,LATE]} → PAID)`, keyed by the stored token.
 
 ## Phase 6: Cron Sweep — Transition + Reconcile (PR2)
 
-- [ ] 6.1 `payments.service.ts`: `@Cron(EVERY_30_MINUTES) sweep()` pass 1 — count-gated `updateMany({status:PENDING, dueDate:{lte:now}} → LATE)`.
-- [ ] 6.2 `payments.service.ts`: `sweep()` pass 2 — `PENDING|LATE` with token issued `> RECONCILE_MIN_AGE_MS` ago → `getOrderStatus` reconcile, batched at `SWEEP_BATCH_LIMIT`.
-- [ ] 6.3 `payments.service.ts`: reschedule-to-future re-arm — inverse gated update `LATE → PENDING`, clears `lateNotifiedAt` when `dueDate` moves forward.
+- [x] 6.1 `payments.service.ts`: `@Cron(EVERY_30_MINUTES) sweep()` pass 1 — count-gated `updateMany({status:PENDING, dueDate:{lte:now}} → LATE)`.
+- [x] 6.2 `payments.service.ts`: `sweep()` pass 2 — `PENDING|LATE` with token issued `> RECONCILE_MIN_AGE_MS` ago → `getOrderStatus` reconcile, batched at `SWEEP_BATCH_LIMIT`.
+- [x] 6.3 `payments.service.ts`: reschedule-to-future re-arm — inverse gated update `LATE → PENDING`, clears `lateNotifiedAt` when `dueDate` moves forward.
 
 ## Phase 7: PR2 Testing
 
-- [ ] 7.1 RED unit: signature verification — valid, tampered param, missing `s`, wrong key, extra param — all rejected before any DB call; assert Prisma mock untouched.
-- [ ] 7.2 GREEN: implement `verifyCallbackSignature`.
-- [ ] 7.3 RED unit: replayed `confirm` affects 0 rows; `PAID → PAID` no-op; `CANCELLED` never becomes `PAID`.
-- [ ] 7.4 GREEN: implement `confirm()` idempotent `updateMany`.
-- [ ] 7.5 RED unit: `sweep()` pass-1 transition is count-gated — a second tick on an already-`LATE` row affects 0 rows.
-- [ ] 7.6 GREEN: confirm the `updateMany` where-clause excludes non-`PENDING` rows.
-- [ ] 7.7 RED E2E `payments.e2e-spec.ts`: **tenancy** — therapist B cannot read, patch, or disconnect therapist A's payment account or charge; uniform 404, never 403-with-leak.
-- [ ] 7.8 GREEN: scope every guarded route by `therapistId` from `@CurrentUser()`.
-- [ ] 7.9 RED E2E: forged/unsigned `POST /payments/confirm` never mutates a `Payment` (public route = primary attack surface).
-- [ ] 7.10 GREEN: reject unsigned/invalid/oversized bodies with 400 before any DB read.
+- [x] 7.1 RED unit: signature verification — valid, tampered param, missing `s`, wrong key, extra param — all rejected before any DB call; assert Prisma mock untouched.
+- [x] 7.2 GREEN: implement `verifyCallbackSignature`.
+- [x] 7.3 RED unit: replayed `confirm` affects 0 rows; `PAID → PAID` no-op; `CANCELLED` never becomes `PAID`.
+- [x] 7.4 GREEN: implement `confirm()` idempotent `updateMany`.
+- [x] 7.5 RED unit: `sweep()` pass-1 transition is count-gated — a second tick on an already-`LATE` row affects 0 rows.
+- [x] 7.6 GREEN: confirm the `updateMany` where-clause excludes non-`PENDING` rows.
+- [x] 7.7 RED E2E `payments.e2e-spec.ts`: **tenancy** — therapist B cannot read, patch, or disconnect therapist A's payment account or charge; uniform 404, never 403-with-leak.
+- [x] 7.8 GREEN: scope every guarded route by `therapistId` from `@CurrentUser()`.
+- [x] 7.9 RED E2E: forged/unsigned `POST /payments/confirm` never mutates a `Payment` (public route = primary attack surface).
+- [x] 7.10 GREEN: reject unsigned/invalid/oversized bodies with 400 before any DB read.
 
 ## Phase 8: Mail + Late-Payment Notify Wiring (PR3)
 

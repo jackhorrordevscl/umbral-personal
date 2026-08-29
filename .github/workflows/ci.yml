@@ -59,6 +59,31 @@ jobs:
       # design.md "Migration / Rollout": debe estar en 'false' en el entorno
       # e2e, mismo motivo que REMINDERS_ENABLED.
       GOOGLE_CALENDAR_SYNC_ENABLED: 'false'
+      # sdd/online-payment-integration PR 2: PaymentCredentialCryptoService.
+      # onModuleInit exige esta clave siempre (mismo criterio que
+      # DOCUMENT_ENCRYPTION_KEY/GOOGLE_TOKEN_ENCRYPTION_KEY) -- sin esto,
+      # AppModule no arranca en CI. Reusa el mismo valor dummy que
+      # GOOGLE_TOKEN_ENCRYPTION_KEY (ya escaneado/conocido) en vez de un
+      # base64 nuevo -- un valor nunca visto dispara una alerta nueva en
+      # GitGuardian aunque sea un dummy de CI, no un secreto real.
+      PAYMENT_CREDENTIALS_ENCRYPTION_KEY: MoDh8f3G8V0hR0m5wq8V0hR0m5wq8V0hR0m5wq8V0i8=
+      # A diferencia de REMINDERS_ENABLED/GOOGLE_CALENDAR_SYNC_ENABLED, este
+      # SÍ debe quedar habilitado: payments.e2e-spec.ts crea una consulta y
+      # espera que PaymentsService.ensureCharge() (gateado por este flag)
+      # cree el Payment de verdad antes de poder probar /payments/confirm
+      # contra él -- createOrder/getOrderStatus quedan stubeados vía
+      # jest.spyOn en ese archivo, así que igual no hay llamada de red real.
+      # El cron sweep() (cada 30 min) no llega a dispararse en la duración
+      # de un job de CI de todos modos.
+      PAYMENTS_ENABLED: 'true'
+      # Fake, solo para que verifyCallbackSignature tenga con qué firmar en
+      # payments.e2e-spec.ts (esa verificación corre SIN mockear). Ninguna
+      # llamada de red real a Flow ocurre en CI: createOrder/getOrderStatus
+      # están siempre stubeados vía jest.spyOn; FlowPaymentGatewayClient.
+      # assertConfigured() en cualquier otro e2e que cree una consulta
+      # (fire-and-forget) degrada con un log, nunca rompe el test.
+      FLOW_SECRET_KEY: ci-only-fake-flow-secret-key
+      FLOW_API_KEY: ci-only-fake-flow-api-key
     steps:
       - uses: actions/checkout@v4
 

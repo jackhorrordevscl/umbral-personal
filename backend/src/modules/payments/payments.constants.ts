@@ -15,3 +15,14 @@ export const RECONCILE_MIN_AGE_MS = 15 * 60 * 1000;
 // Ruta del frontend a la que Flow redirige tras el checkout hospedado
 // (returnUrl de OrderInput) -- PaymentsPage.tsx la resuelve en PR 3.
 export const PAYMENT_RETURN_PATH = '/payments';
+
+// sdd/online-payment-integration PR 2 (T5.6): ruta pública del BACKEND (no
+// del frontend -- Flow hace un POST servidor-a-servidor, nunca un redirect
+// de navegador) que payments.controller.ts expone sin guard. Se combina con
+// BACKEND_PUBLIC_URL (payments.service.ts) para construir confirmUrl -- PR 1
+// dejó esto como placeholder apuntando al frontend porque la ruta pública
+// todavía no existía (ver el deviation note en apply-progress de PR 1);
+// PR 2 lo corrige ahora que payments.controller.ts (T5.6) ya existe. Incluye
+// el prefijo global `api/v1` (main.ts, app.setGlobalPrefix) porque Flow
+// nunca pasa por el mismo pipeline de rutas que el frontend.
+export const PAYMENT_CONFIRM_PATH = '/api/v1/payments/confirm';
