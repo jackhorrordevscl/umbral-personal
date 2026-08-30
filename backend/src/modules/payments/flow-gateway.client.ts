@@ -243,23 +243,25 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
       return (await response.json()) as T;
     }
 
+    const body = await response.text();
+    this.logger.error(`Flow devolvió ${response.status} (${method} ${path}): ${body}`);
+
     if (response.status === 401 || response.status === 403) {
       throw new PaymentGatewayError(
         'credentials',
-        `Flow devolvió ${response.status} (${method} ${path}) -- apiKey/firma inválida.`,
+        `Flow devolvió ${response.status} (${method} ${path}) -- apiKey/firma inválida: ${body}`,
       );
     }
     if (response.status === 400 || response.status === 404) {
       throw new PaymentGatewayError(
         'rejected',
-        `Flow devolvió ${response.status} (${method} ${path}).`,
+        `Flow devolvió ${response.status} (${method} ${path}): ${body}`,
       );
     }
 
-    this.logger.error(`Flow devolvió ${response.status} (${method} ${path}).`);
     throw new PaymentGatewayError(
       'transient',
-      `Flow devolvió ${response.status} (${method} ${path}).`,
+      `Flow devolvió ${response.status} (${method} ${path}): ${body}`,
     );
   }
 }

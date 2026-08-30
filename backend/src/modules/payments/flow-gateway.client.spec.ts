@@ -25,6 +25,7 @@ function mockFetchOnce(
 ) {
   (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
     json: jest.fn().mockResolvedValue(jsonBody),
+    text: jest.fn().mockResolvedValue(JSON.stringify(jsonBody)),
     ...response,
   });
 }
