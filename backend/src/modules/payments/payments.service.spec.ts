@@ -445,9 +445,7 @@ describe('PaymentsService', () => {
         buildPayment({ amount: 45000, therapistId: 'therapist-1' }),
       );
       prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
-      prisma.patient.findUnique.mockResolvedValue(
-        buildConsultation().patient,
-      );
+      prisma.patient.findUnique.mockResolvedValue(buildConsultation().patient);
 
       const result = await service.updateAmount('group-1', 45000);
 
@@ -475,9 +473,7 @@ describe('PaymentsService', () => {
         buildPayment({ amount: 45000, therapistId: 'therapist-1' }),
       );
       prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
-      prisma.patient.findUnique.mockResolvedValue(
-        buildConsultation().patient,
-      );
+      prisma.patient.findUnique.mockResolvedValue(buildConsultation().patient);
 
       await service.updateAmount('group-1', 45000);
 
