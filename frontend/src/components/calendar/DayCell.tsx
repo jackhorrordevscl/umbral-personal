@@ -28,7 +28,7 @@ export default function DayCell({ day, isCurrentMonth, sessions, onClick }: DayC
         isCurrentMonth ? 'bg-white' : 'bg-slate-50 text-slate-400'
       }`}
     >
-      <span className={`text-xs font-medium ${isCurrentMonth ? 'text-slate-700' : 'text-slate-400'}`}>
+      <span className={`text-xs font-medium ${isCurrentMonth ? 'text-slate-700' : 'text-slate-500'}`}>
         {dayNumber}
       </span>
       <div className="flex flex-col gap-0.5">

@@ -372,7 +372,7 @@ export default function SecurityPage() {
                   {entry.ipAddress ? ` · ${entry.ipAddress}` : ''}
                 </p>
                 {entry.userAgent && (
-                  <p className="text-slate-400 mt-0.5 break-all">{entry.userAgent}</p>
+                  <p className="text-slate-500 mt-0.5 break-all">{entry.userAgent}</p>
                 )}
               </li>
             ))}

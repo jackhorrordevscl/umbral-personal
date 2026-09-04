@@ -35,7 +35,7 @@ export default function NotificationList({
 
   if (notifications.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 py-8 text-slate-400">
+      <div className="flex flex-col items-center gap-2 py-8 text-slate-500">
         <BellOff size={22} />
         <p className="text-sm">No tienes notificaciones.</p>
       </div>
@@ -78,7 +78,7 @@ export default function NotificationList({
             )}
           </div>
           <p className="text-xs text-slate-500 line-clamp-2">{notification.body}</p>
-          <p className="text-[11px] text-slate-400">
+          <p className="text-[11px] text-slate-500">
             {formatChileDateTime(notification.createdAt)}
           </p>
         </button>
@@ -90,7 +90,7 @@ export default function NotificationList({
     <div className="max-h-[32rem] overflow-auto">
       {todays.length > 0 && (
         <>
-          <p className="px-4 pt-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
+          <p className="px-4 pt-3 pb-1 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
             Hoy
           </p>
           <ul className="divide-y divide-slate-100" role="list">
@@ -100,7 +100,7 @@ export default function NotificationList({
       )}
       {older.length > 0 && (
         <>
-          <p className="px-4 pt-3 pb-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
+          <p className="px-4 pt-3 pb-1 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
             Anteriores
           </p>
           <ul className="divide-y divide-slate-100" role="list">
