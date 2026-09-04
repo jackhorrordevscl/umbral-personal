@@ -8,39 +8,54 @@ import { createHmac } from 'crypto';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PaymentGatewayClient } from '../src/modules/payments/payment-gateway.client';
+import { PaymentCredentialCryptoService } from '../src/modules/payments/payment-credential-crypto.service';
 
 /**
  * sdd/online-payment-integration PR 2 (T7.7-7.10, design.md "Testing
  * Strategy" -- "E2E: tenancy (uniform 404) and forged public confirm never
- * mutates a Payment"): las dos superficies de seguridad que design.md exige
- * como RED E2E obligatorio para este módulo:
+ * mutates a Payment") + sdd/payments-multigateway-redesign task 3.7-3.9:
+ * the security surfaces this file exercises as the module's real (Nest
+ * TestingModule + Postgres) runtime harness:
  *   1. Tenancy: GET/DELETE /payments/account y PATCH /payments/:groupId
  *      quedan scoped exclusivamente al terapeuta autenticado
  *      (@CurrentUser(), nunca un :id que identifique la cuenta/cargo de
  *      otro) -- terapeuta B nunca ve ni puede mutar la cuenta o el cargo de
  *      terapeuta A, siempre con el mismo 404 uniforme.
  *   2. POST /payments/confirm es la ÚNICA ruta pública del módulo (sin
- *      JwtAuthGuard) -- un body forjado, sin firma, o con campos extra
- *      jamás debe mutar un Payment.
+ *      JwtAuthGuard) -- un body forjado, sin firma, con token desconocido,
+ *      o con campos extra jamás debe mutar un Payment, y el lookup
+ *      read-only (findByToken) siempre precede a cualquier resolución de
+ *      credenciales o verificación de firma (design.md "Webhook — after").
+ *   3. Gating por conexión de la cuenta (RECONNECT_REQUIRED) y
+ *      desconexión self-service (spec "Self-Service Disconnection").
  *
  * Mismo patrón de fixtures que calendar-integration.e2e-spec.ts: usuarios
- * creados vía HTTP + enrolamiento MFA forzado; la conexión Flow de
- * terapeuta A se inserta directo vía Prisma (bypass del onboarding real --
- * sin sandbox de Flow disponible, mismo criterio que
- * calendar-integration.e2e-spec.ts's stubExchange) y
- * PaymentGatewayClient.createOrder/getOrderStatus se stubean con jest.spyOn
- * sobre la instancia real resuelta por Nest -- solo la llamada de red se
- * reemplaza, verifyCallbackSignature corre SIN mockear (necesita
- * FLOW_SECRET_KEY configurada en el entorno que corre este archivo).
+ * creados vía HTTP + enrolamiento MFA forzado; la PaymentAccount de cada
+ * terapeuta se inserta directo vía Prisma (bypass del wizard real -- sin
+ * sandbox de Flow disponible, mismo criterio que
+ * calendar-integration.e2e-spec.ts's stubExchange), cifrando un par
+ * apiKey/secretKey de fixture con la instancia real de
+ * PaymentCredentialCryptoService resuelta por Nest (así resolveGatewayContext
+ * descifra un blob v2 genuino). PaymentGatewayClient.createOrder/
+ * getOrderStatus se stubean con jest.spyOn sobre la instancia real resuelta
+ * por Nest -- solo la llamada de red se reemplaza; verifyCallbackSignature
+ * corre SIN mockear, firmando con el secretKey de fixture (conocido por el
+ * test, nunca por variable de entorno).
  */
 describe('Payments (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
   let gateway: PaymentGatewayClient;
+  let credentialCrypto: PaymentCredentialCryptoService;
 
   const runId = Date.now();
   const TEST_PASSWORD = 'TestPass123!';
-  const FLOW_SECRET_KEY = process.env.FLOW_SECRET_KEY ?? '';
+  // Fixture credentials (well-formed per PaymentAccountService's
+  // CREDENTIAL_FORMAT gate: 16-128 chars, [A-Za-z0-9_-]) -- known to the
+  // test so `sign()` can compute a genuine callback signature the same way
+  // FlowPaymentGatewayClient.verifyCallbackSignature would.
+  const THERAPIST_A_API_KEY = 'e2eTestApiKeyTherapistA';
+  const THERAPIST_A_SECRET_KEY = 'e2eTestSecretKeyTherapistA';
 
   let therapistAToken: string;
   let therapistBToken: string;
@@ -52,7 +67,9 @@ describe('Payments (e2e)', () => {
   function sign(params: Record<string, string>): string {
     const sortedKeys = Object.keys(params).sort();
     const toSign = sortedKeys.map((k) => `${k}${params[k]}`).join('');
-    return createHmac('sha256', FLOW_SECRET_KEY).update(toSign).digest('hex');
+    return createHmac('sha256', THERAPIST_A_SECRET_KEY)
+      .update(toSign)
+      .digest('hex');
   }
 
   async function createProfessionalAndLogin(
@@ -99,6 +116,12 @@ describe('Payments (e2e)', () => {
     };
   }
 
+  function encryptCredentials(apiKey: string, secretKey: string): Buffer {
+    return credentialCrypto.encrypt(
+      Buffer.from(JSON.stringify({ apiKey, secretKey }), 'utf-8'),
+    );
+  }
+
   // El fire-and-forget de ConsultationsService.emitPaymentCharge (PR 1)
   // significa que POST /consultations puede devolver 201 antes de que
   // ensureCharge()+issueOrder() terminen -- mismo criterio de poll acotado
@@ -141,6 +164,7 @@ describe('Payments (e2e)', () => {
 
     prisma = app.get(PrismaService);
     gateway = app.get(PaymentGatewayClient);
+    credentialCrypto = app.get(PaymentCredentialCryptoService);
 
     const therapistA = await createProfessionalAndLogin(
       `payments.therapist.a.${runId}@umbral.cl`,
@@ -156,15 +180,20 @@ describe('Payments (e2e)', () => {
     therapistBId = therapistB.id;
     therapistBToken = therapistB.token;
 
-    // Bypass del onboarding real (sin sandbox de Flow disponible esta
-    // sesión) -- inserta la PaymentAccount de A ya CONNECTED, exactamente
-    // lo que PaymentAccountService.onboard() dejaría persistido.
+    // Bypass del wizard real (sin sandbox de Flow disponible esta sesión)
+    // -- inserta la PaymentAccount de A ya CONNECTED con un blob v2
+    // genuino, exactamente lo que PaymentAccountService.connect() dejaría
+    // persistido.
     await prisma.paymentAccount.create({
       data: {
         therapistId: therapistAId,
         provider: 'FLOW',
         status: 'CONNECTED',
-        merchantId: 'merchant-a-e2e',
+        credentialVersion: 2,
+        credentialEncrypted: Uint8Array.from(
+          encryptCredentials(THERAPIST_A_API_KEY, THERAPIST_A_SECRET_KEY),
+        ),
+        keyFingerprint: 'e2e-fixture-fingerprint',
         connectedAt: new Date(),
       },
     });
@@ -180,7 +209,7 @@ describe('Payments (e2e)', () => {
       .set('Authorization', `Bearer ${therapistAToken}`)
       .send({
         fullName: 'Paciente E2E Pagos',
-        rut: '11111111-1',
+        rut: `e2e-payments-a-${runId}`,
         birthDate: '1990-01-01',
         defaultSessionAmount: 30000,
       })
@@ -244,19 +273,22 @@ describe('Payments (e2e)', () => {
         .expect(200);
 
       expect((res.body as { status: string }).status).toBe('PENDING');
-      expect((res.body as { merchantId: string | null }).merchantId).toBeNull();
+      expect(res.body).not.toHaveProperty('credentialEncrypted');
     });
 
-    it('terapeuta A sí ve su propia cuenta CONNECTED', async () => {
+    it('terapeuta A sí ve su propia cuenta CONNECTED (sin exponer el secreto)', async () => {
       const res = await request(app.getHttpServer())
         .get('/api/v1/payments/account')
         .set('Authorization', `Bearer ${therapistAToken}`)
         .expect(200);
 
       expect((res.body as { status: string }).status).toBe('CONNECTED');
-      expect((res.body as { merchantId: string }).merchantId).toBe(
-        'merchant-a-e2e',
+      expect((res.body as { keyFingerprint: string }).keyFingerprint).toBe(
+        'e2e-fixture-fingerprint',
       );
+      expect(res.body).not.toHaveProperty('credentialEncrypted');
+      expect(res.body).not.toHaveProperty('apiKey');
+      expect(res.body).not.toHaveProperty('secretKey');
     });
 
     it('DELETE /account de terapeuta B nunca desconecta la cuenta de A (404 uniforme)', async () => {
@@ -315,6 +347,90 @@ describe('Payments (e2e)', () => {
     });
   });
 
+  // sdd/payments-multigateway-redesign task 3.8 + spec.md "Automatic Charge
+  // Creation Gated by Gateway Connection", scenario "Therapist requiring
+  // reconnection schedules without a charge": a therapist whose account was
+  // flagged RECONNECT_REQUIRED (M2's legacy-migration outcome) still
+  // schedules successfully -- the clinical write is never blocked -- but no
+  // Payment row is created for that consultation.
+  describe('Gating por conexión — cuenta RECONNECT_REQUIRED', () => {
+    let therapistCId: string;
+    let therapistCToken: string;
+    let patientCId: string;
+
+    beforeAll(async () => {
+      const therapistC = await createProfessionalAndLogin(
+        `payments.therapist.c.${runId}@umbral.cl`,
+        'Payments Therapist C',
+      );
+      therapistCId = therapistC.id;
+      therapistCToken = therapistC.token;
+
+      await prisma.paymentAccount.create({
+        data: {
+          therapistId: therapistCId,
+          provider: 'FLOW',
+          status: 'RECONNECT_REQUIRED',
+          credentialVersion: 1,
+          lastError: 'Reconexión requerida (fixture e2e M2).',
+        },
+      });
+
+      const patient = await request(app.getHttpServer())
+        .post('/api/v1/patients')
+        .set('Authorization', `Bearer ${therapistCToken}`)
+        .send({
+          fullName: 'Paciente E2E Reconexión',
+          rut: `e2e-payments-c-${runId}`,
+          birthDate: '1990-01-01',
+          defaultSessionAmount: 25000,
+        })
+        .expect(201);
+      patientCId = (patient.body as { id: string }).id;
+    }, 30000);
+
+    afterAll(async () => {
+      await prisma.paymentAccount.deleteMany({
+        where: { therapistId: therapistCId },
+      });
+      await prisma.consultation.deleteMany({
+        where: { therapistId: therapistCId },
+      });
+      if (patientCId) {
+        await prisma.patient.deleteMany({ where: { id: patientCId } });
+      }
+      await prisma.user.updateMany({
+        where: { id: therapistCId },
+        data: { deletedAt: new Date() },
+      });
+    });
+
+    it('la consulta se crea igual (201) pero no se genera un Payment', async () => {
+      const consultation = await request(app.getHttpServer())
+        .post('/api/v1/consultations')
+        .set('Authorization', `Bearer ${therapistCToken}`)
+        .send({
+          patientId: patientCId,
+          sessionDate: '2026-09-21',
+          consultReason: 'Motivo E2E reconexión',
+          intervention: 'Intervención E2E reconexión',
+        })
+        .expect(201);
+      const groupIdC = (consultation.body as { groupId: string }).groupId;
+
+      // No hay callback ni cron que crear un Payment de forma asíncrona en
+      // este flujo -- una breve espera cubre el mismo fire-and-forget que
+      // waitForPayment normalmente sondea, confirmando la AUSENCIA en vez
+      // de la presencia de la fila.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const payment = await prisma.payment.findUnique({
+        where: { groupId: groupIdC },
+      });
+      expect(payment).toBeNull();
+    });
+  });
+
   describe('POST /payments/confirm (público) — un body forjado nunca muta un Payment', () => {
     it('firma inválida se rechaza con 400 y el Payment no cambia', async () => {
       const before = await prisma.payment.findUnique({
@@ -331,6 +447,32 @@ describe('Payments (e2e)', () => {
       });
       expect(after?.status).toBe(before?.status);
       expect(after?.paidAt).toBeNull();
+    });
+
+    // sdd/payments-multigateway-redesign task 3.7 + spec "Checkout is
+    // unavailable if the owning account is no longer connected": a token
+    // that matches no Payment row rejects with the same uniform 400 --
+    // this proves the read-only lookup (findByToken) runs and fails BEFORE
+    // any credential resolution, decryption, or signature check, with zero
+    // mutation anywhere in the module.
+    it('token desconocido se rechaza con 400 sin mutar ningún Payment', async () => {
+      const beforeA = await prisma.payment.findUnique({
+        where: { groupId: groupIdA },
+      });
+
+      await request(app.getHttpServer())
+        .post('/api/v1/payments/confirm')
+        .send({
+          token: 'token-que-no-existe-en-ningun-payment',
+          s: 'x'.repeat(64),
+        })
+        .expect(400);
+
+      const afterA = await prisma.payment.findUnique({
+        where: { groupId: groupIdA },
+      });
+      expect(afterA?.status).toBe(beforeA?.status);
+      expect(afterA?.paidAt).toBeNull();
     });
 
     it('sin el campo s (whitelist/forbidNonWhitelisted) se rechaza con 400 antes de cualquier lógica de negocio', async () => {
@@ -365,7 +507,7 @@ describe('Payments (e2e)', () => {
       expect(after?.status).toBe(before?.status);
     });
 
-    it('una firma válida re-consulta getOrderStatus (stubeado) y confirma el pago', async () => {
+    it('una firma válida (firmada con el secretKey real de la cuenta dueña) re-consulta getOrderStatus (stubeado) y confirma el pago', async () => {
       const before = await prisma.payment.findUnique({
         where: { groupId: groupIdA },
       });
@@ -405,6 +547,64 @@ describe('Payments (e2e)', () => {
         where: { groupId: groupIdA },
       });
       expect(after?.paidAt?.getTime()).toBe(before?.paidAt?.getTime());
+    });
+  });
+
+  // sdd/payments-multigateway-redesign task 3.9 + spec "Self-Service
+  // Disconnection": runs LAST -- it permanently disconnects therapist A's
+  // account, which every earlier describe() block in this file depends on
+  // being CONNECTED.
+  describe('Self-Service Disconnection — DELETE /payments/account (terapeuta A sobre su propia cuenta)', () => {
+    it('desconecta la cuenta (200), deja el cargo pendiente existente intacto, y una consulta nueva no genera cargo', async () => {
+      const existingPaymentBefore = await prisma.payment.findUnique({
+        where: { groupId: groupIdA },
+      });
+
+      const res = await request(app.getHttpServer())
+        .delete('/api/v1/payments/account')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .expect(200);
+      expect((res.body as { status: string }).status).toBe('DISCONNECTED');
+
+      const accountAfter = await prisma.paymentAccount.findUnique({
+        where: { therapistId: therapistAId },
+      });
+      expect(accountAfter?.status).toBe('DISCONNECTED');
+
+      // spec "Self-Service Disconnection": "MUST NOT alter charges already
+      // created before disconnection" -- the PAID charge from the earlier
+      // confirm() block stays bit-for-bit identical.
+      const existingPaymentAfter = await prisma.payment.findUnique({
+        where: { groupId: groupIdA },
+      });
+      expect(existingPaymentAfter).toEqual(existingPaymentBefore);
+
+      // A new consultation for the now-disconnected therapist A succeeds
+      // (scheduling is never blocked) but gets no automatic charge.
+      const newConsultation = await request(app.getHttpServer())
+        .post('/api/v1/consultations')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .send({
+          patientId: patientAId,
+          sessionDate: '2026-09-25',
+          consultReason: 'Motivo E2E post-desconexión',
+          intervention: 'Intervención E2E post-desconexión',
+        })
+        .expect(201);
+      const groupIdAfterDisconnect = (
+        newConsultation.body as { groupId: string }
+      ).groupId;
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const newPayment = await prisma.payment.findUnique({
+        where: { groupId: groupIdAfterDisconnect },
+      });
+      expect(newPayment).toBeNull();
+
+      await prisma.consultation.deleteMany({
+        where: { groupId: groupIdAfterDisconnect },
+      });
     });
   });
 });

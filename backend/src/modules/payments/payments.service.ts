@@ -3,7 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { NotificationType, Payment } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PaymentGatewayClient } from './payment-gateway.client';
+import { GatewayContext } from './payment-gateway.client';
+import { PaymentGatewayRegistry } from './payment-gateway.registry';
+import { PaymentAccountService } from './payment-account.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
@@ -28,13 +30,25 @@ const CHARGE_SUBJECT = 'Sesión clínica';
 // handleInvalidGrant).
 const CANCELLABLE_STATUSES = ['PENDING', 'LATE'] as const;
 
+interface IssueOrderRequest {
+  paymentId: string;
+  context: GatewayContext;
+  amount: number;
+  groupId: string;
+}
+
 // design.md "Technical Approach": PaymentsService is the sole owner of the
-// charge lifecycle (ensureCharge/updateAmount/cancelUnpaid in PR 1;
-// confirm/sweep arrive in PR 2). ConsultationsService fires ensureCharge
-// fire-and-forget after create()/correct() -- no failure here can block or
-// revert the clinical write that triggers it (spec.md
-// "Feature Flag Gating", design.md "Nothing in this module can fail a
-// clinical write").
+// charge lifecycle. It never touches PaymentAccount rows or ciphertext
+// directly (sdd/payments-multigateway-redesign, design.md "Component
+// Responsibilities") -- every credential is resolved through
+// PaymentAccountService.resolveGatewayContext(), which returns null for any
+// account that isn't CONNECTED with a v2 credential blob, reusing the
+// existing "no order, charge stays PENDING" degradation path unchanged
+// (spec "Automatic Charge Creation Gated by Gateway Connection").
+// ConsultationsService fires ensureCharge fire-and-forget after
+// create()/correct() -- no failure here can block or revert the clinical
+// write that triggers it (spec.md "Feature Flag Gating", design.md "Nothing
+// in this module can fail a clinical write").
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
@@ -42,7 +56,8 @@ export class PaymentsService {
 
   constructor(
     private prisma: PrismaService,
-    private gateway: PaymentGatewayClient,
+    private paymentAccountService: PaymentAccountService,
+    private gatewayRegistry: PaymentGatewayRegistry,
     private config: ConfigService,
     private mailService: MailService,
     private notificationsService: NotificationsService,
@@ -69,6 +84,14 @@ export class PaymentsService {
   // the charge already exists, the amount is never re-created nor
   // re-snapshotted -- only dueDate moves if the current sessionDate changed
   // (spec.md "Correction updates the same charge and moves its due date").
+  //
+  // sdd/payments-multigateway-redesign (spec "Automatic Charge Creation
+  // Gated by Gateway Connection"): the gating check now asks
+  // resolveGatewayContext() for a context instead of reading
+  // PaymentAccount.status directly -- null covers every non-CONNECTED
+  // status (PENDING/DISCONNECTED/RECONNECT_REQUIRED) uniformly, including
+  // an account whose credentialVersion isn't 2 yet (still-CONNECTED legacy
+  // row mid-migration, PaymentAccountService's own guard).
   async ensureCharge(groupId: string): Promise<void> {
     if (!this.enabled) return;
 
@@ -88,10 +111,10 @@ export class PaymentsService {
     });
     if (!consultation || consultation.patient.deletedAt) return;
 
-    const account = await this.prisma.paymentAccount.findUnique({
-      where: { therapistId: consultation.therapistId },
-    });
-    if (!account || account.status !== 'CONNECTED') return;
+    const context = await this.paymentAccountService.resolveGatewayContext(
+      consultation.therapistId,
+    );
+    if (!context) return;
 
     const existing = await this.prisma.payment.findUnique({
       where: { groupId },
@@ -122,12 +145,12 @@ export class PaymentsService {
       },
     });
 
-    const order = await this.issueOrder(
-      created.id,
-      account.merchantId,
+    const order = await this.issueOrder({
+      paymentId: created.id,
+      context,
       amount,
       groupId,
-    );
+    });
     await this.deliverPaymentLink(
       created.id,
       consultation.patient,
@@ -141,7 +164,7 @@ export class PaymentsService {
   // (spec.md "Automatic Payment-Link Email Delivery" -- "at charge
   // creation", never on every subsequent ensureCharge() over a charge that
   // already exists). Without patient.email, MailService is never called at
-  // all (SKIPPED_NO_EMAIL); without an `order` (missing merchantId or
+  // all (SKIPPED_NO_EMAIL); without an `order` (no gateway context or
   // gateway.createOrder rejecting, see issueOrder) there's also no real
   // link to send (FAILED). In both cases the charge was already created --
   // this can never prevent ensureCharge() from resolving.
@@ -213,7 +236,10 @@ export class PaymentsService {
 
   // design.md "PATCH /payments/:groupId ... Per-session amount override
   // while PENDING, re-issues order + link" -- exposed here from PR 1 as
-  // the service method; the controller (PR 2, task 5.5) only invokes it.
+  // the service method; the controller only invokes it. Same gating as
+  // ensureCharge: no gateway context (account not CONNECTED with a v2
+  // blob) means the amount override still lands, but no new order/link is
+  // issued.
   async updateAmount(groupId: string, amount: number): Promise<Payment> {
     const result = await this.prisma.payment.updateMany({
       where: { groupId, status: 'PENDING' },
@@ -229,16 +255,16 @@ export class PaymentsService {
       where: { groupId },
     });
 
-    const account = await this.prisma.paymentAccount.findUnique({
-      where: { therapistId: payment.therapistId },
-    });
-    if (account) {
-      const order = await this.issueOrder(
-        payment.id,
-        account.merchantId,
+    const context = await this.paymentAccountService.resolveGatewayContext(
+      payment.therapistId,
+    );
+    if (context) {
+      const order = await this.issueOrder({
+        paymentId: payment.id,
+        context,
         amount,
         groupId,
-      );
+      });
       const patient = await this.prisma.patient.findUnique({
         where: { id: payment.patientId },
       });
@@ -261,16 +287,32 @@ export class PaymentsService {
     });
   }
 
+  // sdd/payments-multigateway-redesign (design.md "Webhook — after"):
+  // read-only lookup used by PaymentsController.confirm BEFORE any
+  // decryption or signature verification -- an unknown token fails with a
+  // 400 here, without this method (or resolveGatewayContext) ever running.
+  // Never mutates.
+  async findByToken(token: string): Promise<Payment | null> {
+    return this.prisma.payment.findFirst({ where: { gatewayToken: token } });
+  }
+
   // T5.7 + design.md "The confirmation callback is a signal, never a source
   // of truth": this method NEVER receives nor trusts the status carried by
-  // the public POST -- payments.controller.ts (T5.6) already validated the
-  // HMAC signature BEFORE calling here, but confirm() still re-queries
-  // getOrderStatus with the stored token as the single source of truth. The
+  // the public POST -- payments.controller.ts already validated the
+  // signature (resolving the owning therapist's own credentials, then
+  // calling registry.get(provider).verifyCallbackSignature) BEFORE calling
+  // here, but confirm() still re-queries getOrderStatus with the stored
+  // token as the single source of truth, resolving the gateway context
+  // itself rather than trusting a value passed in. The
   // updateMany(status in CANCELLABLE_STATUSES) gate is the same idempotency
   // guarantee as cancelUnpaid: a charge already PAID or CANCELLED is left
   // out of the where (spec.md "Replayed webhook is a no-op" / "CANCELLED
   // never becomes PAID") -- returned early BEFORE calling the gateway, to
-  // avoid spending a network call on a replay.
+  // avoid spending a network call on a replay. If the owning account lost
+  // its connection between order-issuance and this re-query (context is
+  // null), the charge is left exactly as it was -- there is no credential
+  // left to ask Flow with, and the controller already rejected an
+  // unverifiable signature before ever reaching this point in that case.
   async confirm(token: string): Promise<void> {
     const payment = await this.prisma.payment.findFirst({
       where: { gatewayToken: token },
@@ -280,7 +322,14 @@ export class PaymentsService {
       return;
     }
 
-    const orderStatus = await this.gateway.getOrderStatus(token);
+    const context = await this.paymentAccountService.resolveGatewayContext(
+      payment.therapistId,
+    );
+    if (!context) return;
+
+    const orderStatus = await this.gatewayRegistry
+      .get(context.provider)
+      .getOrderStatus(context.credentials, token);
     if (orderStatus.status !== 'PAID') return;
 
     await this.prisma.payment.updateMany({
@@ -312,42 +361,36 @@ export class PaymentsService {
     return payment;
   }
 
-  // design.md "Decision: One PaymentGatewayClient port": createOrder can
-  // reject (PR 1 provides UnconfiguredPaymentGatewayClient by default,
-  // which always rejects) without that preventing ensureCharge()/
-  // updateAmount() from resolving -- the charge stays PENDING without
-  // gatewayToken/paymentUrl, and the reconciler/manual retry completes it
-  // later (PR 2).
+  // design.md "Charge a session — after": issueOrder(ctx) -- takes the
+  // already-resolved GatewayContext instead of a merchantId, and routes the
+  // call through the registry so a second provider needs no change here
+  // (proposal.md "Extensible gateway selection"). Can reject without that
+  // preventing ensureCharge()/updateAmount() from resolving -- the charge
+  // stays PENDING without gatewayToken/paymentUrl, and the
+  // reconciler/manual retry completes it later.
   private async issueOrder(
-    paymentId: string,
-    merchantId: string | null,
-    amount: number,
-    groupId: string,
+    request: IssueOrderRequest,
   ): Promise<{ paymentUrl: string } | null> {
-    if (!merchantId) return null;
-
+    const { paymentId, context, amount, groupId } = request;
     const frontendUrl =
       this.config.get<string>('FRONTEND_URL') ?? DEFAULT_FRONTEND_URL;
     const backendUrl =
       this.config.get<string>('BACKEND_PUBLIC_URL') ?? DEFAULT_BACKEND_URL;
 
     try {
-      const order = await this.gateway.createOrder({
-        merchantId,
-        amount,
-        currency: DEFAULT_CURRENCY,
-        subject: CHARGE_SUBJECT,
-        externalId: groupId,
-        // returnUrl is where Flow sends the PATIENT back after the hosted
-        // checkout (frontend) -- confirmUrl is where Flow makes the
-        // server-to-server POST (backend, no guard, T5.6). Never the same
-        // URL: PR 1 left both pointing at the frontend as a placeholder
-        // because the backend's public route didn't exist yet (see
-        // PR 1's apply-progress) -- fixed here now that
-        // payments.controller.ts already exists.
-        returnUrl: `${frontendUrl}${PAYMENT_RETURN_PATH}`,
-        confirmUrl: `${backendUrl}${PAYMENT_CONFIRM_PATH}`,
-      });
+      const order = await this.gatewayRegistry
+        .get(context.provider)
+        .createOrder(context.credentials, {
+          amount,
+          currency: DEFAULT_CURRENCY,
+          subject: CHARGE_SUBJECT,
+          externalId: groupId,
+          // returnUrl is where Flow sends the PATIENT back after the hosted
+          // checkout (frontend) -- confirmUrl is where Flow makes the
+          // server-to-server POST (backend, no guard, T5.6).
+          returnUrl: `${frontendUrl}${PAYMENT_RETURN_PATH}`,
+          confirmUrl: `${backendUrl}${PAYMENT_CONFIRM_PATH}`,
+        });
       await this.prisma.payment.update({
         where: { id: paymentId },
         data: {
@@ -376,13 +419,19 @@ export class PaymentsService {
   // T6.1-6.2 + design.md "Data Flow": same shape as
   // CalendarSyncService.reconcile -- two independent passes.
   // @nestjs/schedule's EVERY_30_MINUTES covers exactly the cadence from
-  // design.md ("@Cron(EVERY_30_MINUTES) sweep()").
+  // design.md ("@Cron(EVERY_30_MINUTES) sweep()"). design.md Decision 2:
+  // the gateway context each candidate needs is resolved per payment and
+  // memoized in a Map local to this one run (keyed by therapistId), so two
+  // pending charges owned by the same therapist in the same sweep tick only
+  // decrypt once -- the map is discarded when sweep() returns, no
+  // long-lived plaintext cache.
   @Cron(CronExpression.EVERY_30_MINUTES)
   async sweep(): Promise<void> {
     if (!this.enabled) return;
 
+    const contextCache = new Map<string, GatewayContext | null>();
     await this.transitionLatePayments();
-    await this.reconcilePendingPayments();
+    await this.reconcilePendingPayments(contextCache);
   }
 
   // T8.4 + design.md "Data Flow": unlike PR 2 (bulk updateMany, no
@@ -390,7 +439,8 @@ export class PaymentsService {
   // fire the email + notification exactly once per charge -- same
   // batched-candidates-processed-one-by-one shape as
   // reconcilePendingPayments/reconcileOne. Batched to SWEEP_BATCH_LIMIT for
-  // the same reason as pass 2 (row cap per cron run).
+  // the same reason as pass 2 (row cap per cron run). This pass never calls
+  // the gateway, so it needs no gateway context at all.
   private async transitionLatePayments(): Promise<void> {
     const candidates = await this.prisma.payment.findMany({
       where: { status: 'PENDING', dueDate: { lte: new Date() } },
@@ -455,7 +505,9 @@ export class PaymentsService {
   // processed individually because it requires one network call per row
   // (gateway.getOrderStatus) -- an isolated failure must not abort the rest
   // of the batch.
-  private async reconcilePendingPayments(): Promise<void> {
+  private async reconcilePendingPayments(
+    contextCache: Map<string, GatewayContext | null>,
+  ): Promise<void> {
     const cutoff = new Date(Date.now() - RECONCILE_MIN_AGE_MS);
     const candidates = await this.prisma.payment.findMany({
       where: {
@@ -467,7 +519,7 @@ export class PaymentsService {
     });
 
     for (const payment of candidates) {
-      await this.reconcileOne(payment).catch((err: unknown) => {
+      await this.reconcileOne(payment, contextCache).catch((err: unknown) => {
         this.logger.error(
           `Sweep: fallo al reconciliar paymentId=${payment.id}: ${err instanceof Error ? err.message : String(err)}`,
         );
@@ -475,10 +527,38 @@ export class PaymentsService {
     }
   }
 
-  private async reconcileOne(payment: Payment): Promise<void> {
+  // design.md Decision 2: resolves through the run-scoped memo cache
+  // instead of calling PaymentAccountService.resolveGatewayContext (which
+  // decrypts) on every candidate -- an account with several stale charges
+  // in the same sweep tick is decrypted at most once.
+  private async resolveContextMemoized(
+    therapistId: string,
+    cache: Map<string, GatewayContext | null>,
+  ): Promise<GatewayContext | null> {
+    if (cache.has(therapistId)) {
+      return cache.get(therapistId) ?? null;
+    }
+    const context =
+      await this.paymentAccountService.resolveGatewayContext(therapistId);
+    cache.set(therapistId, context);
+    return context;
+  }
+
+  private async reconcileOne(
+    payment: Payment,
+    contextCache: Map<string, GatewayContext | null>,
+  ): Promise<void> {
     if (!payment.gatewayToken) return;
 
-    const orderStatus = await this.gateway.getOrderStatus(payment.gatewayToken);
+    const context = await this.resolveContextMemoized(
+      payment.therapistId,
+      contextCache,
+    );
+    if (!context) return;
+
+    const orderStatus = await this.gatewayRegistry
+      .get(context.provider)
+      .getOrderStatus(context.credentials, payment.gatewayToken);
     if (orderStatus.status !== 'PAID') return;
 
     await this.prisma.payment.updateMany({

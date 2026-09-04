@@ -1,8 +1,11 @@
 import { Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PaymentProvider } from '@prisma/client';
 import { PaymentsService } from './payments.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PaymentGatewayClient } from './payment-gateway.client';
+import { GatewayContext, GatewayCredentials } from './payment-gateway.client';
+import { PaymentGatewayRegistry } from './payment-gateway.registry';
+import { PaymentAccountService } from './payment-account.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -43,12 +46,13 @@ function buildConsultation(
   };
 }
 
-function buildAccount(overrides: Partial<Record<string, unknown>> = {}) {
+// sdd/payments-multigateway-redesign (design.md "Decision 2"): what
+// PaymentAccountService.resolveGatewayContext hands back to PaymentsService
+// -- replaces the old buildAccount()/merchantId fixture entirely.
+function buildContext(overrides: Partial<GatewayContext> = {}): GatewayContext {
   return {
-    id: 'account-1',
-    therapistId: 'therapist-1',
-    status: 'CONNECTED',
-    merchantId: 'merchant-1',
+    provider: PaymentProvider.FLOW,
+    credentials: new GatewayCredentials('test-api-key', 'test-secret-key'),
     ...overrides,
   };
 }
@@ -72,7 +76,6 @@ describe('PaymentsService', () => {
   let service: PaymentsService;
   let prisma: {
     consultation: { findFirst: jest.Mock };
-    paymentAccount: { findUnique: jest.Mock };
     patient: { findUnique: jest.Mock };
     payment: {
       findUnique: jest.Mock;
@@ -84,12 +87,13 @@ describe('PaymentsService', () => {
       findUniqueOrThrow: jest.Mock;
     };
   };
-  let gateway: {
-    createMerchant: jest.Mock;
+  let paymentAccountService: { resolveGatewayContext: jest.Mock };
+  let gatewayAdapter: {
     createOrder: jest.Mock;
     getOrderStatus: jest.Mock;
     verifyCallbackSignature: jest.Mock;
   };
+  let gatewayRegistry: { get: jest.Mock };
   let config: { get: jest.Mock };
   let mailService: {
     sendPaymentLinkEmail: jest.Mock;
@@ -106,7 +110,8 @@ describe('PaymentsService', () => {
     };
     return new PaymentsService(
       prisma as unknown as PrismaService,
-      gateway as unknown as PaymentGatewayClient,
+      paymentAccountService as unknown as PaymentAccountService,
+      gatewayRegistry as unknown as PaymentGatewayRegistry,
       config as unknown as ConfigService,
       mailService as unknown as MailService,
       notificationsService as unknown as NotificationsService,
@@ -116,7 +121,6 @@ describe('PaymentsService', () => {
   beforeEach(() => {
     prisma = {
       consultation: { findFirst: jest.fn() },
-      paymentAccount: { findUnique: jest.fn() },
       patient: { findUnique: jest.fn() },
       payment: {
         findUnique: jest.fn(),
@@ -128,8 +132,8 @@ describe('PaymentsService', () => {
         findUniqueOrThrow: jest.fn(),
       },
     };
-    gateway = {
-      createMerchant: jest.fn(),
+    paymentAccountService = { resolveGatewayContext: jest.fn() };
+    gatewayAdapter = {
       createOrder: jest.fn().mockResolvedValue({
         token: 'order-token',
         paymentUrl: 'https://flow.cl/pay/order-token',
@@ -137,6 +141,7 @@ describe('PaymentsService', () => {
       getOrderStatus: jest.fn(),
       verifyCallbackSignature: jest.fn(),
     };
+    gatewayRegistry = { get: jest.fn().mockReturnValue(gatewayAdapter) };
     mailService = {
       sendPaymentLinkEmail: jest.fn().mockResolvedValue(true),
       sendLatePaymentEmail: jest.fn().mockResolvedValue(undefined),
@@ -148,12 +153,16 @@ describe('PaymentsService', () => {
   describe('ensureCharge', () => {
     // spec.md "Feature Flag Gating" + "Automatic Charge Creation Gated by
     // Gateway Connection" + "Charge Amount Resolution": ninguna de las tres
-    // condiciones de gating crea un cargo.
+    // condiciones de gating crea un cargo. "sin PaymentAccount conectada"
+    // ahora se modela como resolveGatewayContext() devolviendo null --
+    // PaymentAccountService ya cubre (Unit 2) que null cubre PENDING,
+    // DISCONNECTED, RECONNECT_REQUIRED y una cuenta inexistente por igual.
     it.each([
       ['PAYMENTS_ENABLED=false', () => (service = buildService(false)), {}],
       [
         'sin PaymentAccount conectada',
-        () => prisma.paymentAccount.findUnique.mockResolvedValue(null),
+        () =>
+          paymentAccountService.resolveGatewayContext.mockResolvedValue(null),
         {},
       ],
       [
@@ -165,19 +174,44 @@ describe('PaymentsService', () => {
       prisma.consultation.findFirst.mockResolvedValue(
         buildConsultation({}, patientOverrides as never),
       );
-      prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
       prisma.payment.findUnique.mockResolvedValue(null);
       arrange();
 
       await service.ensureCharge('group-1');
 
       expect(prisma.payment.create).not.toHaveBeenCalled();
-      expect(gateway.createOrder).not.toHaveBeenCalled();
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
     });
+
+    // sdd/payments-multigateway-redesign task 3.8 + spec.md "Automatic
+    // Charge Creation Gated by Gateway Connection", scenarios "Therapist
+    // requiring reconnection schedules without a charge" /
+    // "Unconnected therapist schedules normally": RECONNECT_REQUIRED and
+    // DISCONNECTED are both covered by resolveGatewayContext() returning
+    // null (PaymentAccountService.resolveGatewayContext, Unit 2) -- this
+    // asserts the PaymentsService side of that gate explicitly for both
+    // statuses, mirroring the spec's own scenario names.
+    it.each(['RECONNECT_REQUIRED', 'DISCONNECTED'])(
+      'no crea un Payment cuando la cuenta está %s (resolveGatewayContext devuelve null)',
+      async () => {
+        prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
+        paymentAccountService.resolveGatewayContext.mockResolvedValue(null);
+
+        await service.ensureCharge('group-1');
+
+        expect(prisma.payment.create).not.toHaveBeenCalled();
+        expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+      },
+    );
 
     it('crea un cargo PENDING con el amount snapshot del paciente cuando el gating pasa', async () => {
       prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
-      prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
       prisma.payment.findUnique.mockResolvedValue(null);
       prisma.payment.create.mockResolvedValue(buildPayment());
 
@@ -195,17 +229,19 @@ describe('PaymentsService', () => {
       });
     });
 
-    it('llama a gateway.createOrder y guarda token/paymentUrl tras crear el cargo', async () => {
+    it('llama a gateway.createOrder (vía registry) con las credenciales resueltas y guarda token/paymentUrl tras crear el cargo', async () => {
+      const context = buildContext();
       prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
-      prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(context);
       prisma.payment.findUnique.mockResolvedValue(null);
       prisma.payment.create.mockResolvedValue(buildPayment());
 
       await service.ensureCharge('group-1');
 
-      expect(gateway.createOrder).toHaveBeenCalledWith(
+      expect(gatewayRegistry.get).toHaveBeenCalledWith(context.provider);
+      expect(gatewayAdapter.createOrder).toHaveBeenCalledWith(
+        context.credentials,
         expect.objectContaining({
-          merchantId: 'merchant-1',
           amount: 30000,
           externalId: 'group-1',
         }) as unknown,
@@ -225,7 +261,9 @@ describe('PaymentsService', () => {
     describe('entrega del link de pago (linkDelivery)', () => {
       it('con email del paciente y orden emitida: envía el link y setea linkDelivery=SENT', async () => {
         prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
-        prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+        paymentAccountService.resolveGatewayContext.mockResolvedValue(
+          buildContext(),
+        );
         prisma.payment.findUnique.mockResolvedValue(null);
         prisma.payment.create.mockResolvedValue(buildPayment());
 
@@ -252,7 +290,9 @@ describe('PaymentsService', () => {
         prisma.consultation.findFirst.mockResolvedValue(
           buildConsultation({}, { email: null }),
         );
-        prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+        paymentAccountService.resolveGatewayContext.mockResolvedValue(
+          buildContext(),
+        );
         prisma.payment.findUnique.mockResolvedValue(null);
         prisma.payment.create.mockResolvedValue(buildPayment());
 
@@ -272,10 +312,14 @@ describe('PaymentsService', () => {
 
       it('con email pero sin orden emitida (gateway rechazó): setea linkDelivery=FAILED sin llamar a MailService', async () => {
         prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
-        prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+        paymentAccountService.resolveGatewayContext.mockResolvedValue(
+          buildContext(),
+        );
         prisma.payment.findUnique.mockResolvedValue(null);
         prisma.payment.create.mockResolvedValue(buildPayment());
-        gateway.createOrder.mockRejectedValue(new Error('Flow no disponible'));
+        gatewayAdapter.createOrder.mockRejectedValue(
+          new Error('Flow no disponible'),
+        );
 
         await service.ensureCharge('group-1');
 
@@ -288,7 +332,9 @@ describe('PaymentsService', () => {
 
       it('con email y orden emitida pero el proveedor de email falla: setea linkDelivery=FAILED', async () => {
         prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
-        prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+        paymentAccountService.resolveGatewayContext.mockResolvedValue(
+          buildContext(),
+        );
         prisma.payment.findUnique.mockResolvedValue(null);
         prisma.payment.create.mockResolvedValue(buildPayment());
         mailService.sendPaymentLinkEmail.mockResolvedValue(false);
@@ -311,7 +357,9 @@ describe('PaymentsService', () => {
           sessionDate: new Date('2026-10-01T15:00:00.000Z'),
         }),
       );
-      prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
       prisma.payment.findUnique.mockResolvedValue(
         buildPayment({ dueDate: new Date('2026-09-10T15:00:00.000Z') }),
       );
@@ -319,7 +367,7 @@ describe('PaymentsService', () => {
       await service.ensureCharge('group-1');
 
       expect(prisma.payment.create).not.toHaveBeenCalled();
-      expect(gateway.createOrder).not.toHaveBeenCalled();
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
       expect(prisma.payment.update).toHaveBeenCalledWith({
         where: { id: 'payment-1' },
         data: { dueDate: new Date('2026-10-01T15:00:00.000Z') },
@@ -333,7 +381,9 @@ describe('PaymentsService', () => {
       prisma.consultation.findFirst.mockResolvedValue(
         buildConsultation({}, { defaultSessionAmount: 99999 }),
       );
-      prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
       prisma.payment.findUnique.mockResolvedValue(
         buildPayment({
           amount: 30000,
@@ -360,7 +410,9 @@ describe('PaymentsService', () => {
       prisma.consultation.findFirst.mockResolvedValue(
         buildConsultation({ sessionDate: futureDate }),
       );
-      prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
       prisma.payment.findUnique.mockResolvedValue(
         buildPayment({
           status: 'LATE',
@@ -382,7 +434,9 @@ describe('PaymentsService', () => {
       prisma.consultation.findFirst.mockResolvedValue(
         buildConsultation({ sessionDate: stillPastDate }),
       );
-      prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
       prisma.payment.findUnique.mockResolvedValue(
         buildPayment({
           status: 'LATE',
@@ -400,7 +454,9 @@ describe('PaymentsService', () => {
 
     it('un cargo existente cuyo dueDate no cambió no dispara ningún update', async () => {
       prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
-      prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
       prisma.payment.findUnique.mockResolvedValue(
         buildPayment({ dueDate: new Date('2026-09-10T15:00:00.000Z') }),
       );
@@ -415,10 +471,14 @@ describe('PaymentsService', () => {
     // fire-and-forget en ConsultationsService depende de esto.
     it('un rechazo de gateway.createOrder no impide que ensureCharge se resuelva', async () => {
       prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
-      prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
       prisma.payment.findUnique.mockResolvedValue(null);
       prisma.payment.create.mockResolvedValue(buildPayment());
-      gateway.createOrder.mockRejectedValue(new Error('Flow no disponible'));
+      gatewayAdapter.createOrder.mockRejectedValue(
+        new Error('Flow no disponible'),
+      );
 
       await expect(service.ensureCharge('group-1')).resolves.toBeUndefined();
       expect(prisma.payment.update).toHaveBeenCalledWith({
@@ -434,7 +494,27 @@ describe('PaymentsService', () => {
 
       await service.ensureCharge('group-1');
 
-      expect(prisma.paymentAccount.findUnique).not.toHaveBeenCalled();
+      expect(
+        paymentAccountService.resolveGatewayContext,
+      ).not.toHaveBeenCalled();
+    });
+
+    // sdd/payments-multigateway-redesign task 3.9 + spec.md
+    // "Self-Service Disconnection", scenario "Disconnecting stops future
+    // automatic charges only": once resolveGatewayContext returns null
+    // (account DISCONNECTED), ensureCharge never even reads the Payment
+    // table -- proving a stronger guarantee than "no new charge": a
+    // pending charge created BEFORE disconnection cannot possibly be
+    // touched by this call, because it's never looked up at all.
+    it('con la cuenta desconectada, ensureCharge nunca consulta ni muta la tabla Payment (un cargo previo queda intacto)', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(null);
+
+      await service.ensureCharge('group-1');
+
+      expect(prisma.payment.findUnique).not.toHaveBeenCalled();
+      expect(prisma.payment.create).not.toHaveBeenCalled();
+      expect(prisma.payment.update).not.toHaveBeenCalled();
     });
   });
 
@@ -444,7 +524,9 @@ describe('PaymentsService', () => {
       prisma.payment.findUniqueOrThrow.mockResolvedValue(
         buildPayment({ amount: 45000, therapistId: 'therapist-1' }),
       );
-      prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
       prisma.patient.findUnique.mockResolvedValue(buildConsultation().patient);
 
       const result = await service.updateAmount('group-1', 45000);
@@ -472,7 +554,9 @@ describe('PaymentsService', () => {
       prisma.payment.findUniqueOrThrow.mockResolvedValue(
         buildPayment({ amount: 45000, therapistId: 'therapist-1' }),
       );
-      prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
       prisma.patient.findUnique.mockResolvedValue(buildConsultation().patient);
 
       await service.updateAmount('group-1', 45000);
@@ -489,12 +573,12 @@ describe('PaymentsService', () => {
       });
     });
 
-    it('no intenta reenviar el email si no hay PaymentAccount conectada', async () => {
+    it('no intenta reenviar el email si no hay una cuenta con gateway resuelto (PaymentAccount no conectada)', async () => {
       prisma.payment.updateMany.mockResolvedValue({ count: 1 });
       prisma.payment.findUniqueOrThrow.mockResolvedValue(
         buildPayment({ amount: 45000, therapistId: 'therapist-1' }),
       );
-      prisma.paymentAccount.findUnique.mockResolvedValue(null);
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(null);
 
       await service.updateAmount('group-1', 45000);
 
@@ -550,16 +634,45 @@ describe('PaymentsService', () => {
     });
   });
 
+  // sdd/payments-multigateway-redesign (design.md "Webhook — after"):
+  // findByToken is the read-only lookup PaymentsController.confirm calls
+  // BEFORE resolving any gateway context or verifying a signature -- it
+  // never mutates.
+  describe('findByToken', () => {
+    it('devuelve el Payment con ese gatewayToken sin mutar nada', async () => {
+      const payment = buildPayment({ gatewayToken: 'flow-token' });
+      prisma.payment.findFirst.mockResolvedValue(payment);
+
+      const result = await service.findByToken('flow-token');
+
+      expect(result).toBe(payment);
+      expect(prisma.payment.findFirst).toHaveBeenCalledWith({
+        where: { gatewayToken: 'flow-token' },
+      });
+      expect(prisma.payment.update).not.toHaveBeenCalled();
+      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('devuelve null para un token desconocido', async () => {
+      prisma.payment.findFirst.mockResolvedValue(null);
+
+      const result = await service.findByToken('token-inexistente');
+
+      expect(result).toBeNull();
+    });
+  });
+
   // sdd/online-payment-integration PR 2 (T5.7): design.md "The confirmation
   // callback is a signal, never a source of truth" -- confirm() nunca recibe
   // ni confía en el status que trajo el POST; siempre re-consulta
   // getOrderStatus con el token guardado y aplica el mismo gate
   // updateMany(status in [PENDING, LATE]) que el resto del módulo. La
-  // verificación de firma (verifyCallbackSignature) vive en el controller
-  // (T5.6), NUNCA acá -- este método asume que ya se llamó con un token
+  // verificación de firma vive en el controller (design.md "Webhook —
+  // after"), NUNCA acá -- este método asume que ya se llamó con un token
   // legítimo.
   describe('confirm', () => {
     it('confirma un cargo PENDING cuando el gateway re-consultado reporta PAID', async () => {
+      const context = buildContext();
       prisma.payment.findFirst.mockResolvedValue(
         buildPayment({
           id: 'payment-1',
@@ -567,7 +680,8 @@ describe('PaymentsService', () => {
           gatewayToken: 'flow-token',
         }),
       );
-      gateway.getOrderStatus.mockResolvedValue({
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(context);
+      gatewayAdapter.getOrderStatus.mockResolvedValue({
         status: 'PAID',
         gatewayPaymentId: 'flow-payment-1',
       });
@@ -575,7 +689,10 @@ describe('PaymentsService', () => {
 
       await service.confirm('flow-token');
 
-      expect(gateway.getOrderStatus).toHaveBeenCalledWith('flow-token');
+      expect(gatewayAdapter.getOrderStatus).toHaveBeenCalledWith(
+        context.credentials,
+        'flow-token',
+      );
       expect(prisma.payment.updateMany).toHaveBeenCalledWith({
         where: { id: 'payment-1', status: { in: ['PENDING', 'LATE'] } },
         data: expect.objectContaining({
@@ -586,12 +703,15 @@ describe('PaymentsService', () => {
       });
     });
 
-    it('un token que no corresponde a ningún cargo no hace nada (no llama al gateway)', async () => {
+    it('un token que no corresponde a ningún cargo no hace nada (no llama al gateway ni resuelve contexto)', async () => {
       prisma.payment.findFirst.mockResolvedValue(null);
 
       await service.confirm('token-inexistente');
 
-      expect(gateway.getOrderStatus).not.toHaveBeenCalled();
+      expect(
+        paymentAccountService.resolveGatewayContext,
+      ).not.toHaveBeenCalled();
+      expect(gatewayAdapter.getOrderStatus).not.toHaveBeenCalled();
       expect(prisma.payment.updateMany).not.toHaveBeenCalled();
     });
 
@@ -605,7 +725,7 @@ describe('PaymentsService', () => {
 
       await service.confirm('flow-token');
 
-      expect(gateway.getOrderStatus).not.toHaveBeenCalled();
+      expect(gatewayAdapter.getOrderStatus).not.toHaveBeenCalled();
       expect(prisma.payment.updateMany).not.toHaveBeenCalled();
     });
 
@@ -617,7 +737,7 @@ describe('PaymentsService', () => {
 
       await service.confirm('flow-token');
 
-      expect(gateway.getOrderStatus).not.toHaveBeenCalled();
+      expect(gatewayAdapter.getOrderStatus).not.toHaveBeenCalled();
       expect(prisma.payment.updateMany).not.toHaveBeenCalled();
     });
 
@@ -625,10 +745,30 @@ describe('PaymentsService', () => {
       prisma.payment.findFirst.mockResolvedValue(
         buildPayment({ status: 'PENDING', gatewayToken: 'flow-token' }),
       );
-      gateway.getOrderStatus.mockResolvedValue({ status: 'PENDING' });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PENDING' });
 
       await service.confirm('flow-token');
 
+      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+    });
+
+    // sdd/payments-multigateway-redesign: si la cuenta dueña perdió la
+    // conexión entre la emisión de la orden y este re-query (context null),
+    // no hay credencial con la cual volver a preguntarle a Flow -- el
+    // cargo queda exactamente como estaba (el controller ya rechazó una
+    // firma no verificable antes de llegar acá en ese mismo escenario).
+    it('si resolveGatewayContext devuelve null, no llama al gateway ni actualiza nada', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ status: 'PENDING', gatewayToken: 'flow-token' }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(null);
+
+      await service.confirm('flow-token');
+
+      expect(gatewayAdapter.getOrderStatus).not.toHaveBeenCalled();
       expect(prisma.payment.updateMany).not.toHaveBeenCalled();
     });
   });
@@ -790,16 +930,22 @@ describe('PaymentsService', () => {
         id: 'payment-stale',
         status: 'PENDING',
         gatewayToken: 'flow-token-stale',
+        therapistId: 'therapist-1',
       });
       pass2Candidates = [stalePayment];
-      gateway.getOrderStatus.mockResolvedValue({
+      const context = buildContext();
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(context);
+      gatewayAdapter.getOrderStatus.mockResolvedValue({
         status: 'PAID',
         gatewayPaymentId: 'flow-payment-stale',
       });
 
       await service.sweep();
 
-      expect(gateway.getOrderStatus).toHaveBeenCalledWith('flow-token-stale');
+      expect(gatewayAdapter.getOrderStatus).toHaveBeenCalledWith(
+        context.credentials,
+        'flow-token-stale',
+      );
       expect(prisma.payment.updateMany).toHaveBeenCalledWith({
         where: { id: 'payment-stale', status: { in: ['PENDING', 'LATE'] } },
         data: expect.objectContaining({ status: 'PAID' }) as unknown,
@@ -811,9 +957,13 @@ describe('PaymentsService', () => {
         id: 'payment-stale',
         status: 'PENDING',
         gatewayToken: 'flow-token-stale',
+        therapistId: 'therapist-1',
       });
       pass2Candidates = [stalePayment];
-      gateway.getOrderStatus.mockResolvedValue({ status: 'PENDING' });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PENDING' });
 
       await service.sweep();
 
@@ -827,12 +977,63 @@ describe('PaymentsService', () => {
       );
     });
 
+    it('pass 2 no reconcilia (ni llama al gateway) un cargo cuya cuenta dueña ya no está conectada', async () => {
+      const stalePayment = buildPayment({
+        id: 'payment-stale',
+        status: 'PENDING',
+        gatewayToken: 'flow-token-stale',
+        therapistId: 'therapist-1',
+      });
+      pass2Candidates = [stalePayment];
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(null);
+
+      await service.sweep();
+
+      expect(gatewayAdapter.getOrderStatus).not.toHaveBeenCalled();
+      expect(prisma.payment.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: 'payment-stale' }) as unknown,
+        }) as unknown,
+      );
+    });
+
     it('pass 2 batchea la consulta de candidatos con take: SWEEP_BATCH_LIMIT', async () => {
       await service.sweep();
 
       expect(prisma.payment.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ take: 200 }) as unknown,
       );
+    });
+
+    // sdd/payments-multigateway-redesign task 3.3 + design.md Decision 2:
+    // "memoized in a Map local to one run and discarded at the end" -- dos
+    // cargos vencidos del mismo terapeuta en el mismo tick de sweep()
+    // resuelven el contexto una sola vez.
+    it('memoiza el contexto por therapistId dentro de un mismo run (no vuelve a resolver para un segundo cargo del mismo terapeuta)', async () => {
+      const stale1 = buildPayment({
+        id: 'payment-stale-1',
+        status: 'PENDING',
+        gatewayToken: 'token-1',
+        therapistId: 'therapist-1',
+      });
+      const stale2 = buildPayment({
+        id: 'payment-stale-2',
+        status: 'PENDING',
+        gatewayToken: 'token-2',
+        therapistId: 'therapist-1',
+      });
+      pass2Candidates = [stale1, stale2];
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PENDING' });
+
+      await service.sweep();
+
+      expect(paymentAccountService.resolveGatewayContext).toHaveBeenCalledTimes(
+        1,
+      );
+      expect(gatewayAdapter.getOrderStatus).toHaveBeenCalledTimes(2);
     });
   });
 });

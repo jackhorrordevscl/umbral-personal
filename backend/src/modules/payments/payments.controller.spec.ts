@@ -1,30 +1,48 @@
 import { BadRequestException } from '@nestjs/common';
+import { PaymentProvider } from '@prisma/client';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { PaymentAccountService } from './payment-account.service';
-import { PaymentGatewayClient } from './payment-gateway.client';
+import { PaymentGatewayRegistry } from './payment-gateway.registry';
+import { GatewayContext, GatewayCredentials } from './payment-gateway.client';
 
-// sdd/online-payment-integration PR 2 (T7.1/T7.9/T7.10): POST /payments/confirm
-// es público (sin JwtAuthGuard) -- la superficie de ataque primaria de todo
-// el módulo. Este test unitario prueba la capa MÁS estrecha (el handler del
-// controller con PaymentsService/gateway mockeados) para que "assert Prisma
-// mock untouched" (T7.1) sea literal: PaymentsService.confirm (el único
-// punto que toca Prisma) nunca se invoca cuando la firma es inválida. El
-// e2e (payments.e2e-spec.ts, T7.9) prueba lo mismo de punta a punta contra
-// Prisma real.
+// sdd/payments-multigateway-redesign (design.md "Webhook — after"): POST
+// /payments/confirm is public (no JwtAuthGuard) -- the module's primary
+// attack surface. This unit test exercises the NARROWEST layer (the
+// controller handler with PaymentsService/PaymentAccountService/
+// PaymentGatewayRegistry mocked) so "no mutation before the signature
+// check" is literal: paymentsService.confirm (the only path that touches
+// Prisma) is never invoked unless BOTH the token resolves to a real
+// payment AND the owning account's credentials verify the signature. The
+// e2e (test/payments.e2e-spec.ts) proves the same thing end-to-end against
+// a real Prisma DB with a seeded CONNECTED account.
 describe('PaymentsController', () => {
   let controller: PaymentsController;
   let paymentsService: {
     assertOwnership: jest.Mock;
     updateAmount: jest.Mock;
     confirm: jest.Mock;
+    findByToken: jest.Mock;
   };
   let paymentAccountService: {
     status: jest.Mock;
-    onboard: jest.Mock;
+    validate: jest.Mock;
+    connect: jest.Mock;
     disconnect: jest.Mock;
+    resolveGatewayContext: jest.Mock;
   };
-  let gateway: { verifyCallbackSignature: jest.Mock };
+  let gatewayAdapter: { verifyCallbackSignature: jest.Mock };
+  let gatewayRegistry: { get: jest.Mock };
+
+  function buildContext(
+    overrides: Partial<GatewayContext> = {},
+  ): GatewayContext {
+    return {
+      provider: PaymentProvider.FLOW,
+      credentials: new GatewayCredentials('test-api-key', 'test-secret-key'),
+      ...overrides,
+    };
+  }
 
   beforeEach(() => {
     paymentsService = {
@@ -33,24 +51,80 @@ describe('PaymentsController', () => {
         .fn()
         .mockResolvedValue({ id: 'payment-1', amount: 45000 }),
       confirm: jest.fn().mockResolvedValue(undefined),
+      findByToken: jest.fn(),
     };
     paymentAccountService = {
       status: jest.fn(),
-      onboard: jest.fn(),
+      validate: jest.fn(),
+      connect: jest.fn(),
       disconnect: jest.fn(),
+      resolveGatewayContext: jest.fn(),
     };
-    gateway = { verifyCallbackSignature: jest.fn() };
+    gatewayAdapter = { verifyCallbackSignature: jest.fn() };
+    gatewayRegistry = { get: jest.fn().mockReturnValue(gatewayAdapter) };
 
     controller = new PaymentsController(
       paymentsService as unknown as PaymentsService,
       paymentAccountService as unknown as PaymentAccountService,
-      gateway as unknown as PaymentGatewayClient,
+      gatewayRegistry as unknown as PaymentGatewayRegistry,
     );
   });
 
   describe('confirm', () => {
-    it('con firma inválida rechaza con 400 y nunca llama a paymentsService.confirm (ni toca Prisma)', async () => {
-      gateway.verifyCallbackSignature.mockReturnValue(false);
+    // sdd/payments-multigateway-redesign task 3.7 + spec "Checkout is
+    // unavailable if the owning account is no longer connected": an
+    // unknown token is rejected with the SAME uniform 400 as an invalid
+    // signature, but strictly BEFORE any context resolution or decryption
+    // is even attempted -- the read-only findByToken lookup precedes
+    // everything else, and nothing downstream of it ever runs.
+    it('con token desconocido rechaza con 400 sin resolver contexto, sin decidir firma y sin mutar nada', async () => {
+      paymentsService.findByToken.mockResolvedValue(null);
+
+      await expect(
+        controller.confirm({
+          token: 'token-desconocido',
+          s: 'cualquier-firma',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(
+        paymentAccountService.resolveGatewayContext,
+      ).not.toHaveBeenCalled();
+      expect(gatewayRegistry.get).not.toHaveBeenCalled();
+      expect(gatewayAdapter.verifyCallbackSignature).not.toHaveBeenCalled();
+      expect(paymentsService.confirm).not.toHaveBeenCalled();
+    });
+
+    // spec "Checkout is unavailable if the owning account is no longer
+    // connected": a known token whose owning account is no longer
+    // CONNECTED (resolveGatewayContext -> null covers
+    // RECONNECT_REQUIRED/DISCONNECTED) also rejects with the same uniform
+    // 400, with no signature to even check against and no mutation.
+    it('con cuenta dueña ya no conectada (contexto null) rechaza con 400 sin verificar firma ni mutar nada', async () => {
+      paymentsService.findByToken.mockResolvedValue({
+        id: 'payment-1',
+        therapistId: 'therapist-1',
+      });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(null);
+
+      await expect(
+        controller.confirm({ token: 'flow-token', s: 'firma-cualquiera' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(gatewayRegistry.get).not.toHaveBeenCalled();
+      expect(gatewayAdapter.verifyCallbackSignature).not.toHaveBeenCalled();
+      expect(paymentsService.confirm).not.toHaveBeenCalled();
+    });
+
+    it('con firma inválida (credenciales resueltas) rechaza con 400 y nunca llama a paymentsService.confirm', async () => {
+      paymentsService.findByToken.mockResolvedValue({
+        id: 'payment-1',
+        therapistId: 'therapist-1',
+      });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.verifyCallbackSignature.mockReturnValue(false);
 
       await expect(
         controller.confirm({ token: 'flow-token', s: 'firma-falsificada' }),
@@ -60,26 +134,77 @@ describe('PaymentsController', () => {
     });
 
     it('con firma válida llama a paymentsService.confirm con el token', async () => {
-      gateway.verifyCallbackSignature.mockReturnValue(true);
+      paymentsService.findByToken.mockResolvedValue({
+        id: 'payment-1',
+        therapistId: 'therapist-1',
+      });
+      const context = buildContext();
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(context);
+      gatewayAdapter.verifyCallbackSignature.mockReturnValue(true);
 
       const result = await controller.confirm({
         token: 'flow-token',
         s: 'firma-valida',
       });
 
+      expect(gatewayRegistry.get).toHaveBeenCalledWith(context.provider);
       expect(paymentsService.confirm).toHaveBeenCalledWith('flow-token');
       expect(result).toEqual({ received: true });
     });
 
-    it('verifica la firma sobre exactamente { token, s } -- nunca reenvía campos adicionales del body', async () => {
-      gateway.verifyCallbackSignature.mockReturnValue(true);
+    it('verifica la firma con las credenciales de la cuenta dueña, sobre exactamente { token, s }', async () => {
+      paymentsService.findByToken.mockResolvedValue({
+        id: 'payment-1',
+        therapistId: 'therapist-1',
+      });
+      const context = buildContext();
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(context);
+      gatewayAdapter.verifyCallbackSignature.mockReturnValue(true);
 
       await controller.confirm({ token: 'flow-token', s: 'firma-valida' });
 
-      expect(gateway.verifyCallbackSignature).toHaveBeenCalledWith({
-        token: 'flow-token',
-        s: 'firma-valida',
+      expect(paymentAccountService.resolveGatewayContext).toHaveBeenCalledWith(
+        'therapist-1',
+      );
+      expect(gatewayAdapter.verifyCallbackSignature).toHaveBeenCalledWith(
+        context.credentials,
+        { token: 'flow-token', s: 'firma-valida' },
+      );
+    });
+  });
+
+  describe('account/validate (POST /payments/account/validate)', () => {
+    it('delega en paymentAccountService.validate con el body (sin therapistId -- no persiste nada)', async () => {
+      paymentAccountService.validate.mockResolvedValue({
+        keyFingerprint: 'fp-1',
       });
+
+      const result = await controller.validateAccount({
+        apiKey: 'a'.repeat(32),
+        secretKey: 'b'.repeat(32),
+      });
+
+      expect(paymentAccountService.validate).toHaveBeenCalledWith({
+        apiKey: 'a'.repeat(32),
+        secretKey: 'b'.repeat(32),
+      });
+      expect(result).toEqual({ keyFingerprint: 'fp-1' });
+    });
+  });
+
+  describe('account (POST /payments/account)', () => {
+    it('delega en paymentAccountService.connect con el therapistId autenticado', async () => {
+      paymentAccountService.connect.mockResolvedValue({ status: 'CONNECTED' });
+
+      await controller.connectAccount(
+        { apiKey: 'a'.repeat(32), secretKey: 'b'.repeat(32) },
+        { id: 'therapist-1', email: '', role: '', name: '' },
+      );
+
+      expect(paymentAccountService.connect).toHaveBeenCalledWith(
+        'therapist-1',
+        { apiKey: 'a'.repeat(32), secretKey: 'b'.repeat(32) },
+      );
     });
   });
 
