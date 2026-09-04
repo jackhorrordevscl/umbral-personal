@@ -68,10 +68,10 @@ model User {
   patients             Patient[]
   consultations        Consultation[]
   auditLogs            AuditLog[]
-  patientEdits         PatientHistory[]      @relation("PatientEdits")
-  sharedFiles          SharedFile[]          @relation("UploadedFiles")
-  consultationEdits    ConsultationHistory[] @relation("ConsultationEdits")
-  patientConsentEvents PatientConsent[]      @relation("PatientConsentEvents")
+  patientEdits         PatientHistory[]          @relation("PatientEdits")
+  sharedFiles          SharedFile[]              @relation("UploadedFiles")
+  consultationEdits    ConsultationHistory[]     @relation("ConsultationEdits")
+  patientConsentEvents PatientConsent[]          @relation("PatientConsentEvents")
   mfaRecoveryCodes     MfaRecoveryCode[]
   notifications        Notification[]
   calendarConnection   GoogleCalendarConnection?
@@ -188,7 +188,7 @@ model Consultation {
   corrects    Consultation? @relation("ConsultationVersion", fields: [correctsId], references: [id])
   correctedBy Consultation? @relation("ConsultationVersion")
 
-  history           ConsultationHistory[]
+  history            ConsultationHistory[]
   reminderDispatches ReminderDispatch[]
 
   @@index([groupId])
@@ -513,13 +513,38 @@ model Payment {
 // PAYMENT_CREDENTIALS_ENCRYPTION_KEY (design.md "Decision: Therapist
 // payment account is its own page") -- el onboarding real que la persiste
 // llega en PR 2 (PaymentAccountService), este PR solo agrega el modelo.
+//
+// sdd/payments-multigateway-redesign M1 (design.md "Decision 3 — Prisma
+// migration"): credentialVersion discriminates the shape of the encrypted
+// blob -- 1 = legacy `{merchantId}` (Comercios Asociados split, no longer
+// written by new code), 2 = `{apiKey, secretKey}` (therapist-owned Flow
+// account, PaymentAccountService.connect()). displayName/keyFingerprint are
+// the non-secret display metadata the wizard's confirmation step and the
+// status view expose (design.md "Encrypted Credential Storage With
+// Non-Secret Display Metadata") -- both nullable because no account has
+// them until it goes through the new connect() flow. merchantId and
+// credentialVersion are deprecated once no v1/RECONNECT_REQUIRED row
+// remains (tasks.md 5.1); dropping them is a follow-up migration, not this
+// one.
 model PaymentAccount {
   id                  String               @id @default(uuid())
   therapistId         String               @unique
   therapist           User                 @relation(fields: [therapistId], references: [id])
   provider            PaymentProvider      @default(FLOW)
   status              PaymentAccountStatus @default(PENDING)
+  /// @deprecated sdd/payments-multigateway-redesign: legacy v1 credential
+  /// shape (`{merchantId}`) from the retired split-payment model. Kept only
+  /// for audit/rollback of rows M2 flipped to RECONNECT_REQUIRED; a
+  /// follow-up migration drops this column once no v1/RECONNECT_REQUIRED
+  /// row remains (design.md "Decision 3 — Prisma migration").
   merchantId          String?
+  displayName         String?
+  keyFingerprint      String?
+  /// @deprecated sdd/payments-multigateway-redesign: explicit credential
+  /// blob-shape discriminator (1 = legacy `{merchantId}`, 2 = current
+  /// `{apiKey,secretKey}`). Drop alongside `merchantId` in the same
+  /// follow-up migration once no v1/RECONNECT_REQUIRED row remains.
+  credentialVersion   Int                  @default(1)
   credentialEncrypted Bytes?
   connectedAt         DateTime?
   lastError           String?
@@ -543,8 +568,16 @@ enum PaymentProvider {
   FLOW
 }
 
+// sdd/payments-multigateway-redesign M1: RECONNECT_REQUIRED flags an
+// account that was CONNECTED under the retired split-payment model (M2, a
+// later data migration, flips existing CONNECTED rows to this status and
+// clears their v1 credentialEncrypted). Old code neither writes nor reads
+// this value, so adding it here (M1) is safe to deploy standalone, before
+// M2 runs (design.md "Decision 3 — Prisma migration": Postgres forbids
+// using an enum value added in the same transaction).
 enum PaymentAccountStatus {
   PENDING
   CONNECTED
   DISCONNECTED
+  RECONNECT_REQUIRED
 }
