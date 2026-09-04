@@ -397,21 +397,21 @@ umbral-personal/
   `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` el módulo se registra
   deshabilitado sin bloquear el arranque
 
-### Cobro en línea (sdd/online-payment-integration)
+### Cobro en línea (sdd/online-payment-integration, sdd/payments-multigateway-redesign)
 - Cargo pendiente automático al crear una consulta, solo si el terapeuta
-  dueño tiene una cuenta Flow conectada (split Comercios Asociados —
-  Umbral nunca custodia los fondos del paciente)
+  dueño tiene su propia cuenta Flow conectada (cuenta *therapist-owned*:
+  cada terapeuta pasea sus propias credenciales de comercio Flow —
+  Umbral nunca custodia los fondos del paciente ni las credenciales en
+  claro)
 - El cargo queda identificado por el `groupId` de la consulta (no por su
   id de versión): corregir una sesión actualiza el mismo cargo y mueve su
   fecha de vencimiento en vez de crear uno segundo
 - Monto snapshoteado al crear el cargo (`Patient.defaultSessionAmount` o un
   override por sesión) — un cambio posterior del monto por defecto nunca
   reescribe un cargo ya emitido
-- **PR 1** (este PR) solo agrega el schema y el ciclo de vida del cargo
-  (`PaymentsService.ensureCharge`/`updateAmount`/`cancelUnpaid`) detrás de
-  un puerto de gateway todavía sin implementación real — checkout,
-  confirmación de pago, aviso de vencimiento y superficie de frontend
-  llegan en PR 2 y PR 3
+- Wizard de 5 pasos conecta la cuenta Flow del terapeuta (pegar
+  apiKey/secretKey, validar contra Flow antes de persistir, confirmación) —
+  reemplaza el flujo `onboard()`/`createMerchant` retirado
 - Desactivable por completo con `PAYMENTS_ENABLED=false` sin necesitar un
   deploy/revert; sin una cuenta Flow conectada, agendar sesiones se
   comporta exactamente igual que sin este módulo
