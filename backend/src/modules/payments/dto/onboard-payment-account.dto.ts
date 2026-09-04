@@ -1,10 +1,10 @@
 import { IsEmail, IsString, MaxLength } from 'class-validator';
 
-// design.md "REST" table: POST /payments/account -- onboarding es un
-// FORMULARIO, no un redirect OAuth (design.md "Onboarding is a FORM, not an
-// OAuth redirect"). Estos tres campos son exactamente los que
-// PaymentGatewayClient.createMerchant (MerchantInput) necesita, además de
-// therapistId (que nunca viaja en el body -- sale de @CurrentUser()).
+// design.md "REST" table: POST /payments/account -- onboarding is a
+// FORM, not an OAuth redirect (design.md "Onboarding is a FORM, not an
+// OAuth redirect"). These three fields are exactly what
+// PaymentGatewayClient.createMerchant (MerchantInput) needs, besides
+// therapistId (which never travels in the body -- it comes from @CurrentUser()).
 export class OnboardPaymentAccountDto {
   @IsString()
   @MaxLength(200)

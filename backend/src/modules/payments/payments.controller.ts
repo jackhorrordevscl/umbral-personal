@@ -22,12 +22,12 @@ import { OnboardPaymentAccountDto } from './dto/onboard-payment-account.dto';
 import { UpdatePaymentAmountDto } from './dto/update-payment-amount.dto';
 import { ConfirmPaymentDto } from './dto/confirm-payment.dto';
 
-// design.md "REST" table: todas las rutas de cuenta (GET/POST/DELETE
-// /account) y PATCH /:groupId quedan scoped al terapeuta autenticado
-// (@CurrentUser(), nunca un :id de ruta) -- POST /confirm es la ÚNICA ruta
-// pública del módulo (mismo criterio que
-// CalendarIntegrationController.callback: sin @UseGuards a nivel de
-// controller, cada ruta protegida lo declara individualmente).
+// design.md "REST" table: every account route (GET/POST/DELETE
+// /account) and PATCH /:groupId is scoped to the authenticated therapist
+// (@CurrentUser(), never a route :id) -- POST /confirm is the module's ONLY
+// public route (same criterion as
+// CalendarIntegrationController.callback: no @UseGuards at the
+// controller level, each protected route declares it individually).
 @Controller('payments')
 export class PaymentsController {
   constructor(
@@ -57,9 +57,9 @@ export class PaymentsController {
     return this.paymentAccountService.disconnect(user.id);
   }
 
-  // T5.5/T7.7/T7.8: assertOwnership PRIMERO -- terapeuta B pidiendo el
-  // groupId de terapeuta A recibe el mismo 404 uniforme que un groupId
-  // inexistente, antes de que updateAmount llegue a tocar el cargo.
+  // T5.5/T7.7/T7.8: assertOwnership FIRST -- therapist B requesting
+  // therapist A's groupId gets the same uniform 404 as a non-existent
+  // groupId, before updateAmount ever gets to touch the charge.
   @UseGuards(JwtAuthGuard)
   @Patch(':groupId')
   async updateAmount(
@@ -71,12 +71,12 @@ export class PaymentsController {
     return this.paymentsService.updateAmount(groupId, dto.amount);
   }
 
-  // T5.6/T7.9/T7.10: sin JwtAuthGuard a propósito -- Flow hace un POST
-  // servidor-a-servidor sin ningún header Authorization (design.md "The
-  // confirmation callback is a signal, never a source of truth"). La
-  // verificación de firma ocurre ACÁ, antes de cualquier llamada a
-  // paymentsService.confirm (que es la única vía a Prisma) -- un body sin
-  // firma válida nunca llega a leer ni escribir la base de datos.
+  // T5.6/T7.9/T7.10: no JwtAuthGuard on purpose -- Flow makes a
+  // server-to-server POST with no Authorization header at all (design.md
+  // "The confirmation callback is a signal, never a source of truth"). The
+  // signature check happens HERE, before any call to
+  // paymentsService.confirm (which is the only path to Prisma) -- a body
+  // without a valid signature never reaches a database read or write.
   @Post('confirm')
   @HttpCode(200)
   async confirm(@Body() dto: ConfirmPaymentDto) {

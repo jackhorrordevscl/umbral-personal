@@ -8,12 +8,12 @@ import {
 
 const ENV_VAR_NAME = 'PAYMENT_CREDENTIALS_ENCRYPTION_KEY';
 
-// sdd/online-payment-integration PR 2 (T5.1): mismo delegador fino que
-// DocumentEncryptionService/GoogleTokenCryptoService sobre las primitivas
-// AES-256-GCM compartidas (common/crypto/aes-gcm.ts), con su propia clave
-// independiente (PAYMENT_CREDENTIALS_ENCRYPTION_KEY, ya validada en
-// env.validation.ts desde PR 1 -- 32 bytes en base64, requerida en
-// producción). PaymentAccountService.onboard() la usa para cifrar
+// sdd/online-payment-integration PR 2 (T5.1): same thin delegator as
+// DocumentEncryptionService/GoogleTokenCryptoService over the shared
+// AES-256-GCM primitives (common/crypto/aes-gcm.ts), with its own
+// independent key (PAYMENT_CREDENTIALS_ENCRYPTION_KEY, already validated in
+// env.validation.ts since PR 1 -- 32 base64 bytes, required in
+// production). PaymentAccountService.onboard() uses it to encrypt
 // PaymentAccount.credentialEncrypted.
 @Injectable()
 export class PaymentCredentialCryptoService implements OnModuleInit {

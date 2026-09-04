@@ -14,25 +14,25 @@ import {
 } from './payments.constants';
 
 const DEFAULT_FRONTEND_URL = 'http://localhost:5173';
-// T5.6: default local del backend (mismo puerto por default que main.ts,
-// process.env.PORT || 3001) -- en despliegue real, BACKEND_PUBLIC_URL debe
-// apuntar a la URL pública HTTPS donde Flow puede alcanzar el servidor.
+// T5.6: local backend default (same default port as main.ts,
+// process.env.PORT || 3001) -- in a real deployment, BACKEND_PUBLIC_URL must
+// point to the public HTTPS URL where Flow can reach the server.
 const DEFAULT_BACKEND_URL = 'http://localhost:3001';
 const DEFAULT_CURRENCY = 'CLP';
 const CHARGE_SUBJECT = 'Sesión clínica';
 
-// spec.md "Cancellation Preserves Paid Charges and Voids Pending Ones": los
-// dos únicos estados desde los que un cargo puede cancelarse -- un PAID
-// nunca entra a este where, así que updateMany() lo deja bit a bit idéntico
-// (mismo patrón que updateMany count-gated de CalendarSyncService.
+// spec.md "Cancellation Preserves Paid Charges and Voids Pending Ones": the
+// only two states from which a charge can be cancelled -- a PAID charge
+// never enters this where, so updateMany() leaves it bit-for-bit identical
+// (same count-gated updateMany pattern as CalendarSyncService.
 // handleInvalidGrant).
 const CANCELLABLE_STATUSES = ['PENDING', 'LATE'] as const;
 
-// design.md "Technical Approach": PaymentsService es el único dueño del
-// ciclo de vida del cargo (ensureCharge/updateAmount/cancelUnpaid en PR 1;
-// confirm/sweep llegan en PR 2). ConsultationsService dispara ensureCharge
-// fire-and-forget tras create()/correct() -- ninguna falla acá puede
-// bloquear ni revertir la escritura clínica que lo origina (spec.md
+// design.md "Technical Approach": PaymentsService is the sole owner of the
+// charge lifecycle (ensureCharge/updateAmount/cancelUnpaid in PR 1;
+// confirm/sweep arrive in PR 2). ConsultationsService fires ensureCharge
+// fire-and-forget after create()/correct() -- no failure here can block or
+// revert the clinical write that triggers it (spec.md
 // "Feature Flag Gating", design.md "Nothing in this module can fail a
 // clinical write").
 @Injectable()
@@ -47,14 +47,14 @@ export class PaymentsService {
     private mailService: MailService,
     private notificationsService: NotificationsService,
   ) {
-    // Ausente => habilitado por default, mismo criterio que
-    // RemindersService/CalendarSyncService -- solo "false" explícito
-    // desactiva la creación de cargos.
+    // Absent => enabled by default, same criterion as
+    // RemindersService/CalendarSyncService -- only an explicit "false"
+    // disables charge creation.
     this.enabled = this.config.get<string>('PAYMENTS_ENABLED') !== 'false';
 
-    // T3.10: mismo criterio de degradación que MailService sin
-    // RESEND_API_KEY -- el módulo se registra y arranca igual, sin romper
-    // el boot de la app ni de los tests.
+    // T3.10: same degradation criterion as MailService without
+    // RESEND_API_KEY -- the module still registers and starts, without
+    // breaking the app's boot or the tests.
     if (!this.enabled) {
       this.logger.warn(
         'PAYMENTS_ENABLED="false": el flujo de cobro en línea queda deshabilitado (no se crean cargos, no se envían emails, no se procesan callbacks).',
@@ -63,11 +63,11 @@ export class PaymentsService {
   }
 
   // design.md "Decision: Payment keyed on groupId, amount snapshotted at
-  // creation": único punto de entrada llamado tanto tras create() como tras
-  // correct() (ConsultationsService.emitPaymentCharge, mismo groupId en
-  // ambos casos porque groupId es invariante a través de la cadena de
-  // versiones). Si el cargo ya existe, nunca se re-crea ni se re-snapshotea
-  // el amount -- solo se mueve dueDate si el sessionDate vigente cambió
+  // creation": the single entry point called both after create() and after
+  // correct() (ConsultationsService.emitPaymentCharge, same groupId in
+  // both cases because groupId is invariant across the version chain). If
+  // the charge already exists, the amount is never re-created nor
+  // re-snapshotted -- only dueDate moves if the current sessionDate changed
   // (spec.md "Correction updates the same charge and moves its due date").
   async ensureCharge(groupId: string): Promise<void> {
     if (!this.enabled) return;
@@ -102,12 +102,12 @@ export class PaymentsService {
       return;
     }
 
-    // spec.md "Charge Amount Resolution and Snapshot": sin monto resolvible
-    // (ni override de sesión -- PATCH /payments/:groupId, PR 2 -- ni
-    // defaultSessionAmount) no se crea cargo. La precedencia del override
-    // de sesión se implementa como una actualización posterior vía
-    // updateAmount(), nunca como parámetro de este método (mismo criterio
-    // que el snapshot: el override, una vez aplicado, tampoco se pisa acá).
+    // spec.md "Charge Amount Resolution and Snapshot": with no resolvable
+    // amount (neither a session override -- PATCH /payments/:groupId, PR 2 --
+    // nor defaultSessionAmount) no charge is created. Session-override
+    // precedence is implemented as a later update via updateAmount(), never
+    // as a parameter of this method (same criterion as the snapshot: once
+    // applied, the override is never overwritten here either).
     const amount = consultation.patient.defaultSessionAmount;
     if (amount === null || amount === undefined) return;
 
@@ -137,14 +137,14 @@ export class PaymentsService {
   }
 
   // T8.3 + design.md "Link delivery has an explicit persisted state and
-  // never blocks the charge": llamado UNA vez, justo tras crear el cargo
+  // never blocks the charge": called ONCE, right after creating the charge
   // (spec.md "Automatic Payment-Link Email Delivery" -- "at charge
-  // creation", nunca en cada ensureCharge() posterior sobre un cargo ya
-  // existente). Sin patient.email no se llama a MailService en absoluto
-  // (SKIPPED_NO_EMAIL); sin `order` (merchantId ausente o
-  // gateway.createOrder rechazando, ver issueOrder) tampoco hay un link
-  // real que enviar (FAILED). En ambos casos el cargo ya quedó creado --
-  // esto nunca puede impedir que ensureCharge() se resuelva.
+  // creation", never on every subsequent ensureCharge() over a charge that
+  // already exists). Without patient.email, MailService is never called at
+  // all (SKIPPED_NO_EMAIL); without an `order` (missing merchantId or
+  // gateway.createOrder rejecting, see issueOrder) there's also no real
+  // link to send (FAILED). In both cases the charge was already created --
+  // this can never prevent ensureCharge() from resolving.
   private async deliverPaymentLink(
     paymentId: string,
     patient: { email: string | null; fullName: string },
@@ -185,11 +185,11 @@ export class PaymentsService {
 
   // T6.3 + design.md "Reschedule to future runs the inverse gated update
   // (LATE -> PENDING, clearing lateNotifiedAt), re-arming a genuinely new
-  // late event": un cargo LATE cuyo dueDate se mueve a una fecha futura
-  // vuelve a PENDING y limpia lateNotifiedAt, para que sweep() (T6.1) pueda
-  // volver a transicionarlo (y, en PR 3, volver a notificar) como un evento
-  // de mora genuinamente nuevo. Mover dueDate a otra fecha que sigue en el
-  // pasado NO re-arma nada -- el cargo sigue LATE.
+  // late event": a LATE charge whose dueDate moves to a future date goes
+  // back to PENDING and clears lateNotifiedAt, so sweep() (T6.1) can
+  // transition it again (and, in PR 3, notify again) as a genuinely new
+  // late event. Moving dueDate to another date still in the past does NOT
+  // re-arm anything -- the charge stays LATE.
   private async moveDueDateIfNeeded(
     existing: Payment,
     sessionDate: Date,
@@ -212,8 +212,8 @@ export class PaymentsService {
   }
 
   // design.md "PATCH /payments/:groupId ... Per-session amount override
-  // while PENDING, re-issues order + link" -- expuesto acá desde PR 1 como
-  // el método de servicio; el controller (PR 2, task 5.5) solo lo invoca.
+  // while PENDING, re-issues order + link" -- exposed here from PR 1 as
+  // the service method; the controller (PR 2, task 5.5) only invokes it.
   async updateAmount(groupId: string, amount: number): Promise<Payment> {
     const result = await this.prisma.payment.updateMany({
       where: { groupId, status: 'PENDING' },
@@ -251,10 +251,9 @@ export class PaymentsService {
   }
 
   // spec.md "Cancellation Preserves Paid Charges and Voids Pending Ones":
-  // updateMany con status: { in: CANCELLABLE_STATUSES } es la propia
-  // garantía -- un cargo PAID queda fuera del where, así que jamás se
-  // toca (nunca hace falta un chequeo explícito "si está PAID, no hagas
-  // nada").
+  // updateMany with status: { in: CANCELLABLE_STATUSES } is itself the
+  // guarantee -- a PAID charge is left out of the where, so it's never
+  // touched (no explicit "if PAID, do nothing" check is ever needed).
   async cancelUnpaid(groupId: string): Promise<void> {
     await this.prisma.payment.updateMany({
       where: { groupId, status: { in: [...CANCELLABLE_STATUSES] } },
@@ -263,15 +262,15 @@ export class PaymentsService {
   }
 
   // T5.7 + design.md "The confirmation callback is a signal, never a source
-  // of truth": este método NUNCA recibe ni confía en el status que trajo el
-  // POST público -- payments.controller.ts (T5.6) ya validó la firma HMAC
-  // ANTES de llamar acá, pero confirm() igual re-consulta getOrderStatus con
-  // el token guardado como única fuente de verdad. El gate
-  // updateMany(status in CANCELLABLE_STATUSES) es la misma garantía de
-  // idempotencia que cancelUnpaid: un cargo ya PAID o CANCELLED queda fuera
-  // del where (spec.md "Replayed webhook is a no-op" / "CANCELLED never
-  // becomes PAID") -- devuelto temprano ANTES de llamar al gateway, para no
-  // gastar una consulta de red en un replay.
+  // of truth": this method NEVER receives nor trusts the status carried by
+  // the public POST -- payments.controller.ts (T5.6) already validated the
+  // HMAC signature BEFORE calling here, but confirm() still re-queries
+  // getOrderStatus with the stored token as the single source of truth. The
+  // updateMany(status in CANCELLABLE_STATUSES) gate is the same idempotency
+  // guarantee as cancelUnpaid: a charge already PAID or CANCELLED is left
+  // out of the where (spec.md "Replayed webhook is a no-op" / "CANCELLED
+  // never becomes PAID") -- returned early BEFORE calling the gateway, to
+  // avoid spending a network call on a replay.
   async confirm(token: string): Promise<void> {
     const payment = await this.prisma.payment.findFirst({
       where: { gatewayToken: token },
@@ -294,12 +293,12 @@ export class PaymentsService {
     });
   }
 
-  // T5.4/T5.5/T7.7/T7.8: usado por PaymentsController.updateAmount (PATCH
-  // /payments/:groupId, scoped por @CurrentUser()) para resolver un 404
-  // uniforme -- terapeuta B pidiendo el groupId de terapeuta A recibe
-  // exactamente el mismo NotFoundException que un groupId inexistente,
-  // nunca un 403-with-leak que confirme que el recurso existe (mismo
-  // criterio que PatientsService.assertAccess).
+  // T5.4/T5.5/T7.7/T7.8: used by PaymentsController.updateAmount (PATCH
+  // /payments/:groupId, scoped by @CurrentUser()) to resolve a uniform 404
+  // -- therapist B requesting therapist A's groupId gets exactly the same
+  // NotFoundException as a non-existent groupId, never a 403-with-leak that
+  // confirms the resource exists (same criterion as
+  // PatientsService.assertAccess).
   async assertOwnership(
     groupId: string,
     therapistId: string,
@@ -313,11 +312,12 @@ export class PaymentsService {
     return payment;
   }
 
-  // design.md "Decision: One PaymentGatewayClient port": createOrder puede
-  // rechazar (PR 1 provee UnconfiguredPaymentGatewayClient por default, que
-  // rechaza siempre) sin que eso impida que ensureCharge()/updateAmount()
-  // se resuelvan -- el cargo queda PENDING sin gatewayToken/paymentUrl, y
-  // el reconciler/reintento manual lo completa más adelante (PR 2).
+  // design.md "Decision: One PaymentGatewayClient port": createOrder can
+  // reject (PR 1 provides UnconfiguredPaymentGatewayClient by default,
+  // which always rejects) without that preventing ensureCharge()/
+  // updateAmount() from resolving -- the charge stays PENDING without
+  // gatewayToken/paymentUrl, and the reconciler/manual retry completes it
+  // later (PR 2).
   private async issueOrder(
     paymentId: string,
     merchantId: string | null,
@@ -338,13 +338,13 @@ export class PaymentsService {
         currency: DEFAULT_CURRENCY,
         subject: CHARGE_SUBJECT,
         externalId: groupId,
-        // returnUrl es dónde Flow devuelve al PACIENTE tras el checkout
-        // hospedado (frontend) -- confirmUrl es dónde Flow hace el POST
-        // servidor-a-servidor (backend, sin guard, T5.6). Nunca la misma
-        // URL: PR 1 dejó ambas apuntando al frontend como placeholder
-        // porque la ruta pública del backend todavía no existía (ver
-        // apply-progress de PR 1) -- corregido acá ahora que
-        // payments.controller.ts ya existe.
+        // returnUrl is where Flow sends the PATIENT back after the hosted
+        // checkout (frontend) -- confirmUrl is where Flow makes the
+        // server-to-server POST (backend, no guard, T5.6). Never the same
+        // URL: PR 1 left both pointing at the frontend as a placeholder
+        // because the backend's public route didn't exist yet (see
+        // PR 1's apply-progress) -- fixed here now that
+        // payments.controller.ts already exists.
         returnUrl: `${frontendUrl}${PAYMENT_RETURN_PATH}`,
         confirmUrl: `${backendUrl}${PAYMENT_CONFIRM_PATH}`,
       });
@@ -357,9 +357,9 @@ export class PaymentsService {
           lastError: null,
         },
       });
-      // T8.3: el caller (ensureCharge -> deliverPaymentLink) necesita el
-      // paymentUrl recién emitido para el email -- se devuelve acá en vez de
-      // forzar un re-fetch del Payment ya actualizado arriba.
+      // T8.3: the caller (ensureCharge -> deliverPaymentLink) needs the
+      // just-issued paymentUrl for the email -- it's returned here instead
+      // of forcing a re-fetch of the Payment already updated above.
       return { paymentUrl: order.paymentUrl };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -373,9 +373,9 @@ export class PaymentsService {
     }
   }
 
-  // T6.1-6.2 + design.md "Data Flow": mismo shape que
-  // CalendarSyncService.reconcile -- dos pasadas independientes.
-  // @nestjs/schedule's EVERY_30_MINUTES cubre exactamente la cadencia de
+  // T6.1-6.2 + design.md "Data Flow": same shape as
+  // CalendarSyncService.reconcile -- two independent passes.
+  // @nestjs/schedule's EVERY_30_MINUTES covers exactly the cadence from
   // design.md ("@Cron(EVERY_30_MINUTES) sweep()").
   @Cron(CronExpression.EVERY_30_MINUTES)
   async sweep(): Promise<void> {
@@ -385,13 +385,12 @@ export class PaymentsService {
     await this.reconcilePendingPayments();
   }
 
-  // T8.4 + design.md "Data Flow": a diferencia de PR 2 (bulk updateMany,
-  // sin notificar), este PR necesita saber CUÁLES filas ganaron la
-  // transición para disparar el email + notificación exactamente una vez
-  // por cargo -- mismo shape de candidatos-batcheados-y-procesados-uno-a-uno
-  // que reconcilePendingPayments/reconcileOne. batcheado a
-  // SWEEP_BATCH_LIMIT por la misma razón que pass 2 (cota de filas por
-  // corrida de cron).
+  // T8.4 + design.md "Data Flow": unlike PR 2 (bulk updateMany, no
+  // notifications), this PR needs to know WHICH rows won the transition to
+  // fire the email + notification exactly once per charge -- same
+  // batched-candidates-processed-one-by-one shape as
+  // reconcilePendingPayments/reconcileOne. Batched to SWEEP_BATCH_LIMIT for
+  // the same reason as pass 2 (row cap per cron run).
   private async transitionLatePayments(): Promise<void> {
     const candidates = await this.prisma.payment.findMany({
       where: { status: 'PENDING', dueDate: { lte: new Date() } },
@@ -409,15 +408,15 @@ export class PaymentsService {
 
   // design.md "PENDING -> LATE is a stored transition, not computed" + "The
   // Payment row IS the claim -- no ReminderDispatch-style table needed":
-  // el mismo updateMany count-gated que el resto del módulo (id + status:
-  // 'PENDING' en el WHERE) decide quién "gana" la transición -- 1 fila
-  // afectada dispara exactamente un email + una notificación in-app (spec.md
-  // "One-Shot Late-Payment Notification"); 0 filas (ya transicionado por
-  // otro tick/instancia, o el cargo se pagó/canceló entre el findMany y este
-  // update) es un no-op silencioso, SIN volver a notificar (T10.3: "a second
-  // tick emits none"). lateNotifiedAt se persiste en el mismo write que gana
-  // la carrera -- "ya transicionado" y "ya notificado" son el mismo hecho
-  // atómico.
+  // the same count-gated updateMany as the rest of the module (id + status:
+  // 'PENDING' in the WHERE) decides who "wins" the transition -- 1 row
+  // affected fires exactly one email + one in-app notification (spec.md
+  // "One-Shot Late-Payment Notification"); 0 rows (already transitioned by
+  // another tick/instance, or the charge was paid/cancelled between the
+  // findMany and this update) is a silent no-op, WITHOUT notifying again
+  // (T10.3: "a second tick emits none"). lateNotifiedAt is persisted in the
+  // same write that wins the race -- "already transitioned" and "already
+  // notified" are the same atomic fact.
   private async transitionOneToLate(payment: Payment): Promise<void> {
     const result = await this.prisma.payment.updateMany({
       where: { id: payment.id, status: 'PENDING' },
@@ -449,13 +448,13 @@ export class PaymentsService {
     });
   }
 
-  // T6.2: reconciliación de callbacks perdidos -- candidatos con token
-  // emitido hace más de RECONCILE_MIN_AGE_MS, batcheados a
-  // SWEEP_BATCH_LIMIT por corrida (mismo patrón de reconcile acotado que
-  // CalendarSyncService.repairFailedLinks/backfill). Cada candidato se
-  // procesa individualmente porque requiere una llamada de red por fila
-  // (gateway.getOrderStatus) -- un fallo aislado no debe abortar el resto
-  // del batch.
+  // T6.2: reconciliation of missed callbacks -- candidates whose token was
+  // issued more than RECONCILE_MIN_AGE_MS ago, batched to
+  // SWEEP_BATCH_LIMIT per run (same bounded-reconcile pattern as
+  // CalendarSyncService.repairFailedLinks/backfill). Each candidate is
+  // processed individually because it requires one network call per row
+  // (gateway.getOrderStatus) -- an isolated failure must not abort the rest
+  // of the batch.
   private async reconcilePendingPayments(): Promise<void> {
     const cutoff = new Date(Date.now() - RECONCILE_MIN_AGE_MS);
     const candidates = await this.prisma.payment.findMany({

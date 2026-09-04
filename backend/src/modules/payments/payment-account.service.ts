@@ -33,10 +33,10 @@ const DEFAULT_STATUS: PaymentAccountStatusView = {
 };
 
 // design.md "Therapist payment account is its own page" + "REST" table:
-// dueño exclusivo del ciclo de vida de PaymentAccount (onboard/status/
-// disconnect). PaymentsService (ensureCharge/updateAmount) solo LEE
-// PaymentAccount -- nunca la escribe -- así que ambos servicios pueden
-// convivir en el mismo módulo sin pisarse.
+// sole owner of PaymentAccount's lifecycle (onboard/status/
+// disconnect). PaymentsService (ensureCharge/updateAmount) only READS
+// PaymentAccount -- it never writes it -- so both services can
+// coexist in the same module without stepping on each other.
 @Injectable()
 export class PaymentAccountService {
   private readonly logger = new Logger(PaymentAccountService.name);
@@ -47,16 +47,16 @@ export class PaymentAccountService {
     private credentialCrypto: PaymentCredentialCryptoService,
   ) {}
 
-  // T5.1: gateway.createMerchant -> upsert CONNECTED. El "credential" que
-  // design.md pide cifrar bajo PAYMENT_CREDENTIALS_ENCRYPTION_KEY no tiene
-  // hoy un secreto propio devuelto por Flow (el puerto de PR 1 solo expone
-  // { merchantId }, ver el comentario del encabezado de
-  // flow-gateway.client.ts) -- se cifra el propio merchantId como defensa
-  // en profundidad para el identificador de la cuenta conectada,
-  // consistente con el criterio de "nunca en claro" que ya rige
-  // GOOGLE_TOKEN_ENCRYPTION_KEY/DOCUMENT_ENCRYPTION_KEY. merchantId también
-  // queda en su propia columna en claro porque ensureCharge/updateAmount
-  // (PR 1) lo necesitan sin descifrar en cada emisión de orden.
+  // T5.1: gateway.createMerchant -> upsert CONNECTED. The "credential" that
+  // design.md asks to encrypt under PAYMENT_CREDENTIALS_ENCRYPTION_KEY has
+  // no secret of its own returned by Flow today (PR 1's port only exposes
+  // { merchantId }, see the header comment of
+  // flow-gateway.client.ts) -- merchantId itself is encrypted as defense
+  // in depth for the connected account's identifier,
+  // consistent with the "never in plaintext" criterion already governing
+  // GOOGLE_TOKEN_ENCRYPTION_KEY/DOCUMENT_ENCRYPTION_KEY. merchantId is also
+  // kept in its own plaintext column because ensureCharge/updateAmount
+  // (PR 1) need it undecrypted on every order issuance.
   async onboard(
     therapistId: string,
     input: OnboardPaymentAccountInput,
@@ -117,7 +117,7 @@ export class PaymentAccountService {
     return this.toStatusView(account);
   }
 
-  // T5.2: nunca devuelve credentialEncrypted (design.md REST table "Status
+  // T5.2: never returns credentialEncrypted (design.md REST table "Status
   // only -- never the credential").
   async status(therapistId: string): Promise<PaymentAccountStatusView> {
     const account = await this.prisma.paymentAccount.findUnique({
@@ -126,13 +126,13 @@ export class PaymentAccountService {
     return account ? this.toStatusView(account) : DEFAULT_STATUS;
   }
 
-  // T5.3: updateMany count-gated (mismo patrón "claim" atómico que
+  // T5.3: count-gated updateMany (same atomic "claim" pattern as
   // CalendarOauthService.disconnect/NotificationsService.markRead) -- 0
-  // filas afectadas cubre tanto "nunca existió" como "ya estaba
-  // desconectada", ambos casos devuelven el mismo 404 uniforme.
-  // credentialEncrypted se limpia (revoca el secreto local); merchantId se
-  // conserva para que un reconnect futuro pueda reutilizar el mismo id de
-  // comercio asociado en vez de crear uno nuevo en Flow.
+  // rows affected covers both "never existed" and "already
+  // disconnected", both cases return the same uniform 404.
+  // credentialEncrypted is cleared (revokes the local secret); merchantId is
+  // kept so a future reconnect can reuse the same associated-merchant id
+  // instead of creating a new one in Flow.
   async disconnect(therapistId: string): Promise<{ status: string }> {
     const result = await this.prisma.paymentAccount.updateMany({
       where: { therapistId, status: 'CONNECTED' },

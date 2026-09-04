@@ -10,24 +10,24 @@ import { FlowPaymentGatewayClient } from './flow-gateway.client';
 import { PaymentCredentialCryptoService } from './payment-credential-crypto.service';
 
 // design.md "File Changes": imports ConfigModule (flag/env), MailModule
-// (sendPaymentLinkEmail/sendLatePaymentEmail, PR 3) y NotificationsModule
-// (PAYMENT_LATE, PR 2/3); exports PaymentsService. No importa
-// consultations ni patients -- ConsultationsModule importa este módulo, no
-// al revés, para que no haya ciclo (mismo criterio que
+// (sendPaymentLinkEmail/sendLatePaymentEmail, PR 3) and NotificationsModule
+// (PAYMENT_LATE, PR 2/3); exports PaymentsService. It imports neither
+// consultations nor patients -- ConsultationsModule imports this module, not
+// the other way around, so there's no cycle (same criterion as
 // CalendarIntegrationModule).
 //
-// T4.5: el binding de PaymentGatewayClient pasa de
-// UnconfiguredPaymentGatewayClient (PR 1, rechazaba toda llamada) a
-// FlowPaymentGatewayClient -- PaymentsService no cambia de forma (design.md
-// "One PaymentGatewayClient port"). FlowPaymentGatewayClient no lanza en su
-// propio constructor si faltan FLOW_API_KEY/FLOW_SECRET_KEY (a diferencia de
-// GoogleTokenCryptoService/DocumentEncryptionService, que sí lo hacen en
-// onModuleInit) -- rechaza recién al primer método invocado, con
-// PaymentGatewayError('credentials'), exactamente el mismo contrato que
-// UnconfiguredPaymentGatewayClient tenía. Esto es intencional: el boot de
-// AppModule (y de cualquier test que importe AppModule) no debe fallar en
-// entornos sin credenciales reales de Flow (dev/CI/e2e), igual que
-// CalendarOauthService/MailService sin sus propias credenciales.
+// T4.5: PaymentGatewayClient's binding moves from
+// UnconfiguredPaymentGatewayClient (PR 1, rejected every call) to
+// FlowPaymentGatewayClient -- PaymentsService's shape doesn't change (design.md
+// "One PaymentGatewayClient port"). FlowPaymentGatewayClient doesn't throw in
+// its own constructor if FLOW_API_KEY/FLOW_SECRET_KEY are missing (unlike
+// GoogleTokenCryptoService/DocumentEncryptionService, which do so in
+// onModuleInit) -- it only rejects on the first method invoked, with
+// PaymentGatewayError('credentials'), exactly the same contract
+// UnconfiguredPaymentGatewayClient had. This is intentional: AppModule's boot
+// (and that of any test importing AppModule) must not fail in
+// environments without real Flow credentials (dev/CI/e2e), same as
+// CalendarOauthService/MailService without their own credentials.
 @Module({
   imports: [ConfigModule, MailModule, NotificationsModule],
   controllers: [PaymentsController],

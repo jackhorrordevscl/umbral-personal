@@ -10,31 +10,32 @@ import {
 } from './payment-gateway.client';
 import { PAYMENT_RETURN_PATH } from './payments.constants';
 
-// sdd/online-payment-integration PR 2 (T4.1-4.4): adapter concreto de
-// PaymentGatewayClient contra la API REST pública de Flow (Comercios
-// Asociados). Ninguna credencial de sandbox estuvo disponible en esta
-// sesión -- este archivo se construyó a partir de la documentación pública
-// de Flow (https://developers.flow.cl/en/docs/merchant,
-// https://developers.flow.cl/en/docs/payment) investigada en la sesión que
-// escribió este PR, NO contra un sandbox real. Antes de producción hay que
-// re-confirmar contra credenciales reales:
-//   - CONFIRMADO por la documentación pública: los endpoints /merchant/create,
-//     /payment/create, /payment/getStatus; el esquema de firma HMAC-SHA256
-//     sobre parámetros ordenados alfabéticamente (mismo criterio que usan los
-//     SDKs oficiales de Flow); que /payment/create acepta un parámetro
-//     `merchantId` para atribuir la orden a un comercio asociado (resuelve la
-//     pregunta abierta de design.md "Exact Flow parameter attributing
-//     createOrder to an associated merchant"); que la URL de checkout se arma
-//     como `url + "?token=" + token`; que el webhook de confirmación
-//     (urlConfirmation) NO trae un status confiable en el POST -- solo un
-//     `token` a re-consultar (valida la decisión de diseño "The confirmation
-//     callback is a signal, never a source of truth").
-//   - SIN VERIFICAR (best-effort, marcado explícitamente abajo): el mapeo
-//     numérico exacto de /payment/getStatus (se asume 1=pendiente,
-//     2=pagado, 3=rechazada, 4=anulada, el esquema más común documentado
-//     para Flow, pero no confirmado contra una respuesta real); el nombre
-//     exacto del campo que Flow usa para el id de pago en la respuesta de
-//     getStatus (se asume `flowOrder`).
+// sdd/online-payment-integration PR 2 (T4.1-4.4): concrete adapter of
+// PaymentGatewayClient against Flow's public REST API (Comercios
+// Asociados / Associated Merchants). No sandbox credentials were
+// available in this session -- this file was built from Flow's public
+// documentation (https://developers.flow.cl/en/docs/merchant,
+// https://developers.flow.cl/en/docs/payment) researched in the session
+// that wrote this PR, NOT against a real sandbox. Before production this
+// needs to be re-confirmed against real credentials:
+//   - CONFIRMED by the public docs: the /merchant/create,
+//     /payment/create, /payment/getStatus endpoints; the HMAC-SHA256
+//     signature scheme over alphabetically sorted parameters (same
+//     criterion used by Flow's official SDKs); that /payment/create
+//     accepts a `merchantId` parameter to attribute the order to an
+//     associated merchant (resolves design.md's open question
+//     "Exact Flow parameter attributing createOrder to an associated
+//     merchant"); that the checkout URL is built as
+//     `url + "?token=" + token`; that the confirmation webhook
+//     (urlConfirmation) does NOT carry a trustworthy status in the POST --
+//     only a `token` to re-query (validates the design decision "The
+//     confirmation callback is a signal, never a source of truth").
+//   - UNVERIFIED (best-effort, explicitly flagged below): the exact
+//     numeric mapping of /payment/getStatus (assumes 1=pending,
+//     2=paid, 3=rejected, 4=voided, the most commonly documented scheme
+//     for Flow, but not confirmed against a real response); the exact
+//     field name Flow uses for the payment id in the getStatus response
+//     (assumes `flowOrder`).
 const DEFAULT_API_BASE_URL = 'https://sandbox.flow.cl/api';
 const DEFAULT_FRONTEND_URL = 'http://localhost:5173';
 
@@ -139,11 +140,11 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
   }
 
   // design.md "The confirmation callback is a signal, never a source of
-  // truth": esta función NUNCA decide el estado del pago -- solo valida que
-  // el POST realmente vino de Flow, firmado con nuestro secretKey, antes de
-  // que el controller re-consulte getOrderStatus (payments.controller.ts,
-  // T5.6). Devuelve false (nunca lanza) ante cualquier condición inválida --
-  // el llamador es quien decide rechazar con 400.
+  // truth": this function NEVER decides the payment's status -- it only
+  // validates that the POST really came from Flow, signed with our
+  // secretKey, before the controller re-queries getOrderStatus
+  // (payments.controller.ts, T5.6). Returns false (never throws) on any
+  // invalid condition -- the caller decides whether to reject with 400.
   verifyCallbackSignature(params: Record<string, string>): boolean {
     const secretKey = this.config.get<string>('FLOW_SECRET_KEY');
     if (!secretKey) return false;
@@ -153,10 +154,11 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
 
     const expected = this.sign(rest, secretKey);
 
-    // Buffer.from(str, 'hex') trunca en el primer carácter no-hex en vez de
-    // lanzar -- si `s` viene con basura no-hex o con largo distinto al
-    // esperado, el chequeo de longitud rechaza antes de llegar a
-    // timingSafeEqual (que lanza RangeError ante buffers de largo distinto).
+    // Buffer.from(str, 'hex') truncates at the first non-hex character
+    // instead of throwing -- if `s` comes with non-hex garbage or a
+    // different length than expected, the length check rejects before
+    // reaching timingSafeEqual (which throws RangeError on buffers of
+    // different lengths).
     const expectedBuf = Buffer.from(expected, 'hex');
     const receivedBuf = Buffer.from(s, 'hex');
     if (expectedBuf.length !== receivedBuf.length || expectedBuf.length === 0) {
@@ -166,23 +168,23 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     return timingSafeEqual(expectedBuf, receivedBuf);
   }
 
-  // Convención de firma estándar de Flow (replicada de sus SDKs oficiales,
-  // documentada de forma consistente en toda su API pública): ordenar las
-  // claves alfabéticamente, concatenar clave+valor de cada una sin
-  // separador, HMAC-SHA256 en hex sobre esa cadena con el secretKey de la
-  // cuenta.
+  // Flow's standard signing convention (replicated from its official
+  // SDKs, consistently documented across its whole public API): sort the
+  // keys alphabetically, concatenate each key+value with no
+  // separator, HMAC-SHA256 in hex over that string with the account's
+  // secretKey.
   private sign(params: Record<string, string>, secretKey: string): string {
     const sortedKeys = Object.keys(params).sort();
     const toSign = sortedKeys.map((key) => `${key}${params[key]}`).join('');
     return createHmac('sha256', secretKey).update(toSign).digest('hex');
   }
 
-  // 1=pendiente, 2=pagado, 3=rechazada, 4=anulada -- SIN VERIFICAR contra un
-  // sandbox real (ver el comentario del encabezado del archivo).
-  // GatewayOrderStatus no tiene una variante CANCELLED propia (el puerto es
-  // compartido con cualquier gateway futuro, design.md "One
-  // PaymentGatewayClient port"), así que un 4 se mapea conservadoramente a
-  // REJECTED -- ninguno de los dos códigos debe transicionar nunca a PAID.
+  // 1=pending, 2=paid, 3=rejected, 4=voided -- UNVERIFIED against a
+  // real sandbox (see the file header comment).
+  // GatewayOrderStatus has no CANCELLED variant of its own (the port is
+  // shared with any future gateway, design.md "One
+  // PaymentGatewayClient port"), so a 4 is conservatively mapped to
+  // REJECTED -- neither code must ever transition to PAID.
   private mapStatus(rawStatus: number): GatewayOrderStatus {
     switch (rawStatus) {
       case 1:
