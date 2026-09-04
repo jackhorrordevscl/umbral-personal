@@ -5,7 +5,8 @@ import { getApiErrorMessage } from "../utils/api-error";
 import { downloadPatientReport } from "../api/reports";
 import { downloadBlob } from "../utils/download";
 import { usePatients, useCreatePatient, useDeletePatient } from "../hooks/usePatients";
-import PatientForm, { type PatientFormValues } from "../components/patients/PatientForm";
+import * as documentsApi from "../api/documents";
+import PatientForm, { type PatientFormValues, type StagedDocument } from "../components/patients/PatientForm";
 import PatientModal from "../components/patients/PatientModal";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import { EMPTY_CONSENTS, type ConsentStatus, type Patient } from "../types/patient";
@@ -40,6 +41,7 @@ export default function PatientsPage() {
   const [formConsents, setFormConsents] = useState<ConsentStatus>(EMPTY_CONSENTS);
   const [rutError, setRutError] = useState("");
   const [formError, setFormError] = useState("");
+  const [stagedDocuments, setStagedDocuments] = useState<StagedDocument[]>([]);
 
   const { data: patients = [], isError: patientsError } = usePatients();
   const createMutation = useCreatePatient();
@@ -86,16 +88,40 @@ export default function PatientsPage() {
         consents: formConsents,
       },
       {
-        onSuccess: ({ failedPurposes }) => {
+        onSuccess: async ({ patient, failedPurposes }) => {
           setShowForm(false);
           setForm(emptyForm);
           setFormConsents(EMPTY_CONSENTS);
           setRutError("");
-          setFormError(
-            failedPurposes.length > 0
-              ? `Paciente creado, pero no se pudo registrar el consentimiento de ${failedPurposes.length} finalidad(es). Puedes otorgarlo desde la edición de la ficha.`
-              : "",
-          );
+
+          const messages: string[] = [];
+          if (failedPurposes.length > 0) {
+            messages.push(
+              `Paciente creado, pero no se pudo registrar el consentimiento de ${failedPurposes.length} finalidad(es). Puedes otorgarlo desde la edición de la ficha.`,
+            );
+          }
+
+          // Recién acá existe el patientId -- documentsApi.uploadPatientDocument
+          // lo exige, así que estos uploads no pueden dispararse antes de que
+          // la creación del paciente resuelva.
+          if (stagedDocuments.length > 0) {
+            const results = await Promise.allSettled(
+              stagedDocuments.map((doc) =>
+                documentsApi.uploadPatientDocument(patient.id, doc.file, doc.type),
+              ),
+            );
+            const failedDocs = stagedDocuments.filter((_, i) => results[i].status === "rejected");
+            setStagedDocuments([]);
+            if (failedDocs.length > 0) {
+              messages.push(
+                `No se pudieron subir ${failedDocs.length} documento(s): ${failedDocs
+                  .map((d) => d.file.name)
+                  .join(", ")}. Puedes reintentar desde la ficha del paciente.`,
+              );
+            }
+          }
+
+          setFormError(messages.join(" "));
         },
         onError: (err) => {
           setFormError(getApiErrorMessage(err, "Error al guardar paciente"));
@@ -162,7 +188,12 @@ export default function PatientsPage() {
           formError={formError}
           isPending={createMutation.isPending}
           onSubmit={handleSubmit}
-          onCancel={() => setShowForm(false)}
+          onCancel={() => {
+            setShowForm(false);
+            setStagedDocuments([]);
+          }}
+          stagedDocuments={stagedDocuments}
+          onStagedDocumentsChange={setStagedDocuments}
         />
       )}
 

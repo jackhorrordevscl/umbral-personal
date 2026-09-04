@@ -77,7 +77,7 @@ describe('PatientsPage', () => {
     await user.click(screen.getByRole('button', { name: /nuevo paciente/i }))
 
     await fillMinimalRequiredFields(user)
-    await user.click(screen.getByLabelText(/tratamiento/i))
+    await user.click(screen.getByLabelText(/presencial/i))
     await user.click(screen.getByRole('button', { name: /guardar ficha/i }))
 
     await waitFor(() => {

@@ -31,17 +31,36 @@ export class DocumentsController {
   @UseInterceptors(
     FileInterceptor('file', {
       fileFilter: (req, file, cb) => {
-        // Solo acepta PDFs e imágenes
+        // PDF, imágenes, Word/Excel (viejo y OOXML) y ZIP -- los cuatro
+        // últimos ya estaban soportados por assertFileContentMatchesMimetype
+        // (file-signature.util.ts), solo faltaba destrabarlos acá.
+        const ALLOWED_MIMETYPES = [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/zip',
+        ];
         if (
-          file.mimetype === 'application/pdf' ||
+          ALLOWED_MIMETYPES.includes(file.mimetype) ||
           file.mimetype.startsWith('image/')
         ) {
           cb(null, true);
         } else {
-          cb(new Error('Solo se permiten archivos PDF e imágenes'), false);
+          cb(
+            new Error(
+              'Solo se permiten archivos PDF, Word, Excel, ZIP e imágenes',
+            ),
+            false,
+          );
         }
       },
-      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB máximo
+      // 25MB: el archivo se bufferiza completo en memoria antes de cifrarlo
+      // (fileFilter arriba, sin diskStorage), así que este techo evita
+      // arriesgar OOM en la instancia con un par de uploads concurrentes de
+      // expedientes judiciales grandes.
+      limits: { fileSize: 25 * 1024 * 1024 },
     }),
   )
   async upload(

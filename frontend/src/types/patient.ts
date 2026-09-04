@@ -3,7 +3,7 @@ export type ConsentPurpose = "TREATMENT" | "TELEMEDICINE";
 export type ConsentStatus = Record<ConsentPurpose, boolean>;
 
 export const CONSENT_PURPOSE_LABELS: Record<ConsentPurpose, string> = {
-  TREATMENT: "Tratamiento",
+  TREATMENT: "Presencial",
   TELEMEDICINE: "Telemedicina",
 };
 

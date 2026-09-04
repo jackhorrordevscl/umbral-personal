@@ -38,6 +38,8 @@ function renderForm(overrides: Partial<React.ComponentProps<typeof PatientForm>>
     isPending: false,
     onSubmit: vi.fn(),
     onCancel: vi.fn(),
+    stagedDocuments: [],
+    onStagedDocumentsChange: vi.fn(),
     ...overrides,
   }
   render(<PatientForm {...props} />)
@@ -76,7 +78,7 @@ describe('PatientForm', () => {
     const user = userEvent.setup()
     const props = renderForm()
 
-    await user.click(screen.getByLabelText(/tratamiento/i))
+    await user.click(screen.getByLabelText(/presencial/i))
 
     expect(props.onConsentsChange).toHaveBeenCalledWith(
       expect.objectContaining({ TREATMENT: true }),

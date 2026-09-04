@@ -351,7 +351,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".pdf,image/*"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,image/*"
                     className="hidden"
                     onChange={(e) => {
                       if (e.target.files?.[0]) handleUpload(e.target.files[0]);

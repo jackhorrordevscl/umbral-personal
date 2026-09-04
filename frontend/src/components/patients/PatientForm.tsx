@@ -1,4 +1,5 @@
-import { X } from "lucide-react";
+import { useRef, useState } from "react";
+import { FileText, Upload as UploadIcon, X } from "lucide-react";
 import ErrorBanner from "../ui/ErrorBanner";
 import FormField from "../ui/FormField";
 import {
@@ -6,6 +7,11 @@ import {
   type ConsentPurpose,
   type ConsentStatus,
 } from "../../types/patient";
+
+export interface StagedDocument {
+  file: File;
+  type: string;
+}
 
 export interface PatientFormValues {
   fullName: string;
@@ -36,6 +42,8 @@ interface PatientFormProps {
   isPending: boolean;
   onSubmit: () => void;
   onCancel: () => void;
+  stagedDocuments: StagedDocument[];
+  onStagedDocumentsChange: (documents: StagedDocument[]) => void;
 }
 
 export default function PatientForm({
@@ -49,7 +57,11 @@ export default function PatientForm({
   isPending,
   onSubmit,
   onCancel,
+  stagedDocuments,
+  onStagedDocumentsChange,
 }: PatientFormProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [nextDocType, setNextDocType] = useState("INFORMED_CONSENT");
   return (
     <div className="card mb-6">
       <div className="flex items-center justify-between mb-4">
@@ -149,6 +161,14 @@ export default function PatientForm({
             onChange={(e) => onChange({ ...form, treatingPsychiatrist: e.target.value })}
           />
         </FormField>
+        <FormField id="patient-treatingDoctor" label="Médico tratante">
+          <input
+            id="patient-treatingDoctor"
+            className="input-field"
+            value={form.treatingDoctor}
+            onChange={(e) => onChange({ ...form, treatingDoctor: e.target.value })}
+          />
+        </FormField>
         <FormField id="patient-defaultSessionAmount" label="Monto de sesión por defecto (CLP)">
           <input
             id="patient-defaultSessionAmount"
@@ -180,6 +200,79 @@ export default function PatientForm({
           ))}
         </div>
       </div>
+
+      <div className="mt-4 pt-4 border-t border-slate-100">
+        <p className="font-medium text-slate-700 text-sm mb-3">Documentos legales</p>
+        {stagedDocuments.length === 0 ? (
+          <p className="text-xs text-slate-500 mb-3">Sin documentos adjuntados.</p>
+        ) : (
+          <div className="space-y-2 mb-3">
+            {stagedDocuments.map((doc, index) => (
+              <div
+                key={`${doc.file.name}-${index}`}
+                className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText size={14} className="text-slate-400 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-slate-700 truncate">{doc.file.name}</p>
+                    <p className="text-xs text-slate-500">{doc.type}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onStagedDocumentsChange(stagedDocuments.filter((_, i) => i !== index))
+                  }
+                  className="p-1.5 hover:bg-red-50 rounded-lg text-red-400 shrink-0"
+                  aria-label={`Quitar ${doc.file.name}`}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {/* Los archivos quedan en memoria hasta el submit: recién se suben
+            después de que el paciente se crea, porque el endpoint de upload
+            exige un patientId que todavía no existe en este punto. */}
+        <p className="text-xs text-slate-500 mb-2">
+          Se subirán automáticamente al guardar la ficha.
+        </p>
+        <div className="flex gap-2">
+          <select
+            value={nextDocType}
+            onChange={(e) => setNextDocType(e.target.value)}
+            className="input-field text-xs py-1.5 flex-1"
+            aria-label="Tipo de documento a adjuntar"
+          >
+            <option value="INFORMED_CONSENT">Consentimiento informado</option>
+            <option value="TELEMED_AGREEMENT">Acuerdo telemedicina</option>
+            <option value="OTHER">Otro</option>
+          </select>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                onStagedDocumentsChange([...stagedDocuments, { file, type: nextDocType }]);
+              }
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="btn-secondary text-xs py-1.5 flex items-center gap-1 shrink-0"
+          >
+            <UploadIcon size={13} /> Adjuntar
+          </button>
+        </div>
+      </div>
+
       {formError && <ErrorBanner icon message={formError} className="mt-4" />}
       <div className="flex gap-3 mt-6">
         <button type="submit" className="btn-primary" disabled={isPending}>
