@@ -1,23 +1,39 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../api/client';
 
+export type PaymentAccountStatusValue =
+  | 'PENDING'
+  | 'CONNECTED'
+  | 'DISCONNECTED'
+  | 'RECONNECT_REQUIRED';
+
 export interface PaymentAccountStatus {
-  status: 'PENDING' | 'CONNECTED' | 'DISCONNECTED';
-  merchantId: string | null;
+  status: PaymentAccountStatusValue;
+  provider: string;
+  displayName: string | null;
+  keyFingerprint: string | null;
   connectedAt: string | null;
   lastError: string | null;
 }
 
-export interface OnboardPaymentAccountInput {
-  name: string;
-  email: string;
-  rutOrTaxId: string;
+export interface GatewayCredentialsInput {
+  apiKey: string;
+  secretKey: string;
 }
 
-// sdd/online-payment-integration PR 3 (T9.1, design.md "Therapist payment
-// account is its own page"): mismo patrón react-query que useProfile
-// (queryKey: ['payment-account']) en vez de un GET manual en useEffect --
-// PaymentsPage.tsx consume esto para el estado de onboarding.
+export interface ConnectPaymentAccountInput extends GatewayCredentialsInput {
+  displayName?: string;
+}
+
+export interface CredentialValidation {
+  accountLabel?: string;
+  keyFingerprint: string;
+}
+
+// sdd/payments-multigateway-redesign (design.md sequence "Connect account —
+// after"): mismo patrón react-query que useProfile (queryKey:
+// ['payment-account']) -- PaymentsPage.tsx consume esto tanto para el
+// estado de la cuenta como para el asistente de conexión de 5 pasos.
 export function usePaymentAccount() {
   return useQuery({
     queryKey: ['payment-account'],
@@ -28,10 +44,28 @@ export function usePaymentAccount() {
   });
 }
 
-export function useOnboardPaymentAccount() {
+// design.md sequence "Connect account — after", step 1 (paso de "pegar y
+// validar" del asistente): POST /payments/account/validate valida en vivo
+// contra Flow y NO persiste nada, ni en éxito ni en error -- spec
+// "Abandoning the Wizard Persists Nothing". No invalida ['payment-account']
+// porque esta llamada nunca cambia el estado persistido.
+export function useValidateCredentials() {
+  return useMutation({
+    mutationFn: (data: GatewayCredentialsInput) =>
+      api
+        .post<CredentialValidation>('/payments/account/validate', data)
+        .then((r) => r.data),
+  });
+}
+
+// design.md sequence "Connect account — after", step 2 (paso de
+// confirmación del asistente): POST /payments/account re-valida en el
+// backend (la validación del paso anterior nunca se confía por sí sola) y
+// solo entonces persiste el par de credenciales cifrado.
+export function useConnectPaymentAccount() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: OnboardPaymentAccountInput) =>
+    mutationFn: (data: ConnectPaymentAccountInput) =>
       api
         .post<PaymentAccountStatus>('/payments/account', data)
         .then((r) => r.data),

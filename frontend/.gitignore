@@ -13,6 +13,11 @@ dist-ssr
 coverage
 *.local
 
+# Playwright artifacts (playwright.config.ts) -- generated on every local
+# `test:e2e` run, never source.
+playwright-report/
+test-results/
+
 .env
 .env.local
 .env.development.local
