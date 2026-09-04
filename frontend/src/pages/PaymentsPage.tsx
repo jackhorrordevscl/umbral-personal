@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CreditCard, ShieldCheck, Unlink } from 'lucide-react';
+import { CreditCard, Construction, ShieldCheck, Unlink } from 'lucide-react';
 import FormField from '../components/ui/FormField';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
@@ -68,6 +68,20 @@ export default function PaymentsPage() {
         </p>
       </div>
 
+      <div className="card max-w-lg mb-4 border border-amber-200 bg-amber-50 flex items-start gap-3">
+        <Construction size={20} className="text-amber-600 shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm font-medium text-amber-800">
+            Módulo de pagos en proceso de integración
+          </p>
+          <p className="text-xs text-amber-700 mt-1">
+            Estamos rediseñando cómo se conecta tu cuenta de pago. Por ahora no
+            es posible conectar nuevas cuentas; te avisaremos apenas esté
+            disponible.
+          </p>
+        </div>
+      </div>
+
       <div className="card max-w-lg">
         <div className="flex items-center gap-3 mb-6">
           <div className="bg-sage-50 p-3 rounded-lg">
@@ -106,47 +120,49 @@ export default function PaymentsPage() {
             </button>
           </div>
         ) : (
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            {account?.lastError && (
-              <ErrorBanner message={`Último intento fallido: ${account.lastError}`} />
-            )}
-            <p className="text-sm text-slate-600">
-              Ingresa los datos de tu cuenta para conectarla con Flow y empezar a cobrar tus sesiones en línea.
-            </p>
-            <FormField id="payment-account-name" label="Nombre o razón social" required>
-              <input
-                id="payment-account-name"
-                className="input-field"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </FormField>
-            <FormField id="payment-account-email" label="Email" required>
-              <input
-                id="payment-account-email"
-                type="email"
-                className="input-field"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-              />
-            </FormField>
-            <FormField id="payment-account-rutOrTaxId" label="RUT o identificador tributario" required>
-              <input
-                id="payment-account-rutOrTaxId"
-                className="input-field"
-                value={form.rutOrTaxId}
-                onChange={(e) => setForm({ ...form, rutOrTaxId: e.target.value })}
-              />
-            </FormField>
-            {formError && <ErrorBanner icon message={formError} />}
-            <button
-              type="submit"
-              className="btn-primary disabled:opacity-50"
-              disabled={onboardMutation.isPending}
-            >
-              {onboardMutation.isPending ? 'Conectando...' : 'Conectar cuenta de pagos'}
-            </button>
-          </form>
+          <fieldset
+            disabled
+            className="space-y-4 opacity-60"
+            aria-describedby="payment-account-disabled-notice"
+          >
+            <form className="space-y-4" onSubmit={handleSubmit}>
+              {account?.lastError && (
+                <ErrorBanner message={`Último intento fallido: ${account.lastError}`} />
+              )}
+              <p id="payment-account-disabled-notice" className="text-sm text-slate-600">
+                Ingresa los datos de tu cuenta para conectarla con Flow y empezar a cobrar tus sesiones en línea.
+              </p>
+              <FormField id="payment-account-name" label="Nombre o razón social" required>
+                <input
+                  id="payment-account-name"
+                  className="input-field"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
+              </FormField>
+              <FormField id="payment-account-email" label="Email" required>
+                <input
+                  id="payment-account-email"
+                  type="email"
+                  className="input-field"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                />
+              </FormField>
+              <FormField id="payment-account-rutOrTaxId" label="RUT o identificador tributario" required>
+                <input
+                  id="payment-account-rutOrTaxId"
+                  className="input-field"
+                  value={form.rutOrTaxId}
+                  onChange={(e) => setForm({ ...form, rutOrTaxId: e.target.value })}
+                />
+              </FormField>
+              {formError && <ErrorBanner icon message={formError} />}
+              <button type="submit" className="btn-primary disabled:opacity-50">
+                Conectar cuenta de pagos
+              </button>
+            </form>
+          </fieldset>
         )}
       </div>
 
