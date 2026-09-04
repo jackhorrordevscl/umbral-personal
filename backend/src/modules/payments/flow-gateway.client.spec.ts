@@ -1,19 +1,21 @@
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'crypto';
+import { inspect } from 'util';
+import { PaymentProvider } from '@prisma/client';
 import { FlowPaymentGatewayClient } from './flow-gateway.client';
-import { PaymentGatewayError } from './payment-gateway.client';
+import {
+  GatewayCredentials,
+  PaymentGatewayError,
+} from './payment-gateway.client';
 
-// sdd/online-payment-integration PR 2 (T4.1-4.4): mismo patrón de mocking de
-// fetch nativo que google-calendar.client.spec.ts (no hay credenciales de
-// sandbox de Flow disponibles esta sesión -- ver flow-gateway.client.ts, el
-// comentario del encabezado documenta qué viene de la documentación pública
-// de Flow y qué queda sin verificar contra un sandbox real).
+// design.md Decision 1/2 + Port contract: same native-fetch mocking pattern
+// as google-calendar.client.spec.ts. This adapter is now stateless -- no
+// sandbox credentials were available in the session that wrote it either
+// (see the header comment in flow-gateway.client.ts for what's confirmed
+// against Flow's public docs vs. left unverified against a real sandbox).
 function buildConfig(overrides: Record<string, string | undefined> = {}) {
   const values: Record<string, string | undefined> = {
-    FLOW_API_KEY: 'test-api-key',
-    FLOW_SECRET_KEY: 'test-secret-key',
     FLOW_API_BASE_URL: 'https://sandbox.flow.cl/api',
-    FRONTEND_URL: 'https://umbral.cl',
     ...overrides,
   };
   return { get: (key: string) => values[key] } as unknown as ConfigService;
@@ -45,9 +47,11 @@ function referenceSign(
 
 describe('FlowPaymentGatewayClient', () => {
   let client: FlowPaymentGatewayClient;
+  let credentials: GatewayCredentials;
 
   beforeEach(() => {
     client = new FlowPaymentGatewayClient(buildConfig());
+    credentials = new GatewayCredentials('test-api-key', 'test-secret-key');
     globalThis.fetch = jest.fn();
   });
 
@@ -55,85 +59,12 @@ describe('FlowPaymentGatewayClient', () => {
     jest.restoreAllMocks();
   });
 
-  describe('createMerchant', () => {
-    it('firma la petición y mapea el id devuelto a merchantId', async () => {
-      mockFetchOnce(
-        { ok: true, status: 200 },
-        {
-          id: 'flow-merchant-1',
-          name: 'Terapeuta A',
-          url: 'https://umbral.cl/payments',
-          createdate: '2026-01-01',
-          status: 1,
-          verifydate: null,
-        },
-      );
-
-      const result = await client.createMerchant({
-        therapistId: 'therapist-1',
-        name: 'Terapeuta A',
-        email: 'terapeuta.a@umbral.cl',
-        rutOrTaxId: '11.111.111-1',
-      });
-
-      expect(result).toEqual({ merchantId: 'flow-merchant-1' });
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/merchant/create'),
-        expect.objectContaining({ method: 'POST' }),
-      );
-    });
-
-    it('clasifica un 401 (apiKey/firma inválida) como credentials', async () => {
-      mockFetchOnce({ ok: false, status: 401 });
-
-      await expect(
-        client.createMerchant({
-          therapistId: 'therapist-1',
-          name: 'Terapeuta A',
-          email: 'terapeuta.a@umbral.cl',
-          rutOrTaxId: '11.111.111-1',
-        }),
-      ).rejects.toMatchObject({
-        kind: 'credentials',
-      } as Partial<PaymentGatewayError>);
-    });
-
-    it('clasifica un 500 como transient', async () => {
-      mockFetchOnce({ ok: false, status: 500 });
-
-      await expect(
-        client.createMerchant({
-          therapistId: 'therapist-1',
-          name: 'Terapeuta A',
-          email: 'terapeuta.a@umbral.cl',
-          rutOrTaxId: '11.111.111-1',
-        }),
-      ).rejects.toMatchObject({
-        kind: 'transient',
-      } as Partial<PaymentGatewayError>);
-    });
-
-    it('sin FLOW_API_KEY/FLOW_SECRET_KEY configuradas rechaza con credentials sin llegar a hacer fetch', async () => {
-      const unconfigured = new FlowPaymentGatewayClient(
-        buildConfig({ FLOW_API_KEY: undefined, FLOW_SECRET_KEY: undefined }),
-      );
-
-      await expect(
-        unconfigured.createMerchant({
-          therapistId: 'therapist-1',
-          name: 'Terapeuta A',
-          email: 'terapeuta.a@umbral.cl',
-          rutOrTaxId: '11.111.111-1',
-        }),
-      ).rejects.toMatchObject({
-        kind: 'credentials',
-      } as Partial<PaymentGatewayError>);
-      expect(globalThis.fetch).not.toHaveBeenCalled();
-    });
+  it('provider es FLOW', () => {
+    expect(client.provider).toBe(PaymentProvider.FLOW);
   });
 
   describe('createOrder', () => {
-    it('construye la paymentUrl a partir de url + token, según la documentación pública de Flow', async () => {
+    it('firma la petición con las credenciales recibidas y construye la paymentUrl a partir de url + token', async () => {
       mockFetchOnce(
         { ok: true, status: 200 },
         {
@@ -143,8 +74,7 @@ describe('FlowPaymentGatewayClient', () => {
         },
       );
 
-      const result = await client.createOrder({
-        merchantId: 'flow-merchant-1',
+      const result = await client.createOrder(credentials, {
         amount: 50000,
         currency: 'CLP',
         subject: 'Sesión clínica',
@@ -158,14 +88,21 @@ describe('FlowPaymentGatewayClient', () => {
         paymentUrl:
           'https://sandbox.flow.cl/app/web/pay.php?token=flow-token-abc',
       });
+
+      const [, requestInit] = (globalThis.fetch as jest.Mock).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      const sentBody = new URLSearchParams(requestInit.body as string);
+      expect(sentBody.get('apiKey')).toBe('test-api-key');
+      expect(sentBody.has('merchantId')).toBe(false);
     });
 
     it('clasifica un 400 (orden rechazada) como rejected', async () => {
       mockFetchOnce({ ok: false, status: 400 });
 
       await expect(
-        client.createOrder({
-          merchantId: 'flow-merchant-1',
+        client.createOrder(credentials, {
           amount: 50000,
           currency: 'CLP',
           subject: 'Sesión clínica',
@@ -184,8 +121,7 @@ describe('FlowPaymentGatewayClient', () => {
       );
 
       await expect(
-        client.createOrder({
-          merchantId: 'flow-merchant-1',
+        client.createOrder(credentials, {
           amount: 50000,
           currency: 'CLP',
           subject: 'Sesión clínica',
@@ -210,7 +146,7 @@ describe('FlowPaymentGatewayClient', () => {
         { status: 2, flowOrder: 123456 },
       );
 
-      const result = await client.getOrderStatus('flow-token-abc');
+      const result = await client.getOrderStatus(credentials, 'flow-token-abc');
 
       expect(result).toEqual({ status: 'PAID', gatewayPaymentId: '123456' });
     });
@@ -218,7 +154,7 @@ describe('FlowPaymentGatewayClient', () => {
     it('mapea status=1 (pendiente) a PENDING', async () => {
       mockFetchOnce({ ok: true, status: 200 }, { status: 1 });
 
-      const result = await client.getOrderStatus('flow-token-abc');
+      const result = await client.getOrderStatus(credentials, 'flow-token-abc');
 
       expect(result.status).toBe('PENDING');
     });
@@ -226,7 +162,7 @@ describe('FlowPaymentGatewayClient', () => {
     it('mapea status=3 (rechazado) a REJECTED', async () => {
       mockFetchOnce({ ok: true, status: 200 }, { status: 3 });
 
-      const result = await client.getOrderStatus('flow-token-abc');
+      const result = await client.getOrderStatus(credentials, 'flow-token-abc');
 
       expect(result.status).toBe('REJECTED');
     });
@@ -235,19 +171,120 @@ describe('FlowPaymentGatewayClient', () => {
       mockFetchOnce({ ok: false, status: 404 });
 
       await expect(
-        client.getOrderStatus('token-inexistente'),
+        client.getOrderStatus(credentials, 'token-inexistente'),
       ).rejects.toMatchObject({
         kind: 'rejected',
       } as Partial<PaymentGatewayError>);
     });
   });
 
+  // design.md Decision 1 + spec.md "Guided Connection Wizard With
+  // Pre-Persistence Validation": the sentinel-token getStatus probe taxonomy.
+  // Flow authenticates the signature *before* resolving the token, so the
+  // adapter's existing 401/403 vs 400/404 vs 5xx classification (request())
+  // is reused, not reimplemented -- this suite locks in the taxonomy meaning
+  // validateCredentials attaches to each bucket.
+  describe('validateCredentials (probe taxonomy)', () => {
+    it('sondea con el token sentinela documentado, firmado con las credenciales recibidas', async () => {
+      mockFetchOnce({ ok: false, status: 404 });
+
+      await client.validateCredentials(credentials);
+
+      const [requestUrl] = (globalThis.fetch as jest.Mock).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      const query = new URL(requestUrl).searchParams;
+      expect(query.get('apiKey')).toBe('test-api-key');
+      expect(query.get('token')).toBe('umbral-credential-validation-probe');
+      expect(query.get('s')).toBe(
+        referenceSign(
+          { apiKey: 'test-api-key', token: query.get('token')! },
+          'test-secret-key',
+        ),
+      );
+    });
+
+    it('401 (firma inválida) se propaga como credentials inválidas, sin quedar como válidas', async () => {
+      mockFetchOnce({ ok: false, status: 401 });
+
+      await expect(
+        client.validateCredentials(credentials),
+      ).rejects.toMatchObject({
+        kind: 'credentials',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it('403 (rechazo de autorización) se propaga como credentials inválidas', async () => {
+      mockFetchOnce({ ok: false, status: 403 });
+
+      await expect(
+        client.validateCredentials(credentials),
+      ).rejects.toMatchObject({
+        kind: 'credentials',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it('400 (token sentinela no encontrado) se interpreta como credenciales VÁLIDAS -- design.md Decision 1', async () => {
+      mockFetchOnce({ ok: false, status: 400 });
+
+      const result = await client.validateCredentials(credentials);
+
+      expect(result.keyFingerprint).toEqual(expect.any(String));
+      expect(result.keyFingerprint.length).toBeGreaterThan(0);
+    });
+
+    it('404 (token sentinela no encontrado) se interpreta como credenciales VÁLIDAS -- design.md Decision 1', async () => {
+      mockFetchOnce({ ok: false, status: 404 });
+
+      const result = await client.validateCredentials(credentials);
+
+      expect(result.keyFingerprint).toEqual(expect.any(String));
+    });
+
+    it('5xx se propaga como transient -- no debe interpretarse como válida ni inválida', async () => {
+      mockFetchOnce({ ok: false, status: 500 });
+
+      await expect(
+        client.validateCredentials(credentials),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it('un error de red se propaga como transient', async () => {
+      (globalThis.fetch as jest.Mock).mockRejectedValueOnce(
+        new Error('ECONNRESET'),
+      );
+
+      await expect(
+        client.validateCredentials(credentials),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it('el fingerprint depende de las credenciales, no es un valor fijo', async () => {
+      mockFetchOnce({ ok: false, status: 400 });
+      const first = await client.validateCredentials(credentials);
+
+      mockFetchOnce({ ok: false, status: 400 });
+      const second = await client.validateCredentials(
+        new GatewayCredentials('other-api-key', 'other-secret-key'),
+      );
+
+      expect(first.keyFingerprint).not.toEqual(second.keyFingerprint);
+    });
+  });
+
   describe('verifyCallbackSignature', () => {
-    it('acepta una firma válida calculada con el mismo secretKey', () => {
+    it('acepta una firma válida calculada con el secretKey de las credenciales recibidas', () => {
       const params = { token: 'flow-token-abc' };
       const s = referenceSign(params, 'test-secret-key');
 
-      expect(client.verifyCallbackSignature({ ...params, s })).toBe(true);
+      expect(
+        client.verifyCallbackSignature(credentials, { ...params, s }),
+      ).toBe(true);
     });
 
     it('rechaza un parámetro alterado tras firmar (tampered)', () => {
@@ -255,24 +292,28 @@ describe('FlowPaymentGatewayClient', () => {
       const s = referenceSign(params, 'test-secret-key');
 
       expect(
-        client.verifyCallbackSignature({ token: 'flow-token-TAMPERED', s }),
+        client.verifyCallbackSignature(credentials, {
+          token: 'flow-token-TAMPERED',
+          s,
+        }),
       ).toBe(false);
     });
 
     it('rechaza cuando falta el parámetro s', () => {
       expect(
-        client.verifyCallbackSignature({ token: 'flow-token-abc' } as Record<
-          string,
-          string
-        >),
+        client.verifyCallbackSignature(credentials, {
+          token: 'flow-token-abc',
+        } as Record<string, string>),
       ).toBe(false);
     });
 
-    it('rechaza una firma calculada con la clave incorrecta (wrong key)', () => {
+    it('rechaza una firma calculada con credenciales distintas (wrong key)', () => {
       const params = { token: 'flow-token-abc' };
       const s = referenceSign(params, 'una-clave-que-no-es-la-configurada');
 
-      expect(client.verifyCallbackSignature({ ...params, s })).toBe(false);
+      expect(
+        client.verifyCallbackSignature(credentials, { ...params, s }),
+      ).toBe(false);
     });
 
     it('rechaza cuando se agrega un parámetro extra no incluido en la firma original', () => {
@@ -280,24 +321,54 @@ describe('FlowPaymentGatewayClient', () => {
       const s = referenceSign(params, 'test-secret-key');
 
       expect(
-        client.verifyCallbackSignature({
+        client.verifyCallbackSignature(credentials, {
           token: 'flow-token-abc',
           extra: 'campo-inyectado-por-un-atacante',
           s,
         }),
       ).toBe(false);
     });
+  });
+});
 
-    it('sin FLOW_SECRET_KEY configurada rechaza en vez de lanzar', () => {
-      const unconfigured = new FlowPaymentGatewayClient(
-        buildConfig({ FLOW_SECRET_KEY: undefined }),
-      );
-      const params = { token: 'flow-token-abc' };
-      const s = referenceSign(params, 'test-secret-key');
+// design.md "Secret-Handling Invariants" + spec.md "Encrypted Credential
+// Storage With Non-Secret Display Metadata": GatewayCredentials must redact
+// through every path a secret could otherwise leak -- JSON.stringify
+// (API responses, nested error context), template-literal log interpolation
+// (toString()), and console.log/Logger/util.inspect (the inspect symbol).
+describe('GatewayCredentials redaction', () => {
+  const credentials = new GatewayCredentials(
+    'super-secret-api-key',
+    'super-secret-secret-key',
+  );
 
-      expect(unconfigured.verifyCallbackSignature({ ...params, s })).toBe(
-        false,
-      );
-    });
+  it('JSON.stringify redacta ambos secretos', () => {
+    const serialized = JSON.stringify({ credentials });
+
+    expect(serialized).not.toContain('super-secret-api-key');
+    expect(serialized).not.toContain('super-secret-secret-key');
+    expect(serialized).toBe(JSON.stringify({ credentials: '[redacted]' }));
+  });
+
+  it('la interpolación de template string (log interpolation) redacta ambos secretos', () => {
+    // eslint-disable-next-line @typescript-eslint/restrict-template-expressions -- deliberately exercising the toString() override under test
+    const logLine = `Fallo al validar credenciales: ${credentials}`;
+
+    expect(logLine).not.toContain('super-secret-api-key');
+    expect(logLine).not.toContain('super-secret-secret-key');
+    expect(logLine).toBe('Fallo al validar credenciales: [redacted]');
+  });
+
+  it('util.inspect (usado por console.log/Logger con objetos) redacta ambos secretos', () => {
+    const inspected = inspect(credentials);
+
+    expect(inspected).not.toContain('super-secret-api-key');
+    expect(inspected).not.toContain('super-secret-secret-key');
+    expect(inspected).toBe('[redacted]');
+  });
+
+  it('el redacted no impide seguir leyendo apiKey/secretKey por código legítimo (solo la serialización/log lo oculta)', () => {
+    expect(credentials.apiKey).toBe('super-secret-api-key');
+    expect(credentials.secretKey).toBe('super-secret-secret-key');
   });
 });

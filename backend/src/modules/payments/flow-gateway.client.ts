@@ -1,52 +1,49 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
+import { PaymentProvider } from '@prisma/client';
 import {
+  CredentialValidation,
+  GatewayCredentials,
   GatewayOrderStatus,
-  MerchantInput,
   OrderInput,
   PaymentGatewayClient,
   PaymentGatewayError,
 } from './payment-gateway.client';
-import { PAYMENT_RETURN_PATH } from './payments.constants';
 
-// sdd/online-payment-integration PR 2 (T4.1-4.4): concrete adapter of
-// PaymentGatewayClient against Flow's public REST API (Comercios
-// Asociados / Associated Merchants). No sandbox credentials were
-// available in this session -- this file was built from Flow's public
-// documentation (https://developers.flow.cl/en/docs/merchant,
-// https://developers.flow.cl/en/docs/payment) researched in the session
-// that wrote this PR, NOT against a real sandbox. Before production this
-// needs to be re-confirmed against real credentials:
-//   - CONFIRMED by the public docs: the /merchant/create,
-//     /payment/create, /payment/getStatus endpoints; the HMAC-SHA256
-//     signature scheme over alphabetically sorted parameters (same
-//     criterion used by Flow's official SDKs); that /payment/create
-//     accepts a `merchantId` parameter to attribute the order to an
-//     associated merchant (resolves design.md's open question
-//     "Exact Flow parameter attributing createOrder to an associated
-//     merchant"); that the checkout URL is built as
-//     `url + "?token=" + token`; that the confirmation webhook
-//     (urlConfirmation) does NOT carry a trustworthy status in the POST --
-//     only a `token` to re-query (validates the design decision "The
-//     confirmation callback is a signal, never a source of truth").
-//   - UNVERIFIED (best-effort, explicitly flagged below): the exact
-//     numeric mapping of /payment/getStatus (assumes 1=pending,
-//     2=paid, 3=rejected, 4=voided, the most commonly documented scheme
-//     for Flow, but not confirmed against a real response); the exact
-//     field name Flow uses for the payment id in the getStatus response
-//     (assumes `flowOrder`).
+// design.md "Port contract" + Decision 1/2: concrete adapter of
+// PaymentGatewayClient against Flow's public REST API, now stateless -- every
+// call is signed with the GatewayCredentials the caller resolved
+// (PaymentAccountService, the sole decryption owner), never with an ambient
+// FLOW_API_KEY/FLOW_SECRET_KEY. No sandbox credentials were available in the
+// session that first wrote this adapter -- this file was built from Flow's
+// public documentation (https://developers.flow.cl/en/docs/payment)
+// researched in that session, NOT against a real sandbox. Before production
+// this needs to be re-confirmed against real credentials:
+//   - CONFIRMED by the public docs: the /payment/create, /payment/getStatus
+//     endpoints; the HMAC-SHA256 signature scheme over alphabetically sorted
+//     parameters (same criterion used by Flow's official SDKs); that the
+//     checkout URL is built as `url + "?token=" + token`; that the
+//     confirmation webhook (urlConfirmation) does NOT carry a trustworthy
+//     status in the POST -- only a `token` to re-query (validates the design
+//     decision "The confirmation callback is a signal, never a source of
+//     truth").
+//   - UNVERIFIED (best-effort, explicitly flagged below): the exact numeric
+//     mapping of /payment/getStatus (assumes 1=pending, 2=paid, 3=rejected,
+//     4=voided, the most commonly documented scheme for Flow, but not
+//     confirmed against a real response); the exact field name Flow uses for
+//     the payment id in the getStatus response (assumes `flowOrder`);
+//     design.md Decision 1's taxonomy for a sentinel-token /payment/getStatus
+//     probe (401/403 invalid credentials, 400/404 valid -- token simply not
+//     found), flagged as an Open Question in design.md pending confirmation
+//     against a real Flow sandbox.
 const DEFAULT_API_BASE_URL = 'https://sandbox.flow.cl/api';
-const DEFAULT_FRONTEND_URL = 'http://localhost:5173';
 
-interface FlowMerchantCreateResponse {
-  id: string;
-  name: string;
-  url: string;
-  createdate: string;
-  status: number;
-  verifydate: string | null;
-}
+// design.md Decision 1: a deliberately non-existent token used only to probe
+// whether the passed credentials sign correctly. Flow authenticates the
+// signature *before* resolving the token, so 400/404 here means "credentials
+// valid, token (as expected) not found" -- never a real order.
+const VALIDATION_PROBE_TOKEN = 'umbral-credential-validation-probe';
 
 interface FlowPaymentCreateResponse {
   flowOrder: number;
@@ -63,47 +60,50 @@ interface FlowPaymentStatusResponse {
 export class FlowPaymentGatewayClient extends PaymentGatewayClient {
   private readonly logger = new Logger(FlowPaymentGatewayClient.name);
 
+  readonly provider = PaymentProvider.FLOW;
+
   constructor(private config: ConfigService) {
     super();
   }
 
-  async createMerchant(input: MerchantInput): Promise<{ merchantId: string }> {
-    const { apiKey, secretKey } = this.assertConfigured();
-    const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') ?? DEFAULT_FRONTEND_URL;
-
-    const params: Record<string, string> = {
-      apiKey,
-      id: input.therapistId,
-      name: input.name,
-      url: `${frontendUrl}${PAYMENT_RETURN_PATH}`,
-    };
-    params.s = this.sign(params, secretKey);
-
-    const response = await this.request<FlowMerchantCreateResponse>(
-      'POST',
-      '/merchant/create',
-      params,
-    );
-    return { merchantId: response.id };
+  // design.md Decision 1: the sentinel-token getStatus probe. Reuses
+  // getOrderStatus's own request()/error-taxonomy mapping instead of
+  // duplicating it -- a 'rejected' (400/404, token not found) means the
+  // signature authenticated fine, which IS the valid-credentials signal;
+  // 'credentials' (401/403) and 'transient' (5xx/network) propagate
+  // unchanged so the caller (PaymentAccountService, Phase 2) persists
+  // nothing on either.
+  async validateCredentials(
+    credentials: GatewayCredentials,
+  ): Promise<CredentialValidation> {
+    try {
+      await this.getOrderStatus(credentials, VALIDATION_PROBE_TOKEN);
+    } catch (err) {
+      if (err instanceof PaymentGatewayError && err.kind === 'rejected') {
+        return { keyFingerprint: this.fingerprint(credentials) };
+      }
+      throw err;
+    }
+    // Flow resolving the sentinel token at all is not expected in practice
+    // (it's deliberately non-existent) -- if it ever happens the signature
+    // clearly authenticated, so the credentials are still valid.
+    return { keyFingerprint: this.fingerprint(credentials) };
   }
 
   async createOrder(
+    credentials: GatewayCredentials,
     input: OrderInput,
   ): Promise<{ token: string; paymentUrl: string }> {
-    const { apiKey, secretKey } = this.assertConfigured();
-
     const params: Record<string, string> = {
-      apiKey,
+      apiKey: credentials.apiKey,
       commerceOrder: input.externalId,
       subject: input.subject,
       currency: input.currency,
       amount: String(input.amount),
       urlConfirmation: input.confirmUrl,
       urlReturn: input.returnUrl,
-      merchantId: input.merchantId,
     };
-    params.s = this.sign(params, secretKey);
+    params.s = this.sign(params, credentials.secretKey);
 
     const response = await this.request<FlowPaymentCreateResponse>(
       'POST',
@@ -117,12 +117,14 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
   }
 
   async getOrderStatus(
+    credentials: GatewayCredentials,
     token: string,
   ): Promise<{ status: GatewayOrderStatus; gatewayPaymentId?: string }> {
-    const { apiKey, secretKey } = this.assertConfigured();
-
-    const params: Record<string, string> = { apiKey, token };
-    params.s = this.sign(params, secretKey);
+    const params: Record<string, string> = {
+      apiKey: credentials.apiKey,
+      token,
+    };
+    params.s = this.sign(params, credentials.secretKey);
 
     const response = await this.request<FlowPaymentStatusResponse>(
       'GET',
@@ -141,18 +143,19 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
 
   // design.md "The confirmation callback is a signal, never a source of
   // truth": this function NEVER decides the payment's status -- it only
-  // validates that the POST really came from Flow, signed with our
-  // secretKey, before the controller re-queries getOrderStatus
-  // (payments.controller.ts, T5.6). Returns false (never throws) on any
-  // invalid condition -- the caller decides whether to reject with 400.
-  verifyCallbackSignature(params: Record<string, string>): boolean {
-    const secretKey = this.config.get<string>('FLOW_SECRET_KEY');
-    if (!secretKey) return false;
-
+  // validates that the POST really came from Flow, signed with the owning
+  // therapist's secretKey (resolved by the caller before this is invoked),
+  // before the controller re-queries getOrderStatus. Returns false (never
+  // throws) on any invalid condition -- the caller decides whether to reject
+  // with 400.
+  verifyCallbackSignature(
+    credentials: GatewayCredentials,
+    params: Record<string, string>,
+  ): boolean {
     const { s, ...rest } = params;
     if (!s) return false;
 
-    const expected = this.sign(rest, secretKey);
+    const expected = this.sign(rest, credentials.secretKey);
 
     // Buffer.from(str, 'hex') truncates at the first non-hex character
     // instead of throwing -- if `s` comes with non-hex garbage or a
@@ -179,12 +182,23 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     return createHmac('sha256', secretKey).update(toSign).digest('hex');
   }
 
+  // Non-secret display fingerprint (design.md "Encrypted Credential Storage
+  // With Non-Secret Display Metadata"): bound to both apiKey and secretKey so
+  // reusing the same apiKey with a rotated secretKey doesn't collide, but the
+  // digest itself never lets the raw credential be recovered.
+  private fingerprint(credentials: GatewayCredentials): string {
+    return createHash('sha256')
+      .update(`${credentials.apiKey}:${credentials.secretKey}`)
+      .digest('hex')
+      .slice(0, 12);
+  }
+
   // 1=pending, 2=paid, 3=rejected, 4=voided -- UNVERIFIED against a
   // real sandbox (see the file header comment).
   // GatewayOrderStatus has no CANCELLED variant of its own (the port is
-  // shared with any future gateway, design.md "One
-  // PaymentGatewayClient port"), so a 4 is conservatively mapped to
-  // REJECTED -- neither code must ever transition to PAID.
+  // shared with any future gateway, design.md "Port contract"), so a 4 is
+  // conservatively mapped to REJECTED -- neither code must ever transition to
+  // PAID.
   private mapStatus(rawStatus: number): GatewayOrderStatus {
     switch (rawStatus) {
       case 1:
@@ -200,18 +214,6 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
         );
         return 'REJECTED';
     }
-  }
-
-  private assertConfigured(): { apiKey: string; secretKey: string } {
-    const apiKey = this.config.get<string>('FLOW_API_KEY');
-    const secretKey = this.config.get<string>('FLOW_SECRET_KEY');
-    if (!apiKey || !secretKey) {
-      throw new PaymentGatewayError(
-        'credentials',
-        'FLOW_API_KEY/FLOW_SECRET_KEY no están configuradas.',
-      );
-    }
-    return { apiKey, secretKey };
   }
 
   private async request<T>(
