@@ -11,8 +11,17 @@ import {
   GoogleCalendarError,
 } from '../calendar-integration/google-calendar.client';
 import { ConsultationsService } from './consultations.service';
+import { PaymentProvider } from '@prisma/client';
 import { PaymentsService } from '../payments/payments.service';
-import { UnconfiguredPaymentGatewayClient } from '../payments/payment-gateway.client';
+import { PaymentGatewayRegistry } from '../payments/payment-gateway.registry';
+import { PaymentAccountService } from '../payments/payment-account.service';
+import { PaymentCredentialCryptoService } from '../payments/payment-credential-crypto.service';
+import {
+  CredentialValidation,
+  GatewayOrderStatus,
+  PaymentGatewayClient,
+  PaymentGatewayError,
+} from '../payments/payment-gateway.client';
 import { MailService } from '../mail/mail.service';
 
 // Los describe blocks preexistentes de este archivo (calendar/findByRange)
@@ -20,18 +29,27 @@ import { MailService } from '../mail/mail.service';
 // PAYMENTS_ENABLED="false" para que ensureCharge() sea un no-op inmediato y
 // no requiera una PaymentAccount/defaultSessionAmount de fixture.
 //
-// sdd/online-payment-integration PR 3: PaymentsService ahora también recibe
-// MailService/NotificationsService (T8.3/T8.4) -- con PAYMENTS_ENABLED
-// "false" ninguno de los dos se invoca nunca, así que basta con instancias
-// reales sin RESEND_API_KEY configurada (mismo criterio "nunca lanza" que
-// el resto de MailService) en vez de mocks.
+// sdd/payments-multigateway-redesign: PaymentsService now depends on
+// PaymentAccountService + PaymentGatewayRegistry instead of a raw gateway
+// client (T8.3/T8.4 still hold for MailService/NotificationsService -- with
+// PAYMENTS_ENABLED "false" none of them ever get invoked). An empty registry
+// is safe here: resolveGatewayContext() short-circuits on
+// credentialVersion !== 2 before ever touching the registry or
+// credentialCrypto (payment-account.service.ts).
 function buildDisabledPaymentsService(prisma: PrismaService): PaymentsService {
   const config = {
     get: (key: string) => (key === 'PAYMENTS_ENABLED' ? 'false' : undefined),
   } as unknown as ConfigService;
+  const registry = new PaymentGatewayRegistry([]);
+  const paymentAccountService = new PaymentAccountService(
+    prisma,
+    registry,
+    new PaymentCredentialCryptoService(config),
+  );
   return new PaymentsService(
     prisma,
-    new UnconfiguredPaymentGatewayClient(),
+    paymentAccountService,
+    registry,
     config,
     new MailService(config),
     new NotificationsService(prisma),
@@ -420,12 +438,49 @@ describe('ConsultationsService.findByRange (integration, real Prisma)', () => {
   }, 20000);
 });
 
-// sdd/online-payment-integration PR 1 (T3.5/T3.7/T3.9): real Prisma + un
-// gateway que rechaza SIEMPRE (UnconfiguredPaymentGatewayClient, el binding
-// por default de PR 1) -- mismo criterio que el describe "Google client
-// failing" de arriba: create()/correct() deben resolver igual de bien que
-// si el gateway de pago nunca hubiera existido (design.md "Nothing in this
-// module can fail a clinical write").
+// Stub del port PaymentGatewayClient que rechaza SIEMPRE createOrder --
+// reemplaza al UnconfiguredPaymentGatewayClient que existía antes del
+// rediseño multi-gateway (sdd/payments-multigateway-redesign); registrado
+// como el adaptador FLOW para que issueOrder() (payments.service.ts) tenga
+// algo real con qué fallar.
+class RejectingFlowGatewayClient extends PaymentGatewayClient {
+  readonly provider = PaymentProvider.FLOW;
+
+  validateCredentials(): Promise<CredentialValidation> {
+    throw new PaymentGatewayError(
+      'transient',
+      'No implementado en el stub de test.',
+    );
+  }
+
+  createOrder(): Promise<{ token: string; paymentUrl: string }> {
+    return Promise.reject(
+      new PaymentGatewayError('transient', 'Gateway no disponible (test)'),
+    );
+  }
+
+  getOrderStatus(): Promise<{
+    status: GatewayOrderStatus;
+    gatewayPaymentId?: string;
+  }> {
+    throw new PaymentGatewayError(
+      'transient',
+      'No implementado en el stub de test.',
+    );
+  }
+
+  verifyCallbackSignature(): boolean {
+    return false;
+  }
+}
+
+// sdd/online-payment-integration PR 1 (T3.5/T3.7/T3.9), actualizado por
+// sdd/payments-multigateway-redesign: real Prisma + una PaymentAccount v2
+// (credentialVersion 2, CONNECTED) resuelta por resolveGatewayContext() y un
+// gateway FLOW que rechaza SIEMPRE createOrder -- mismo criterio que el
+// describe "Google client failing" de arriba: create()/correct() deben
+// resolver igual de bien que si el gateway de pago nunca hubiera existido
+// (design.md "Nothing in this module can fail a clinical write").
 describe('ConsultationsService + PaymentsService (integration, gateway stub throwing)', () => {
   let prisma: PrismaService;
   let consultationsService: ConsultationsService;
@@ -441,6 +496,9 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
       GOOGLE_CLIENT_ID: 'integration-test-client-id',
       GOOGLE_CLIENT_SECRET: 'integration-test-client-secret',
       GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString('base64'),
+      PAYMENT_CREDENTIALS_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString(
+        'base64',
+      ),
     };
     return { get: (key: string) => values[key] } as unknown as ConfigService;
   }
@@ -459,11 +517,25 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
     });
     therapistId = therapist.id;
 
+    const credentialCrypto = new PaymentCredentialCryptoService(buildConfig());
+    credentialCrypto.onModuleInit();
+    const credentialEncrypted = credentialCrypto.encrypt(
+      Buffer.from(
+        JSON.stringify({
+          apiKey: `key-${runId}`,
+          secretKey: `secret-${runId}`,
+        }),
+        'utf-8',
+      ),
+    );
+
     await prisma.paymentAccount.create({
       data: {
         therapistId,
         status: 'CONNECTED',
-        merchantId: `merchant-${runId}`,
+        provider: PaymentProvider.FLOW,
+        credentialVersion: 2,
+        credentialEncrypted: Uint8Array.from(credentialEncrypted),
       },
     });
 
@@ -500,9 +572,22 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
       calendarSync,
     );
 
+    const registry = new PaymentGatewayRegistry([
+      new RejectingFlowGatewayClient(),
+    ]);
+    const accountCredentialCrypto = new PaymentCredentialCryptoService(
+      buildConfig(),
+    );
+    accountCredentialCrypto.onModuleInit();
+    const paymentAccountService = new PaymentAccountService(
+      prisma,
+      registry,
+      accountCredentialCrypto,
+    );
     paymentsService = new PaymentsService(
       prisma,
-      new UnconfiguredPaymentGatewayClient(),
+      paymentAccountService,
+      registry,
       buildConfig(),
       new MailService(buildConfig()),
       new NotificationsService(prisma),
