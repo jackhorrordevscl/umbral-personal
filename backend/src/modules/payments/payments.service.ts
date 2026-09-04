@@ -233,7 +233,18 @@ export class PaymentsService {
       where: { therapistId: payment.therapistId },
     });
     if (account) {
-      await this.issueOrder(payment.id, account.merchantId, amount, groupId);
+      const order = await this.issueOrder(
+        payment.id,
+        account.merchantId,
+        amount,
+        groupId,
+      );
+      const patient = await this.prisma.patient.findUnique({
+        where: { id: payment.patientId },
+      });
+      if (patient) {
+        await this.deliverPaymentLink(payment.id, patient, order, amount);
+      }
     }
 
     return this.prisma.payment.findUniqueOrThrow({ where: { groupId } });

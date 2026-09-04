@@ -445,6 +445,9 @@ describe('PaymentsService', () => {
         buildPayment({ amount: 45000, therapistId: 'therapist-1' }),
       );
       prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      prisma.patient.findUnique.mockResolvedValue(
+        buildConsultation().patient,
+      );
 
       const result = await service.updateAmount('group-1', 45000);
 
@@ -461,6 +464,46 @@ describe('PaymentsService', () => {
       await expect(service.updateAmount('group-1', 45000)).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    // issue #112: updateAmount() re-emite la orden pero antes nunca avisaba
+    // al paciente del monto nuevo -- mismo criterio de entrega que
+    // ensureCharge (deliverPaymentLink), disparado acá tras el re-issue.
+    it('reenvía el email de payment-link con el monto y la orden nuevos', async () => {
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment({ amount: 45000, therapistId: 'therapist-1' }),
+      );
+      prisma.paymentAccount.findUnique.mockResolvedValue(buildAccount());
+      prisma.patient.findUnique.mockResolvedValue(
+        buildConsultation().patient,
+      );
+
+      await service.updateAmount('group-1', 45000);
+
+      expect(mailService.sendPaymentLinkEmail).toHaveBeenCalledWith(
+        'paciente@example.com',
+        'Juan Soto',
+        'https://flow.cl/pay/order-token',
+        45000,
+      );
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: expect.objectContaining({ linkDelivery: 'SENT' }) as unknown,
+      });
+    });
+
+    it('no intenta reenviar el email si no hay PaymentAccount conectada', async () => {
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment({ amount: 45000, therapistId: 'therapist-1' }),
+      );
+      prisma.paymentAccount.findUnique.mockResolvedValue(null);
+
+      await service.updateAmount('group-1', 45000);
+
+      expect(prisma.patient.findUnique).not.toHaveBeenCalled();
+      expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
     });
   });
 
