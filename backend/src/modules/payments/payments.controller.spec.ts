@@ -21,6 +21,7 @@ describe('PaymentsController', () => {
   let paymentsService: {
     assertOwnership: jest.Mock;
     updateAmount: jest.Mock;
+    resendPaymentLink: jest.Mock;
     confirm: jest.Mock;
     findByToken: jest.Mock;
   };
@@ -50,6 +51,9 @@ describe('PaymentsController', () => {
       updateAmount: jest
         .fn()
         .mockResolvedValue({ id: 'payment-1', amount: 45000 }),
+      resendPaymentLink: jest
+        .fn()
+        .mockResolvedValue({ id: 'payment-1', linkDelivery: 'SENT' }),
       confirm: jest.fn().mockResolvedValue(undefined),
       findByToken: jest.fn(),
     };
@@ -251,6 +255,53 @@ describe('PaymentsController', () => {
       ).rejects.toThrow();
 
       expect(paymentsService.updateAmount).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resendLink (POST /payments/:groupId/resend-link)', () => {
+    it('verifica ownership del terapeuta ANTES de reenviar el link', async () => {
+      const callOrder: string[] = [];
+      paymentsService.assertOwnership.mockImplementation(() => {
+        callOrder.push('assertOwnership');
+        return Promise.resolve({ id: 'payment-1' });
+      });
+      paymentsService.resendPaymentLink.mockImplementation(() => {
+        callOrder.push('resendPaymentLink');
+        return Promise.resolve({ id: 'payment-1', linkDelivery: 'SENT' });
+      });
+
+      await controller.resendLink('group-1', {
+        id: 'therapist-1',
+        email: '',
+        role: '',
+        name: '',
+      });
+
+      expect(callOrder).toEqual(['assertOwnership', 'resendPaymentLink']);
+      expect(paymentsService.assertOwnership).toHaveBeenCalledWith(
+        'group-1',
+        'therapist-1',
+      );
+      expect(paymentsService.resendPaymentLink).toHaveBeenCalledWith(
+        'group-1',
+      );
+    });
+
+    it('propaga el 404 de assertOwnership sin llamar a resendPaymentLink (tenancy)', async () => {
+      paymentsService.assertOwnership.mockRejectedValue(
+        new Error('No existe un cargo para esta sesión.'),
+      );
+
+      await expect(
+        controller.resendLink('group-de-otro-terapeuta', {
+          id: 'therapist-2',
+          email: '',
+          role: '',
+          name: '',
+        }),
+      ).rejects.toThrow();
+
+      expect(paymentsService.resendPaymentLink).not.toHaveBeenCalled();
     });
   });
 });

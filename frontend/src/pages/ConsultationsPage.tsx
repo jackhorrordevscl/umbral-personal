@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle, Copy, Check } from 'lucide-react';
+import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle, Copy, Check, Send } from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import FormField from '../components/ui/FormField';
 import ConsultationForm from '../components/consultations/ConsultationForm';
 import PaymentStatusBadge from '../components/payments/PaymentStatusBadge';
+import api from '../api/client';
 import { usePatients } from '../hooks/usePatients';
 import { useConsultations, useCorrectConsultation } from '../hooks/useConsultations';
 import type { Consultation, ConsultationHistory, Patient } from '../types/patient';
@@ -42,6 +43,47 @@ function CopyPaymentLinkButton({ paymentUrl }: { paymentUrl: string }) {
     >
       {copied ? <Check size={11} /> : <Copy size={11} />}
       {copied ? 'Copiado' : 'Copiar link de pago'}
+    </button>
+  );
+}
+
+// Reenvío manual del email de payment-link (PaymentsController.resendLink,
+// POST /payments/:groupId/resend-link) -- complementa el botón de copiar
+// para el caso en que el terapeuta prefiere que el paciente lo reciba por
+// correo de nuevo (link vencido en la bandeja, paciente lo perdió, etc.).
+function ResendPaymentLinkButton({ groupId }: { groupId: string }) {
+  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const handleResend = async () => {
+    setStatus('sending');
+    try {
+      await api.post(`/payments/${groupId}/resend-link`);
+      setStatus('sent');
+      setTimeout(() => setStatus('idle'), 2000);
+    } catch (err) {
+      setErrorMessage(getApiErrorMessage(err, 'No se pudo reenviar el link de pago.'));
+      setStatus('error');
+      setTimeout(() => setStatus('idle'), 3000);
+    }
+  };
+
+  const label =
+    status === 'sending' ? 'Enviando...' :
+    status === 'sent' ? 'Enviado' :
+    status === 'error' ? 'Error al reenviar' :
+    'Reenviar link de pago';
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleResend()}
+      disabled={status === 'sending'}
+      title={status === 'error' ? errorMessage : 'Reenviar el link de pago al email del paciente'}
+      className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors inline-flex items-center gap-1 disabled:opacity-50"
+    >
+      {status === 'sent' ? <Check size={11} /> : <Send size={11} />}
+      {label}
     </button>
   );
 }
@@ -363,7 +405,10 @@ export default function ConsultationsPage() {
                           </span>
                           <PaymentStatusBadge payment={c.payment} />
                           {c.payment?.paymentUrl && (
-                            <CopyPaymentLinkButton paymentUrl={c.payment.paymentUrl} />
+                            <>
+                              <CopyPaymentLinkButton paymentUrl={c.payment.paymentUrl} />
+                              <ResendPaymentLinkButton groupId={c.payment.groupId} />
+                            </>
                           )}
                           {c.history.length > 0 && (
                             <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">

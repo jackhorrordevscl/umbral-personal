@@ -1,4 +1,4 @@
-import { Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PaymentProvider } from '@prisma/client';
 import { PaymentsService } from './payments.service';
@@ -588,6 +588,80 @@ describe('PaymentsService', () => {
 
       expect(prisma.patient.findUnique).not.toHaveBeenCalled();
       expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+    });
+  });
+
+  // Botón manual "Reenviar link de pago" (ConsultationsPage, junto al de
+  // copiar) -- reenvía el email con el paymentUrl YA emitido, sin volver a
+  // llamar al gateway (a diferencia de updateAmount, que sí re-emite orden
+  // porque el monto cambió).
+  describe('resendPaymentLink', () => {
+    it('reenvía el email con el paymentUrl existente y setea linkDelivery=SENT', async () => {
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment({ paymentUrl: 'https://flow.cl/pay/existing-token' }),
+      );
+      prisma.patient.findUnique.mockResolvedValue(buildConsultation().patient);
+      prisma.payment.update.mockResolvedValue(
+        buildPayment({ linkDelivery: 'SENT' }),
+      );
+
+      const result = await service.resendPaymentLink('group-1');
+
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+      expect(mailService.sendPaymentLinkEmail).toHaveBeenCalledWith(
+        'paciente@example.com',
+        'Juan Soto',
+        'https://flow.cl/pay/existing-token',
+        30000,
+      );
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { groupId: 'group-1' },
+        data: {
+          linkDelivery: 'SENT',
+          linkSentAt: expect.any(Date) as unknown,
+        },
+      });
+      expect(result).toBeDefined();
+    });
+
+    it('sin paymentUrl (nunca se emitió orden): rechaza con BadRequestException sin llamar a MailService', async () => {
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment({ paymentUrl: null }),
+      );
+
+      await expect(service.resendPaymentLink('group-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+    });
+
+    it('sin email del paciente: rechaza con BadRequestException sin llamar a MailService', async () => {
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment({ paymentUrl: 'https://flow.cl/pay/existing-token' }),
+      );
+      prisma.patient.findUnique.mockResolvedValue(
+        buildConsultation({}, { email: null }).patient,
+      );
+
+      await expect(service.resendPaymentLink('group-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+    });
+
+    it('si el proveedor de email falla, setea linkDelivery=FAILED', async () => {
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment({ paymentUrl: 'https://flow.cl/pay/existing-token' }),
+      );
+      prisma.patient.findUnique.mockResolvedValue(buildConsultation().patient);
+      mailService.sendPaymentLinkEmail.mockResolvedValue(false);
+
+      await service.resendPaymentLink('group-1');
+
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { groupId: 'group-1' },
+        data: { linkDelivery: 'FAILED', linkSentAt: null },
+      });
     });
   });
 

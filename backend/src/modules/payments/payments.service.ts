@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { NotificationType, Payment } from '@prisma/client';
@@ -282,6 +287,47 @@ export class PaymentsService {
     }
 
     return this.prisma.payment.findUniqueOrThrow({ where: { groupId } });
+  }
+
+  // Manual resend of an already-issued link (button next to "Copiar link de
+  // pago", ConsultationsPage) -- reuses the existing paymentUrl instead of
+  // re-issuing an order with the gateway, since the charge itself hasn't
+  // changed. Same linkDelivery/linkSentAt bookkeeping as deliverPaymentLink,
+  // but callable any number of times (not gated to "once at charge
+  // creation").
+  async resendPaymentLink(groupId: string): Promise<Payment> {
+    const payment = await this.prisma.payment.findUniqueOrThrow({
+      where: { groupId },
+    });
+    if (!payment.paymentUrl) {
+      throw new BadRequestException(
+        'No hay un link de pago disponible para reenviar.',
+      );
+    }
+
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: payment.patientId },
+    });
+    if (!patient?.email) {
+      throw new BadRequestException(
+        'El paciente no tiene un email registrado.',
+      );
+    }
+
+    const sent = await this.mailService.sendPaymentLinkEmail(
+      patient.email,
+      patient.fullName,
+      payment.paymentUrl,
+      payment.amount,
+    );
+
+    return this.prisma.payment.update({
+      where: { groupId },
+      data: {
+        linkDelivery: sent ? 'SENT' : 'FAILED',
+        linkSentAt: sent ? new Date() : null,
+      },
+    });
   }
 
   // Flow's /payment/create requires an email param (discovered against a

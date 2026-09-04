@@ -90,6 +90,19 @@ export class PaymentsController {
     return this.paymentsService.updateAmount(groupId, dto.amount);
   }
 
+  // Manual resend button next to "Copiar link de pago" (ConsultationsPage):
+  // same ownership gate as updateAmount, same uniform 404 for a groupId that
+  // doesn't belong to this therapist.
+  @UseGuards(JwtAuthGuard)
+  @Post(':groupId/resend-link')
+  async resendLink(
+    @Param('groupId') groupId: string,
+    @CurrentUser() user: RequestUser,
+  ) {
+    await this.paymentsService.assertOwnership(groupId, user.id);
+    return this.paymentsService.resendPaymentLink(groupId);
+  }
+
   // T5.6/T7.9/T7.10 + design.md "Webhook — after": no JwtAuthGuard on
   // purpose -- Flow makes a server-to-server POST with no Authorization
   // header at all. Flow signs callbacks with the *owning merchant's* own

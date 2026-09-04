@@ -218,6 +218,7 @@ describe('ConsultationsPage', () => {
           data: [
             buildConsultation({
               payment: {
+                groupId: 'group-1',
                 status: 'LATE',
                 linkDelivery: 'SENT',
                 paymentUrl: 'https://flow.cl/pay/token-1',
@@ -237,6 +238,44 @@ describe('ConsultationsPage', () => {
     expect(
       screen.getByRole('button', { name: /copiar link de pago/i }),
     ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /reenviar link de pago/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('reenviar link de pago llama a POST /payments/:groupId/resend-link y muestra confirmación', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url.startsWith('/consultations/patient/'))
+        return Promise.resolve({
+          data: [
+            buildConsultation({
+              payment: {
+                groupId: 'group-1',
+                status: 'LATE',
+                linkDelivery: 'SENT',
+                paymentUrl: 'https://flow.cl/pay/token-1',
+                amount: 30000,
+              },
+            }),
+          ],
+        })
+      return Promise.resolve({ data: [] })
+    })
+    mockedApi.post.mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    await user.click(
+      screen.getByRole('button', { name: /reenviar link de pago/i }),
+    )
+
+    expect(mockedApi.post).toHaveBeenCalledWith(
+      '/payments/group-1/resend-link',
+    )
+    expect(await screen.findByText('Enviado')).toBeInTheDocument()
   })
 
   it('no muestra badge de cobro ni control de copiar link cuando la sesión no tiene cargo asociado', async () => {
@@ -254,6 +293,9 @@ describe('ConsultationsPage', () => {
     expect(await screen.findByText('Motivo de la sesión')).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: /copiar link de pago/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /reenviar link de pago/i }),
     ).not.toBeInTheDocument()
   })
 })
