@@ -73,7 +73,14 @@ export class ReportsService {
       doc
         .fontSize(20)
         .font('Helvetica-Bold')
-        .text('UMBRAL SpA', { align: 'center' });
+        .text('UMBRAL - RCE', { align: 'center' });
+
+      doc
+        .fontSize(12)
+        .font('Helvetica')
+        .text('Registro Clínico Electrónico', { align: 'center' });
+
+      doc.moveDown();
 
       doc
         .fontSize(12)

@@ -86,6 +86,14 @@ export interface OrderInput {
   externalId: string;
   returnUrl: string;
   confirmUrl: string;
+  // Discovered against a real Flow sandbox (not documented as required in
+  // the public API docs): /payment/create rejects with 400 "Missing service
+  // params: email" without this. Patient's email when available, falling
+  // back to the therapist's own (PaymentsService.resolvePayerEmail) --
+  // purely to satisfy Flow's required field, unrelated to link delivery
+  // (deliverPaymentLink already handles a patient with no email on its
+  // own).
+  payerEmail: string;
 }
 
 // design.md "Port contract": stateless. Every method takes credentials in --

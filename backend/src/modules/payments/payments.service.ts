@@ -35,6 +35,7 @@ interface IssueOrderRequest {
   context: GatewayContext;
   amount: number;
   groupId: string;
+  payerEmail: string;
 }
 
 // design.md "Technical Approach": PaymentsService is the sole owner of the
@@ -107,6 +108,7 @@ export class PaymentsService {
             fullName: true,
           },
         },
+        therapist: { select: { email: true } },
       },
     });
     if (!consultation || consultation.patient.deletedAt) return;
@@ -150,6 +152,7 @@ export class PaymentsService {
       context,
       amount,
       groupId,
+      payerEmail: consultation.patient.email ?? consultation.therapist.email,
     });
     await this.deliverPaymentLink(
       created.id,
@@ -259,14 +262,19 @@ export class PaymentsService {
       payment.therapistId,
     );
     if (context) {
+      const patient = await this.prisma.patient.findUnique({
+        where: { id: payment.patientId },
+      });
+      const payerEmail = await this.resolvePayerEmail(
+        patient?.email ?? null,
+        payment.therapistId,
+      );
       const order = await this.issueOrder({
         paymentId: payment.id,
         context,
         amount,
         groupId,
-      });
-      const patient = await this.prisma.patient.findUnique({
-        where: { id: payment.patientId },
+        payerEmail,
       });
       if (patient) {
         await this.deliverPaymentLink(payment.id, patient, order, amount);
@@ -274,6 +282,23 @@ export class PaymentsService {
     }
 
     return this.prisma.payment.findUniqueOrThrow({ where: { groupId } });
+  }
+
+  // Flow's /payment/create requires an email param (discovered against a
+  // real sandbox, see flow-gateway.client.ts header) unrelated to link
+  // delivery -- falls back to the therapist's own email only when the
+  // patient has none, purely to satisfy that requirement. Queries User only
+  // when the fallback is actually needed.
+  private async resolvePayerEmail(
+    patientEmail: string | null,
+    therapistId: string,
+  ): Promise<string> {
+    if (patientEmail) return patientEmail;
+    const therapist = await this.prisma.user.findUniqueOrThrow({
+      where: { id: therapistId },
+      select: { email: true },
+    });
+    return therapist.email;
   }
 
   // spec.md "Cancellation Preserves Paid Charges and Voids Pending Ones":
@@ -371,7 +396,7 @@ export class PaymentsService {
   private async issueOrder(
     request: IssueOrderRequest,
   ): Promise<{ paymentUrl: string } | null> {
-    const { paymentId, context, amount, groupId } = request;
+    const { paymentId, context, amount, groupId, payerEmail } = request;
     const frontendUrl =
       this.config.get<string>('FRONTEND_URL') ?? DEFAULT_FRONTEND_URL;
     const backendUrl =
@@ -385,6 +410,7 @@ export class PaymentsService {
           currency: DEFAULT_CURRENCY,
           subject: CHARGE_SUBJECT,
           externalId: groupId,
+          payerEmail,
           // returnUrl is where Flow sends the PATIENT back after the hosted
           // checkout (frontend) -- confirmUrl is where Flow makes the
           // server-to-server POST (backend, no guard, T5.6).

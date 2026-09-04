@@ -79,6 +79,7 @@ describe('FlowPaymentGatewayClient', () => {
         currency: 'CLP',
         subject: 'Sesión clínica',
         externalId: 'group-1',
+        payerEmail: 'paciente@example.com',
         returnUrl: 'https://umbral.cl/payments',
         confirmUrl: 'https://umbral.cl/payments/confirm',
       });
@@ -95,6 +96,7 @@ describe('FlowPaymentGatewayClient', () => {
       ];
       const sentBody = new URLSearchParams(requestInit.body as string);
       expect(sentBody.get('apiKey')).toBe('test-api-key');
+      expect(sentBody.get('email')).toBe('paciente@example.com');
       expect(sentBody.has('merchantId')).toBe(false);
     });
 
@@ -107,6 +109,7 @@ describe('FlowPaymentGatewayClient', () => {
           currency: 'CLP',
           subject: 'Sesión clínica',
           externalId: 'group-1',
+          payerEmail: 'paciente@example.com',
           returnUrl: 'https://umbral.cl/payments',
           confirmUrl: 'https://umbral.cl/payments/confirm',
         }),
@@ -126,6 +129,7 @@ describe('FlowPaymentGatewayClient', () => {
           currency: 'CLP',
           subject: 'Sesión clínica',
           externalId: 'group-1',
+          payerEmail: 'paciente@example.com',
           returnUrl: 'https://umbral.cl/payments',
           confirmUrl: 'https://umbral.cl/payments/confirm',
         }),

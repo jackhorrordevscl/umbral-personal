@@ -22,6 +22,9 @@ interface ConsultationRow {
     email: string | null;
     fullName: string;
   };
+  therapist: {
+    email: string;
+  };
 }
 
 function buildConsultation(
@@ -42,6 +45,7 @@ function buildConsultation(
       fullName: 'Juan Soto',
       ...patientOverrides,
     },
+    therapist: { email: 'terapeuta@example.com' },
     ...overrides,
   };
 }

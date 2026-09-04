@@ -28,6 +28,9 @@ import {
 //     status in the POST -- only a `token` to re-query (validates the design
 //     decision "The confirmation callback is a signal, never a source of
 //     truth").
+//   - CORRECTED against a real Flow sandbox: /payment/create also requires
+//     `email` (400 "Missing service params: email" without it) -- not
+//     mentioned as required in the public docs referenced above.
 //   - UNVERIFIED (best-effort, explicitly flagged below): the exact numeric
 //     mapping of /payment/getStatus (assumes 1=pending, 2=paid, 3=rejected,
 //     4=voided, the most commonly documented scheme for Flow, but not
@@ -100,6 +103,7 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
       subject: input.subject,
       currency: input.currency,
       amount: String(input.amount),
+      email: input.payerEmail,
       urlConfirmation: input.confirmUrl,
       urlReturn: input.returnUrl,
     };
