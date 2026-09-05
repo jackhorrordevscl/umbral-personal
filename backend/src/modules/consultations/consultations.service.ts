@@ -214,6 +214,7 @@ export class ConsultationsService {
     const map = new Map<
       string,
       {
+        groupId: string;
         status: string;
         linkDelivery: string;
         paymentUrl: string | null;
@@ -234,6 +235,7 @@ export class ConsultationsService {
     });
     for (const payment of payments) {
       map.set(payment.groupId, {
+        groupId: payment.groupId,
         status: payment.status,
         linkDelivery: payment.linkDelivery,
         paymentUrl: payment.paymentUrl,

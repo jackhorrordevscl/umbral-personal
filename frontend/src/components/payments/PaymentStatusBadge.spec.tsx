@@ -5,6 +5,7 @@ import type { PaymentSummary } from '../../types/patient'
 
 function buildPayment(overrides: Partial<PaymentSummary> = {}): PaymentSummary {
   return {
+    groupId: 'group-1',
     status: 'PENDING',
     linkDelivery: 'SENT',
     paymentUrl: 'https://flow.cl/pay/token-1',

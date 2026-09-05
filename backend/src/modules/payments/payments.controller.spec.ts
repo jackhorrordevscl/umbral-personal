@@ -286,9 +286,7 @@ describe('PaymentsController', () => {
         'group-1',
         'therapist-1',
       );
-      expect(paymentsService.resendPaymentLink).toHaveBeenCalledWith(
-        'group-1',
-      );
+      expect(paymentsService.resendPaymentLink).toHaveBeenCalledWith('group-1');
     });
 
     it('propaga el 404 de assertOwnership sin llamar a resendPaymentLink (tenancy)', async () => {

@@ -76,6 +76,7 @@ export type PaymentLinkDelivery =
   | 'FAILED';
 
 export interface PaymentSummary {
+  groupId: string;
   status: PaymentStatus;
   linkDelivery: PaymentLinkDelivery;
   paymentUrl: string | null;

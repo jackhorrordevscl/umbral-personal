@@ -183,6 +183,7 @@ describe('ConsultationsPage', () => {
           data: [
             buildConsultation({
               payment: {
+                groupId: 'group-1',
                 status: 'PENDING',
                 linkDelivery: 'SENT',
                 paymentUrl: 'https://flow.cl/pay/token-1',
