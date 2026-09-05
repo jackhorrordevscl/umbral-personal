@@ -8,8 +8,11 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { PaymentsService } from './payments.service';
 import { PaymentAccountService } from './payment-account.service';
 import { PaymentGatewayRegistry } from './payment-gateway.registry';
@@ -30,9 +33,10 @@ const CONFIRM_SIGNATURE_ERROR = 'Firma de confirmación inválida.';
 // POST /account is the confirmation step (re-validates, then persists).
 // Every account route (GET/POST/POST validate/DELETE) and PATCH /:groupId
 // stays scoped to the authenticated therapist (@CurrentUser(), never a
-// route :id) -- POST /confirm remains the module's ONLY public route (same
-// criterion as CalendarIntegrationController.callback: no @UseGuards at the
-// controller level, each protected route declares it individually).
+// route :id) -- POST /confirm and GET|POST /return are the module's ONLY
+// public routes (same criterion as CalendarIntegrationController.callback:
+// no @UseGuards at the controller level, each protected route declares it
+// individually).
 @Controller('payments')
 export class PaymentsController {
   constructor(
@@ -142,5 +146,29 @@ export class PaymentsController {
 
     await this.paymentsService.confirm(dto.token);
     return { received: true };
+  }
+
+  // Bug fix: Flow's redirect back to the PATIENT after the hosted checkout
+  // is a browser-submitted POST (confirmed against a real sandbox run, not
+  // documented in Flow's public API docs) -- a static frontend SPA route has
+  // no server-side handler for that, and returnUrl used to point straight at
+  // one anyway (PAYMENT_RETURN_PATH's header comment). This route is public
+  // (same tier as /confirm) because it never reads or mutates Payment state,
+  // only resolves where to bounce the browser -- GET is kept alongside POST
+  // as a safety net in case Flow ever redirects that way instead.
+  @Post('return')
+  returnFromGatewayPost(
+    @Body('token') token: string | undefined,
+    @Res() res: Response,
+  ) {
+    res.redirect(302, this.paymentsService.resolveReturnRedirectUrl(token));
+  }
+
+  @Get('return')
+  returnFromGatewayGet(
+    @Query('token') token: string | undefined,
+    @Res() res: Response,
+  ) {
+    res.redirect(302, this.paymentsService.resolveReturnRedirectUrl(token));
   }
 }

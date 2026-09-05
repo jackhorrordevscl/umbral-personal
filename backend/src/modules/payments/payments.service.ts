@@ -16,6 +16,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import {
   PAYMENT_CONFIRM_PATH,
   PAYMENT_RETURN_PATH,
+  PAYMENT_RETURN_REDIRECT_PATH,
   RECONCILE_MIN_AGE_MS,
   SWEEP_BATCH_LIMIT,
 } from './payments.constants';
@@ -432,6 +433,21 @@ export class PaymentsService {
     return payment;
   }
 
+  // Used by PaymentsController.returnFromGateway (bug fix: returnUrl used to
+  // point straight at the frontend's PAYMENT_RETURN_PATH, but Flow's redirect
+  // back is a browser-submitted POST that a static SPA route can't handle,
+  // and that route also sat behind the therapist's auth layout). This never
+  // reads or mutates Payment state -- it only resolves WHERE to bounce the
+  // patient's browser, so an unrecognized/tampered token is harmless: the
+  // worst case is a patient landing on the thank-you page with a token that
+  // doesn't resolve to anything, same as landing there with none at all.
+  resolveReturnRedirectUrl(token?: string): string {
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') ?? DEFAULT_FRONTEND_URL;
+    const url = `${frontendUrl}${PAYMENT_RETURN_PATH}`;
+    return token ? `${url}?token=${encodeURIComponent(token)}` : url;
+  }
+
   // design.md "Charge a session — after": issueOrder(ctx) -- takes the
   // already-resolved GatewayContext instead of a merchantId, and routes the
   // call through the registry so a second provider needs no change here
@@ -443,8 +459,6 @@ export class PaymentsService {
     request: IssueOrderRequest,
   ): Promise<{ paymentUrl: string } | null> {
     const { paymentId, context, amount, groupId, payerEmail } = request;
-    const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') ?? DEFAULT_FRONTEND_URL;
     const backendUrl =
       this.config.get<string>('BACKEND_PUBLIC_URL') ?? DEFAULT_BACKEND_URL;
 
@@ -457,10 +471,15 @@ export class PaymentsService {
           subject: CHARGE_SUBJECT,
           externalId: groupId,
           payerEmail,
-          // returnUrl is where Flow sends the PATIENT back after the hosted
-          // checkout (frontend) -- confirmUrl is where Flow makes the
-          // server-to-server POST (backend, no guard, T5.6).
-          returnUrl: `${frontendUrl}${PAYMENT_RETURN_PATH}`,
+          // Both returnUrl and confirmUrl point at the BACKEND -- confirmUrl
+          // because it's always been a server-to-server POST (T5.6), and
+          // returnUrl because Flow's redirect back is ALSO a browser-
+          // submitted POST (confirmed against a real sandbox run), which a
+          // static frontend SPA route has no server-side handler for.
+          // PaymentsController.returnFromGateway (no guard, same tier as
+          // confirm) receives it and 302-redirects the patient's browser to
+          // the real frontend page (PAYMENT_RETURN_PATH) as a GET.
+          returnUrl: `${backendUrl}${PAYMENT_RETURN_REDIRECT_PATH}`,
           confirmUrl: `${backendUrl}${PAYMENT_CONFIRM_PATH}`,
         });
       await this.prisma.payment.update({

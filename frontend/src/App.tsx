@@ -25,6 +25,7 @@ const ConfirmEmailChangePage = lazy(
 const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const MfaRecoverPage = lazy(() => import("./pages/MfaRecoverPage"));
+const PaymentReturnPage = lazy(() => import("./pages/PaymentReturnPage"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const PatientsPage = lazy(() => import("./pages/PatientsPage"));
 const ConsultationsPage = lazy(() => import("./pages/ConsultationsPage"));
@@ -106,6 +107,11 @@ function AppRoutes() {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/mfa/recover" element={<MfaRecoverPage />} />
+        {/* Bug fix: destino público al que Flow redirige al PACIENTE tras el
+            checkout (PaymentsController.returnFromGateway 302, backend
+            PAYMENT_RETURN_PATH) -- nunca debe vivir detrás de PrivateRoute,
+            el paciente no está autenticado como terapeuta. */}
+        <Route path="/pago-recibido" element={<PaymentReturnPage />} />
 
         <Route
           element={

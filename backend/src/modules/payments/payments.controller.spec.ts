@@ -24,6 +24,7 @@ describe('PaymentsController', () => {
     resendPaymentLink: jest.Mock;
     confirm: jest.Mock;
     findByToken: jest.Mock;
+    resolveReturnRedirectUrl: jest.Mock;
   };
   let paymentAccountService: {
     status: jest.Mock;
@@ -56,6 +57,9 @@ describe('PaymentsController', () => {
         .mockResolvedValue({ id: 'payment-1', linkDelivery: 'SENT' }),
       confirm: jest.fn().mockResolvedValue(undefined),
       findByToken: jest.fn(),
+      resolveReturnRedirectUrl: jest
+        .fn()
+        .mockReturnValue('http://localhost:5173/pago-recibido'),
     };
     paymentAccountService = {
       status: jest.fn(),
@@ -302,6 +306,76 @@ describe('PaymentsController', () => {
       ).rejects.toThrow();
 
       expect(paymentsService.resendPaymentLink).not.toHaveBeenCalled();
+    });
+  });
+
+  // Bug fix: returnUrl used to point straight at the frontend's
+  // PAYMENT_RETURN_PATH, which 404'd (a static SPA route has no handler for
+  // Flow's browser-submitted POST) -- this public route (no guard, same
+  // tier as /confirm) exists only to 302-redirect the patient's browser to
+  // the real frontend page.
+  describe('return (GET|POST /payments/return)', () => {
+    function buildRes() {
+      return { redirect: jest.fn() } as unknown as {
+        redirect: jest.Mock;
+      };
+    }
+
+    it('POST redirige (302) a la URL resuelta por paymentsService con el token del body', () => {
+      const res = buildRes();
+      paymentsService.resolveReturnRedirectUrl.mockReturnValue(
+        'http://localhost:5173/pago-recibido?token=flow-token-abc',
+      );
+
+      controller.returnFromGatewayPost(
+        'flow-token-abc',
+        res as unknown as Parameters<
+          PaymentsController['returnFromGatewayPost']
+        >[1],
+      );
+
+      expect(paymentsService.resolveReturnRedirectUrl).toHaveBeenCalledWith(
+        'flow-token-abc',
+      );
+      expect(res.redirect).toHaveBeenCalledWith(
+        302,
+        'http://localhost:5173/pago-recibido?token=flow-token-abc',
+      );
+    });
+
+    it('GET redirige (302) a la URL resuelta por paymentsService con el token del query', () => {
+      const res = buildRes();
+
+      controller.returnFromGatewayGet(
+        'flow-token-abc',
+        res as unknown as Parameters<
+          PaymentsController['returnFromGatewayGet']
+        >[1],
+      );
+
+      expect(paymentsService.resolveReturnRedirectUrl).toHaveBeenCalledWith(
+        'flow-token-abc',
+      );
+      expect(res.redirect).toHaveBeenCalledWith(
+        302,
+        'http://localhost:5173/pago-recibido',
+      );
+    });
+
+    it('sin token (undefined) igual redirige -- nunca bloquea al paciente', () => {
+      const res = buildRes();
+
+      controller.returnFromGatewayPost(
+        undefined,
+        res as unknown as Parameters<
+          PaymentsController['returnFromGatewayPost']
+        >[1],
+      );
+
+      expect(paymentsService.resolveReturnRedirectUrl).toHaveBeenCalledWith(
+        undefined,
+      );
+      expect(res.redirect).toHaveBeenCalledWith(302, expect.any(String));
     });
   });
 });

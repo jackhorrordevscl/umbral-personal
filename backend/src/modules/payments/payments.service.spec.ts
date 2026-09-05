@@ -665,6 +665,36 @@ describe('PaymentsService', () => {
     });
   });
 
+  // Bug fix: PaymentsController.returnFromGateway (GET|POST /payments/return,
+  // no guard) uses this to resolve WHERE to bounce the patient's browser
+  // after Flow's returnUrl redirect -- never reads or mutates Payment state,
+  // so an absent/unrecognized token is harmless.
+  describe('resolveReturnRedirectUrl', () => {
+    it('sin token, resuelve solo la URL base del frontend', () => {
+      const url = service.resolveReturnRedirectUrl();
+
+      expect(url).toBe('http://localhost:5173/pago-recibido');
+    });
+
+    it('con token, lo agrega como query param', () => {
+      const url = service.resolveReturnRedirectUrl('flow-token-abc');
+
+      expect(url).toBe(
+        'http://localhost:5173/pago-recibido?token=flow-token-abc',
+      );
+    });
+
+    it('respeta FRONTEND_URL cuando está configurada', () => {
+      config.get.mockImplementation((key: string) =>
+        key === 'FRONTEND_URL' ? 'https://umbral.cl' : undefined,
+      );
+
+      const url = service.resolveReturnRedirectUrl('flow-token-abc');
+
+      expect(url).toBe('https://umbral.cl/pago-recibido?token=flow-token-abc');
+    });
+  });
+
   // T3.10: mismo criterio de degradación que MailService sin
   // RESEND_API_KEY -- sin PAYMENTS_ENABLED (o explícitamente "false") el
   // servicio se construye sin lanzar y deja constancia en logs, en vez de
