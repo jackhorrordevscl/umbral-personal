@@ -7,14 +7,11 @@ import { getApiErrorMessage } from '../utils/api-error';
 import RecoveryCodesReveal from '../components/RecoveryCodesReveal';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import { useProfile, type Profile } from '../hooks/useProfile';
-
-interface CalendarConnectionStatus {
-  status: 'PENDING' | 'CONNECTED' | 'DISCONNECTED';
-  googleAccountEmail: string | null;
-  connectedAt: string | null;
-  lastSyncAt: string | null;
-  lastError: string | null;
-}
+import {
+  useCalendarStatus,
+  useConnectCalendar,
+  useDisconnectCalendar,
+} from '../hooks/useCalendarIntegration';
 
 interface MfaHistoryEntry {
   action: string;
@@ -242,13 +239,15 @@ function MfaCard({
 export default function SecurityPage() {
   const [searchParams] = useSearchParams();
 
-  // Issue #78 (PR 3): estado de la conexión con Google Calendar. Se lee de
-  // GET /calendar-integration/status por separado del GET /profile de
-  // abajo -- vive en su propio módulo (CalendarIntegrationController), no
-  // en ProfileService.
-  const [calendarStatus, setCalendarStatus] =
-    useState<CalendarConnectionStatus | null>(null);
-  const [calendarLoading, setCalendarLoading] = useState(false);
+  // Issue #78 (PR 3) + #122: estado de la conexión con Google Calendar via
+  // useCalendarStatus (GET /calendar-integration/status por separado del
+  // GET /profile de abajo -- vive en su propio módulo,
+  // CalendarIntegrationController, no en ProfileService).
+  const { data: calendarStatus } = useCalendarStatus();
+  const connectCalendarMutation = useConnectCalendar();
+  const disconnectCalendarMutation = useDisconnectCalendar();
+  const calendarLoading =
+    connectCalendarMutation.isPending || disconnectCalendarMutation.isPending;
   const [calendarError, setCalendarError] = useState('');
   // ?calendar=connected|error llega desde el 302 de
   // CalendarIntegrationController.callback (design.md "The OAuth callback
@@ -286,55 +285,26 @@ export default function SecurityPage() {
     void load();
   }, []);
 
-  useEffect(() => {
-    const fetchCalendarStatus = async () => {
-      try {
-        const res = await api.get('/calendar-integration/status');
-        setCalendarStatus(res.data);
-      } catch {
-        // Informativo: si falla, la tarjeta se queda sin estado y muestra el
-        // botón de conectar por default (mismo criterio que fetchMfaHistory).
-      }
-    };
-    void fetchCalendarStatus();
-  }, []);
-
-  // POST /authorize (guardado) devuelve { url } como JSON, no un 302 --
-  // design.md: "the axios bearer client cannot follow a cross-origin
-  // redirect". La navegación real la hace el navegador via window.location,
-  // no react-router (Google no es una ruta de la SPA).
   const handleConnectGoogle = async () => {
-    setCalendarLoading(true);
     setCalendarError('');
     try {
-      const res = await api.post('/calendar-integration/authorize');
-      window.location.href = res.data.url;
+      const { url } = await connectCalendarMutation.mutateAsync();
+      window.location.href = url;
     } catch (err) {
       setCalendarError(
         getApiErrorMessage(err, 'No se pudo iniciar la conexión con Google Calendar.'),
       );
-      setCalendarLoading(false);
     }
   };
 
   const handleDisconnectGoogle = async () => {
-    setCalendarLoading(true);
     setCalendarError('');
     try {
-      await api.post('/calendar-integration/disconnect');
-      setCalendarStatus(prev => ({
-        status: 'DISCONNECTED',
-        googleAccountEmail: null,
-        connectedAt: null,
-        lastSyncAt: prev?.lastSyncAt ?? null,
-        lastError: null,
-      }));
+      await disconnectCalendarMutation.mutateAsync();
     } catch (err) {
       setCalendarError(
         getApiErrorMessage(err, 'No se pudo desconectar Google Calendar.'),
       );
-    } finally {
-      setCalendarLoading(false);
     }
   };
 
