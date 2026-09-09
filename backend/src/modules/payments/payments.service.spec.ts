@@ -408,6 +408,50 @@ describe('PaymentsService', () => {
       );
     });
 
+    // issue #113: dos llamadas concurrentes a ensureCharge() para el mismo
+    // groupId (create() y un correct() casi simultáneo) pueden leer
+    // `existing` como null a la vez -- la perdedora debe recuperarse de la
+    // violación de unicidad de groupId en vez de perder en silencio la
+    // corrección de dueDate que traía.
+    it('si create() revienta con P2002 por una carrera con otra llamada, aplica moveDueDateIfNeeded sobre el cargo ganador en vez de propagar el error', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(
+        buildConsultation({
+          sessionDate: new Date('2026-10-01T15:00:00.000Z'),
+        }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      prisma.payment.findUnique
+        .mockResolvedValueOnce(null) // lectura inicial de `existing`: null, sigue a create()
+        .mockResolvedValueOnce(
+          buildPayment({ dueDate: new Date('2026-09-10T15:00:00.000Z') }),
+        ); // relectura tras P2002: la ganadora ya persistió el cargo
+      const conflict: { code: string } = { code: 'P2002' };
+      prisma.payment.create.mockRejectedValue(conflict);
+
+      await expect(service.ensureCharge('group-1')).resolves.toBeUndefined();
+
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: { dueDate: new Date('2026-10-01T15:00:00.000Z') },
+      });
+    });
+
+    it('si create() revienta con un error que no es P2002, lo propaga sin intentar recuperarse', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      prisma.payment.findUnique.mockResolvedValue(null);
+      prisma.payment.create.mockRejectedValue(new Error('DB caída'));
+
+      await expect(service.ensureCharge('group-1')).rejects.toThrow(
+        'DB caída',
+      );
+    });
+
     // sdd/online-payment-integration PR 2 (T6.3): design.md "Reschedule to
     // future runs the inverse gated update (LATE -> PENDING, clearing
     // lateNotifiedAt), re-arming a genuinely new late event."

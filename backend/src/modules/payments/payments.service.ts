@@ -36,6 +36,17 @@ const CHARGE_SUBJECT = 'Sesión clínica';
 // handleInvalidGrant).
 const CANCELLABLE_STATUSES = ['PENDING', 'LATE'] as const;
 
+// Mismo criterio duck-typed que EmailChangeService.isUniqueConstraintError
+// (email-change.service.ts) -- evita acoplar este archivo al tipo exacto de
+// Prisma.PrismaClientKnownRequestError en los tests que mockean el rechazo.
+function isUniqueConstraintError(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: string }).code === 'P2002'
+  );
+}
+
 interface IssueOrderRequest {
   paymentId: string;
   context: GatewayContext;
@@ -142,16 +153,37 @@ export class PaymentsService {
     const amount = consultation.patient.defaultSessionAmount;
     if (amount === null || amount === undefined) return;
 
-    const created = await this.prisma.payment.create({
-      data: {
-        groupId,
-        patientId: consultation.patientId,
-        therapistId: consultation.therapistId,
-        amount,
-        status: 'PENDING',
-        dueDate: consultation.sessionDate,
-      },
-    });
+    let created: Payment;
+    try {
+      created = await this.prisma.payment.create({
+        data: {
+          groupId,
+          patientId: consultation.patientId,
+          therapistId: consultation.therapistId,
+          amount,
+          status: 'PENDING',
+          dueDate: consultation.sessionDate,
+        },
+      });
+    } catch (err) {
+      // issue #113: groupId es único, así que dos llamadas concurrentes a
+      // ensureCharge() para el mismo groupId (create() y un correct() casi
+      // simultáneo, ambos fire-and-forget) pueden leer `existing` como null
+      // a la vez. La perdedora revienta acá con P2002 -- sin este catch, ese
+      // error subía tal cual al `.catch()` genérico de
+      // ConsultationsService.emitPaymentCharge, que solo loguea, perdiendo
+      // en silencio la corrección de dueDate que esta llamada traía. La
+      // ganadora ya persistió el cargo: se aplica la misma actualización de
+      // dueDate que habría corrido por la rama `existing` de arriba.
+      if (!isUniqueConstraintError(err)) throw err;
+      const winner = await this.prisma.payment.findUnique({
+        where: { groupId },
+      });
+      if (winner) {
+        await this.moveDueDateIfNeeded(winner, consultation.sessionDate);
+      }
+      return;
+    }
 
     const order = await this.issueOrder({
       paymentId: created.id,
