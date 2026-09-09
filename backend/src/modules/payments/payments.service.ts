@@ -545,14 +545,7 @@ export class PaymentsService {
       .getOrderStatus(context.credentials, token);
     if (orderStatus.status !== 'PAID') return;
 
-    await this.prisma.payment.updateMany({
-      where: { id: payment.id, status: { in: [...CANCELLABLE_STATUSES] } },
-      data: {
-        status: 'PAID',
-        paidAt: new Date(),
-        gatewayPaymentId: orderStatus.gatewayPaymentId,
-      },
-    });
+    await this.markPaid(payment.id, orderStatus.gatewayPaymentId);
   }
 
   // T5.4/T5.5/T7.7/T7.8: used by PaymentsController.updateAmount (PATCH
@@ -801,12 +794,27 @@ export class PaymentsService {
       .getOrderStatus(context.credentials, payment.gatewayToken);
     if (orderStatus.status !== 'PAID') return;
 
+    await this.markPaid(payment.id, orderStatus.gatewayPaymentId);
+  }
+
+  // issue #114: confirm() (webhook callback) y reconcileOne() (sweep de
+  // reconciliación) transicionaban a PAID con el mismo bloque updateMany
+  // copiado en los dos lugares -- el gate CANCELLABLE_STATUSES en el where
+  // es la misma garantía de idempotencia documentada en el comentario de
+  // confirm() (una charge ya PAID o CANCELLED queda fuera del where, así
+  // que un webhook repetido o una reconciliación tardía nunca la reabren).
+  // Centralizado acá para que ambos caminos no puedan divergir si uno se
+  // corrige y el otro se olvida.
+  private async markPaid(
+    paymentId: string,
+    gatewayPaymentId: string | undefined,
+  ): Promise<void> {
     await this.prisma.payment.updateMany({
-      where: { id: payment.id, status: { in: [...CANCELLABLE_STATUSES] } },
+      where: { id: paymentId, status: { in: [...CANCELLABLE_STATUSES] } },
       data: {
         status: 'PAID',
         paidAt: new Date(),
-        gatewayPaymentId: orderStatus.gatewayPaymentId,
+        gatewayPaymentId,
       },
     });
   }
