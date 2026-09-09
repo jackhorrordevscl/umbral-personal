@@ -4,6 +4,8 @@ import { JwtService } from '@nestjs/jwt';
 import { getOptionsToken } from '@nestjs/throttler';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import * as argon2 from 'argon2';
+import * as crypto from 'crypto';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 
@@ -59,6 +61,21 @@ describe('Signup + verificación de email (e2e)', () => {
     await app.init();
 
     prisma = app.get(PrismaService);
+
+    // Issue #124: signup ahora exige un InvitationCode válido. Se crea acá
+    // directo por Prisma (no vía POST /auth/invitations) un único "inviter"
+    // dueño de todos los códigos que la suite va a generar -- mismo patrón
+    // que el resto de las suites e2e, que crean sus fixtures de usuario
+    // directo por Prisma en vez de pasar por signup.
+    const inviter = await prisma.user.create({
+      data: {
+        email: `inviter.${runId}@umbral.cl`,
+        passwordHash: await argon2.hash(TEST_PASSWORD),
+        name: 'Inviter',
+      },
+    });
+    inviterId = inviter.id;
+    createdEmails.push(inviter.email);
   });
 
   afterAll(async () => {
@@ -71,6 +88,20 @@ describe('Signup + verificación de email (e2e)', () => {
     await app.close();
   });
 
+  let inviterId: string;
+
+  async function createInviteCode(): Promise<string> {
+    const code = crypto.randomBytes(6).toString('hex');
+    await prisma.invitationCode.create({
+      data: {
+        code,
+        createdById: inviterId,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+    return code;
+  }
+
   describe('POST /auth/signup', () => {
     it('crea la cuenta con emailVerified=false y no entrega ningún token de sesión', async () => {
       const email = `signup.${runId}@umbral.cl`;
@@ -78,7 +109,12 @@ describe('Signup + verificación de email (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .post('/api/v1/auth/signup')
-        .send({ email, password: TEST_PASSWORD, name: 'Nueva Profesional' })
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          name: 'Nueva Profesional',
+          inviteCode: await createInviteCode(),
+        })
         .expect(201);
 
       expect(typeof (res.body as Record<string, unknown>).message).toBe(
@@ -103,35 +139,62 @@ describe('Signup + verificación de email (e2e)', () => {
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/signup')
-        .send({ email, password: TEST_PASSWORD, name: 'Primera Vez' })
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          name: 'Primera Vez',
+          inviteCode: await createInviteCode(),
+        })
         .expect(201);
 
+      // El chequeo de email duplicado corre antes que el de la invitación
+      // (ver AuthService.signup) -- no hace falta un código válido acá, el
+      // 409 llega igual.
       await request(app.getHttpServer())
         .post('/api/v1/auth/signup')
-        .send({ email, password: TEST_PASSWORD, name: 'Segunda Vez' })
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          name: 'Segunda Vez',
+          inviteCode: await createInviteCode(),
+        })
         .expect(409);
     });
 
-    it('rechaza contraseña menor a 8 caracteres (400)', () => {
+    it('rechaza contraseña menor a 8 caracteres (400)', async () => {
       return request(app.getHttpServer())
         .post('/api/v1/auth/signup')
         .send({
           email: `signup.short.${runId}@umbral.cl`,
           password: 'corta1',
           name: 'Test',
+          inviteCode: await createInviteCode(),
         })
         .expect(400);
     });
 
-    it('rechaza email inválido (400)', () => {
+    it('rechaza email inválido (400)', async () => {
       return request(app.getHttpServer())
         .post('/api/v1/auth/signup')
         .send({
           email: 'no-es-un-email',
           password: TEST_PASSWORD,
           name: 'Test',
+          inviteCode: await createInviteCode(),
         })
         .expect(400);
+    });
+
+    it('rechaza un código de invitación inválido o inexistente (401)', () => {
+      return request(app.getHttpServer())
+        .post('/api/v1/auth/signup')
+        .send({
+          email: `signup.noinvite.${runId}@umbral.cl`,
+          password: TEST_PASSWORD,
+          name: 'Sin Invitación',
+          inviteCode: 'no-existe',
+        })
+        .expect(401);
     });
   });
 
@@ -142,7 +205,12 @@ describe('Signup + verificación de email (e2e)', () => {
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/signup')
-        .send({ email, password: TEST_PASSWORD, name: 'Sin Verificar' })
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          name: 'Sin Verificar',
+          inviteCode: await createInviteCode(),
+        })
         .expect(201);
 
       await request(app.getHttpServer())
@@ -171,7 +239,12 @@ describe('Signup + verificación de email (e2e)', () => {
       // contrato end-to-end real de POST /auth/verify-email.
       const signupRes = await request(app.getHttpServer())
         .post('/api/v1/auth/signup')
-        .send({ email, password: TEST_PASSWORD, name: 'Verificación Completa' })
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          name: 'Verificación Completa',
+          inviteCode: await createInviteCode(),
+        })
         .expect(201);
       expect((signupRes.body as Record<string, unknown>).message).toBeDefined();
 
@@ -210,7 +283,12 @@ describe('Signup + verificación de email (e2e)', () => {
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/signup')
-        .send({ email, password: TEST_PASSWORD, name: 'Replay Guard' })
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          name: 'Replay Guard',
+          inviteCode: await createInviteCode(),
+        })
         .expect(201);
 
       const user = await prisma.user.findUnique({ where: { email } });
@@ -237,7 +315,12 @@ describe('Signup + verificación de email (e2e)', () => {
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/signup')
-        .send({ email, password: TEST_PASSWORD, name: 'Bearer Guard' })
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          name: 'Bearer Guard',
+          inviteCode: await createInviteCode(),
+        })
         .expect(201);
 
       const user = await prisma.user.findUnique({ where: { email } });
