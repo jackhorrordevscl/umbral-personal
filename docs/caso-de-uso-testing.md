@@ -80,6 +80,55 @@ Genera el PDF de la ficha de Jorge. Revisa que tenga la consulta con su historia
 
 > 📝 Anota: ¿el PDF se ve profesional? ¿falta algo que tú esperarías ver en una ficha clínica real?
 
+### 10:35 — Conectas tu cuenta Flow y cobras tu primera sesión
+
+Antes de poder cobrarle a un paciente necesitas conectar tu cuenta Flow. Desde
+"Ajustes", busca la opción para conectar Flow y sigue el asistente:
+
+- **Primero, a propósito, pon una llave o un secreto inválidos** (cualquier
+  texto que no sea una credencial real de Flow) y avanza. Debería rechazarte
+  antes de guardar nada.
+
+  > 📝 Anota: ¿el mensaje de error te dijo que las credenciales son
+  > inválidas, o algo genérico? ¿quedó algo guardado a pesar del error?
+
+- Ahora repite el asistente con las credenciales de **sandbox** de Flow que
+  te pasé aparte, hasta completar los 5 pasos y quedar con la cuenta
+  conectada.
+
+  > 📝 Anota: ¿los 5 pasos se sintieron claros? ¿en algún momento no supiste
+  > si tenías que esperar o si algo había fallado?
+
+Con la cuenta ya conectada, ve a la ficha de **Jorge Luis Ramírez Peña**
+(perfil #4) y cárgale un monto de sesión. Después registra una nueva consulta
+para él.
+
+> 📝 Anota: ¿se generó un cobro pendiente automáticamente al guardar la
+> consulta? ¿te llegó (o le llegó a la casilla de prueba de Jorge) un email
+> con el link de pago?
+
+Abre el link de pago que se generó y complétalo con los datos de tarjeta de
+prueba de Flow que te pasé aparte, como si fueras el paciente pagando.
+
+> 📝 Anota: ¿la pantalla de pago de Flow se veía confiable? ¿después de
+> pagar, volviste a Umbral o quedaste en una pantalla sin salida? ¿el cobro
+> pasó a "Pagado" en Umbral?
+
+Ahora repite el registro de una consulta para **Antonia Belén Espinoza
+Morales** (perfil #3, la que dejaste sin email en el paso de las 9:15) y
+comprueba que se genera el cobro pendiente igual, aunque no se envíe ningún
+email. Después usa el botón para **reenviar el link de pago** (una vez que le
+hayas agregado un email a su ficha).
+
+> 📝 Anota: ¿quedó claro en algún lado que el link no se pudo enviar porque
+> el paciente no tenía email? ¿el botón de reenviar fue fácil de encontrar?
+
+Por último, sobre el cobro de Antonia, prueba **cancelarlo** manualmente, y
+después intenta abrir ese mismo link de pago desde otra pestaña.
+
+> 📝 Anota: ¿el link cancelado te dejó pagar igual, o te avisó que ya no era
+> válido?
+
 ### 10:45 — Revisas tus Ajustes de cuenta
 
 Antes de cerrar el día, entra a "Ajustes" y prueba tres cosas:
@@ -110,6 +159,22 @@ Esta es la parte más sensible de toda la app — es la única puerta de salida 
 - **Perdiste el dispositivo MFA**: desde la pantalla donde te pide el código de 6 dígitos, haz clic en "¿Perdiste el dispositivo MFA?" y usa uno de los 10 códigos de recuperación que guardaste en el paso de las 9:00. Confirma que MFA queda desactivado y que el próximo login te vuelve a pedir enrolarlo desde cero (nuevo QR, nueva tanda de códigos).
 
 > 📝 Anota: ¿alguno de los dos flujos te dejó en un estado confuso (por ejemplo, sin saber si quedaste logueado o no)? ¿los mensajes de error, si probaste con datos incorrectos a propósito, fueron claros?
+
+---
+
+## Si te queda tiempo: prueba borrar una ficha con un cobro pendiente
+
+Antes de este paso, asegúrate de tener al menos un paciente con un cobro
+**pendiente** sin pagar (por ejemplo, genera una consulta nueva para Jorge
+con su monto de sesión configurado, y no pagues el link esta vez).
+
+Elimina la ficha de ese paciente (soft delete, como ya hiciste con cualquier
+otra ficha). Después, intenta abrir el link de pago pendiente que habías
+generado para él.
+
+> 📝 Anota: ¿el link te dejó pagar igual después de borrar la ficha, o te
+> avisó que ya no era válido? ¿el cobro aparecía como cancelado en algún
+> lado antes de intentar pagarlo?
 
 ---
 

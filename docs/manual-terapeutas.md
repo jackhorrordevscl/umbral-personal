@@ -126,7 +126,66 @@ En la práctica: si te equivocaste en algo, corrígelo con confianza — no se "
 
 ---
 
-## 5. Documentos de pacientes
+## 5. Cobros a pacientes (pagos online con Flow)
+
+Umbral te permite cobrar tus sesiones a través de Flow, generando un link de
+pago que tu paciente recibe por email. Cada terapeuta conecta **su propia**
+cuenta Flow — Umbral no es un intermediario que reciba el dinero, el pago va
+directo a tu cuenta.
+
+### Conectar tu cuenta Flow
+
+Desde "Ajustes", un asistente de 5 pasos te guía para conectar tu cuenta:
+
+1. Pegas la **llave** (API key) de tu cuenta Flow.
+2. Pegas el **secreto** (secret key) de tu cuenta Flow.
+3. La app valida esas credenciales directamente contra Flow antes de
+   guardarlas — si están mal, te avisa ahí mismo y no queda nada guardado.
+4. Confirmas.
+5. Tu cuenta queda conectada y lista para generar cobros.
+
+**Sin una cuenta Flow conectada no puedes cobrar**, pero eso no te bloquea
+para nada más: puedes seguir creando pacientes y agendando consultas
+exactamente igual que si el módulo de cobros no existiera.
+
+### Cómo funciona el cobro automático
+
+Si un paciente tiene un **monto de sesión** configurado en su ficha, cada vez
+que registras una consulta con él se genera automáticamente un cobro
+pendiente y se envía un link de pago a su email. Si el paciente no tiene
+email cargado, el cobro se genera igual, pero el link no se envía solo —
+podrás reenviarlo más adelante ni bien cargues su email (ver más abajo).
+
+Si el paciente no tiene un monto de sesión configurado, no se genera ningún
+cobro al registrar la consulta.
+
+### Estados de un cobro
+
+- **Pendiente**: el link está generado y esperando que el paciente pague.
+- **Pagado**: el paciente completó el pago.
+- **Vencido**: pasó la fecha límite y el paciente no pagó.
+- **Cancelado**: el cobro fue anulado (por ti, o automáticamente — ver más
+  abajo) y el link ya no se puede pagar.
+
+### Reenviar el link de pago
+
+Si el paciente perdió el email, no lo recibió, o simplemente quiere que se lo
+reenvíes, hay un botón para **reenviar el link de pago** manualmente desde el
+cobro correspondiente.
+
+### Si eliminas una ficha con cobros pendientes
+
+Al eliminar (soft delete) una ficha de paciente, todos sus cobros pendientes
+o vencidos se cancelan automáticamente — así ningún link de pago viejo queda
+activo para una ficha que ya borraste.
+
+> 📝 Observaciones UX:
+>
+>
+
+---
+
+## 6. Documentos de pacientes
 
 Desde la ficha del paciente, en la sección "Documentos legales", subes archivos ligados a esa persona en dos pasos:
 
@@ -140,7 +199,7 @@ Reglas:
 
 Cada documento subido queda en la lista con su nombre y tipo, y se puede volver a descargar en cualquier momento con el ícono de descarga.
 
-Esto es distinto de "Archivos personales" (ver sección 6): los documentos de paciente quedan ligados a una ficha específica (el consentimiento firmado de esa persona, por ejemplo), mientras que "Archivos personales" es tu biblioteca general, sin paciente asociado.
+Esto es distinto de "Archivos personales" (ver sección 7): los documentos de paciente quedan ligados a una ficha específica (el consentimiento firmado de esa persona, por ejemplo), mientras que "Archivos personales" es tu biblioteca general, sin paciente asociado.
 
 > 📝 Observaciones UX:
 >
@@ -148,7 +207,7 @@ Esto es distinto de "Archivos personales" (ver sección 6): los documentos de pa
 
 ---
 
-## 6. Archivos personales (Repositorio)
+## 7. Archivos personales (Repositorio)
 
 Es tu biblioteca privada, no ligada a un paciente en particular — pensada para libros, plantillas, protocolos, formularios, material general de tu propia práctica. Categorías: Libros, Plantillas, Imágenes, Formularios, Protocolos, General.
 
@@ -160,7 +219,7 @@ Es **privada por cuenta**: nada de lo que subes ahí se comparte con otros profe
 
 ---
 
-## 7. Reportes en PDF
+## 8. Reportes en PDF
 
 Desde la ficha de un paciente se puede exportar un PDF con la ficha clínica completa, incluyendo el historial de consultas (con sus correcciones) — no es solo un snapshot del estado actual. El PDF incluye una referencia a la Ley 20.584 y la obligación de custodia de 15 años.
 
@@ -170,7 +229,7 @@ Desde la ficha de un paciente se puede exportar un PDF con la ficha clínica com
 
 ---
 
-## 8. Sesión y seguridad
+## 9. Sesión y seguridad
 
 - **Cierre de sesión por inactividad**: después de 8 minutos sin actividad (mover el mouse, tipear, hacer clic, scrollear), aparece un aviso con una cuenta regresiva de 2 minutos. Si no haces nada en ese lapso, la sesión se cierra sola. "Continuar sesión" en ese aviso reinicia el contador.
 - **Límite de intentos de login**: después de varios intentos fallidos seguidos, el sistema bloquea temporalmente nuevos intentos (rate limiting) — es intencional, no un error, y se libera solo pasado un tiempo. Aplica también a los intentos de código MFA, de restablecimiento de contraseña y de recuperación con código MFA.
@@ -182,7 +241,7 @@ Desde la ficha de un paciente se puede exportar un PDF con la ficha clínica com
 
 ---
 
-## 9. Ajustes de tu cuenta
+## 10. Ajustes de tu cuenta
 
 Desde "Ajustes" (además de la sección de MFA descrita en el punto 1) puedes
 editar tus propios datos:
@@ -205,7 +264,7 @@ editar tus propios datos:
 
 ---
 
-## 10. Notificaciones y recordatorios de sesión
+## 11. Notificaciones y recordatorios de sesión
 
 El ícono de campana en la barra superior muestra tus notificaciones, con un
 contador de las que no has leído. Al abrirlas puedes marcarlas una por una
@@ -218,7 +277,7 @@ Dos tipos de notificación llegan hoy:
   una notificación en la app y, si tienes email configurado, un correo. Si
   uno de los dos canales falla, el otro igual te llega.
 - **Aviso de Google Calendar desconectado**: si tu conexión con Google
-  Calendar (ver punto 11) deja de funcionar, te avisa una sola vez.
+  Calendar (ver punto 12) deja de funcionar, te avisa una sola vez.
 
 > 📝 Observaciones UX: (¿el contador de no leídas se nota fácil? ¿los recordatorios llegan con tiempo suficiente para prepararte?)
 >
@@ -226,7 +285,7 @@ Dos tipos de notificación llegan hoy:
 
 ---
 
-## 11. Conectar tu Google Calendar (opcional)
+## 12. Conectar tu Google Calendar (opcional)
 
 Desde "Ajustes" puedes conectar tu cuenta de Google para que tus consultas
 aparezcan automáticamente en tu Google Calendar personal.
@@ -244,7 +303,7 @@ aparezcan automáticamente en tu Google Calendar personal.
   ya creados en tu Google Calendar no se borran al desconectar.
 - Si Google revoca el acceso por su cuenta (por ejemplo, cambiaste la
   contraseña de tu cuenta de Google), la conexión se marca como
-  desconectada sola y te llega un aviso (ver punto 10) — no vas a ver un
+  desconectada sola y te llega un aviso (ver punto 11) — no vas a ver un
   error a mitad de tu trabajo clínico: el registro de la consulta en Umbral
   nunca depende de que Google Calendar esté disponible.
 
