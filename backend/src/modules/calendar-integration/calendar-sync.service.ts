@@ -7,6 +7,7 @@ import {
 } from '@prisma/client';
 import { OAuth2Client } from 'google-auth-library';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { GoogleTokenCryptoService } from './google-token-crypto.service';
 import {
   GoogleCalendarClient,
@@ -59,6 +60,7 @@ export class CalendarSyncService {
     private googleCalendarClient: GoogleCalendarClient,
     private notificationsService: NotificationsService,
     private config: ConfigService,
+    private auditService: AuditService,
   ) {
     // Ausente => habilitado por default (mismo criterio que
     // RemindersService.enabled) -- solo "false" explícito apaga tanto el
@@ -479,6 +481,17 @@ export class CalendarSyncService {
       select: { therapistId: true },
     });
     if (!connection) return;
+
+    // issue #119: misma acción que CalendarOauthService.disconnect (el
+    // terapeuta termina desconectado igual), pero con detail distinto -- acá
+    // el trigger fue Google, no un pedido explícito.
+    await this.auditService.log({
+      userId: connection.therapistId,
+      action: 'CALENDAR_DISCONNECTED',
+      resource: 'GoogleCalendarConnection',
+      resourceId: connection.therapistId,
+      detail: 'INVALID_GRANT',
+    });
 
     await this.notificationsService.create({
       userId: connection.therapistId,

@@ -10,6 +10,7 @@ import {
   PaymentProvider,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import {
   CredentialValidation,
   GatewayContext,
@@ -79,6 +80,7 @@ export class PaymentAccountService {
     private prisma: PrismaService,
     private registry: PaymentGatewayRegistry,
     private credentialCrypto: PaymentCredentialCryptoService,
+    private auditService: AuditService,
   ) {}
 
   // spec "Malformed credentials are rejected before calling Flow": format
@@ -169,6 +171,18 @@ export class PaymentAccountService {
       },
     });
 
+    // issue #119: conectar la cuenta que controla dónde se liquidan los
+    // cobros del terapeuta es comparablemente sensible a MFA_ENABLED --
+    // mismo criterio de AuditService que auth.service.ts. Nunca se loguea
+    // apiKey/secretKey, solo el fingerprint no-secreto ya calculado arriba.
+    await this.auditService.log({
+      userId: therapistId,
+      action: 'PAYMENT_ACCOUNT_CONNECTED',
+      resource: 'PaymentAccount',
+      resourceId: therapistId,
+      detail: `provider=${provider} keyFingerprint=${validation.keyFingerprint}`,
+    });
+
     return this.toStatusView(account);
   }
 
@@ -241,6 +255,14 @@ export class PaymentAccountService {
     if (result.count === 0) {
       throw new NotFoundException('No hay una cuenta de pagos conectada.');
     }
+
+    await this.auditService.log({
+      userId: therapistId,
+      action: 'PAYMENT_ACCOUNT_DISCONNECTED',
+      resource: 'PaymentAccount',
+      resourceId: therapistId,
+    });
+
     return { status: PaymentAccountStatus.DISCONNECTED };
   }
 

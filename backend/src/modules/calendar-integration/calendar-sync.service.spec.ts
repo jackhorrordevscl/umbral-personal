@@ -8,6 +8,7 @@ import {
   GoogleCalendarError,
 } from './google-calendar.client';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AuditService } from '../audit/audit.service';
 
 // sdd/google-calendar-integration PR 2: capa de aplicación de
 // CalendarSyncService con Prisma/GoogleCalendarClient/NotificationsService
@@ -89,6 +90,7 @@ describe('CalendarSyncService', () => {
   };
   let notificationsService: { create: jest.Mock };
   let config: { get: jest.Mock };
+  let auditService: { log: jest.Mock };
 
   function buildService(): CalendarSyncService {
     return new CalendarSyncService(
@@ -97,6 +99,7 @@ describe('CalendarSyncService', () => {
       googleCalendarClient as unknown as GoogleCalendarClient,
       notificationsService as unknown as NotificationsService,
       config as unknown as ConfigService,
+      auditService as unknown as AuditService,
     );
   }
 
@@ -126,6 +129,7 @@ describe('CalendarSyncService', () => {
       deleteEvent: jest.fn(),
     };
     notificationsService = { create: jest.fn().mockResolvedValue(undefined) };
+    auditService = { log: jest.fn().mockResolvedValue(undefined) };
     config = {
       get: jest.fn((key: string) => {
         const values: Record<string, string> = {
@@ -311,14 +315,24 @@ describe('CalendarSyncService', () => {
           type: NotificationType.GOOGLE_CALENDAR_DISCONNECTED,
         }) as unknown,
       );
+      // issue #119: la desconexión automática por invalid_grant también
+      // deja rastro en AuditLog, no solo la notificación in-app.
+      expect(auditService.log).toHaveBeenCalledWith({
+        userId: 'therapist-1',
+        action: 'CALENDAR_DISCONNECTED',
+        resource: 'GoogleCalendarConnection',
+        resourceId: 'therapist-1',
+        detail: 'INVALID_GRANT',
+      });
     });
 
-    it('una segunda falla sobre una conexión ya DISCONNECTED no emite ninguna notificación', async () => {
+    it('una segunda falla sobre una conexión ya DISCONNECTED no emite ninguna notificación ni auditoría', async () => {
       setupInvalidGrant(0); // updateMany no afecta filas: ya no está CONNECTED
 
       await service.syncGroup('group-1');
 
       expect(notificationsService.create).not.toHaveBeenCalled();
+      expect(auditService.log).not.toHaveBeenCalled();
     });
   });
 

@@ -235,6 +235,15 @@ enum AuditAction {
   EMAIL_CHANGE_REQUESTED
   EMAIL_CHANGE_CONFIRMED
   PASSWORD_CHANGED
+  // issue #119: conectar/desconectar Google Calendar o una cuenta de pagos
+  // (Flow) es comparablemente sensible a MFA_ENABLED/MFA_DISABLED (acceso de
+  // un tercero a la agenda del terapeuta / a dónde se liquidan sus cobros) y
+  // hasta ahora no dejaba ningún rastro en AuditLog, solo una Notification
+  // in-app para el caso de desconexión por invalid_grant.
+  CALENDAR_CONNECTED
+  CALENDAR_DISCONNECTED
+  PAYMENT_ACCOUNT_CONNECTED
+  PAYMENT_ACCOUNT_DISCONNECTED
 }
 
 // El nombre (modelo y @@map) viene de la versión institucional multi-

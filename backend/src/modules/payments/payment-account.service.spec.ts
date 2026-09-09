@@ -8,6 +8,7 @@ import {
 } from './payment-gateway.client';
 import { PaymentGatewayRegistry } from './payment-gateway.registry';
 import { PaymentCredentialCryptoService } from './payment-credential-crypto.service';
+import { AuditService } from '../audit/audit.service';
 
 // sdd/payments-multigateway-redesign PR 2 (tasks 2.2-2.5): same manual-mock
 // pattern as payment-gateway.registry.spec.ts/flow-gateway.client.spec.ts --
@@ -27,6 +28,7 @@ describe('PaymentAccountService', () => {
   let registry: { get: jest.Mock };
   let gatewayClient: { validateCredentials: jest.Mock };
   let crypto: { encrypt: jest.Mock; decrypt: jest.Mock };
+  let auditService: { log: jest.Mock };
 
   // Well-formed per the service's best-effort CREDENTIAL_FORMAT gate
   // (16-128 chars, alphanumeric/underscore/dash).
@@ -47,11 +49,13 @@ describe('PaymentAccountService', () => {
       encrypt: jest.fn().mockReturnValue(Buffer.from('encrypted-blob')),
       decrypt: jest.fn(),
     };
+    auditService = { log: jest.fn().mockResolvedValue(undefined) };
 
     service = new PaymentAccountService(
       prisma as unknown as PrismaService,
       registry as unknown as PaymentGatewayRegistry,
       crypto as unknown as PaymentCredentialCryptoService,
+      auditService as unknown as AuditService,
     );
   });
 
@@ -206,6 +210,15 @@ describe('PaymentAccountService', () => {
       );
       expect(result.status).toBe(PaymentAccountStatus.CONNECTED);
       expect(result).not.toHaveProperty('credentialEncrypted');
+      // issue #119: conectar la cuenta deja rastro en AuditLog, sin
+      // filtrar nunca apiKey/secretKey, solo el fingerprint no-secreto.
+      expect(auditService.log).toHaveBeenCalledWith({
+        userId: 'therapist-1',
+        action: 'PAYMENT_ACCOUNT_CONNECTED',
+        resource: 'PaymentAccount',
+        resourceId: 'therapist-1',
+        detail: 'provider=FLOW keyFingerprint=fingerprint-1',
+      });
     });
 
     it('usa el accountLabel de Flow por sobre el displayName tipeado por el terapeuta', async () => {
@@ -352,14 +365,23 @@ describe('PaymentAccountService', () => {
           status: PaymentAccountStatus.DISCONNECTED,
         }) as unknown,
       });
+      // issue #119: desconectar la cuenta de pagos también deja rastro en
+      // AuditLog, mismo criterio que MFA_DISABLED.
+      expect(auditService.log).toHaveBeenCalledWith({
+        userId: 'therapist-1',
+        action: 'PAYMENT_ACCOUNT_DISCONNECTED',
+        resource: 'PaymentAccount',
+        resourceId: 'therapist-1',
+      });
     });
 
-    it('lanza NotFoundException si no hay cuenta CONNECTED (uniforme: no existe o ya estaba desconectada)', async () => {
+    it('lanza NotFoundException si no hay cuenta CONNECTED (uniforme: no existe o ya estaba desconectada), sin auditar', async () => {
       prisma.paymentAccount.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(service.disconnect('therapist-1')).rejects.toBeInstanceOf(
         NotFoundException,
       );
+      expect(auditService.log).not.toHaveBeenCalled();
     });
   });
 });

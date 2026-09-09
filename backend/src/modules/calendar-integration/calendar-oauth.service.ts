@@ -10,6 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { GoogleTokenCryptoService } from './google-token-crypto.service';
 import {
   GOOGLE_CALENDAR_SCOPE,
@@ -58,6 +59,7 @@ export class CalendarOauthService {
     private jwtService: JwtService,
     private config: ConfigService,
     private tokenCrypto: GoogleTokenCryptoService,
+    private auditService: AuditService,
   ) {
     this.clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
     this.clientSecret = this.config.get<string>('GOOGLE_CLIENT_SECRET');
@@ -193,6 +195,16 @@ export class CalendarOauthService {
         lastError: null,
       },
     });
+
+    // issue #119: conectar una cuenta de terceros (agenda del terapeuta) es
+    // comparablemente sensible a MFA_ENABLED -- mismo criterio de
+    // AuditService que auth.service.ts.
+    await this.auditService.log({
+      userId: therapistId,
+      action: 'CALENDAR_CONNECTED',
+      resource: 'GoogleCalendarConnection',
+      resourceId: therapistId,
+    });
   }
 
   async disconnect(therapistId: string): Promise<{ status: string }> {
@@ -224,7 +236,7 @@ export class CalendarOauthService {
       }
     }
 
-    return this.prisma.googleCalendarConnection.update({
+    const updated = await this.prisma.googleCalendarConnection.update({
       where: { therapistId },
       data: {
         status: 'DISCONNECTED',
@@ -235,6 +247,19 @@ export class CalendarOauthService {
       },
       select: { status: true },
     });
+
+    // issue #119: desconexión pedida por el propio terapeuta -- la
+    // desconexión por invalid_grant (CalendarSyncService.handleInvalidGrant)
+    // audita aparte, no pasa por acá.
+    await this.auditService.log({
+      userId: therapistId,
+      action: 'CALENDAR_DISCONNECTED',
+      resource: 'GoogleCalendarConnection',
+      resourceId: therapistId,
+      detail: 'USER_REQUEST',
+    });
+
+    return updated;
   }
 
   private hashNonce(nonce: string): string {

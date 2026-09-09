@@ -5,7 +5,12 @@ import { createHash } from 'crypto';
 import { CalendarOauthService } from './calendar-oauth.service';
 import { GoogleTokenCryptoService } from './google-token-crypto.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { OAUTH_STATE_PURPOSE } from './calendar-integration.constants';
+
+function buildAuditServiceMock(): AuditService {
+  return { log: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
+}
 
 const JWT_SECRET = 'test-jwt-secret-for-calendar-oauth-spec';
 
@@ -79,6 +84,7 @@ describe('CalendarOauthService', () => {
         jwt,
         buildConfig(),
         tokenCrypto,
+        buildAuditServiceMock(),
       );
       return { service, jwt, connectionMock };
     }
@@ -174,11 +180,13 @@ describe('CalendarOauthService', () => {
       const { prisma, connectionMock } = buildPrismaMock();
       connectionMock.update.mockResolvedValue({});
       const tokenCrypto = buildTokenCrypto();
+      const auditService = buildAuditServiceMock();
       const service = new CalendarOauthService(
         prisma,
         buildJwt(),
         buildConfig(),
         tokenCrypto,
+        auditService,
       );
 
       const plainRefreshToken = '1//plain-text-refresh-token-google';
@@ -213,6 +221,13 @@ describe('CalendarOauthService', () => {
       expect(tokenCrypto.decrypt(persistedBuffer).toString('utf-8')).toBe(
         plainRefreshToken,
       );
+      // issue #119: conectar la cuenta debe dejar rastro en AuditLog.
+      expect(auditService.log).toHaveBeenCalledWith({
+        userId: 'therapist-1',
+        action: 'CALENDAR_CONNECTED',
+        resource: 'GoogleCalendarConnection',
+        resourceId: 'therapist-1',
+      });
     });
   });
 });

@@ -4,6 +4,7 @@ import * as argon2 from 'argon2';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GoogleTokenCryptoService } from './google-token-crypto.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AuditService } from '../audit/audit.service';
 import { CalendarSyncService } from './calendar-sync.service';
 import type { GoogleCalendarClient } from './google-calendar.client';
 import { BACKFILL_WINDOW_DAYS } from './calendar-integration.constants';
@@ -125,6 +126,7 @@ describe('CalendarSyncService (integration, real Prisma)', () => {
       googleCalendarClient as unknown as GoogleCalendarClient,
       new NotificationsService(prisma),
       buildConfig(),
+      new AuditService(prisma),
     );
   });
 

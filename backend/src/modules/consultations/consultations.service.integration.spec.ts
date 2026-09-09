@@ -45,6 +45,7 @@ function buildDisabledPaymentsService(prisma: PrismaService): PaymentsService {
     prisma,
     registry,
     new PaymentCredentialCryptoService(config),
+    new AuditService(prisma),
   );
   return new PaymentsService(
     prisma,
@@ -145,14 +146,15 @@ describe('ConsultationsService + CalendarSyncService (integration, Google client
         ),
     };
 
+    const auditService = new AuditService(prisma);
     const calendarSync = new CalendarSyncService(
       prisma,
       tokenCrypto,
       googleCalendarClient as unknown as GoogleCalendarClient,
       new NotificationsService(prisma),
       buildConfig(),
+      auditService,
     );
-    const auditService = new AuditService(prisma);
     const patientsService = new PatientsService(
       prisma,
       auditService,
@@ -319,14 +321,15 @@ describe('ConsultationsService.findByRange (integration, real Prisma)', () => {
         ),
     };
 
+    const auditService = new AuditService(prisma);
     const calendarSync = new CalendarSyncService(
       prisma,
       tokenCrypto,
       googleCalendarClient as unknown as GoogleCalendarClient,
       new NotificationsService(prisma),
       buildConfig(),
+      auditService,
     );
-    const auditService = new AuditService(prisma);
     const patientsService = new PatientsService(
       prisma,
       auditService,
@@ -567,14 +570,15 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
       patchEvent: jest.fn().mockResolvedValue(undefined),
       deleteEvent: jest.fn().mockResolvedValue(undefined),
     };
+    const auditService = new AuditService(prisma);
     const calendarSync = new CalendarSyncService(
       prisma,
       tokenCrypto,
       googleCalendarClient as unknown as GoogleCalendarClient,
       new NotificationsService(prisma),
       buildConfig(),
+      auditService,
     );
-    const auditService = new AuditService(prisma);
     const patientsService = new PatientsService(
       prisma,
       auditService,
@@ -593,6 +597,7 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
       prisma,
       registry,
       accountCredentialCrypto,
+      auditService,
     );
     paymentsService = new PaymentsService(
       prisma,
