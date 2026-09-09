@@ -848,7 +848,9 @@ describe('PaymentsService', () => {
         where: { id: 'payment-1', status: { in: ['PENDING', 'LATE'] } },
         data: expect.objectContaining({ status: 'CANCELLED' }) as unknown,
       });
-      expect(paymentAccountService.resolveGatewayContext).not.toHaveBeenCalled();
+      expect(
+        paymentAccountService.resolveGatewayContext,
+      ).not.toHaveBeenCalled();
       expect(gatewayAdapter.voidOrder).not.toHaveBeenCalled();
       expect(debugSpy).toHaveBeenCalled();
       expect(errorSpy).not.toHaveBeenCalled();
@@ -988,9 +990,9 @@ describe('PaymentsService', () => {
 
       await service.cancelUnpaidForPatient('patient-1');
 
-      expect(
-        paymentAccountService.resolveGatewayContext,
-      ).toHaveBeenCalledTimes(1);
+      expect(paymentAccountService.resolveGatewayContext).toHaveBeenCalledTimes(
+        1,
+      );
       expect(gatewayAdapter.voidOrder).toHaveBeenCalledTimes(2);
     });
   });
