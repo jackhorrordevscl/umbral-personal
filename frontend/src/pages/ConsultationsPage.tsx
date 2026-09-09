@@ -88,6 +88,43 @@ function ResendPaymentLinkButton({ groupId }: { groupId: string }) {
   );
 }
 
+// Motivo/intervención/acuerdos a veces se extienden varios párrafos y hacían
+// insufrible el scroll de cada tarjeta de sesión (feedback de usuarios); se
+// trunca a 3 líneas y se deja expandir/colapsar por tarjeta.
+const EXPANDABLE_TEXT_THRESHOLD = 180;
+
+function ExpandableText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = text.length > EXPANDABLE_TEXT_THRESHOLD;
+
+  return (
+    <div>
+      <p className={`text-slate-800 whitespace-pre-wrap ${!expanded && isLong ? 'line-clamp-3' : ''}`}>
+        {text}
+      </p>
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 mt-1"
+        >
+          {expanded ? (
+            <>
+              <ChevronUp size={12} />
+              Ver menos
+            </>
+          ) : (
+            <>
+              <ChevronDown size={12} />
+              Ver más
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function ConsultationsPage() {
   // Notificaciones de sesión (linkPath) llegan como
   // /consultations?patientId=X&consultationId=Y -- seedear el estado inicial
@@ -426,16 +463,16 @@ export default function ConsultationsPage() {
                     <div className="space-y-3 text-sm">
                       <div>
                         <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Motivo</p>
-                        <p className="text-slate-800">{c.consultReason}</p>
+                        <ExpandableText text={c.consultReason} />
                       </div>
                       <div>
                         <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Intervención</p>
-                        <p className="text-slate-800">{c.intervention}</p>
+                        <ExpandableText text={c.intervention} />
                       </div>
                       {c.agreements && (
                         <div>
                           <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Acuerdos</p>
-                          <p className="text-slate-800">{c.agreements}</p>
+                          <ExpandableText text={c.agreements} />
                         </div>
                       )}
                       {c.nextSessionDate && (
