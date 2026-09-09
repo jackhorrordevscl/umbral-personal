@@ -390,7 +390,7 @@ export class PaymentsService {
       where: { patientId, status: { in: [...CANCELLABLE_STATUSES] } },
     });
 
-    const contextCache = new Map<string, GatewayContext | null>();
+    const contextCache = new Map<string, Promise<GatewayContext | null>>();
     const results = await Promise.allSettled(
       payments.map((payment) => this.cancelPaymentRow(payment, contextCache)),
     );
@@ -428,7 +428,7 @@ export class PaymentsService {
   // connected (resolveContextMemoized null) also has nothing to void.
   private async cancelPaymentRow(
     payment: Payment,
-    contextCache: Map<string, GatewayContext | null>,
+    contextCache: Map<string, Promise<GatewayContext | null>>,
   ): Promise<void> {
     const result = await this.prisma.payment.updateMany({
       where: { id: payment.id, status: { in: [...CANCELLABLE_STATUSES] } },
@@ -629,7 +629,7 @@ export class PaymentsService {
   async sweep(): Promise<void> {
     if (!this.enabled) return;
 
-    const contextCache = new Map<string, GatewayContext | null>();
+    const contextCache = new Map<string, Promise<GatewayContext | null>>();
     await this.transitionLatePayments();
     await this.reconcilePendingPayments(contextCache);
   }
@@ -706,7 +706,7 @@ export class PaymentsService {
   // (gateway.getOrderStatus) -- an isolated failure must not abort the rest
   // of the batch.
   private async reconcilePendingPayments(
-    contextCache: Map<string, GatewayContext | null>,
+    contextCache: Map<string, Promise<GatewayContext | null>>,
   ): Promise<void> {
     const cutoff = new Date(Date.now() - RECONCILE_MIN_AGE_MS);
     const candidates = await this.prisma.payment.findMany({
@@ -731,22 +731,30 @@ export class PaymentsService {
   // instead of calling PaymentAccountService.resolveGatewayContext (which
   // decrypts) on every candidate -- an account with several stale charges
   // in the same sweep tick is decrypted at most once.
-  private async resolveContextMemoized(
+  //
+  // The cache stores the in-flight Promise itself, not the awaited value --
+  // set() runs synchronously before this function's own await, so a second
+  // concurrent caller for the same therapistId (cancelUnpaidForPatient
+  // dispatches cancelPaymentRow for every row via Promise.allSettled, all
+  // starting before any of them awaits) sees the cache entry already
+  // present and reuses that same promise instead of racing past the check
+  // and triggering its own resolveGatewayContext call.
+  private resolveContextMemoized(
     therapistId: string,
-    cache: Map<string, GatewayContext | null>,
+    cache: Map<string, Promise<GatewayContext | null>>,
   ): Promise<GatewayContext | null> {
-    if (cache.has(therapistId)) {
-      return cache.get(therapistId) ?? null;
+    if (!cache.has(therapistId)) {
+      cache.set(
+        therapistId,
+        this.paymentAccountService.resolveGatewayContext(therapistId),
+      );
     }
-    const context =
-      await this.paymentAccountService.resolveGatewayContext(therapistId);
-    cache.set(therapistId, context);
-    return context;
+    return cache.get(therapistId)!;
   }
 
   private async reconcileOne(
     payment: Payment,
-    contextCache: Map<string, GatewayContext | null>,
+    contextCache: Map<string, Promise<GatewayContext | null>>,
   ): Promise<void> {
     if (!payment.gatewayToken) return;
 
