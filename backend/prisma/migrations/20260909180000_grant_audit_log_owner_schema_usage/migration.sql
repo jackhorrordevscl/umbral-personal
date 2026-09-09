@@ -1,0 +1,33 @@
+-- Issue #127: DELETE FROM "User" fails with "permission denied for
+-- schema public" for any role, including a Postgres superuser with
+-- rolbypassrls=true, whenever the deleted user has at least one row in
+-- "AuditLog".
+--
+-- Root cause: "AuditLog" has RLS enabled (migration 20260804170000) and its
+-- ownership was transferred to a dedicated role, "audit_log_owner"
+-- (migration 20260803060000, issue #52). When a referenced table has RLS
+-- enabled, PostgreSQL's internal foreign-key check (the
+-- "SELECT ... FOR KEY SHARE" query the FK trigger runs) resolves schema
+-- access using the table OWNER, not the invoking session role. Migration
+-- 20260803060000 granted "audit_log_owner" a temporary CREATE on schema
+-- public (needed only for "ALTER TABLE ... OWNER TO") and revoked it
+-- afterwards, but never granted it USAGE -- the baseline privilege every
+-- role needs to resolve any object inside a schema.
+--
+-- On a vanilla PostgreSQL install, PUBLIC (the pseudo-role every role is
+-- implicitly a member of) still has USAGE on schema "public" by default,
+-- so "audit_log_owner" inherited it implicitly and this went unnoticed in
+-- CI. Supabase projects revoke ALL privileges from PUBLIC on schema
+-- "public" as part of their hardened defaults, and this repo's local dev
+-- container mirrors that same posture -- which is why this reproduced
+-- 100% consistently locally (and would reproduce against real Supabase
+-- production too, not just in local/CI tests).
+--
+-- Verified empirically against a local Postgres 16.15 container: granting
+-- REFERENCES on "AuditLog" to the runtime role did NOT fix the failure;
+-- disabling RLS on "AuditLog" did NOT fix it either; only granting USAGE
+-- on schema "public" to "audit_log_owner" did. This grant is schema-level
+-- only -- it does not touch table-level privileges on "AuditLog" (still
+-- just SELECT, INSERT for the runtime role) and does not reopen the
+-- append-only protection issue #52 put in place.
+GRANT USAGE ON SCHEMA public TO audit_log_owner;
