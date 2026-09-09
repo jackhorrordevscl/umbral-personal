@@ -11,11 +11,17 @@ tu información ni tú a la de otro profesional que también use la app.
 
 ## 1. Crear tu cuenta y primer acceso
 
-No hay un administrador que te dé de alta: te registras tú mismo/a.
+No hay un administrador que te dé de alta, pero el registro público requiere
+un **código de invitación**: no cualquiera con el link de la app puede
+crearse una cuenta, dado que se manejan fichas clínicas. El código lo emite
+quien administra la instancia (ver sección 9, "Generar invitación") y se
+comparte contigo por fuera de la app (email, mensaje, etc.).
 
 1. **Registro** — desde la pantalla de login, "Regístrate". Pide nombre,
-   email y contraseña (mínimo 8 caracteres). La cuenta queda creada pero
-   **no puedes loguear todavía**.
+   email, contraseña (mínimo 8 caracteres) y el **código de invitación**
+   recibido. Un código inválido, ya usado, o expirado (vence a los 7 días de
+   generado) rechaza el registro. La cuenta queda creada pero **no puedes
+   loguear todavía**.
 2. **Verificación de email** — te llega un correo con un enlace. Haz clic
    ahí para activar la cuenta. Sin esto, un intento de login rechaza con
    "Debes verificar tu email antes de iniciar sesión", aunque la
@@ -234,6 +240,7 @@ Desde la ficha de un paciente se puede exportar un PDF con la ficha clínica com
 - **Cierre de sesión por inactividad**: después de 8 minutos sin actividad (mover el mouse, tipear, hacer clic, scrollear), aparece un aviso con una cuenta regresiva de 2 minutos. Si no haces nada en ese lapso, la sesión se cierra sola. "Continuar sesión" en ese aviso reinicia el contador.
 - **Límite de intentos de login**: después de varios intentos fallidos seguidos, el sistema bloquea temporalmente nuevos intentos (rate limiting) — es intencional, no un error, y se libera solo pasado un tiempo. Aplica también a los intentos de código MFA, de restablecimiento de contraseña y de recuperación con código MFA.
 - **Bitácora de auditoría**: toda acción relevante (login, creación/edición de fichas, descarga de documentos, etc.) queda registrada de forma inmutable en el servidor — no hay una pantalla para verla dentro de la app (no hay panel administrativo), pero existe y no se puede alterar ni borrar.
+- **Generar invitación**: si tu cuenta es la autorizada a invitar (configurada por quien administra la instancia), en esta misma pantalla aparece una sección "Generar invitación" para crear un código de un solo uso, válido 7 días, que le compartes a la persona que quieres invitar a registrarse. Si tu cuenta no está autorizada, esta sección directamente no aparece.
 
 > 📝 Observaciones UX: (¿el aviso de sesión por expirar se nota a tiempo, o es fácil perderlo de vista y que la sesión se cierre sin querer?)
 >

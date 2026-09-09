@@ -1,4 +1,5 @@
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { User } from '@prisma/client';
 import { ProfileService } from './profile.service';
@@ -39,6 +40,7 @@ describe('ProfileService', () => {
   };
   let emailChangeService: { requestChange: jest.Mock };
   let auditService: { log: jest.Mock };
+  let config: { get: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -53,11 +55,17 @@ describe('ProfileService', () => {
     auditService = {
       log: jest.fn().mockResolvedValue(undefined),
     };
+    // Issue #124: sin INVITE_CREATOR_EMAIL configurado por default en los
+    // tests -- cada test de canInvite lo setea explícitamente.
+    config = {
+      get: jest.fn().mockReturnValue(undefined),
+    };
 
     service = new ProfileService(
       prisma as unknown as PrismaService,
       emailChangeService as unknown as EmailChangeService,
       auditService as unknown as AuditService,
+      config as unknown as ConfigService,
     );
 
     jest.clearAllMocks();
@@ -82,6 +90,41 @@ describe('ProfileService', () => {
         }) as unknown as Record<string, boolean>,
       });
       expect(result.pendingEmail).toBe('nuevo@example.com');
+    });
+
+    // Issue #124: el frontend usa canInvite para mostrar (o no) la UI de
+    // generar invitaciones -- sin rol ADMIN (decisión explícita), la única
+    // fuente de verdad es que el email del usuario coincida con
+    // INVITE_CREATOR_EMAIL.
+    it('canInvite=true si el email del usuario coincide con INVITE_CREATOR_EMAIL', async () => {
+      prisma.user.findFirst.mockResolvedValue(
+        buildUser({ email: 'creador@example.com' }),
+      );
+      config.get.mockReturnValue('creador@example.com');
+
+      const result = await service.findOne('user-1');
+
+      expect(result.canInvite).toBe(true);
+    });
+
+    it('canInvite=false si el email del usuario no coincide con INVITE_CREATOR_EMAIL', async () => {
+      prisma.user.findFirst.mockResolvedValue(
+        buildUser({ email: 'user@example.com' }),
+      );
+      config.get.mockReturnValue('creador@example.com');
+
+      const result = await service.findOne('user-1');
+
+      expect(result.canInvite).toBe(false);
+    });
+
+    it('canInvite=false si INVITE_CREATOR_EMAIL no está configurado', async () => {
+      prisma.user.findFirst.mockResolvedValue(buildUser());
+      config.get.mockReturnValue(undefined);
+
+      const result = await service.findOne('user-1');
+
+      expect(result.canInvite).toBe(false);
     });
   });
 

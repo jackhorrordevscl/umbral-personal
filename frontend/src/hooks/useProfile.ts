@@ -6,7 +6,12 @@ export interface Profile {
   email: string;
   name: string;
   mfaEnabled: boolean;
+  createdAt: string;
   pendingEmail: string | null;
+  // Issue #124: solo el profesional autorizado puede emitir códigos de
+  // invitación para el registro público (POST /auth/invitations) -- ver
+  // sección "Generar invitación" en SecurityPage.
+  canInvite: boolean;
 }
 
 // PR2a (session-calendar-view, design.md "Decision: useProfile react-query

@@ -15,6 +15,10 @@ const signupSchema = z.object({
   name: z.string().min(1, 'El nombre es obligatorio'),
   email: z.string().email('Email inválido'),
   password: z.string().min(8, 'Mínimo 8 caracteres'),
+  // Issue #124: sin jerarquía de roles, el registro público requiere un
+  // código de invitación emitido por el profesional autorizado (ver
+  // POST /auth/invitations en SecurityPage) para poder crear la cuenta.
+  inviteCode: z.string().min(1, 'El código de invitación es obligatorio'),
 });
 
 type SignupForm = z.infer<typeof signupSchema>;
@@ -97,6 +101,19 @@ export default function SignupPage() {
             />
             {errors.password && (
               <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>
+            )}
+          </div>
+
+          <div>
+            <label htmlFor="signup-invite-code" className="block text-sm font-medium text-slate-700 mb-1">Código de invitación</label>
+            <input
+              {...register('inviteCode')}
+              id="signup-invite-code"
+              type="text"
+              className="input-field"
+            />
+            {errors.inviteCode && (
+              <p className="text-red-500 text-xs mt-1">{errors.inviteCode.message}</p>
             )}
           </div>
 

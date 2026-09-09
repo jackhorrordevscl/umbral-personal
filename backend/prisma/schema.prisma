@@ -76,6 +76,31 @@ model User {
   notifications        Notification[]
   calendarConnection   GoogleCalendarConnection?
   paymentAccount       PaymentAccount?
+  // Issue #124: signup público sin invitación. Sin rol ADMIN (decisión
+  // explícita) -- la autorización para generar invitaciones vive en
+  // INVITE_CREATOR_EMAIL (AuthService.createInvitation), no en un permiso de
+  // este modelo. Dos relaciones nombradas porque un mismo User puede tanto
+  // haber creado invitaciones como haber usado una para crear su propia
+  // cuenta.
+  invitationsCreated   InvitationCode[]          @relation("InvitationCreatedBy")
+  invitationUsed       InvitationCode?           @relation("InvitationUsedBy")
+}
+
+// Issue #124: signup público sin invitación. Código de un solo uso,
+// persistido en DB (no JWT) porque necesita poder marcarse "usado" de forma
+// atómica junto con la creación del User (ver AuthService.signup, misma
+// $transaction). usedById es @unique: un mismo código nunca puede quedar
+// asociado a más de una cuenta.
+model InvitationCode {
+  id          String    @id @default(uuid())
+  code        String    @unique
+  createdById String
+  createdBy   User      @relation("InvitationCreatedBy", fields: [createdById], references: [id])
+  usedById    String?   @unique
+  usedBy      User?     @relation("InvitationUsedBy", fields: [usedById], references: [id])
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
 }
 
 // Un solo rol: el profesional dueño de todas sus fichas. Se mantiene como

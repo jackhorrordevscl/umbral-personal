@@ -175,16 +175,26 @@ npm run dev
 ### Cómo entrar la primera vez
 
 No hay usuarios predefinidos por rol — cada profesional crea su propia
-cuenta:
+cuenta, pero desde el issue #124 el signup público exige un código de
+invitación:
 
 - **Alta normal**: `POST /auth/signup` (o el botón "Regístrate" del login)
-  crea la cuenta con `emailVerified: false`. Sin `RESEND_API_KEY` configurada
-  en local, el email de verificación no se envía de verdad — `MailService`
-  lo saltea con un warning en el log del backend (revísalo ahí para sacar el
-  link mientras pruebas en dev).
+  requiere `inviteCode` además de `email`/`password`/`name`, y crea la cuenta
+  con `emailVerified: false`. El código se obtiene con `POST
+  /auth/invitations` (requiere sesión), pero solo lo acepta si quien está
+  logueado tiene el email configurado en `INVITE_CREATOR_EMAIL` — sin esa
+  variable seteada, nadie puede generar invitaciones y el signup público
+  queda efectivamente cerrado. Sin `RESEND_API_KEY` configurada en local, el
+  email de verificación no se envía de verdad — `MailService` lo saltea con
+  un warning en el log del backend (revísalo ahí para sacar el link mientras
+  pruebas en dev).
 - **Cuenta semilla** (`npm run seed`, ver más abajo): crea una única cuenta
   de prueba para no tener que pasar por signup+verificación en cada corrida
-  local.
+  local. Es la vía más simple en dev para generar la primera invitación: seteá
+  `INVITE_CREATOR_EMAIL` con el mismo email de la cuenta semilla
+  (`SEED_ADMIN_EMAIL`), logueate con ella, y llamá `POST /auth/invitations`
+  desde la sección "Generar invitación" de Seguridad (o directo por API) para
+  conseguir un código válido.
 
 ```
 Email:     admin@umbral.cl
@@ -313,7 +323,10 @@ umbral-personal/
 
 ### Autenticación y Seguridad
 - Alta propia (self-signup) con verificación de email — no hay un admin que
-  cree cuentas, cada profesional se registra solo (issue #5)
+  cree cuentas, cada profesional se registra solo (issue #5); desde el issue
+  #124 requiere además un código de invitación de un solo uso, generado por
+  el único email configurado en `INVITE_CREATOR_EMAIL` (sin rol ADMIN,
+  decisión explícita — ver Variables de Entorno)
 - Login con email y contraseña (hash Argon2)
 - Tokens JWT con expiración configurable
 - **MFA obligatorio para toda cuenta** (TOTP, compatible con Google
@@ -451,7 +464,8 @@ Todas las rutas usan el prefijo global `/api/v1`.
 
 ### Autenticación
 ```
-POST /api/v1/auth/signup
+POST /api/v1/auth/signup               (requiere inviteCode, issue #124)
+POST /api/v1/auth/invitations          🔒 (solo INVITE_CREATOR_EMAIL, issue #124)
 POST /api/v1/auth/verify-email
 POST /api/v1/auth/login
 POST /api/v1/auth/mfa/verify
@@ -801,6 +815,7 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `REMINDERS_ENABLED` | Si es `false`, desactiva el cron de recordatorios de sesión (`RemindersService`, cada 5 min) sin necesitar un deploy/revert | `false` en CI/e2e |
 | `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar la credencial del merchant Flow de cada terapeuta en reposo — distinta de `DOCUMENT_ENCRYPTION_KEY`/`GOOGLE_TOKEN_ENCRYPTION_KEY` (sdd/online-payment-integration) | Generar con `openssl rand -base64 32` |
 | `PAYMENTS_ENABLED` | Si es `false`, desactiva por completo la creación de cargos, el checkout, los emails de pago y el cron de vencimiento sin necesitar un deploy/revert | `false` en CI/e2e |
+| `INVITE_CREATOR_EMAIL` | Issue #124: único email autorizado a generar códigos de invitación (`POST /auth/invitations`), requeridos para completar `POST /auth/signup`. Mecanismo temporal sin rol ADMIN (decisión explícita) — sin setear, nadie puede generar invitaciones y el signup público queda efectivamente cerrado | `terapeuta@ejemplo.cl` |
 
 > ⚠️ Si el comando de arranque del hosting ya corre `prisma migrate deploy` antes de iniciar el server (recomendado), **no** setees `RUN_MIGRATIONS=true` también — no rompe nada (la migración es idempotente), pero la corre dos veces innecesariamente.
 

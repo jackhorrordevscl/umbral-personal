@@ -1,4 +1,8 @@
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
@@ -46,6 +50,12 @@ describe('AuthService', () => {
       createMany: jest.Mock;
       update: jest.Mock;
     };
+    invitationCode: {
+      findUnique: jest.Mock;
+      create: jest.Mock;
+      update: jest.Mock;
+      updateMany: jest.Mock;
+    };
     $transaction: jest.Mock;
   };
   let jwtService: { sign: jest.Mock; verify: jest.Mock };
@@ -69,10 +79,22 @@ describe('AuthService', () => {
         createMany: jest.fn(),
         update: jest.fn(),
       },
-      // $transaction([...]) real ejecuta cada operación y devuelve sus
-      // resultados; acá alcanza con resolver el array de promesas ya creadas
-      // (los mocks individuales de arriba ya devuelven promesas resueltas).
-      $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
+      invitationCode: {
+        findUnique: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      // $transaction soporta las dos formas que usa AuthService: el
+      // array-form (ops ya construidas de antemano, se resuelve con
+      // Promise.all) y la forma interactiva usada por signup()
+      // ($transaction(async (tx) => {...})), donde alcanza con invocar el
+      // callback pasándole el mismo mock de `prisma` como `tx` -- los
+      // mocks individuales de arriba ya devuelven promesas resueltas.
+      $transaction: jest.fn(
+        (arg: Promise<unknown>[] | ((tx: unknown) => Promise<unknown>)) =>
+          typeof arg === 'function' ? arg(prisma) : Promise.all(arg),
+      ),
     };
     jwtService = {
       sign: jest.fn().mockReturnValue('signed-token'),
@@ -104,6 +126,15 @@ describe('AuthService', () => {
   });
 
   describe('signup', () => {
+    const validInvitation = {
+      id: 'invitation-1',
+      code: 'valid-code',
+      createdById: 'creator-1',
+      usedById: null,
+      expiresAt: new Date(Date.now() + 60_000),
+      usedAt: null,
+    };
+
     it('lanza 409 si el email ya está registrado', async () => {
       prisma.user.findUnique.mockResolvedValue(buildUser());
 
@@ -112,14 +143,71 @@ describe('AuthService', () => {
           email: 'user@example.com',
           password: 'password1',
           name: 'Nueva Cuenta',
+          inviteCode: 'valid-code',
         }),
       ).rejects.toThrow(ConflictException);
     });
 
-    it('crea la cuenta con emailVerified=false y envía el email de verificación', async () => {
+    // Issue #124: signup público sin invitación. Sin un InvitationCode
+    // válido (existente, sin usar, no expirado) no se puede crear cuenta --
+    // el email libre no alcanza.
+    it('lanza 401 si el código de invitación no existe', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitationCode.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.signup({
+          email: 'user@example.com',
+          password: 'password1',
+          name: 'Test User',
+          inviteCode: 'no-existe',
+        }),
+      ).rejects.toThrow('Código de invitación inválido o expirado');
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('lanza 401 si el código de invitación ya fue usado', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitationCode.findUnique.mockResolvedValue({
+        ...validInvitation,
+        usedById: 'other-user',
+      });
+
+      await expect(
+        service.signup({
+          email: 'user@example.com',
+          password: 'password1',
+          name: 'Test User',
+          inviteCode: 'valid-code',
+        }),
+      ).rejects.toThrow('Código de invitación inválido o expirado');
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('lanza 401 si el código de invitación está expirado', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitationCode.findUnique.mockResolvedValue({
+        ...validInvitation,
+        expiresAt: new Date(Date.now() - 60_000),
+      });
+
+      await expect(
+        service.signup({
+          email: 'user@example.com',
+          password: 'password1',
+          name: 'Test User',
+          inviteCode: 'valid-code',
+        }),
+      ).rejects.toThrow('Código de invitación inválido o expirado');
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('crea la cuenta con emailVerified=false, marca la invitación usada y envía el email de verificación', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
       mockArgon2.hash.mockResolvedValue('hashed-password' as never);
       prisma.user.create.mockResolvedValue(buildUser({ emailVerified: false }));
+      prisma.invitationCode.updateMany.mockResolvedValue({ count: 1 });
       config.get.mockImplementation((key: string) =>
         key === 'FRONTEND_URL' ? 'http://localhost:5173' : undefined,
       );
@@ -128,6 +216,7 @@ describe('AuthService', () => {
         email: 'user@example.com',
         password: 'password1',
         name: 'Test User',
+        inviteCode: 'valid-code',
       });
 
       expect(prisma.user.create).toHaveBeenCalledWith({
@@ -136,6 +225,13 @@ describe('AuthService', () => {
           passwordHash: 'hashed-password',
           name: 'Test User',
           emailVerified: false,
+        },
+      });
+      expect(prisma.invitationCode.updateMany).toHaveBeenCalledWith({
+        where: { id: 'invitation-1', usedById: null },
+        data: {
+          usedById: 'user-1',
+          usedAt: expect.any(Date) as unknown as Date,
         },
       });
       expect(jwtService.sign).toHaveBeenCalledWith(
@@ -150,6 +246,84 @@ describe('AuthService', () => {
       expect(result).toEqual({
         message:
           'Cuenta creada. Revisa tu email para verificarla antes de iniciar sesión.',
+      });
+    });
+
+    it('lanza 401 si dos signups concurrentes consumen el mismo código (updateMany no encuentra la fila sin usar)', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
+      mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+      prisma.user.create.mockResolvedValue(buildUser({ emailVerified: false }));
+      // El otro signup concurrente ya puso usedById -- el updateMany de este
+      // signup no matchea ninguna fila (count 0).
+      prisma.invitationCode.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.signup({
+          email: 'user@example.com',
+          password: 'password1',
+          name: 'Test User',
+          inviteCode: 'valid-code',
+        }),
+      ).rejects.toThrow('Código de invitación inválido o expirado');
+    });
+  });
+
+  describe('createInvitation', () => {
+    const requestUser = {
+      id: 'creator-1',
+      email: 'creador@example.com',
+      role: 'PROFESSIONAL',
+      name: 'Creador',
+    };
+
+    it('lanza 403 si el email del usuario no es INVITE_CREATOR_EMAIL', async () => {
+      config.get.mockImplementation((key: string) =>
+        key === 'INVITE_CREATOR_EMAIL' ? 'otro@example.com' : undefined,
+      );
+
+      await expect(service.createInvitation(requestUser)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(prisma.invitationCode.create).not.toHaveBeenCalled();
+    });
+
+    it('lanza 403 si INVITE_CREATOR_EMAIL no está configurado', async () => {
+      config.get.mockReturnValue(undefined);
+
+      await expect(service.createInvitation(requestUser)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('crea la invitación y audita CREATE en el camino feliz', async () => {
+      config.get.mockImplementation((key: string) =>
+        key === 'INVITE_CREATOR_EMAIL' ? 'creador@example.com' : undefined,
+      );
+      prisma.invitationCode.create.mockResolvedValue({
+        id: 'invitation-1',
+        code: 'abc123',
+        expiresAt: new Date('2026-09-16T00:00:00.000Z'),
+      });
+
+      const result = await service.createInvitation(requestUser);
+
+      expect(prisma.invitationCode.create).toHaveBeenCalledWith({
+        data: {
+          code: expect.any(String) as unknown as string,
+          createdById: 'creator-1',
+          expiresAt: expect.any(Date) as unknown as Date,
+        },
+      });
+      expect(auditService.log).toHaveBeenCalledWith({
+        userId: 'creator-1',
+        action: 'CREATE',
+        resource: 'InvitationCode',
+        resourceId: 'invitation-1',
+      });
+      expect(result).toEqual({
+        code: 'abc123',
+        expiresAt: new Date('2026-09-16T00:00:00.000Z'),
       });
     });
   });

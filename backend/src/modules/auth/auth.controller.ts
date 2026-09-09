@@ -298,4 +298,16 @@ export class AuthController {
       req.headers['user-agent'],
     );
   }
+
+  // Issue #124: signup público sin invitación, sin rol ADMIN (decisión
+  // explícita). Solo requiere sesión (JwtAuthGuard) -- AuthService.
+  // createInvitation es quien rechaza a cualquier email que no sea
+  // INVITE_CREATOR_EMAIL. Sin ThrottlerGuard a propósito, mismo criterio que
+  // mfa/generate, mfa/enable y mfa/disable: son rutas autenticadas de uso
+  // esporádico, no superficie de fuerza bruta como login/mfa-verify/signup.
+  @UseGuards(JwtAuthGuard)
+  @Post('invitations')
+  createInvitation(@CurrentUser() user: RequestUser) {
+    return this.authService.createInvitation(user);
+  }
 }

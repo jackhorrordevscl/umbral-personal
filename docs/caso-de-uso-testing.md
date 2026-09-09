@@ -18,7 +18,7 @@ Vas a encarnar a una terapeuta ficticia. Sigue la historia paso a paso, en el or
 
 ### 8:45 — Antes de empezar: crea tu cuenta
 
-Si todavía no tienes una cuenta, créala ahora: en el login, haz clic en "Regístrate", completa nombre, email y contraseña, y confirma el enlace que te llega por correo (revisa spam si no aparece en unos minutos) — sin este paso no vas a poder loguear.
+Si todavía no tienes una cuenta, créala ahora: en el login, haz clic en "Regístrate", completa nombre, email, contraseña y el código de invitación que te compartieron (sin él el registro se rechaza — issue #124), y confirma el enlace que te llega por correo (revisa spam si no aparece en unos minutos) — sin este paso no vas a poder loguear.
 
 > 📝 Anota: ¿el mensaje de "revisa tu email" te dejó claro qué esperar? ¿el enlace de verificación funcionó al primer clic?
 

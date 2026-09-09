@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { MfaRecoverDto } from './dto/mfa-recover.dto';
+import type { RequestUser } from '../../common/decorators/current-user.decorator';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import * as QRCode from 'qrcode';
@@ -79,6 +81,13 @@ function getDummyPasswordHash(): Promise<string> {
 // seguridad de tenerlos impresos/guardados.
 const MFA_RECOVERY_CODES_COUNT = 10;
 
+// Issue #124: signup público sin invitación, sin rol ADMIN (decisión
+// explícita). INVITE_CREATOR_EMAIL es el único email autorizado a generar
+// invitaciones -- mecanismo temporal mientras el producto sigue siendo de un
+// solo profesional por cuenta; createInvitation() rechaza a cualquier otro
+// email con ForbiddenException.
+const INVITATION_EXPIRES_IN_MS = 7 * 24 * 60 * 60 * 1000;
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -94,6 +103,13 @@ export class AuthService {
   // b0354c0), pero sin jerarquía no hay quién las cree. La cuenta queda
   // creada con emailVerified=false y sin poder loguear (ver login()) hasta
   // que el dueño del email confirme el link enviado acá.
+  //
+  // Issue #124: signup público sin invitación (sin rol ADMIN, decisión
+  // explícita). Un InvitationCode válido (existe, sin usar, no expirado) es
+  // ahora requisito para crear cuenta -- se valida y se marca usado en la
+  // MISMA $transaction que crea el User, para que un fallo de cualquiera de
+  // las dos operaciones no deje ni una invitación "gastada" sin cuenta ni
+  // una cuenta creada con una invitación que sigue viéndose disponible.
   async signup(dto: SignupDto) {
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
@@ -102,14 +118,54 @@ export class AuthService {
       throw new ConflictException('El email ya está registrado');
     }
 
+    const invitation = await this.prisma.invitationCode.findUnique({
+      where: { code: dto.inviteCode },
+    });
+    if (
+      !invitation ||
+      invitation.usedById ||
+      invitation.expiresAt < new Date()
+    ) {
+      throw new UnauthorizedException(
+        'Código de invitación inválido o expirado',
+      );
+    }
+
     const passwordHash = await argon2.hash(dto.password);
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        passwordHash,
-        name: dto.name,
-        emailVerified: false,
-      },
+    // Transacción interactiva (no el array-form usado en otros métodos de
+    // este archivo) porque el segundo paso -- enlazar usedById en el
+    // InvitationCode -- necesita el id del User recién creado en el primero;
+    // el array-form ejecuta ambas operaciones ya construidas de antemano y no
+    // permite esa dependencia. Si cualquiera de las dos falla, Prisma
+    // revierte ambas: no queda ni una invitación "gastada" sin cuenta ni una
+    // cuenta creada con una invitación que sigue viéndose disponible.
+    //
+    // El marcado como usado va con updateMany + where usedById: null (no
+    // update por id) para que sea atómico contra el findUnique de arriba: dos
+    // signups concurrentes con el mismo código todavía válido podrían pasar
+    // ambos ese chequeo antes de que cualquiera lo marque usado -- el segundo
+    // updateMany de este par encuentra count 0 (el primero ya puso
+    // usedById) y aborta toda la transacción, en vez de dejar dos cuentas
+    // creadas con una sola invitación.
+    const user = await this.prisma.$transaction(async (tx) => {
+      const createdUser = await tx.user.create({
+        data: {
+          email: dto.email,
+          passwordHash,
+          name: dto.name,
+          emailVerified: false,
+        },
+      });
+      const { count } = await tx.invitationCode.updateMany({
+        where: { id: invitation.id, usedById: null },
+        data: { usedById: createdUser.id, usedAt: new Date() },
+      });
+      if (count === 0) {
+        throw new UnauthorizedException(
+          'Código de invitación inválido o expirado',
+        );
+      }
+      return createdUser;
     });
 
     const token = this.jwtService.sign(
@@ -852,6 +908,48 @@ export class AuthService {
     // (ej. a1b2-c3d4-e5f6-a7b8-c9d0).
     const raw = crypto.randomBytes(10).toString('hex');
     return raw.match(/.{1,4}/g)!.join('-');
+  }
+
+  /**
+   * Issue #124: signup público sin invitación, sin rol ADMIN (decisión
+   * explícita). Solo el email configurado en INVITE_CREATOR_EMAIL puede
+   * generar invitaciones -- mecanismo temporal mientras el producto siga
+   * siendo de un solo profesional por cuenta. El código no es un JWT: es un
+   * valor random persistido en DB (mismo motivo que MfaRecoveryCode) porque
+   * signup() necesita poder marcarlo "usado" de forma atómica junto con la
+   * creación del User.
+   */
+  async createInvitation(user: RequestUser) {
+    const inviteCreatorEmail = this.config.get<string>('INVITE_CREATOR_EMAIL');
+    if (!inviteCreatorEmail || user.email !== inviteCreatorEmail) {
+      throw new ForbiddenException(
+        'No tienes permiso para generar invitaciones',
+      );
+    }
+
+    // 6 bytes -> 12 chars hex: suficientemente corto para copiar/pegar a
+    // mano, y con suficiente entropía para un código de un solo uso con
+    // expiración de 7 días (mismo criterio de tamaño que un recovery code
+    // individual, ver generateRecoveryCode).
+    const code = crypto.randomBytes(6).toString('hex');
+    const expiresAt = new Date(Date.now() + INVITATION_EXPIRES_IN_MS);
+
+    const invitation = await this.prisma.invitationCode.create({
+      data: {
+        code,
+        createdById: user.id,
+        expiresAt,
+      },
+    });
+
+    await this.auditService.log({
+      userId: user.id,
+      action: 'CREATE',
+      resource: 'InvitationCode',
+      resourceId: invitation.id,
+    });
+
+    return { code: invitation.code, expiresAt: invitation.expiresAt };
   }
 
   private generateToken(user: {

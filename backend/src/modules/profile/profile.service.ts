@@ -4,6 +4,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { EmailChangeService } from './email-change.service';
@@ -25,6 +26,7 @@ export class ProfileService {
     private prisma: PrismaService,
     private emailChangeService: EmailChangeService,
     private auditService: AuditService,
+    private config: ConfigService,
   ) {}
 
   async findOne(id: string) {
@@ -41,7 +43,17 @@ export class ProfileService {
     });
 
     if (!user) throw new NotFoundException('Usuario no encontrado');
-    return user;
+
+    // Issue #124: el frontend usa este flag para mostrar (o no) la UI de
+    // generar invitaciones -- sin rol ADMIN (decisión explícita), la única
+    // fuente de verdad de "quién puede invitar" es INVITE_CREATOR_EMAIL,
+    // mismo email que AuthService.createInvitation exige al crear el código.
+    const inviteCreatorEmail = this.config.get<string>('INVITE_CREATOR_EMAIL');
+    const canInvite = Boolean(
+      inviteCreatorEmail && user.email === inviteCreatorEmail,
+    );
+
+    return { ...user, canInvite };
   }
 
   // Compliance: historial de activación/desactivación de MFA visible para el

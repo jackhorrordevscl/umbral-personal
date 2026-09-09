@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { ShieldCheck, ShieldOff, QrCode, Calendar } from 'lucide-react';
+import { ShieldCheck, ShieldOff, QrCode, Calendar, UserPlus, Copy } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
@@ -12,6 +12,7 @@ import {
   useConnectCalendar,
   useDisconnectCalendar,
 } from '../hooks/useCalendarIntegration';
+import { useCreateInvitation } from '../hooks/useInvitations';
 
 interface MfaHistoryEntry {
   action: string;
@@ -232,6 +233,94 @@ function MfaCard({
   );
 }
 
+// Issue #124: sección visible solo para el profesional autorizado
+// (profile.canInvite) -- sin jerarquía de roles, es el único que puede
+// emitir códigos de invitación para que un nuevo profesional se registre
+// en /signup. Mismo patrón de card+useMutation que el resto de la página.
+function InviteCard() {
+  const createInvitationMutation = useCreateInvitation();
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const handleGenerate = async () => {
+    setError('');
+    setCopied(false);
+    try {
+      await createInvitationMutation.mutateAsync();
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'No se pudo generar el código de invitación.'));
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!createInvitationMutation.data) return;
+    try {
+      await navigator.clipboard.writeText(createInvitationMutation.data.code);
+      setCopied(true);
+    } catch {
+      // Si el portapapeles no está disponible, el código sigue visible en
+      // pantalla para copiarlo a mano.
+    }
+  };
+
+  return (
+    <div className="card max-w-lg mt-6">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="bg-sage-50 p-3 rounded-lg">
+          <UserPlus size={22} className="text-sage-600" />
+        </div>
+        <div>
+          <h3 className="font-medium text-slate-800">Generar invitación</h3>
+          <p className="text-xs text-slate-500">
+            Crea un código para que un nuevo profesional se registre en Umbral
+          </p>
+        </div>
+      </div>
+
+      {error && <ErrorBanner message={error} className="mb-4" />}
+
+      {createInvitationMutation.data ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3 bg-slate-50 rounded-lg px-4 py-3">
+            <span className="font-mono text-lg text-slate-800 tracking-wide">
+              {createInvitationMutation.data.code}
+            </span>
+            <button
+              type="button"
+              onClick={() => void handleCopy()}
+              className="btn-secondary flex items-center gap-2 shrink-0"
+            >
+              <Copy size={14} />
+              {copied ? 'Copiado' : 'Copiar'}
+            </button>
+          </div>
+          <p className="text-xs text-slate-500">
+            Expira el{' '}
+            {new Date(createInvitationMutation.data.expiresAt).toLocaleString('es-CL')}
+          </p>
+          <button
+            type="button"
+            onClick={() => void handleGenerate()}
+            disabled={createInvitationMutation.isPending}
+            className="btn-secondary disabled:opacity-50"
+          >
+            {createInvitationMutation.isPending ? 'Generando...' : 'Generar otro código'}
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void handleGenerate()}
+          disabled={createInvitationMutation.isPending}
+          className="btn-primary disabled:opacity-50"
+        >
+          {createInvitationMutation.isPending ? 'Generando...' : 'Generar código de invitación'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // PR2a (session-calendar-view, design.md "Decision: SettingsPage split"):
 // extraído de SettingsPage.tsx -- esta página cubre MFA, historial de
 // seguridad y el panel de Google Calendar (account-settings Req: Security
@@ -349,6 +438,8 @@ export default function SecurityPage() {
           </ul>
         </div>
       )}
+
+      {profile?.canInvite && <InviteCard />}
 
       <div className="card max-w-lg mt-6">
         <div className="flex items-center gap-3 mb-6">
