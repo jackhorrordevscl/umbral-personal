@@ -12,6 +12,13 @@ export const SWEEP_BATCH_LIMIT = 200;
 // reconciling a charge whose callback may have been lost -- PR 2.
 export const RECONCILE_MIN_AGE_MS = 15 * 60 * 1000;
 
+// issue #115: how many sweep candidates PaymentsService.runInBatches()
+// processes concurrently within a SWEEP_BATCH_LIMIT batch. Bounds how many
+// requests hit Flow (or the DB/mail path) at once instead of running the
+// whole batch of up to 200 unbounded -- per-item failure isolation already
+// comes from each candidate's own .catch, not from the concurrency limit.
+export const SWEEP_CONCURRENCY = 10;
+
 // Public, unauthenticated frontend page that the PATIENT lands on after the
 // hosted checkout -- App.tsx routes it OUTSIDE the authenticated layout
 // (same tier as /login, /signup). NOT the destination Flow's returnUrl

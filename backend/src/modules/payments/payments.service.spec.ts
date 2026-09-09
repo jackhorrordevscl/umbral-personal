@@ -8,6 +8,7 @@ import { PaymentGatewayRegistry } from './payment-gateway.registry';
 import { PaymentAccountService } from './payment-account.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SWEEP_CONCURRENCY } from './payments.constants';
 
 interface ConsultationRow {
   id: string;
@@ -1439,6 +1440,42 @@ describe('PaymentsService', () => {
         1,
       );
       expect(gatewayAdapter.getOrderStatus).toHaveBeenCalledTimes(2);
+    });
+
+    // issue #115: runInBatches debe correr como máximo SWEEP_CONCURRENCY
+    // candidatos en paralelo por chunk, nunca la tanda completa sin límite
+    // (lo que saturaría a Flow con hasta SWEEP_BATCH_LIMIT=200 llamadas
+    // simultáneas) ni uno por uno (lo que serializa la duración del sweep).
+    it('pass 2 procesa como máximo SWEEP_CONCURRENCY candidatos en paralelo', async () => {
+      const totalCandidates = SWEEP_CONCURRENCY + 3;
+      pass2Candidates = Array.from({ length: totalCandidates }, (_, i) =>
+        buildPayment({
+          id: `payment-${i}`,
+          status: 'PENDING',
+          gatewayToken: `token-${i}`,
+          therapistId: 'therapist-1',
+        }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+
+      let inFlight = 0;
+      let maxInFlight = 0;
+      gatewayAdapter.getOrderStatus.mockImplementation(async () => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        inFlight--;
+        return { status: 'PENDING' };
+      });
+
+      await service.sweep();
+
+      expect(gatewayAdapter.getOrderStatus).toHaveBeenCalledTimes(
+        totalCandidates,
+      );
+      expect(maxInFlight).toBe(SWEEP_CONCURRENCY);
     });
   });
 });

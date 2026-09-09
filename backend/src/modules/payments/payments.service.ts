@@ -19,6 +19,7 @@ import {
   PAYMENT_RETURN_REDIRECT_PATH,
   RECONCILE_MIN_AGE_MS,
   SWEEP_BATCH_LIMIT,
+  SWEEP_CONCURRENCY,
 } from './payments.constants';
 
 const DEFAULT_FRONTEND_URL = 'http://localhost:5173';
@@ -662,7 +663,7 @@ export class PaymentsService {
   // T8.4 + design.md "Data Flow": unlike PR 2 (bulk updateMany, no
   // notifications), this PR needs to know WHICH rows won the transition to
   // fire the email + notification exactly once per charge -- same
-  // batched-candidates-processed-one-by-one shape as
+  // bounded-concurrency batch shape (runInBatches, issue #115) as
   // reconcilePendingPayments/reconcileOne. Batched to SWEEP_BATCH_LIMIT for
   // the same reason as pass 2 (row cap per cron run). This pass never calls
   // the gateway, so it needs no gateway context at all.
@@ -672,13 +673,13 @@ export class PaymentsService {
       take: SWEEP_BATCH_LIMIT,
     });
 
-    for (const payment of candidates) {
-      await this.transitionOneToLate(payment).catch((err: unknown) => {
+    await this.runInBatches(candidates, (payment) =>
+      this.transitionOneToLate(payment).catch((err: unknown) => {
         this.logger.error(
           `Sweep: fallo al transicionar a LATE paymentId=${payment.id}: ${err instanceof Error ? err.message : String(err)}`,
         );
-      });
-    }
+      }),
+    );
   }
 
   // design.md "PENDING -> LATE is a stored transition, not computed" + "The
@@ -726,10 +727,11 @@ export class PaymentsService {
   // T6.2: reconciliation of missed callbacks -- candidates whose token was
   // issued more than RECONCILE_MIN_AGE_MS ago, batched to
   // SWEEP_BATCH_LIMIT per run (same bounded-reconcile pattern as
-  // CalendarSyncService.repairFailedLinks/backfill). Each candidate is
-  // processed individually because it requires one network call per row
-  // (gateway.getOrderStatus) -- an isolated failure must not abort the rest
-  // of the batch.
+  // CalendarSyncService.repairFailedLinks/backfill). Each candidate requires
+  // one network call to Flow (gateway.getOrderStatus) -- runInBatches
+  // (issue #115) runs up to SWEEP_CONCURRENCY of those concurrently, and an
+  // isolated failure (per-item .catch below) never aborts the rest of the
+  // batch.
   private async reconcilePendingPayments(
     contextCache: Map<string, Promise<GatewayContext | null>>,
   ): Promise<void> {
@@ -743,12 +745,30 @@ export class PaymentsService {
       take: SWEEP_BATCH_LIMIT,
     });
 
-    for (const payment of candidates) {
-      await this.reconcileOne(payment, contextCache).catch((err: unknown) => {
+    await this.runInBatches(candidates, (payment) =>
+      this.reconcileOne(payment, contextCache).catch((err: unknown) => {
         this.logger.error(
           `Sweep: fallo al reconciliar paymentId=${payment.id}: ${err instanceof Error ? err.message : String(err)}`,
         );
-      });
+      }),
+    );
+  }
+
+  // issue #115: transitionLatePayments()/reconcilePendingPayments() ran
+  // their candidates fully sequentially, one DB/mail write or Flow round
+  // trip at a time -- with up to SWEEP_BATCH_LIMIT (200) candidates, that
+  // serializes the cron's duration on gateway latency. Per-item failure
+  // isolation already comes from each candidate's own .catch (passed in by
+  // the caller, never rejects here), not from running one at a time, so a
+  // bounded worker pool is safe: SWEEP_CONCURRENCY candidates processed
+  // concurrently per chunk, chunks run one after another.
+  private async runInBatches<T>(
+    items: T[],
+    handler: (item: T) => Promise<void>,
+  ): Promise<void> {
+    for (let i = 0; i < items.length; i += SWEEP_CONCURRENCY) {
+      const chunk = items.slice(i, i + SWEEP_CONCURRENCY);
+      await Promise.all(chunk.map((item) => handler(item)));
     }
   }
 
