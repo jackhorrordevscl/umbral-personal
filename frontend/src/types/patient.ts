@@ -47,6 +47,10 @@ export interface PatientDocument {
   fileName: string;
   type: string;
   uploadedAt: string;
+  // Sugerencia de usuarios: resumen de sesión subido desde el modal de nueva
+  // consulta, atado a Consultation.groupId (ver migración
+  // add_consultation_summary_document).
+  consultationGroupId?: string | null;
 }
 
 export interface ConsultationHistory {

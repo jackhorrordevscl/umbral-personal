@@ -16,8 +16,8 @@ export function usePatientDocuments(patientId: string | undefined) {
 export function useUploadPatientDocument(patientId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ file, type }: { file: File; type: string }) =>
-      documentsApi.uploadPatientDocument(patientId as string, file, type),
+    mutationFn: ({ file, type, consultationGroupId }: { file: File; type: string; consultationGroupId?: string }) =>
+      documentsApi.uploadPatientDocument(patientId as string, file, type, consultationGroupId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['patient-documents', patientId] });
     },

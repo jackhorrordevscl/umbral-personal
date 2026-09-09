@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle, Copy, Check, Send } from 'lucide-react';
+import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle, Copy, Check, Send, FileText, Download } from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import FormField from '../components/ui/FormField';
@@ -9,10 +9,47 @@ import PaymentStatusBadge from '../components/payments/PaymentStatusBadge';
 import api from '../api/client';
 import { usePatients } from '../hooks/usePatients';
 import { useConsultations, useCorrectConsultation } from '../hooks/useConsultations';
+import { usePatientDocuments } from '../hooks/usePatientDocuments';
+import { downloadDocument } from '../api/documents';
+import { downloadBlob } from '../utils/download';
 import type { Consultation, ConsultationHistory, Patient } from '../types/patient';
 import { buildLocalISO, formatChileDateTime, formatChileDate } from '../utils/datetime';
 import { normalizeRut } from '../utils/rut';
 import { getApiErrorMessage } from '../utils/api-error';
+
+// Sugerencia de usuarios: el resumen de sesión que el terapeuta sube desde
+// el modal de nueva consulta (ConsultationForm) aparece acá, atado a esta
+// tarjeta puntual vía consultationGroupId -- no es un listado aparte de
+// "documentos del paciente" (esos viven en PatientModal).
+function SessionAttachment({ groupId, documents }: { groupId: string; documents: { id: string; fileName: string; consultationGroupId?: string | null }[] }) {
+  const [error, setError] = useState('');
+  const attachment = documents.find((d) => d.consultationGroupId === groupId);
+  if (!attachment) return null;
+
+  const handleDownload = async () => {
+    try {
+      const blob = await downloadDocument(attachment.id);
+      downloadBlob(blob, attachment.fileName);
+    } catch (e) {
+      setError(getApiErrorMessage(e, 'Error al descargar el archivo'));
+    }
+  };
+
+  return (
+    <div className="pt-2 border-t border-slate-100">
+      <button
+        type="button"
+        onClick={() => void handleDownload()}
+        className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700"
+      >
+        <FileText size={13} />
+        {attachment.fileName}
+        <Download size={12} />
+      </button>
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+    </div>
+  );
+}
 
 // sdd/online-payment-integration PR 3 (T9.6): control manual de "copiar
 // link" -- complementa el envío automático por email (spec.md "Automatic
@@ -157,6 +194,7 @@ export default function ConsultationsPage() {
 
   const { data: consultations = [], isError: consultationsError, isSuccess: consultationsLoaded } =
     useConsultations(selectedPatientId || undefined);
+  const { data: patientDocuments = [] } = usePatientDocuments(selectedPatientId || undefined);
 
   const correctMutation = useCorrectConsultation();
 
@@ -485,6 +523,7 @@ export default function ConsultationsPage() {
                         </div>
                       )}
                       <p className="text-xs text-slate-500">Terapeuta: {c.therapist?.name}</p>
+                      <SessionAttachment groupId={c.groupId} documents={patientDocuments} />
                     </div>
 
                     {c.history.length > 0 && (

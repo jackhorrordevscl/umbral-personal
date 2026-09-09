@@ -1,4 +1,4 @@
-import { IsEnum, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { DocumentType } from '@prisma/client';
 
 // Issue #72 (punto 3): patientId/type llegaban del multipart via
@@ -11,4 +11,11 @@ export class UploadDocumentDto {
 
   @IsEnum(DocumentType)
   type: DocumentType;
+
+  // Sugerencia de usuarios: subir el resumen de sesión desde el modal de
+  // nueva consulta, atado a esa consulta puntual (Consultation.groupId, no
+  // id -- sobrevive a correct()).
+  @IsOptional()
+  @IsString()
+  consultationGroupId?: string;
 }

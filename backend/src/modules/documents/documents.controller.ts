@@ -73,6 +73,7 @@ export class DocumentsController {
       user.id,
       file,
       dto.type,
+      dto.consultationGroupId,
     );
   }
 

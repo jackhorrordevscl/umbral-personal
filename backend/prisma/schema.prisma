@@ -173,14 +173,21 @@ model PatientDocument {
   storagePath String
   uploadedAt  DateTime     @default(now())
   uploadedBy  String
+  // Vínculo opcional a la consulta de origen (ej. resumen de sesión subido
+  // por el terapeuta). Keyed on groupId, no id, mismo patrón que
+  // Payment.groupId/ReminderDispatch.groupId: sobrevive a correct() (una
+  // corrección de la consulta no debe desvincular el documento ya subido).
+  consultationGroupId String?
 
   @@index([patientId])
+  @@index([consultationGroupId])
 }
 
 enum DocumentType {
   INFORMED_CONSENT
   TELEMED_AGREEMENT
   PATIENT_REPORT
+  SESSION_SUMMARY
   OTHER
 }
 

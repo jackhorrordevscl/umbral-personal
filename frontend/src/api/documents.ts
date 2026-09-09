@@ -5,11 +5,17 @@ export function listPatientDocuments(patientId: string) {
   return api.get<PatientDocument[]>(`/documents/patient/${patientId}`).then((r) => r.data);
 }
 
-export function uploadPatientDocument(patientId: string, file: File, type: string) {
+export function uploadPatientDocument(
+  patientId: string,
+  file: File,
+  type: string,
+  consultationGroupId?: string,
+) {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('patientId', patientId);
   formData.append('type', type);
+  if (consultationGroupId) formData.append('consultationGroupId', consultationGroupId);
   return api.post('/documents/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });

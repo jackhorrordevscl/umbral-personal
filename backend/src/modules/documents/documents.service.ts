@@ -28,6 +28,7 @@ export class DocumentsService {
     userId: string,
     file: Express.Multer.File,
     type: DocumentType,
+    consultationGroupId?: string,
   ) {
     // Lanza NotFoundException si el paciente no existe o el usuario no
     // tiene acceso a él -- se valida ANTES de escribir nada a disco, así no
@@ -62,6 +63,7 @@ export class DocumentsService {
         type,
         fileName: file.originalname,
         storagePath,
+        consultationGroupId,
       },
     });
     this.logger.log(
