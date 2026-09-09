@@ -59,7 +59,11 @@ export default function DashboardPage() {
       // del ledger PatientConsent) en la misma respuesta de GET /patients,
       // así que este stat sigue sin necesitar llamadas extra.
       label: "Consentimientos firmados",
-      value: patients.filter((p) => p.consents?.TREATMENT).length,
+      // Bug reportado por usuarios: el consentimiento de telemedicina es
+      // igual de válido que el presencial, así que un paciente con solo uno
+      // de los dos ya cuenta como "consentimiento firmado" (ver
+      // PatientsPage.hasAnyConsent, mismo criterio).
+      value: patients.filter((p) => p.consents?.TREATMENT || p.consents?.TELEMEDICINE).length,
       icon: FileText,
       color: "text-emerald-600",
       bg: "bg-emerald-50",
@@ -160,7 +164,7 @@ export default function DashboardPage() {
                       <p className="text-xs text-slate-500">{p.rut}</p>
                     </div>
                     <div className="shrink-0">
-                      {p.consents?.TREATMENT ? (
+                      {p.consents?.TREATMENT || p.consents?.TELEMEDICINE ? (
                         <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full">
                           ✓
                         </span>

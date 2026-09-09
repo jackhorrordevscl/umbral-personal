@@ -30,6 +30,12 @@ type ModalIntent = { patient: Patient; tab: "detail" | "edit" } | null;
 
 const displayRut = (rut: string) => formatRut(rut.replace(/\./g, ""));
 
+// Bug reportado por usuarios: el badge de consentimiento solo miraba
+// consents.TREATMENT, así que un paciente con consentimiento SOLO de
+// telemedicina (igual de válido) aparecía como "Sin consentimiento". El
+// consentimiento de cualquiera de las dos finalidades habilita la ficha.
+const hasAnyConsent = (p: Patient) => Boolean(p.consents?.TREATMENT || p.consents?.TELEMEDICINE);
+
 export default function PatientsPage() {
   const [search, setSearch] = useState("");
   const [listError, setListError] = useState("");
@@ -240,12 +246,12 @@ export default function PatientsPage() {
                   <td className="px-6 py-4">
                     <span
                       className={`text-xs px-2 py-1 rounded-full ${
-                        p.consents?.TREATMENT
+                        hasAnyConsent(p)
                           ? "bg-emerald-50 text-emerald-700"
                           : "bg-amber-50 text-amber-700"
                       }`}
                     >
-                      {p.consents?.TREATMENT ? "Consentimiento ✓" : "Sin consentimiento"}
+                      {hasAnyConsent(p) ? "Consentimiento ✓" : "Sin consentimiento"}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -307,12 +313,12 @@ export default function PatientsPage() {
                 </div>
                 <span
                   className={`text-xs px-2 py-1 rounded-full shrink-0 ${
-                    p.consents?.TREATMENT
+                    hasAnyConsent(p)
                       ? "bg-emerald-50 text-emerald-700"
                       : "bg-amber-50 text-amber-700"
                   }`}
                 >
-                  {p.consents?.TREATMENT ? "✓" : "Pendiente"}
+                  {hasAnyConsent(p) ? "✓" : "Pendiente"}
                 </span>
               </div>
               <p className="text-xs text-slate-500 mb-3">
