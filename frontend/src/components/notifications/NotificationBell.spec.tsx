@@ -190,4 +190,50 @@ describe('NotificationBell', () => {
     })
     expect(screen.queryByText('Página de consultas')).not.toBeInTheDocument()
   })
+
+  it('#121: al abrir el panel, el foco entra al primer elemento enfocable', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/notifications/unread-count') {
+        return Promise.resolve({ data: { count: 1 } })
+      }
+      if (url === '/notifications') {
+        return Promise.resolve({ data: [buildNotification()] })
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    renderBell()
+    await screen.findByTestId('notification-badge')
+
+    await user.click(screen.getByRole('button', { name: /notificaciones/i }))
+    const item = await screen.findByRole('button', { name: 'Sesión en 24 horas' })
+
+    await waitFor(() => {
+      expect(item).toHaveFocus()
+    })
+  })
+
+  it('#121: Escape cierra el panel', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/notifications/unread-count') {
+        return Promise.resolve({ data: { count: 1 } })
+      }
+      if (url === '/notifications') {
+        return Promise.resolve({ data: [buildNotification()] })
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    renderBell()
+    await screen.findByTestId('notification-badge')
+
+    await user.click(screen.getByRole('button', { name: /notificaciones/i }))
+    await screen.findByText('Sesión en 24 horas')
+
+    await user.keyboard('{Escape}')
+
+    expect(screen.queryByRole('dialog', { name: 'Notificaciones' })).not.toBeInTheDocument()
+  })
 })

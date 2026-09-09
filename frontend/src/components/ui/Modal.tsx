@@ -11,7 +11,11 @@ interface ModalProps {
   initialFocusRef?: React.RefObject<HTMLElement | null>;
 }
 
-const FOCUSABLE_SELECTOR =
+// Exportado para que otros paneles tipo diálogo (ej. NotificationBell, que
+// no puede usar este componente porque su panel es un dropdown anclado al
+// botón, no un overlay centrado) repliquen el mismo focus trap sin duplicar
+// el selector.
+export const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 // #73 (punto 2): componente base que faltaba desde issue #42 -- PatientModal,
