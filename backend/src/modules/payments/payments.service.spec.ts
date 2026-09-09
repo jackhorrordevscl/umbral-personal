@@ -95,6 +95,7 @@ describe('PaymentsService', () => {
   let gatewayAdapter: {
     createOrder: jest.Mock;
     getOrderStatus: jest.Mock;
+    voidOrder: jest.Mock;
     verifyCallbackSignature: jest.Mock;
   };
   let gatewayRegistry: { get: jest.Mock };
@@ -143,6 +144,7 @@ describe('PaymentsService', () => {
         paymentUrl: 'https://flow.cl/pay/order-token',
       }),
       getOrderStatus: jest.fn(),
+      voidOrder: jest.fn().mockResolvedValue(undefined),
       verifyCallbackSignature: jest.fn(),
     };
     gatewayRegistry = { get: jest.fn().mockReturnValue(gatewayAdapter) };
@@ -717,28 +719,279 @@ describe('PaymentsService', () => {
   describe('cancelUnpaid', () => {
     // spec.md "Cancellation Preserves Paid Charges and Voids Pending Ones"
     it('cancela un cargo PENDING o LATE', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ gatewayToken: null }),
+      );
       prisma.payment.updateMany.mockResolvedValue({ count: 1 });
 
       await service.cancelUnpaid('group-1');
 
-      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+      expect(prisma.payment.findFirst).toHaveBeenCalledWith({
         where: { groupId: 'group-1', status: { in: ['PENDING', 'LATE'] } },
+      });
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment-1', status: { in: ['PENDING', 'LATE'] } },
         data: expect.objectContaining({ status: 'CANCELLED' }) as unknown,
       });
     });
 
-    it('nunca toca un cargo PAID (fuera del where, nunca se actualiza)', async () => {
-      prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+    it('nunca toca un cargo PAID -- sin fila CANCELLABLE, no hay updateMany ni llamada a la pasarela', async () => {
+      // Un groupId cuyo único Payment ya está PAID no matchea el where de
+      // findFirst (status in [PENDING, LATE]) -- es la misma garantía que
+      // antes, ahora expresada por el findFirst previo al updateMany.
+      prisma.payment.findFirst.mockResolvedValue(null);
 
       await service.cancelUnpaid('group-1');
 
-      expect(prisma.payment.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            status: { in: expect.not.arrayContaining(['PAID']) as unknown },
-          }) as unknown,
-        }) as unknown,
+      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+      expect(gatewayAdapter.voidOrder).not.toHaveBeenCalled();
+    });
+
+    // issue #111: la anulación local no basta -- también debe anularse la
+    // orden en la pasarela para que un link de pago vigente ya no resuelva a
+    // un pago real.
+    it('anula la orden en la pasarela cuando el cargo tiene gatewayToken y cuenta conectada', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ gatewayToken: 'flow-token-abc' }),
       );
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+
+      await service.cancelUnpaid('group-1');
+
+      expect(prisma.payment.updateMany).toHaveBeenCalled();
+      expect(paymentAccountService.resolveGatewayContext).toHaveBeenCalledWith(
+        'therapist-1',
+      );
+      expect(gatewayAdapter.voidOrder).toHaveBeenCalledWith(
+        buildContext().credentials,
+        'flow-token-abc',
+      );
+    });
+
+    it('no llama a la pasarela cuando el cargo nunca emitió una orden (gatewayToken null)', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ gatewayToken: null }),
+      );
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.cancelUnpaid('group-1');
+
+      expect(
+        paymentAccountService.resolveGatewayContext,
+      ).not.toHaveBeenCalled();
+      expect(gatewayAdapter.voidOrder).not.toHaveBeenCalled();
+    });
+
+    it('no llama a la pasarela cuando la cuenta ya no está conectada (resolveGatewayContext null)', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ gatewayToken: 'flow-token-abc' }),
+      );
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(null);
+
+      await service.cancelUnpaid('group-1');
+
+      expect(gatewayAdapter.voidOrder).not.toHaveBeenCalled();
+    });
+
+    // issue #111: si la anulación en la pasarela falla (p.ej. un race real
+    // donde el paciente ya pagó ahí), la cancelación local YA ocurrió y no se
+    // revierte -- el fallo solo se loguea (el gap de visibilidad que el
+    // issue señala), sin lanzar.
+    it('un fallo al anular en la pasarela no revierte la cancelación local ni lanza', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ gatewayToken: 'flow-token-abc' }),
+      );
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.voidOrder.mockRejectedValue(
+        new Error('Flow: la orden ya fue pagada'),
+      );
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await expect(service.cancelUnpaid('group-1')).resolves.toBeUndefined();
+
+      expect(prisma.payment.updateMany).toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('payment-1') as unknown,
+      );
+      errorSpy.mockRestore();
+    });
+
+    // Correctness fix: a concurrent confirm() webhook can flip the same row
+    // to PAID microseconds before this updateMany runs -- when that
+    // happens, count is 0 (the row is no longer in [PENDING, LATE]) and
+    // voidOrder must never be called with the now-stale token. Relying on
+    // Flow itself to refuse the void is not a substitute for never asking.
+    it('no anula la orden en la pasarela cuando updateMany no afecta ninguna fila (cargo ya confirmado por un webhook concurrente)', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ gatewayToken: 'flow-token-abc' }),
+      );
+      prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+      const debugSpy = jest
+        .spyOn(Logger.prototype, 'debug')
+        .mockImplementation(() => undefined);
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await service.cancelUnpaid('group-1');
+
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment-1', status: { in: ['PENDING', 'LATE'] } },
+        data: expect.objectContaining({ status: 'CANCELLED' }) as unknown,
+      });
+      expect(paymentAccountService.resolveGatewayContext).not.toHaveBeenCalled();
+      expect(gatewayAdapter.voidOrder).not.toHaveBeenCalled();
+      expect(debugSpy).toHaveBeenCalled();
+      expect(errorSpy).not.toHaveBeenCalled();
+
+      debugSpy.mockRestore();
+      errorSpy.mockRestore();
+    });
+  });
+
+  describe('cancelUnpaidForPatient', () => {
+    // issue #110: un paciente puede tener varios cargos pendientes (uno por
+    // groupId/consultación, groupId es @unique así que cancelUnpaid(groupId)
+    // solo resuelve una fila) -- este método cancela todos los suyos.
+    it('cancela todos los cargos PENDING/LATE del paciente, cada uno con su propia anulación en la pasarela', async () => {
+      prisma.payment.findMany.mockResolvedValue([
+        buildPayment({
+          id: 'payment-1',
+          groupId: 'group-1',
+          gatewayToken: 'flow-token-1',
+        }),
+        buildPayment({
+          id: 'payment-2',
+          groupId: 'group-2',
+          gatewayToken: 'flow-token-2',
+        }),
+      ]);
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+
+      await service.cancelUnpaidForPatient('patient-1');
+
+      expect(prisma.payment.findMany).toHaveBeenCalledWith({
+        where: { patientId: 'patient-1', status: { in: ['PENDING', 'LATE'] } },
+      });
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment-1', status: { in: ['PENDING', 'LATE'] } },
+        data: expect.objectContaining({ status: 'CANCELLED' }) as unknown,
+      });
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment-2', status: { in: ['PENDING', 'LATE'] } },
+        data: expect.objectContaining({ status: 'CANCELLED' }) as unknown,
+      });
+      expect(gatewayAdapter.voidOrder).toHaveBeenCalledWith(
+        buildContext().credentials,
+        'flow-token-1',
+      );
+      expect(gatewayAdapter.voidOrder).toHaveBeenCalledWith(
+        buildContext().credentials,
+        'flow-token-2',
+      );
+    });
+
+    it('sin cargos pendientes, no actualiza ni llama a la pasarela', async () => {
+      prisma.payment.findMany.mockResolvedValue([]);
+
+      await service.cancelUnpaidForPatient('patient-1');
+
+      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+      expect(gatewayAdapter.voidOrder).not.toHaveBeenCalled();
+    });
+
+    it('un fallo al cancelar un cargo no impide que se cancelen los demás', async () => {
+      prisma.payment.findMany.mockResolvedValue([
+        buildPayment({ id: 'payment-1', groupId: 'group-1' }),
+        buildPayment({ id: 'payment-2', groupId: 'group-2' }),
+      ]);
+      prisma.payment.updateMany
+        .mockRejectedValueOnce(new Error('DB caída'))
+        .mockResolvedValueOnce({ count: 1 });
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await expect(
+        service.cancelUnpaidForPatient('patient-1'),
+      ).resolves.toBeUndefined();
+
+      expect(prisma.payment.updateMany).toHaveBeenCalledTimes(2);
+      errorSpy.mockRestore();
+    });
+
+    // Reliability fix: rows must be cancelled concurrently (Promise.allSettled),
+    // not one at a time -- softDelete() awaits this whole call synchronously,
+    // so a sequential loop would multiply Flow's network latency by the
+    // patient's charge count. Proof: with updateMany never resolving, a
+    // sequential for-await loop would only ever reach the FIRST row (it
+    // would be stuck awaiting that promise); Promise.allSettled(map(...))
+    // invokes every row's cancelPaymentRow -- and therefore every row's
+    // updateMany call -- up front, regardless of whether earlier rows have
+    // settled.
+    it('lanza la cancelación de todos los cargos en paralelo, no uno tras otro', async () => {
+      const payments = [
+        buildPayment({ id: 'payment-1', groupId: 'group-1' }),
+        buildPayment({ id: 'payment-2', groupId: 'group-2' }),
+        buildPayment({ id: 'payment-3', groupId: 'group-3' }),
+      ];
+      prisma.payment.findMany.mockResolvedValue(payments);
+      // Never resolves within this test.
+      prisma.payment.updateMany.mockReturnValue(new Promise(() => undefined));
+
+      void service.cancelUnpaidForPatient('patient-1');
+      // Flush the already-scheduled microtask queue (enough ticks for the
+      // findMany await to settle and the Promise.allSettled(map(...)) to
+      // run), without waiting on the never-resolving updateMany promise.
+      for (let i = 0; i < 5; i += 1) {
+        await Promise.resolve();
+      }
+
+      expect(prisma.payment.updateMany).toHaveBeenCalledTimes(3);
+    });
+
+    // Efficiency fix: cancelPaymentRow must reuse the same memoized-context
+    // pattern reconcilePendingPayments already uses -- an account with
+    // several stale charges under the same therapist is decrypted at most
+    // once per cancelUnpaidForPatient call.
+    it('reutiliza el contexto de la pasarela (memoizado) entre cargos del mismo therapistId', async () => {
+      prisma.payment.findMany.mockResolvedValue([
+        buildPayment({
+          id: 'payment-1',
+          groupId: 'group-1',
+          therapistId: 'therapist-1',
+          gatewayToken: 'flow-token-1',
+        }),
+        buildPayment({
+          id: 'payment-2',
+          groupId: 'group-2',
+          therapistId: 'therapist-1',
+          gatewayToken: 'flow-token-2',
+        }),
+      ]);
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+
+      await service.cancelUnpaidForPatient('patient-1');
+
+      expect(
+        paymentAccountService.resolveGatewayContext,
+      ).toHaveBeenCalledTimes(1);
+      expect(gatewayAdapter.voidOrder).toHaveBeenCalledTimes(2);
     });
   });
 

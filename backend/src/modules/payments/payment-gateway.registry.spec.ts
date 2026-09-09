@@ -30,6 +30,10 @@ class StubGatewayClient extends PaymentGatewayClient {
     throw new Error('not implemented in stub');
   }
 
+  voidOrder(): Promise<void> {
+    throw new Error('not implemented in stub');
+  }
+
   verifyCallbackSignature(): boolean {
     throw new Error('not implemented in stub');
   }

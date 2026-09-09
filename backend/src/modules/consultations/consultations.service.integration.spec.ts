@@ -157,6 +157,7 @@ describe('ConsultationsService + CalendarSyncService (integration, Google client
       prisma,
       auditService,
       calendarSync,
+      buildDisabledPaymentsService(prisma),
     );
     consultationsService = new ConsultationsService(
       prisma,
@@ -330,6 +331,7 @@ describe('ConsultationsService.findByRange (integration, real Prisma)', () => {
       prisma,
       auditService,
       calendarSync,
+      buildDisabledPaymentsService(prisma),
     );
     consultationsService = new ConsultationsService(
       prisma,
@@ -469,6 +471,13 @@ class RejectingFlowGatewayClient extends PaymentGatewayClient {
     );
   }
 
+  voidOrder(): Promise<void> {
+    throw new PaymentGatewayError(
+      'transient',
+      'No implementado en el stub de test.',
+    );
+  }
+
   verifyCallbackSignature(): boolean {
     return false;
   }
@@ -570,6 +579,7 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
       prisma,
       auditService,
       calendarSync,
+      buildDisabledPaymentsService(prisma),
     );
 
     const registry = new PaymentGatewayRegistry([

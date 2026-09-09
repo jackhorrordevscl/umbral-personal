@@ -145,6 +145,29 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     };
   }
 
+  // issue #111: Flow's documented /payment/cancel endpoint voids an order
+  // that hasn't been paid yet -- same signed-POST shape as createOrder
+  // (apiKey + token, HMAC-SHA256 over the sorted params). UNVERIFIED against
+  // a real sandbox (see the file header comment): built from Flow's public
+  // docs the same way createOrder/getOrderStatus were. A non-2xx response
+  // (including the "already paid, cannot cancel" case) propagates as the
+  // usual PaymentGatewayError taxonomy via request() -- the caller
+  // (PaymentsService.cancelPaymentRow) is the one that logs it instead of
+  // swallowing it, since that's precisely the operator-visibility gap issue
+  // #111 calls out.
+  async voidOrder(
+    credentials: GatewayCredentials,
+    token: string,
+  ): Promise<void> {
+    const params: Record<string, string> = {
+      apiKey: credentials.apiKey,
+      token,
+    };
+    params.s = this.sign(params, credentials.secretKey);
+
+    await this.request<unknown>('POST', '/payment/cancel', params);
+  }
+
   // design.md "The confirmation callback is a signal, never a source of
   // truth": this function NEVER decides the payment's status -- it only
   // validates that the POST really came from Flow, signed with the owning

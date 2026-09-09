@@ -505,6 +505,10 @@ model Payment {
 
   @@index([status, dueDate])
   @@index([therapistId])
+  // issue #110: cancelUnpaidForPatient (PatientsService.softDelete cascade)
+  // filters directly on patientId -- same reasoning as Consultation/
+  // PatientDocument/PatientHistory/PatientConsent's own @@index([patientId]).
+  @@index([patientId])
 }
 
 // sdd/online-payment-integration PR 1: una cuenta Flow por terapeuta (modo

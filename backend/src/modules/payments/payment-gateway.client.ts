@@ -117,6 +117,17 @@ export abstract class PaymentGatewayClient {
     token: string,
   ): Promise<{ status: GatewayOrderStatus; gatewayPaymentId?: string }>;
 
+  // issue #111: voids/cancels an order at the gateway so a checkout link the
+  // patient still holds can no longer resolve to a real payment after the
+  // local charge is cancelled (PaymentsService.cancelUnpaid). Callers treat
+  // a rejection as "the void failed" (e.g. the order was already paid at the
+  // gateway, a real race) -- never as "the order didn't exist", which is not
+  // distinguishable from this port alone.
+  abstract voidOrder(
+    credentials: GatewayCredentials,
+    token: string,
+  ): Promise<void>;
+
   abstract verifyCallbackSignature(
     credentials: GatewayCredentials,
     params: Record<string, string>,

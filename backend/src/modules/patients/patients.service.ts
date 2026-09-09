@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
+import { PaymentsService } from '../payments/payments.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { RecordConsentDto } from './dto/record-consent.dto';
@@ -39,6 +40,7 @@ export class PatientsService {
     private prisma: PrismaService,
     private auditService: AuditService,
     private calendarSync: CalendarSyncService,
+    private paymentsService: PaymentsService,
   ) {}
 
   async create(dto: CreatePatientDto, therapistId: string) {
@@ -245,6 +247,22 @@ export class PatientsService {
     this.logger.log(
       `Paciente eliminado (soft delete): id=${id} userId=${userId}`,
     );
+
+    // issue #110: cancela todo cargo PENDING/LATE del paciente eliminado --
+    // sin esto quedaban en pie para el sweep cron (payments.service.ts) y
+    // podían transicionar a PAID después de que el paciente ya no existe
+    // (un checkout link vigente sigue siendo pagable en la pasarela). Se
+    // espera (no fire-and-forget como el calendario, issue #111: el estado
+    // financiero debe quedar resuelto antes de responder) pero un fallo acá
+    // no debe impedir que el soft-delete se resuelva -- se loguea y sigue.
+    await this.paymentsService
+      .cancelUnpaidForPatient(id)
+      .catch((err: unknown) => {
+        this.logger.error(
+          `Fallo al cancelar cargos pendientes para patientId=${id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+
     // design.md "Confirmed Decisions": único disparador real de borrado de
     // eventos de Google hoy (ningún endpoint escribe Consultation.deletedAt
     // todavía). Fire-and-forget, igual que ConsultationsService.create/

@@ -352,11 +352,120 @@ export class PaymentsService {
   // updateMany with status: { in: CANCELLABLE_STATUSES } is itself the
   // guarantee -- a PAID charge is left out of the where, so it's never
   // touched (no explicit "if PAID, do nothing" check is ever needed).
+  //
+  // issue #111: a local CANCELLED transition alone left a stale-but-valid
+  // checkout link at the gateway -- a patient who still held it could pay
+  // there afterwards, and confirm()'s CANCELLABLE_STATUSES guard (below)
+  // would silently no-op the callback with no log/alert. cancelPaymentRow
+  // now also voids the order at the gateway, but only when the local write
+  // actually happened; see its comment for the count-gated race guard.
   async cancelUnpaid(groupId: string): Promise<void> {
-    await this.prisma.payment.updateMany({
+    const payment = await this.prisma.payment.findFirst({
       where: { groupId, status: { in: [...CANCELLABLE_STATUSES] } },
+    });
+    if (!payment) return;
+
+    // Single-row caller: a fresh, single-use cache -- no memoization payoff
+    // here, but it lets cancelPaymentRow always go through
+    // resolveContextMemoized instead of branching on caller shape.
+    await this.cancelPaymentRow(payment, new Map());
+  }
+
+  // issue #110: PatientsService.softDelete's entry point -- a patient can
+  // have several outstanding charges (one Payment per consultation groupId,
+  // groupId is @unique so cancelUnpaid(groupId) only ever resolves one row),
+  // so this scans every PENDING/LATE charge for the patient instead of
+  // assuming a single one. softDelete() awaits this call synchronously
+  // (financial state must be resolved before it responds), so the rows are
+  // cancelled concurrently with Promise.allSettled instead of one at a time
+  // -- a patient realistically has a handful of charges, not hundreds (the
+  // 200-candidate sweep cron, unlike this path, stays sequential/bounded).
+  // Each row is still isolated: one gateway failure (network, or the
+  // gateway's own account no longer connected) must not stop the rest of
+  // the patient's charges from being cancelled locally, and rows sharing a
+  // therapistId reuse one memoized gateway context (resolveContextMemoized)
+  // instead of decrypting the credential once per row.
+  async cancelUnpaidForPatient(patientId: string): Promise<void> {
+    const payments = await this.prisma.payment.findMany({
+      where: { patientId, status: { in: [...CANCELLABLE_STATUSES] } },
+    });
+
+    const contextCache = new Map<string, GatewayContext | null>();
+    const results = await Promise.allSettled(
+      payments.map((payment) => this.cancelPaymentRow(payment, contextCache)),
+    );
+
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        const payment = payments[index];
+        const err: unknown = result.reason;
+        this.logger.error(
+          `Fallo al cancelar el cargo paymentId=${payment.id} (patientId=${patientId}): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    });
+  }
+
+  // Shared by cancelUnpaid/cancelUnpaidForPatient: flips the row to
+  // CANCELLED locally (same count-gated updateMany guarantee as the rest of
+  // this module -- a PAID charge is never in this where) and only THEN
+  // attempts to void the corresponding order at the gateway, in that order.
+  // The local write must never wait on or be rolled back by the gateway
+  // call -- issue #111's whole point is that the money-received-vs-
+  // local-state divergence (the patient paid at the gateway right
+  // before/during this call, a real race) must become visible, not block
+  // cancellation.
+  //
+  // The updateMany's affected-row count gates the gateway call: if a
+  // concurrent confirm() (webhook) already moved this row out of a
+  // cancellable status between the caller's findFirst/findMany and this
+  // updateMany, count is 0 -- nothing was cancelled locally, so there's
+  // nothing to void either. Calling voidOrder() anyway would mean anulling
+  // an order that was legitimately just paid, relying only on Flow itself
+  // refusing the void (PaymentGatewayClient.voidOrder's own "unverified"
+  // caveat) instead of never asking in the first place. A charge never
+  // issued an order (gatewayToken null) or whose account is no longer
+  // connected (resolveContextMemoized null) also has nothing to void.
+  private async cancelPaymentRow(
+    payment: Payment,
+    contextCache: Map<string, GatewayContext | null>,
+  ): Promise<void> {
+    const result = await this.prisma.payment.updateMany({
+      where: { id: payment.id, status: { in: [...CANCELLABLE_STATUSES] } },
       data: { status: 'CANCELLED', cancelledAt: new Date() },
     });
+
+    if (result.count === 0) {
+      this.logger.debug(
+        `cancelPaymentRow: paymentId=${payment.id} ya no estaba en un estado cancelable (probablemente confirmado por un webhook concurrente); no se anula nada en la pasarela.`,
+      );
+      return;
+    }
+
+    if (!payment.gatewayToken) return;
+
+    // design.md Decision 2 (reconcilePendingPayments): same run-scoped memo
+    // cache reuse -- a patient with several stale charges under the same
+    // therapist is decrypted at most once per cancelUnpaidForPatient call.
+    const context = await this.resolveContextMemoized(
+      payment.therapistId,
+      contextCache,
+    );
+    if (!context) return;
+
+    try {
+      await this.gatewayRegistry
+        .get(context.provider)
+        .voidOrder(context.credentials, payment.gatewayToken);
+    } catch (err) {
+      // issue #111: this IS the operator-visibility gap -- log loudly
+      // instead of swallowing silently. The local CANCELLED transition
+      // above already happened and is never rolled back for this.
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `Fallo al anular la orden en la pasarela de pago (paymentId=${payment.id}, groupId=${payment.groupId}, token=${payment.gatewayToken}): ${message}`,
+      );
+    }
   }
 
   // sdd/payments-multigateway-redesign (design.md "Webhook — after"):

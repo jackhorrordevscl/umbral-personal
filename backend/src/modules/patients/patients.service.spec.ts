@@ -4,6 +4,7 @@ import { PatientsService } from './patients.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
+import { PaymentsService } from '../payments/payments.service';
 
 function buildPatient(overrides: Partial<Patient> = {}): Patient {
   return {
@@ -44,6 +45,7 @@ describe('PatientsService', () => {
     $transaction: jest.Mock;
   };
   let calendarSync: { deletePatientEvents: jest.Mock };
+  let paymentsService: { cancelUnpaidForPatient: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -78,11 +80,15 @@ describe('PatientsService', () => {
     calendarSync = {
       deletePatientEvents: jest.fn().mockResolvedValue(undefined),
     };
+    paymentsService = {
+      cancelUnpaidForPatient: jest.fn().mockResolvedValue(undefined),
+    };
 
     service = new PatientsService(
       prisma as unknown as PrismaService,
       auditService,
       calendarSync as unknown as CalendarSyncService,
+      paymentsService as unknown as PaymentsService,
     );
   });
 
@@ -331,6 +337,36 @@ describe('PatientsService', () => {
       );
       calendarSync.deletePatientEvents.mockRejectedValue(
         new Error('Google no disponible'),
+      );
+
+      await expect(
+        service.softDelete('patient-1', 'therapist-1'),
+      ).resolves.toEqual(expect.objectContaining({ id: 'patient-1' }));
+    });
+
+    // issue #110: sin esto, los cargos PENDING/LATE del paciente eliminado
+    // seguían en pie para el sweep cron y podían transicionar a PAID después
+    // de que el paciente ya no existiera.
+    it('llama a paymentsService.cancelUnpaidForPatient(id) tras el soft-delete', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patient.update.mockResolvedValue(
+        buildPatient({ deletedAt: new Date() }),
+      );
+
+      await service.softDelete('patient-1', 'therapist-1');
+
+      expect(paymentsService.cancelUnpaidForPatient).toHaveBeenCalledWith(
+        'patient-1',
+      );
+    });
+
+    it('un rechazo de paymentsService.cancelUnpaidForPatient no impide que softDelete() se resuelva (non-blocking)', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patient.update.mockResolvedValue(
+        buildPatient({ deletedAt: new Date() }),
+      );
+      paymentsService.cancelUnpaidForPatient.mockRejectedValue(
+        new Error('Fallo al cancelar cargos'),
       );
 
       await expect(
