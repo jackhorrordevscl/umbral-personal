@@ -447,9 +447,7 @@ describe('PaymentsService', () => {
       prisma.payment.findUnique.mockResolvedValue(null);
       prisma.payment.create.mockRejectedValue(new Error('DB caída'));
 
-      await expect(service.ensureCharge('group-1')).rejects.toThrow(
-        'DB caída',
-      );
+      await expect(service.ensureCharge('group-1')).rejects.toThrow('DB caída');
     });
 
     // sdd/online-payment-integration PR 2 (T6.3): design.md "Reschedule to
