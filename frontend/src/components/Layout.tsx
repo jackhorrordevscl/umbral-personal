@@ -58,7 +58,11 @@ export default function Layout() {
             <X size={20} />
           </button>
         </div>
-        <nav className="flex-1 px-3 py-6 space-y-1">
+        {/* min-h-0 + overflow-y-auto: sin esto, un hijo flex no se encoge
+            por debajo de su contenido -- con 8 links (tras sumar Pagos y
+            Repositorio) el nav empujaba el footer de email/logout fuera de
+            la caja del aside, dejando ver el bg-cream-100 del fondo detrás. */}
+        <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-6 space-y-1">
           {navLinks.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
