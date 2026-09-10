@@ -345,6 +345,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                     aria-label="Tipo de documento a subir"
                   >
                     <option value="INFORMED_CONSENT">Consentimiento informado</option>
+                    <option value="INFORMED_ASSENT">Asentimiento informado</option>
                     <option value="TELEMED_AGREEMENT">Acuerdo telemedicina</option>
                     <option value="OTHER">Otro</option>
                   </select>

@@ -247,6 +247,7 @@ export default function PatientForm({
             aria-label="Tipo de documento a adjuntar"
           >
             <option value="INFORMED_CONSENT">Consentimiento informado</option>
+            <option value="INFORMED_ASSENT">Asentimiento informado</option>
             <option value="TELEMED_AGREEMENT">Acuerdo telemedicina</option>
             <option value="OTHER">Otro</option>
           </select>
