@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle, Copy, Check, Send, FileText, Download } from 'lucide-react';
+import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle, Copy, Check, Send, FileText, Download, Upload } from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import FormField from '../components/ui/FormField';
@@ -9,7 +9,7 @@ import PaymentStatusBadge from '../components/payments/PaymentStatusBadge';
 import api from '../api/client';
 import { usePatients } from '../hooks/usePatients';
 import { useConsultations, useCorrectConsultation } from '../hooks/useConsultations';
-import { usePatientDocuments } from '../hooks/usePatientDocuments';
+import { usePatientDocuments, useUploadPatientDocument } from '../hooks/usePatientDocuments';
 import { downloadDocument } from '../api/documents';
 import { downloadBlob } from '../utils/download';
 import type { Consultation, ConsultationHistory, Patient } from '../types/patient';
@@ -125,6 +125,11 @@ function ResendPaymentLinkButton({ groupId }: { groupId: string }) {
   );
 }
 
+// Mismo listado que ConsultationForm.ALLOWED_SUMMARY_EXTENSIONS -- duplicado
+// acá (no exportado) porque exportar una constante desde un archivo de
+// componente rompe react-refresh/only-export-components.
+const ALLOWED_SUMMARY_EXTENSIONS = ['.pdf', '.doc', '.docx'];
+
 // Motivo/intervención/acuerdos a veces se extienden varios párrafos y hacían
 // insufrible el scroll de cada tarjeta de sesión (feedback de usuarios); se
 // trunca a 3 líneas y se deja expandir/colapsar por tarjeta.
@@ -188,6 +193,12 @@ export default function ConsultationsPage() {
     nextSessionDate: '', nextSessionTime: '09:00',
     sessionType: 'IN_PERSON',
   });
+  const [editSummaryFile, setEditSummaryFile] = useState<File | null>(null);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
+  // Mismo criterio que ConsultationForm.runUpload: si la corrección se
+  // guardó pero el adjunto falló, se retiene el groupId para reintentar
+  // SOLO la subida sin volver a corregir la sesión.
+  const [editPendingUploadGroupId, setEditPendingUploadGroupId] = useState<string | null>(null);
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
 
   const { data: patients = [], isError: patientsError } = usePatients();
@@ -197,6 +208,14 @@ export default function ConsultationsPage() {
   const { data: patientDocuments = [] } = usePatientDocuments(selectedPatientId || undefined);
 
   const correctMutation = useCorrectConsultation();
+  const editUploadMutation = useUploadPatientDocument(selectedPatientId || undefined);
+
+  const closeEditModal = useCallback(() => {
+    setEditingConsultation(null);
+    setEditError('');
+    setEditSummaryFile(null);
+    setEditPendingUploadGroupId(null);
+  }, []);
 
   const handleEditOpen = useCallback((c: Consultation) => {
     const sd = new Date(c.sessionDate);
@@ -215,7 +234,25 @@ export default function ConsultationsPage() {
     });
     setEditingConsultation(c);
     setEditError('');
+    setEditSummaryFile(null);
+    setEditPendingUploadGroupId(null);
   }, []);
+
+  const runEditUpload = useCallback(async (groupId: string) => {
+    if (!editSummaryFile) return;
+    try {
+      await editUploadMutation.mutateAsync({
+        file: editSummaryFile,
+        type: 'SESSION_SUMMARY',
+        consultationGroupId: groupId,
+      });
+    } catch (uploadErr) {
+      setEditPendingUploadGroupId(groupId);
+      setEditError(getApiErrorMessage(uploadErr, 'La corrección se guardó, pero no se pudo subir el archivo adjunto.'));
+      return;
+    }
+    closeEditModal();
+  }, [editSummaryFile, editUploadMutation, closeEditModal]);
 
   // Abre el modal de Corregir sesión una sola vez cuando la consulta
   // referenciada por la notificación (?consultationId=) termina de cargar --
@@ -239,6 +276,13 @@ export default function ConsultationsPage() {
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingConsultation) return;
+
+    // La corrección ya se guardó, solo falta reintentar el adjunto.
+    if (editPendingUploadGroupId) {
+      void runEditUpload(editPendingUploadGroupId);
+      return;
+    }
+
     correctMutation.mutate(
       {
         id: editingConsultation.id,
@@ -255,8 +299,11 @@ export default function ConsultationsPage() {
       },
       {
         onSuccess: () => {
-          setEditingConsultation(null);
-          setEditError('');
+          if (editSummaryFile) {
+            void runEditUpload(editingConsultation.groupId);
+            return;
+          }
+          closeEditModal();
         },
         onError: (err: unknown) => {
           // Issue #41: banner rojo del propio formulario en vez de alert()
@@ -327,7 +374,7 @@ export default function ConsultationsPage() {
       {/* Modal edición */}
       {editingConsultation && (
         <Modal
-          onClose={() => { setEditingConsultation(null); setEditError(''); }}
+          onClose={closeEditModal}
           labelledBy="correct-consultation-title"
           className="max-w-2xl p-6 max-h-[90vh] overflow-auto"
         >
@@ -341,7 +388,7 @@ export default function ConsultationsPage() {
                 </p>
               </div>
               <button
-                onClick={() => { setEditingConsultation(null); setEditError(''); }}
+                onClick={closeEditModal}
                 className="text-slate-400 hover:text-slate-600"
               >
                 <X size={20} />
@@ -353,6 +400,23 @@ export default function ConsultationsPage() {
                 Por normativa clínica las sesiones no se eliminan ni sobreescriben. Esta corrección actualiza el registro y guarda un snapshot de la versión anterior para trazabilidad.
               </p>
             </div>
+            {editPendingUploadGroupId ? (
+              <form onSubmit={handleEditSubmit}>
+                <p className="text-sm text-slate-600 mb-4">
+                  La corrección ya quedó guardada. Solo falta reintentar la subida del archivo adjunto.
+                </p>
+                <p className="text-sm font-medium text-slate-800 mb-4">{editSummaryFile?.name}</p>
+                {editError && <ErrorBanner icon message={editError} className="mb-4" />}
+                <div className="flex gap-3">
+                  <button type="submit" className="btn-primary" disabled={editUploadMutation.isPending}>
+                    {editUploadMutation.isPending ? 'Subiendo...' : 'Reintentar subida'}
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={closeEditModal}>
+                    Omitir y cerrar
+                  </button>
+                </div>
+              </form>
+            ) : (
             <form onSubmit={handleEditSubmit}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField id="correct-sessionDate" label="Fecha de sesión">
@@ -393,21 +457,56 @@ export default function ConsultationsPage() {
                 <input id="correct-nextSessionTime" type="time" className="input-field" value={editForm.nextSessionTime}
                   onChange={e => setEditForm({ ...editForm, nextSessionTime: e.target.value })} />
               </FormField>
+              <FormField id="correct-summaryFile" label="Registro de sesión propio (opcional)" className="md:col-span-2">
+                <div
+                  className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center cursor-pointer hover:border-sage-300 transition-colors"
+                  onClick={() => editFileInputRef.current?.click()}
+                >
+                  {editSummaryFile ? (
+                    <p className="text-sm text-sage-600 font-medium">{editSummaryFile.name}</p>
+                  ) : (
+                    <>
+                      <Upload size={20} className="text-slate-300 mx-auto mb-1" />
+                      <p className="text-xs text-slate-500">
+                        Adjuntá tu propio registro de la sesión (PDF o Word)
+                      </p>
+                    </>
+                  )}
+                  <input
+                    id="correct-summaryFile"
+                    ref={editFileInputRef}
+                    type="file"
+                    accept={ALLOWED_SUMMARY_EXTENSIONS.join(',')}
+                    className="hidden"
+                    onChange={e => setEditSummaryFile(e.target.files?.[0] ?? null)}
+                  />
+                </div>
+                {editSummaryFile && (
+                  <button
+                    type="button"
+                    className="text-xs text-slate-500 hover:text-slate-600 mt-1"
+                    onClick={() => { setEditSummaryFile(null); if (editFileInputRef.current) editFileInputRef.current.value = ''; }}
+                  >
+                    Quitar archivo
+                  </button>
+                )}
+              </FormField>
             </div>
             {editError && <ErrorBanner icon message={editError} className="mt-4" />}
             <div className="flex gap-3 mt-6">
-              <button type="submit" className="btn-primary" disabled={correctMutation.isPending}>
-                {correctMutation.isPending ? 'Guardando...' : 'Guardar corrección'}
+              <button type="submit" className="btn-primary" disabled={correctMutation.isPending || editUploadMutation.isPending}>
+                {correctMutation.isPending ? 'Guardando...' : editUploadMutation.isPending ? 'Subiendo adjunto...' : 'Guardar corrección'}
               </button>
               <button
                 type="button"
-                onClick={() => { setEditingConsultation(null); setEditError(''); }}
+                onClick={closeEditModal}
                 className="btn-secondary"
               >
                 Cancelar
               </button>
             </div>
             </form>
+            )}
         </Modal>
       )}
 
