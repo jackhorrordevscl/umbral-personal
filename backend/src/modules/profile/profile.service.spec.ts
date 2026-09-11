@@ -1,15 +1,28 @@
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
+import * as fs from 'fs/promises';
 import { User } from '@prisma/client';
 import { ProfileService } from './profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailChangeService } from './email-change.service';
 import { AuditService } from '../audit/audit.service';
+import { assertFileContentMatchesMimetype } from '../../common/utils/file-signature.util';
 
 jest.mock('argon2');
+jest.mock('fs/promises');
+jest.mock('../../common/utils/file-signature.util');
 
 const mockArgon2 = argon2 as jest.Mocked<typeof argon2>;
+const mockFs = fs as jest.Mocked<typeof fs>;
+const mockAssertFileContentMatchesMimetype =
+  assertFileContentMatchesMimetype as jest.MockedFunction<
+    typeof assertFileContentMatchesMimetype
+  >;
 
 function buildUser(overrides: Partial<User> = {}): User {
   return {
@@ -331,6 +344,128 @@ describe('ProfileService', () => {
           boolean
         >,
       });
+    });
+  });
+
+  describe('uploadAvatar', () => {
+    const file = {
+      buffer: Buffer.from('fake-image-bytes'),
+      mimetype: 'image/png',
+    } as unknown as Express.Multer.File;
+
+    it('valida el contenido real del archivo, guarda el buffer y actualiza avatarMimeType/avatarUpdatedAt', async () => {
+      mockFs.mkdir.mockResolvedValue(undefined as never);
+      mockFs.writeFile.mockResolvedValue(undefined);
+      prisma.user.update.mockResolvedValue(buildUser());
+
+      const result = await service.uploadAvatar('user-1', file);
+
+      expect(mockAssertFileContentMatchesMimetype).toHaveBeenCalledWith(
+        file.buffer,
+        file.mimetype,
+      );
+      expect(mockFs.mkdir).toHaveBeenCalledWith(
+        expect.stringContaining('avatars') as unknown as string,
+        { recursive: true },
+      );
+      expect(mockFs.writeFile).toHaveBeenCalledWith(
+        expect.stringContaining('user-1') as unknown as string,
+        file.buffer,
+      );
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { avatarMimeType: 'image/png', avatarUpdatedAt: expect.any(Date) as unknown as Date },
+      });
+      expect(result.avatarUpdatedAt).toBeInstanceOf(Date);
+    });
+
+    // Issue #51 (mismo criterio que DocumentsService): el mimetype declarado
+    // por el cliente es spoofable, así que esta validación de contenido real
+    // delega en assertFileContentMatchesMimetype -- no se duplica su lógica
+    // acá, solo se comprueba que se invoca y que su throw se propaga.
+    it('propaga el error de assertFileContentMatchesMimetype si el contenido no coincide con el mimetype declarado, sin escribir nada', async () => {
+      mockAssertFileContentMatchesMimetype.mockImplementationOnce(() => {
+        throw new Error('El contenido del archivo no coincide con el tipo declarado');
+      });
+
+      await expect(service.uploadAvatar('user-1', file)).rejects.toThrow(
+        'El contenido del archivo no coincide con el tipo declarado',
+      );
+      expect(mockFs.writeFile).not.toHaveBeenCalled();
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getAvatar', () => {
+    it('lanza 404 si el usuario no tiene avatarMimeType (nunca subió una foto)', async () => {
+      prisma.user.findFirst.mockResolvedValue(
+        buildUser({ avatarMimeType: null } as Partial<User>),
+      );
+
+      await expect(service.getAvatar('user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(mockFs.readFile).not.toHaveBeenCalled();
+    });
+
+    it('devuelve el buffer del archivo y el mimeType guardado', async () => {
+      prisma.user.findFirst.mockResolvedValue(
+        buildUser({ avatarMimeType: 'image/png' } as Partial<User>),
+      );
+      const buffer = Buffer.from('avatar-bytes');
+      mockFs.readFile.mockResolvedValue(buffer);
+
+      const result = await service.getAvatar('user-1');
+
+      expect(result).toEqual({ buffer, mimeType: 'image/png' });
+    });
+  });
+
+  describe('deleteAvatar', () => {
+    it('borra el archivo y limpia avatarMimeType/avatarUpdatedAt', async () => {
+      mockFs.unlink.mockResolvedValue(undefined);
+      prisma.user.update.mockResolvedValue(buildUser());
+
+      const result = await service.deleteAvatar('user-1');
+
+      expect(mockFs.unlink).toHaveBeenCalledWith(
+        expect.stringContaining('user-1') as unknown as string,
+      );
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { avatarMimeType: null, avatarUpdatedAt: null },
+      });
+      expect(result).toEqual({ avatarUpdatedAt: null });
+    });
+
+    // Idempotente a propósito (ver comentario en el service): "quitar foto"
+    // sin una foto previa no debe fallar (doble click, retry de red, etc.).
+    it('no lanza si el archivo no existe (ENOENT) y de todos modos limpia los campos', async () => {
+      const enoentError = Object.assign(new Error('no such file'), {
+        code: 'ENOENT',
+      });
+      mockFs.unlink.mockRejectedValue(enoentError);
+      prisma.user.update.mockResolvedValue(buildUser());
+
+      const result = await service.deleteAvatar('user-1');
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { avatarMimeType: null, avatarUpdatedAt: null },
+      });
+      expect(result).toEqual({ avatarUpdatedAt: null });
+    });
+
+    it('propaga errores de fs que no sean ENOENT', async () => {
+      const permissionError = Object.assign(new Error('permission denied'), {
+        code: 'EACCES',
+      });
+      mockFs.unlink.mockRejectedValue(permissionError);
+
+      await expect(service.deleteAvatar('user-1')).rejects.toThrow(
+        'permission denied',
+      );
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
   });
 });

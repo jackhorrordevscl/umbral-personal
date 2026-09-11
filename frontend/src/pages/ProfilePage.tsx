@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/useAuth';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
@@ -219,6 +220,170 @@ function AccountDataForm({ profile }: { profile: Profile | undefined }) {
   );
 }
 
+// El endpoint GET /profile/avatar está autenticado (no es una URL pública
+// servible directo en un <img src>) -- mismo patrón que
+// SharedFilesPage.handlePreview: pedirlo con axios (responseType: 'blob',
+// así el interceptor de api/client.ts le agrega el Bearer token) y armar un
+// object URL local. `v` en la query string es solo cache-busting del lado
+// del browser (no lo valida el backend, siempre sirve el avatar actual del
+// propio usuario) para que una foto nueva no muestre la vieja recién
+// re-subida.
+function AvatarPreview({ avatarUpdatedAt }: { avatarUpdatedAt: string | null }) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!avatarUpdatedAt) {
+      setObjectUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    let urlToRevoke: string | null = null;
+
+    api
+      .get(`/profile/avatar?v=${encodeURIComponent(avatarUpdatedAt)}`, {
+        responseType: 'blob',
+      })
+      .then((res) => {
+        if (cancelled) return;
+        const url = window.URL.createObjectURL(res.data as Blob);
+        urlToRevoke = url;
+        setObjectUrl(url);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setError(getApiErrorMessage(e, 'No se pudo cargar la foto de perfil.'));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      if (urlToRevoke) window.URL.revokeObjectURL(urlToRevoke);
+    };
+  }, [avatarUpdatedAt]);
+
+  if (error) {
+    return (
+      <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center text-xs text-red-500 text-center px-1">
+        Error
+      </div>
+    );
+  }
+
+  if (!objectUrl) {
+    return (
+      <div className="w-20 h-20 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-medium">
+        {/* Sin foto todavía: placeholder simple, sin iniciales (no tenemos
+            el nombre acá y no vale la pena otro prop solo para esto). */}
+        Sin foto
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={objectUrl}
+      alt="Foto de perfil"
+      className="w-20 h-20 rounded-full object-cover"
+    />
+  );
+}
+
+function AvatarCard({ profile }: { profile: Profile | undefined }) {
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  const handleUpload = async () => {
+    if (!selectedFile) return;
+    setUploading(true);
+    setError('');
+    try {
+      // FormData + Content-Type sin forzar (issue #51, mismo patrón que
+      // uploadPatientDocument en api/documents.ts): axios setea el boundary
+      // automáticamente, forzarlo a mano rompe el parseo multipart.
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      const res = await api.post('/profile/avatar', formData);
+      queryClient.setQueryData<Profile | undefined>(['profile'], (prev) =>
+        prev ? { ...prev, avatarUpdatedAt: res.data.avatarUpdatedAt } : prev,
+      );
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (e) {
+      setError(getApiErrorMessage(e, 'No se pudo subir la foto de perfil.'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setError('');
+    try {
+      await api.delete('/profile/avatar');
+      queryClient.setQueryData<Profile | undefined>(['profile'], (prev) =>
+        prev ? { ...prev, avatarUpdatedAt: null } : prev,
+      );
+    } catch (e) {
+      setError(getApiErrorMessage(e, 'No se pudo quitar la foto de perfil.'));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="card max-w-lg mb-6">
+      <div className="mb-6">
+        <h3 className="font-medium text-slate-800">Foto de perfil</h3>
+        <p className="text-xs text-slate-500">
+          Se muestra en tu cuenta. Formatos aceptados: JPG, PNG, WEBP o GIF (máx. 5MB).
+        </p>
+      </div>
+
+      <div className="flex items-center gap-4">
+        <AvatarPreview avatarUpdatedAt={profile?.avatarUpdatedAt ?? null} />
+        <div className="flex flex-col gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            aria-label="Seleccionar foto de perfil"
+            onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+            className="text-sm text-slate-600"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleUpload}
+              disabled={uploading || !selectedFile}
+              className="btn-primary disabled:opacity-50 self-start"
+            >
+              {uploading ? 'Subiendo...' : 'Subir foto'}
+            </button>
+            {profile?.avatarUpdatedAt && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="btn-secondary disabled:opacity-50 self-start"
+              >
+                {deleting ? 'Quitando...' : 'Quitar foto'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {error && <ErrorBanner message={error} className="mt-4" />}
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const { data: profile, isLoading: checkingStatus } = useProfile();
 
@@ -230,6 +395,8 @@ export default function ProfilePage() {
           Actualiza tu nombre, tu email o tu contraseña
         </p>
       </div>
+
+      <AvatarCard profile={profile} />
 
       <div className="card max-w-lg mb-6">
         <div className="mb-6">

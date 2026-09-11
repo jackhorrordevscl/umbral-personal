@@ -64,6 +64,14 @@ model User {
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
   deletedAt                  DateTime?
+  // Foto de perfil del propio profesional (no PHI clínico, sin cifrar).
+  // Almacenada en una ruta fija (uploads/avatars/<userId>, sin extensión) que
+  // cada nuevo upload pisa -- avatarMimeType guarda el tipo real detectado
+  // por assertFileContentMatchesMimetype para poder servir el Content-Type
+  // correcto, y avatarUpdatedAt permite al frontend armar una URL
+  // cache-busted (?v=avatarUpdatedAt) tras un re-upload.
+  avatarMimeType             String?
+  avatarUpdatedAt            DateTime?
 
   patients             Patient[]
   consultations        Consultation[]

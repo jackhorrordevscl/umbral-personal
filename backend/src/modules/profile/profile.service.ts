@@ -9,7 +9,18 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { EmailChangeService } from './email-change.service';
 import { AuditService } from '../audit/audit.service';
+import { assertFileContentMatchesMimetype } from '../../common/utils/file-signature.util';
 import * as argon2 from 'argon2';
+import * as path from 'path';
+import * as fs from 'fs/promises';
+
+// Ruta fija por usuario (SIN extensión) -- cada nuevo upload pisa el
+// anterior, sin dejar huérfanos ni necesitar limpieza de archivos viejos.
+// El tipo real detectado se guarda aparte en User.avatarMimeType para poder
+// servir el Content-Type correcto al leerlo (ver getAvatar). No es PHI
+// clínico (es la foto del propio profesional, no de un paciente), por eso
+// no pasa por DocumentEncryptionService como los documentos de `documents/`.
+const AVATAR_DIR = path.join(process.cwd(), 'uploads', 'avatars');
 
 const PROFILE_SELECT = {
   id: true,
@@ -39,6 +50,7 @@ export class ProfileService {
         mfaEnabled: true,
         createdAt: true,
         pendingEmail: true,
+        avatarUpdatedAt: true,
       },
     });
 
@@ -179,5 +191,63 @@ export class ProfileService {
     }
 
     return updated;
+  }
+
+  // El `fileFilter` del controller solo mira el header `mimetype` declarado
+  // por el cliente (spoofable); esta es la validación real de contenido
+  // (mismo criterio que DocumentsService.uploadDocument, issue #51), corre
+  // sobre el buffer ya completo. Ruta fija (AVATAR_DIR/<id>, sin extensión):
+  // este write pisa el archivo anterior si existía.
+  async uploadAvatar(id: string, file: Express.Multer.File) {
+    assertFileContentMatchesMimetype(file.buffer, file.mimetype);
+
+    await fs.mkdir(AVATAR_DIR, { recursive: true });
+    await fs.writeFile(path.join(AVATAR_DIR, id), file.buffer);
+
+    const avatarUpdatedAt = new Date();
+    await this.prisma.user.update({
+      where: { id },
+      data: { avatarMimeType: file.mimetype, avatarUpdatedAt },
+    });
+
+    return { avatarUpdatedAt };
+  }
+
+  // Solo el propio dueño ve su avatar (CurrentUser().id en el controller, no
+  // recibe :id) -- no hace falta chequeo de acceso adicional, a diferencia de
+  // DocumentsService (que sirve archivos de pacientes compartidos).
+  async getAvatar(id: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null },
+      select: { avatarMimeType: true },
+    });
+
+    if (!user?.avatarMimeType) {
+      throw new NotFoundException('No hay foto de perfil');
+    }
+
+    const buffer = await fs.readFile(path.join(AVATAR_DIR, id));
+    return { buffer, mimeType: user.avatarMimeType };
+  }
+
+  // Idempotente a propósito: "quitar foto" puede ejecutarse más de una vez
+  // (doble click, retry de red) sin que el segundo intento deba fallar solo
+  // porque el archivo ya no está. Solo se traga ENOENT (archivo inexistente);
+  // cualquier otro error de fs (permisos, disco, etc.) se propaga tal cual.
+  async deleteAvatar(id: string) {
+    try {
+      await fs.unlink(path.join(AVATAR_DIR, id));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw err;
+      }
+    }
+
+    await this.prisma.user.update({
+      where: { id },
+      data: { avatarMimeType: null, avatarUpdatedAt: null },
+    });
+
+    return { avatarUpdatedAt: null };
   }
 }

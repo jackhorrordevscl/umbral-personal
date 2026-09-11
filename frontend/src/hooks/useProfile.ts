@@ -12,6 +12,11 @@ export interface Profile {
   // invitación para el registro público (POST /auth/invitations) -- ver
   // sección "Generar invitación" en SecurityPage.
   canInvite: boolean;
+  // null si nunca subió una foto de perfil. El frontend la usa para armar
+  // una URL cache-busted (`/profile/avatar?v=<avatarUpdatedAt>`) y evitar
+  // servir la foto vieja cacheada por el browser tras un re-upload -- ver
+  // AvatarCard en ProfilePage.tsx.
+  avatarUpdatedAt: string | null;
 }
 
 // PR2a (session-calendar-view, design.md "Decision: useProfile react-query
