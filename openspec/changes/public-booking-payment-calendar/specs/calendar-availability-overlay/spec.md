@@ -8,19 +8,13 @@ Read-only, periodically cached ingestion of each connected therapist's Google Ca
 
 ### Requirement: Periodic Free-Busy Cache Ingestion
 
-The system MUST run a scheduled background job approximately every 30 minutes that queries Google's free-busy API for each therapist with an active, re-consented Google connection, and MUST persist the result as a per-therapist overlay cache. The job MUST NOT be triggered synchronously by an availability or booking request.
+The system MUST run a scheduled background job approximately every 30 minutes that queries Google's `events.list` API (under the therapist's existing `calendar.events` OAuth scope — see design.md Decision 1; a dedicated read spike proved no scope broadening or re-consent is required) for each therapist with an active (`CONNECTED`) Google connection, and MUST persist the result as a per-therapist overlay cache. The job MUST NOT be triggered synchronously by an availability or booking request.
 
 #### Scenario: Job refreshes the overlay for connected therapists
 
-- GIVEN a therapist with an active Google connection holding the read scope
+- GIVEN a therapist with an active (`CONNECTED`) Google connection
 - WHEN the scheduled job runs
 - THEN the therapist's free-busy blocks are fetched from Google and persisted to the overlay cache
-
-#### Scenario: Job skips therapists without the read scope
-
-- GIVEN a therapist whose connection predates the read scope and has not re-consented
-- WHEN the scheduled job runs
-- THEN that therapist is skipped and no overlay entry is written or refreshed for them
 
 ### Requirement: Overlay Consumption in Slot Computation
 
@@ -56,11 +50,11 @@ When the overlay cache for a therapist is missing or older than the refresh inte
 
 ### Requirement: Independent Feature Flag
 
-The system MUST expose `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` following the existing `X_ENABLED !== 'false'` convention, independent of any other payment or booking flag. When disabled, the scheduled job MUST NOT run and `computeSlots()` MUST NOT consult the overlay cache.
+The system MUST expose `CALENDAR_AVAILABILITY_OVERLAY_ENABLED`, opt-in (`=== 'true'`, not the `!== 'false'` convention used by other flags in this project — deliberate per design.md, since this capability introduces new background Google API calls and a new table that should not activate silently on deploy), independent of any other payment or booking flag. When disabled or absent, the scheduled job MUST NOT run and `computeSlots()` MUST NOT consult the overlay cache.
 
-#### Scenario: Flag off disables ingestion and consumption
+#### Scenario: Flag off or absent disables ingestion and consumption
 
-- GIVEN `CALENDAR_AVAILABILITY_OVERLAY_ENABLED=false`
+- GIVEN `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` is unset or not exactly `'true'`
 - WHEN the scheduled job's trigger time arrives and slots are later computed
 - THEN no free-busy fetch occurs and slot computation ignores the overlay entirely
 
