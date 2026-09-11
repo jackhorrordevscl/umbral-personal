@@ -20,9 +20,33 @@ import { PublicScheduleThrottlerGuard } from './public-schedule-throttler.guard'
 // mismo criterio que AvailabilityController/PatientsController: toda la
 // lógica vive en PublicSchedulingService.
 //
-// Cada ruta saltea el throttler nombrado que NO le corresponde -- mismo
-// criterio que AuthController con 'login'/'mfa-verify'/etc: sin esto, GET
-// availability consumiría también cupo de 'public-booking' (y viceversa).
+// Cada ruta saltea todos los throttlers nombrados que NO le corresponden --
+// mismo criterio que AuthController con 'login'/'mfa-verify'/etc: sin esto,
+// GET availability consumiría también cupo de 'public-booking' (y
+// viceversa). ThrottlerModule es @Global() en esta versión de
+// @nestjs/throttler (key learning de PR 3), así que esto incluye no solo
+// los throttlers de AuthModule sino TAMBIÉN los de cualquier otro módulo que
+// registre los suyos -- ProfileModule, por ejemplo, define 'profile-update'
+// y 'email-change-confirm' en su propio buildProfileThrottlerOptions (no en
+// auth.module.ts). Bug reportado en pruebas manuales: al faltar esos dos acá,
+// GET /availability consumía en silencio cupo de 'email-change-confirm'
+// (10 req/60s) hasta devolver 429 -- ver
+// public-scheduling.controller.spec.ts para el test de exhaustividad
+// inversa que ahora lo cubre.
+const FOREIGN_THROTTLER_NAMES = {
+  login: true,
+  'mfa-verify': true,
+  signup: true,
+  'mfa-setup': true,
+  'password-change': true,
+  'verify-email': true,
+  'password-reset': true,
+  'mfa-recover': true,
+  'resend-verification': true,
+  'profile-update': true,
+  'email-change-confirm': true,
+} as const;
+
 @Controller('public/therapists/:therapistId/availability')
 export class PublicSchedulingController {
   constructor(
@@ -30,18 +54,7 @@ export class PublicSchedulingController {
   ) {}
 
   @UseGuards(PublicScheduleThrottlerGuard)
-  @SkipThrottle({
-    login: true,
-    'mfa-verify': true,
-    signup: true,
-    'mfa-setup': true,
-    'password-change': true,
-    'verify-email': true,
-    'password-reset': true,
-    'mfa-recover': true,
-    'resend-verification': true,
-    'public-booking': true,
-  })
+  @SkipThrottle({ ...FOREIGN_THROTTLER_NAMES, 'public-booking': true })
   @Get()
   getAvailability(
     @Param('therapistId') therapistId: string,
@@ -51,18 +64,7 @@ export class PublicSchedulingController {
   }
 
   @UseGuards(PublicScheduleThrottlerGuard)
-  @SkipThrottle({
-    login: true,
-    'mfa-verify': true,
-    signup: true,
-    'mfa-setup': true,
-    'password-change': true,
-    'verify-email': true,
-    'password-reset': true,
-    'mfa-recover': true,
-    'resend-verification': true,
-    'public-availability': true,
-  })
+  @SkipThrottle({ ...FOREIGN_THROTTLER_NAMES, 'public-availability': true })
   @Post('book')
   book(
     @Param('therapistId') therapistId: string,

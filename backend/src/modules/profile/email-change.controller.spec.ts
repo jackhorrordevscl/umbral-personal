@@ -1,5 +1,10 @@
+import { Reflector } from '@nestjs/core';
 import { EmailChangeController } from './email-change.controller';
 import { EmailChangeService } from './email-change.service';
+
+// @nestjs/throttler no exporta THROTTLER_SKIP en su API pública -- ver el
+// mismo criterio en auth.controller.spec.ts.
+const THROTTLER_SKIP = 'THROTTLER:SKIP';
 
 /**
  * Issue #79 (follow-up de #76 PR A): cobertura mínima de que el controller
@@ -38,5 +43,32 @@ describe('EmailChangeController', () => {
     await expect(controller.confirm({ token: 'bad-token' })).rejects.toThrow(
       'Token de confirmación inválido o expirado',
     );
+  });
+
+  // Bug reportado en pruebas manuales de sdd/patient-self-scheduling PR 3:
+  // ThrottlerModule es @Global(), así que los dos throttlers nuevos
+  // ('public-availability'/'public-booking') aplican a esta ruta también --
+  // el named-throttler audit de PR 3 (tasks.md 3.3) solo tocó
+  // auth.controller.ts.
+  describe('exhaustividad de @SkipThrottle (public-availability/public-booking)', () => {
+    const reflector = new Reflector();
+
+    it('confirm saltea public-availability y public-booking', () => {
+      const handler = (controller as unknown as Record<string, () => unknown>)
+        .confirm;
+
+      expect(
+        reflector.get<boolean | undefined>(
+          THROTTLER_SKIP + 'public-availability',
+          handler,
+        ),
+      ).toBe(true);
+      expect(
+        reflector.get<boolean | undefined>(
+          THROTTLER_SKIP + 'public-booking',
+          handler,
+        ),
+      ).toBe(true);
+    });
   });
 });
