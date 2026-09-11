@@ -320,6 +320,49 @@ aparezcan automáticamente en tu Google Calendar personal.
 
 ---
 
+## 13. Auto-agenda pública para tus pacientes (opcional)
+
+Umbral te da un link público para que tus pacientes reserven su propia
+sesión directamente, sin que tengas que agendarlos tú a mano.
+
+- **Configura tu horario primero.** Desde "Perfil", define tu horario
+  semanal (qué días trabajas y en qué rango horario — puede ser distinto
+  cada día, por ejemplo lunes a viernes de 9 a 17 y sábado de 10 a 14) y la
+  duración de tus sesiones. Ahí mismo puedes cargar bloqueos puntuales
+  (un día completo, un rango de horas, o un rango de fechas — por ejemplo
+  tus vacaciones) para que esos horarios no aparezcan disponibles.
+- **Copia tu link.** En la misma pantalla de Perfil hay una tarjeta con tu
+  link público de agenda y un botón para copiarlo — no hace falta que
+  busques ni construyas ningún ID técnico, ya viene armado y listo para
+  compartir por el canal que uses con tus pacientes (WhatsApp, email, etc.).
+- **Qué ve el paciente.** Entra al link sin necesidad de crear ninguna
+  cuenta ni loguearse. Ve los horarios libres respetando tu horario, tus
+  bloqueos y los feriados, elige uno y completa un formulario corto (nombre,
+  RUT, fecha de nacimiento y email). Si el email coincide con un paciente
+  que ya tienes registrado, la reserva se liga automáticamente a su ficha
+  existente; si es alguien nuevo, se crea una ficha nueva con esos datos
+  mínimos.
+- **Ventana de reserva.** Solo se puede reservar con al menos 24 horas de
+  anticipación (para que siempre tengas tiempo de verla) y hasta 60 días
+  hacia adelante — no vas a ver reservas de último minuto ni agendadas a
+  meses vista.
+- **Si dos personas eligen el mismo horario a la vez**, solo la primera
+  reserva se concreta; a la segunda persona la app le avisa que ese horario
+  ya no está disponible y le muestra los horarios libres actualizados.
+- **Limitación actual: no se envía ningún email de confirmación**, ni al
+  paciente que reservó ni a ti como aviso de que tienes una sesión nueva.
+  La sesión sí queda agendada y aparece en tu lista de consultas (y en tu
+  Google Calendar si lo tienes conectado, ver punto 12) — pero por ahora
+  tienes que entrar a la app para enterarte de una reserva nueva.
+
+> 📝 Observaciones UX: (¿te resultó claro cómo configurar tu horario? ¿el
+> link se encuentra fácil en Perfil? ¿probaste el flujo completo como si
+> fueras un paciente?)
+>
+>
+
+---
+
 ## Notas generales de UX (espacio libre)
 
 >

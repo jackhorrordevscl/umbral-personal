@@ -429,6 +429,42 @@ umbral-personal/
   deploy/revert; sin una cuenta Flow conectada, agendar sesiones se
   comporta exactamente igual que sin este módulo
 
+### Auto-agenda pública de pacientes (sdd/patient-self-scheduling)
+- Portal público sin autenticación (`/book/:therapistId`) donde el paciente
+  ve los horarios libres del terapeuta y reserva su propia sesión, sin que
+  el terapeuta la agende a mano
+- El terapeuta configura su propio horario semanal recurrente y sus
+  bloqueos (día completo, rango horario o rango de fechas) desde Perfil —
+  sin acceso admin/dev — y define ahí mismo la duración de sus sesiones
+  (`User.sessionDurationMinutes`)
+- Cálculo de horarios libres al momento de la consulta (con cache en
+  memoria de ~5 min): resta consultas ya agendadas, bloqueos del
+  terapeuta y feriados de Chile (`PublicHoliday`, sembrados desde
+  Boostr.cl) sobre la regla semanal
+- Ventana de reserva de 24h de anticipación mínima y 60 días de horizonte
+  máximo (constantes fijas, no configurables por env)
+- Identidad del paciente resuelta por `(email, therapistId)`: si ya existe
+  como paciente de ese terapeuta, la reserva se liga a su ficha completa;
+  si no, se crea un `Patient` nuevo con un formulario público reducido
+  (nombre, RUT, fecha de nacimiento, email) — sin monto por defecto de
+  cobro ni documentos de consentimiento, que siguen siendo manejados por
+  el terapeuta. Sin OTP ni ningún paso de autenticación para el paciente
+- Concurrencia real garantizada por `BookedSlot` (`(therapistId, slotStart)`
+  único) dentro de una transacción — un doble booking simultáneo
+  devuelve `409 Conflict` limpio en vez de duplicar la sesión
+- Un RUT o email ambiguo entre terapeutas responde siempre el mismo `409`
+  genérico, sin revelar si el dato ya existe en otro lado (privacidad)
+- La reserva creada dispara los mismos efectos secundarios no bloqueantes
+  que una consulta agendada por el terapeuta (sync a Google Calendar,
+  cargo Flow pendiente) — no se envía email de confirmación al paciente
+  ni de aviso al terapeuta todavía (fuera de alcance de este cambio)
+- Throttlers propios `public-availability` (lectura) y `public-booking`
+  (escritura, mismo presupuesto conservador que login/signup), keyed por
+  IP + terapeuta (y hash SHA-256 del email en booking, nunca en claro)
+- Desactivable por completo con `PUBLIC_SCHEDULING_ENABLED=false` (o sin
+  setear, que es el default) sin necesitar un deploy/revert — cubre tanto
+  la lectura de disponibilidad como la reserva
+
 ### Exportación PDF
 - Generación de ficha clínica completa en PDF
 - Incluye datos del paciente e historial clínico completo
@@ -547,6 +583,20 @@ POST /api/v1/calendar-integration/authorize     🔒
 GET  /api/v1/calendar-integration/callback         (redirect de Google, sin auth)
 POST /api/v1/calendar-integration/disconnect    🔒
 ```
+
+### Auto-agenda / Disponibilidad (sdd/patient-self-scheduling)
+```
+GET    /api/v1/availability/schedule                                 🔒
+PUT    /api/v1/availability/schedule                                 🔒
+GET    /api/v1/availability/blockouts                                🔒
+POST   /api/v1/availability/blockouts                                🔒
+DELETE /api/v1/availability/blockouts/:id                            🔒
+GET    /api/v1/public/therapists/:therapistId/availability              (pública, sin auth)
+POST   /api/v1/public/therapists/:therapistId/availability/book         (pública, sin auth)
+```
+Las dos últimas requieren `PUBLIC_SCHEDULING_ENABLED=true` (ver Variables
+de Entorno) y no llevan 🔒 porque son intencionalmente accesibles sin
+sesión — es el portal que usa el paciente para autoagendarse.
 
 > 🔒 Requiere token JWT en el header `Authorization: Bearer <token>`
 
@@ -816,12 +866,25 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar la credencial del merchant Flow de cada terapeuta en reposo — distinta de `DOCUMENT_ENCRYPTION_KEY`/`GOOGLE_TOKEN_ENCRYPTION_KEY` (sdd/online-payment-integration) | Generar con `openssl rand -base64 32` |
 | `PAYMENTS_ENABLED` | Si es `false`, desactiva por completo la creación de cargos, el checkout, los emails de pago y el cron de vencimiento sin necesitar un deploy/revert | `false` en CI/e2e |
 | `INVITE_CREATOR_EMAIL` | Issue #124: único email autorizado a generar códigos de invitación (`POST /auth/invitations`), requeridos para completar `POST /auth/signup`. Mecanismo temporal sin rol ADMIN (decisión explícita) — sin setear, nadie puede generar invitaciones y el signup público queda efectivamente cerrado | `terapeuta@ejemplo.cl` |
+| `PUBLIC_SCHEDULING_ENABLED` | Habilita el portal público de auto-agenda (sdd/patient-self-scheduling): tanto la lectura de disponibilidad como la reserva. **Sin default** — sin setear, ambos endpoints públicos se registran deshabilitados (a diferencia de `PAYMENTS_ENABLED`/`GOOGLE_CALENDAR_SYNC_ENABLED`, acá "ausente" es deshabilitado, no habilitado, por ser superficie pública nueva) | `true` |
+| `PUBLIC_AVAILABILITY_THROTTLE_LIMIT` / `PUBLIC_AVAILABILITY_THROTTLE_TTL_MS` | Límite del throttler `public-availability` (lectura de horarios libres, sin auth) | `20` req / `60000` ms (default) |
+| `PUBLIC_BOOKING_THROTTLE_LIMIT` / `PUBLIC_BOOKING_THROTTLE_TTL_MS` | Límite del throttler `public-booking` (crea `Patient` + `Consultation`, mismo presupuesto conservador que login/signup) | `5` req / `60000` ms (default) |
 
 > ⚠️ Si el comando de arranque del hosting ya corre `prisma migrate deploy` antes de iniciar el server (recomendado), **no** setees `RUN_MIGRATIONS=true` también — no rompe nada (la migración es idempotente), pero la corre dos veces innecesariamente.
 
 > 🔒 **El `DOCUMENT_ENCRYPTION_KEY` de ejemplo de arriba es público** (está en un repo público) — igual que con `JWT_SECRET`, en producción el arranque falla si detecta ese valor exacto o cualquier clave que no decodifique a 32 bytes en base64. Genera una propia con `openssl rand -base64 32` antes de desplegar.
 
 > 🔒 **El `GOOGLE_TOKEN_ENCRYPTION_KEY` de ejemplo de arriba también es público** — mismo criterio y mismo rechazo en producción que `DOCUMENT_ENCRYPTION_KEY`. Genera una propia con `openssl rand -base64 32` antes de desplegar.
+
+> ⚠️ **Feriados de Chile (sdd/patient-self-scheduling):** no son una env var
+> persistente — se cargan con un comando manual e idempotente,
+> `SEED_HOLIDAYS=true npm run seed` (desde `backend/`), que hace upsert en
+> `PublicHoliday` contra [Boostr.cl](https://api.boostr.cl/holidays.json)
+> (sin API key) keyeado por `date`. No corre nunca automáticamente — ni en
+> CI, ni al bootear, ni en el `startCommand` de Render — así que hay que
+> correrlo a mano una vez al año (o contra `DATABASE_URL` de producción, si
+> el hosting no da shell). Sin correrlo, la auto-agenda funciona igual, solo
+> que nunca excluye feriados de los horarios libres.
 
 > 🔒 **`SEED_ADMIN_PASSWORD` es pública si no la sobrescribes.** El default (`prisma/seed-admin.defaults.ts`) está commiteado en un repo público — cualquiera lo puede leer. La cuenta admin fuerza cambio de contraseña en su primer login (`mustChangePassword`), pero eso solo protege si el operador cambia la clave *antes* de que alguien más la use con la contraseña conocida: quien loguee primero con el default se queda con el `passwordChangeToken` y puede tomar la cuenta. En local/CI el default está bien (nadie más tiene acceso a esa base). En **cualquier entorno alcanzable desde afuera** (staging, producción), configura `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` a valores propios antes de correr el seed por primera vez.
 

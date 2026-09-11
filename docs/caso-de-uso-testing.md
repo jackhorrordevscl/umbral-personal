@@ -129,6 +129,36 @@ después intenta abrir ese mismo link de pago desde otra pestaña.
 > 📝 Anota: ¿el link cancelado te dejó pagar igual, o te avisó que ya no era
 > válido?
 
+### 10:40 — Probás tu link de auto-agenda, haciéndote pasar por un paciente
+
+Antes de que un paciente real use esto, pruébalo tú misma jugando los dos
+roles. Primero, como Dra. Constanza: entra a "Perfil" y configura tu
+horario semanal (elige un par de días y un rango horario cualquiera, por
+ejemplo lunes a viernes de 9 a 18) y la duración de tus sesiones. Copia tu
+link público de agenda con el botón de copiar que aparece ahí mismo.
+
+Ahora, para probar de verdad como lo vería un paciente (sin tu sesión de
+terapeuta interfiriendo), abre una **ventana de incógnito** y pega el link
+ahí.
+
+- Deberías ver los horarios libres respetando el horario que acabas de
+  configurar, sin necesidad de loguearte con nada.
+- Elige un horario y completa el formulario con datos de un paciente
+  **nuevo** que no tengas cargado todavía (nombre, RUT, fecha de nacimiento
+  y un email cualquiera que no hayas usado antes).
+- Confirma la reserva.
+
+Vuelve a tu pestaña normal (la logueada como Dra. Constanza) y revisa tu
+lista de consultas: la sesión reservada debería aparecer ahí, y ese
+paciente nuevo debería figurar ahora en tu lista de pacientes con solo los
+datos mínimos del formulario público (sin monto de sesión configurado, sin
+consentimientos cargados — eso te toca completarlo a ti).
+
+> 📝 Anota: ¿el paso de elegir horario y completar el formulario se sintió
+> tan simple como esperarías que le resultara a un paciente real, sin
+> ningún tipo de ayuda tuya? ¿te llegó algún email avisándote de la reserva
+> nueva, o tuviste que entrar a la app para enterarte?
+
 ### 10:45 — Revisas tus Ajustes de cuenta
 
 Antes de cerrar el día, entra a "Ajustes" y prueba tres cosas:
