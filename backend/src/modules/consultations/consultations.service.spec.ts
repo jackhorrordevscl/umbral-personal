@@ -3,7 +3,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { Consultation } from '@prisma/client';
+import { Consultation, Prisma } from '@prisma/client';
 import { ConsultationsService } from './consultations.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
@@ -46,6 +46,7 @@ describe('ConsultationsService', () => {
     consultationHistory: { findMany: jest.Mock; create: jest.Mock };
     calendarEventLink: { findMany: jest.Mock };
     payment: { findMany: jest.Mock };
+    bookedSlot: { create: jest.Mock };
     $transaction: jest.Mock;
   };
   let patientsService: { assertAccess: jest.Mock };
@@ -69,6 +70,9 @@ describe('ConsultationsService', () => {
       },
       payment: {
         findMany: jest.fn().mockResolvedValue([]),
+      },
+      bookedSlot: {
+        create: jest.fn(),
       },
       $transaction: jest.fn((arg: unknown) => {
         if (typeof arg === 'function') {
@@ -597,6 +601,123 @@ describe('ConsultationsService', () => {
 
       expect(result).toEqual([]);
       expect(prisma.calendarEventLink.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  // sdd/patient-self-scheduling PR 3 (tasks.md 3.5, design.md Decision 1
+  // "Double-booking guard"): BookedSlot es el guard REAL de concurrencia
+  // (@@unique([therapistId, slotStart])) -- Consultation no puede llevar esa
+  // constraint porque correct() inserta una fila nueva con el mismo
+  // (therapistId, sessionDate) de la cadena. El recheck previo (buscar un
+  // Consultation vigente que ya ocupe el slot) es un fast-fail para el caso
+  // obvio (cache stale); el insert de BookedSlot es lo que realmente decide
+  // bajo carrera concurrente (probado con Postgres real en
+  // consultations.service.integration.spec.ts, tasks.md 3.11).
+  describe('createFromPublicBooking', () => {
+    const slotStart = new Date('2026-09-01T13:00:00.000Z');
+
+    it('crea la consulta y el BookedSlot cuando el slot está libre', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(null);
+      prisma.bookedSlot.create.mockResolvedValue({ id: 'booked-1' });
+      const created = buildConsultation({ sessionDate: slotStart });
+      prisma.consultation.create.mockResolvedValue(created);
+
+      const result = await service.createFromPublicBooking(
+        'therapist-1',
+        'patient-1',
+        '11111111-1',
+        slotStart,
+        50,
+      );
+
+      expect(result).toBe(created);
+      expect(prisma.bookedSlot.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            therapistId: 'therapist-1',
+            slotStart,
+          }) as unknown,
+        }),
+      );
+      expect(prisma.consultation.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            therapistId: 'therapist-1',
+            patientId: 'patient-1',
+            patientRut: '11111111-1',
+            sessionDate: slotStart,
+          }) as unknown,
+        }),
+      );
+    });
+
+    // Regresión (tasks.md 3.9): el push de calendario debe tratar una
+    // consulta creada por reserva pública IDÉNTICO a una creada por el
+    // terapeuta -- mismo emitCalendarSync(groupId) fire-and-forget que
+    // create()/correct() (calendar-sync spec.md "Publicly booked
+    // consultation pushes a new event").
+    it('dispara emitCalendarSync/emitPaymentCharge igual que create() (regresión calendar-sync)', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(null);
+      prisma.bookedSlot.create.mockResolvedValue({ id: 'booked-1' });
+      const created = buildConsultation({
+        groupId: 'group-public-1',
+        sessionDate: slotStart,
+      });
+      prisma.consultation.create.mockResolvedValue(created);
+
+      await service.createFromPublicBooking(
+        'therapist-1',
+        'patient-1',
+        '11111111-1',
+        slotStart,
+        50,
+      );
+
+      expect(calendarSync.syncGroup).toHaveBeenCalledWith('group-public-1');
+      expect(paymentsService.ensureCharge).toHaveBeenCalledWith(
+        'group-public-1',
+      );
+    });
+
+    it('recheck: si ya existe una consulta vigente en ese horario, lanza 409 sin llegar a BookedSlot', async () => {
+      prisma.consultation.findFirst.mockResolvedValue({ id: 'existing' });
+
+      await expect(
+        service.createFromPublicBooking(
+          'therapist-1',
+          'patient-1',
+          '11111111-1',
+          slotStart,
+          50,
+        ),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.bookedSlot.create).not.toHaveBeenCalled();
+      expect(prisma.consultation.create).not.toHaveBeenCalled();
+    });
+
+    // Triangulación: la violación de unicidad puede ocurrir recién en el
+    // insert (dos requests concurrentes pasaron el recheck antes de que
+    // cualquiera escribiera) -- P2002 de Prisma también debe traducirse a
+    // 409, no propagar como 500.
+    it('violación de unicidad en BookedSlot.create (P2002) se traduce a 409', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(null);
+      prisma.bookedSlot.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+
+      await expect(
+        service.createFromPublicBooking(
+          'therapist-1',
+          'patient-1',
+          '11111111-1',
+          slotStart,
+          50,
+        ),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.consultation.create).not.toHaveBeenCalled();
     });
   });
 });

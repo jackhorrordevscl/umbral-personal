@@ -468,7 +468,7 @@ export default function ConsultationsPage() {
                     <>
                       <Upload size={20} className="text-slate-300 mx-auto mb-1" />
                       <p className="text-xs text-slate-500">
-                        Adjuntá tu propio registro de la sesión (PDF o Word)
+                        Adjunta tu propio registro de la sesión (PDF o Word)
                       </p>
                     </>
                   )}

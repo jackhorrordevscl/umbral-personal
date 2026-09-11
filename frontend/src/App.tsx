@@ -26,6 +26,7 @@ const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const MfaRecoverPage = lazy(() => import("./pages/MfaRecoverPage"));
 const PaymentReturnPage = lazy(() => import("./pages/PaymentReturnPage"));
+const PublicBookingPage = lazy(() => import("./pages/PublicBookingPage"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const PatientsPage = lazy(() => import("./pages/PatientsPage"));
 const ConsultationsPage = lazy(() => import("./pages/ConsultationsPage"));
@@ -112,6 +113,11 @@ function AppRoutes() {
             PAYMENT_RETURN_PATH) -- nunca debe vivir detrás de PrivateRoute,
             el paciente no está autenticado como terapeuta. */}
         <Route path="/pago-recibido" element={<PaymentReturnPage />} />
+        {/* sdd/patient-self-scheduling PR 5 (tasks.md 5.2, design.md "File
+            Changes" -- nueva página pública): agenda de auto-reserva de un
+            paciente sin cuenta, nunca detrás de PrivateRoute -- el visitante
+            no está autenticado como terapeuta. */}
+        <Route path="/book/:therapistId" element={<PublicBookingPage />} />
 
         <Route
           element={

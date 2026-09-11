@@ -54,7 +54,14 @@ export class ProfileController {
   // está disponible. @SkipThrottle salta el otro throttler nombrado de este
   // módulo ('email-change-confirm'), mismo patrón que AuthController.
   @UseGuards(ThrottlerGuard)
-  @SkipThrottle({ 'email-change-confirm': true })
+  // sdd/patient-self-scheduling PR 3 (fix post-verify): ThrottlerModule es
+  // @Global(), así que 'public-availability'/'public-booking' (registrados
+  // en auth.module.ts) también aplican acá salvo que se salteen.
+  @SkipThrottle({
+    'email-change-confirm': true,
+    'public-availability': true,
+    'public-booking': true,
+  })
   @Patch()
   update(@Body() dto: UpdateProfileDto, @CurrentUser() user: RequestUser) {
     return this.profileService.update(user.id, dto);
@@ -64,7 +71,14 @@ export class ProfileController {
   // PATCH /profile arriba): no es un endpoint público, y subir una foto no
   // es un vector de abuso distinto al resto de este controller.
   @UseGuards(ThrottlerGuard)
-  @SkipThrottle({ 'email-change-confirm': true })
+  // sdd/patient-self-scheduling PR 3 (fix post-verify): ThrottlerModule es
+  // @Global(), así que 'public-availability'/'public-booking' (registrados
+  // en auth.module.ts) también aplican acá salvo que se salteen.
+  @SkipThrottle({
+    'email-change-confirm': true,
+    'public-availability': true,
+    'public-booking': true,
+  })
   @Post('avatar')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -101,7 +115,14 @@ export class ProfileController {
   // Mismo throttler compartido que PATCH / y POST /avatar (criterio arriba):
   // quitar la foto no es un endpoint público ni un vector de abuso distinto.
   @UseGuards(ThrottlerGuard)
-  @SkipThrottle({ 'email-change-confirm': true })
+  // sdd/patient-self-scheduling PR 3 (fix post-verify): ThrottlerModule es
+  // @Global(), así que 'public-availability'/'public-booking' (registrados
+  // en auth.module.ts) también aplican acá salvo que se salteen.
+  @SkipThrottle({
+    'email-change-confirm': true,
+    'public-availability': true,
+    'public-booking': true,
+  })
   @Delete('avatar')
   deleteAvatar(@CurrentUser() user: RequestUser) {
     return this.profileService.deleteAvatar(user.id);

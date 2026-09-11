@@ -137,6 +137,21 @@ function validateMainTsEnvVars(config: Record<string, unknown>): void {
       `PAYMENTS_ENABLED inválido: "${describeValue(config.PAYMENTS_ENABLED)}" -- debe ser exactamente "true" o "false".`,
     );
   }
+
+  // sdd/patient-self-scheduling PR 1 (tasks.md 1.3, design.md "Migration /
+  // Rollout"): un solo flag gatea tanto GET .../availability como POST
+  // .../availability/book (PR 3) -- mismo criterio de validación que
+  // PAYMENTS_ENABLED, pero opcional-y-deshabilitado-por-default en el
+  // controller (superficie pública nueva, a diferencia de las anteriores).
+  if (
+    config.PUBLIC_SCHEDULING_ENABLED !== undefined &&
+    config.PUBLIC_SCHEDULING_ENABLED !== 'true' &&
+    config.PUBLIC_SCHEDULING_ENABLED !== 'false'
+  ) {
+    throw new Error(
+      `PUBLIC_SCHEDULING_ENABLED inválido: "${describeValue(config.PUBLIC_SCHEDULING_ENABLED)}" -- debe ser exactamente "true" o "false".`,
+    );
+  }
 }
 
 export function validateEnv(

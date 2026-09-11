@@ -11,7 +11,7 @@ import { PaymentsService } from '../payments/payments.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { RecordConsentDto } from './dto/record-consent.dto';
-import { ConsentPurpose } from '@prisma/client';
+import { ConsentPurpose, Patient } from '@prisma/client';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 
 function normalizeRut(rut: string): string {
@@ -324,4 +324,93 @@ export class PatientsService {
       (await this.getConsentStatusMap([id])).get(id) ?? emptyConsentStatus()
     );
   }
+
+  // sdd/patient-self-scheduling PR 3 (tasks.md 3.4, design.md "Identity
+  // resolution gotchas"): resuelve la identidad del paciente para una
+  // reserva pública SIN autenticación ni OTP. Patient.rut es GLOBALMENTE
+  // único (no por terapeuta) -- un paciente ya registrado con OTRO
+  // terapeuta no puede auto-crearse. Patient.email es nullable y NO único
+  // -- el match por email es case-insensitive y scopeado a therapistId; más
+  // de un match es ambiguo. Ambos casos (colisión de RUT cruzada, email
+  // ambiguo) devuelven el MISMO ConflictException uniforme, sin distinguir
+  // hacia afuera cuál ocurrió -- nunca revela si el RUT/email pertenece a
+  // otra ficha.
+  async resolveForPublicBooking(
+    therapistId: string,
+    dto: PublicBookingPatientInput,
+  ): Promise<Patient> {
+    const normalizedEmail = dto.email.trim().toLowerCase();
+
+    const matches = await this.prisma.patient.findMany({
+      where: {
+        therapistId,
+        deletedAt: null,
+        email: { equals: normalizedEmail, mode: 'insensitive' },
+      },
+    });
+
+    if (matches.length === 1) return matches[0];
+
+    if (matches.length > 1) {
+      // Nunca se loguea el email en texto plano (mismo criterio que el
+      // tracker de PublicScheduleThrottlerGuard) -- solo el therapistId, que
+      // ya identifica al profesional sin exponer al paciente.
+      this.logger.warn(
+        `Reserva pública ambigua: más de un paciente coincide por email bajo therapistId=${therapistId}`,
+      );
+      throw new ConflictException('No fue posible procesar la reserva.');
+    }
+
+    const rut = normalizeRut(dto.rut);
+    const existingRut = await this.prisma.patient.findUnique({
+      where: { rut },
+      select: { id: true, therapistId: true },
+    });
+    // Colisión de RUT: sea con este terapeuta (no debería ocurrir sin haber
+    // matcheado por email arriba) o con otro -- el 409 es idéntico en ambos
+    // casos, para no filtrar (vía mensaje distinto) que el RUT ya existe en
+    // otra ficha.
+    if (existingRut) {
+      throw new ConflictException('No fue posible procesar la reserva.');
+    }
+
+    return this.prisma.patient.create({
+      data: {
+        fullName: dto.fullName,
+        rut,
+        birthDate: new Date(dto.birthDate),
+        occupation: dto.occupation,
+        address: dto.address,
+        phone: dto.phone,
+        email: normalizedEmail,
+        emergencyContactName: dto.emergencyContactName,
+        emergencyContactPhone: dto.emergencyContactPhone,
+        treatingPsychiatrist: dto.treatingPsychiatrist,
+        treatingDoctor: dto.treatingDoctor,
+        therapistId,
+      },
+    });
+  }
+}
+
+// sdd/patient-self-scheduling PR 3 (tasks.md 3.4): shape estructural del
+// formulario público reducido -- definido acá (en vez de importar el DTO de
+// public-scheduling/dto) para que PatientsModule no dependa de
+// PublicSchedulingModule; PublicBookingPatientDto (public-scheduling/dto)
+// cumple esta interfaz por forma, sin import cruzado (design.md "no cycle").
+// Excluye a propósito defaultSessionAmount, documentos y consentimientos
+// (design.md "Creation explicitly omits defaultSessionAmount, documents, and
+// consents").
+export interface PublicBookingPatientInput {
+  fullName: string;
+  rut: string;
+  birthDate: string;
+  email: string;
+  occupation?: string;
+  address?: string;
+  phone?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  treatingPsychiatrist?: string;
+  treatingDoctor?: string;
 }

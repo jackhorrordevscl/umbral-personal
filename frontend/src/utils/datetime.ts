@@ -118,3 +118,25 @@ export function chileMonthGridRange(year: number, month: number): ChileMonthGrid
     days,
   };
 }
+
+// sdd/patient-self-scheduling PR 5 (tasks.md 5.1, public-scheduling Req:
+// "Public Availability Read Endpoint"): helpers de display para el slot
+// picker de la agenda pública -- reutilizan toChileDayKey/formatChileTime en
+// vez de reimplementar la conversión de zona horaria. Distinto de
+// utils/availability.ts (PR4, timeToMinutes/minutesToTime): ese archivo
+// resuelve minutos<->"HH:MM" de la grilla semanal del terapeuta, esto agrupa
+// y formatea slots ISO ya calculados por el backend.
+export function groupSlotsByChileDay<T extends { start: string }>(
+  slots: T[],
+): Record<string, T[]> {
+  const map: Record<string, T[]> = {};
+  for (const slot of slots) {
+    const key = toChileDayKey(slot.start);
+    (map[key] ??= []).push(slot);
+  }
+  return map;
+}
+
+export function formatSlotTimeRange(start: string, end: string): string {
+  return `${formatChileTime(start)} - ${formatChileTime(end)}`;
+}

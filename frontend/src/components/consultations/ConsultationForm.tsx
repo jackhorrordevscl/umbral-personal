@@ -211,7 +211,7 @@ export default function ConsultationForm({
               <>
                 <Upload size={20} className="text-slate-300 mx-auto mb-1" />
                 <p className="text-xs text-slate-500">
-                  Adjuntá tu propio registro de la sesión (PDF o Word) en vez de completar los campos de arriba
+                  Adjunta tu propio registro de la sesión (PDF o Word) en vez de completar los campos de arriba
                 </p>
               </>
             )}

@@ -1,6 +1,11 @@
+import { Reflector } from '@nestjs/core';
 import { ProfileController } from './profile.controller';
 import { ProfileService } from './profile.service';
 import type { RequestUser } from '../../common/decorators/current-user.decorator';
+
+// @nestjs/throttler no exporta THROTTLER_SKIP en su API pública -- ver el
+// mismo criterio en auth.controller.spec.ts.
+const THROTTLER_SKIP = 'THROTTLER:SKIP';
 
 /**
  * Issue #76: cobertura mínima de que el controller delega en ProfileService
@@ -115,5 +120,37 @@ describe('ProfileController', () => {
 
     expect(profileService.deleteAvatar).toHaveBeenCalledWith('user-1');
     expect(result).toEqual({ avatarUpdatedAt: null });
+  });
+
+  // Bug reportado en pruebas manuales de sdd/patient-self-scheduling PR 3:
+  // ThrottlerModule es @Global(), así que los dos throttlers nuevos
+  // ('public-availability'/'public-booking') aplican a CUALQUIER ruta con
+  // ThrottlerGuard en toda la app, no solo a AuthController -- este
+  // controller quedó afuera de esa exhaustividad porque el named-throttler
+  // audit de PR 3 (tasks.md 3.3) solo tocó auth.controller.ts.
+  describe('exhaustividad de @SkipThrottle (public-availability/public-booking)', () => {
+    const reflector = new Reflector();
+
+    it.each(['update', 'uploadAvatar', 'deleteAvatar'] as const)(
+      '%s saltea public-availability y public-booking',
+      (methodName) => {
+        const handler = (
+          controller as unknown as Record<string, () => unknown>
+        )[methodName];
+
+        expect(
+          reflector.get<boolean | undefined>(
+            THROTTLER_SKIP + 'public-availability',
+            handler,
+          ),
+        ).toBe(true);
+        expect(
+          reflector.get<boolean | undefined>(
+            THROTTLER_SKIP + 'public-booking',
+            handler,
+          ),
+        ).toBe(true);
+      },
+    );
   });
 });

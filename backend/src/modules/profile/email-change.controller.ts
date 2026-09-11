@@ -11,8 +11,15 @@ import { ConfirmEmailChangeDto } from './dto/confirm-email-change.dto';
 export class EmailChangeController {
   constructor(private emailChangeService: EmailChangeService) {}
 
+  // sdd/patient-self-scheduling PR 3 (fix post-verify): ThrottlerModule es
+  // @Global(), así que 'public-availability'/'public-booking' (registrados
+  // en auth.module.ts) también aplican acá salvo que se salteen.
   @UseGuards(ThrottlerGuard)
-  @SkipThrottle({ 'profile-update': true })
+  @SkipThrottle({
+    'profile-update': true,
+    'public-availability': true,
+    'public-booking': true,
+  })
   @Post('confirm')
   confirm(@Body() dto: ConfirmEmailChangeDto) {
     return this.emailChangeService.confirm(dto.token);
