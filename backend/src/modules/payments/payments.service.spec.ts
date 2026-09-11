@@ -710,6 +710,53 @@ describe('PaymentsService', () => {
     });
   });
 
+  // sdd/public-booking-payment-calendar PR 4 (tasks.md 4.1, design.md
+  // Interfaces/Contracts "CheckoutResponse"): usado por el endpoint público
+  // de polling (PR 5.2, sin guard) y por ConsultationsService.
+  // createFromPublicBooking (PR 4.3) para leer un paymentUrl ya emitido sin
+  // esperar a ensureCharge() -- select explícito, nunca un read completo de
+  // Payment, para no exponer nada más que paymentUrl/amount (spec.md
+  // "Checkout URL Exposure to the Booking Response", tasks.md 4.4 "leaks no
+  // patient data").
+  describe('findCheckoutForBooking', () => {
+    it('retorna paymentUrl/amount cuando el Payment ya tiene una orden emitida', async () => {
+      prisma.payment.findUnique.mockResolvedValue({
+        paymentUrl: 'https://flow.cl/pay/order-token',
+        amount: 30000,
+      });
+
+      const result = await service.findCheckoutForBooking('group-1');
+
+      expect(result).toEqual({
+        paymentUrl: 'https://flow.cl/pay/order-token',
+        amount: 30000,
+      });
+      expect(prisma.payment.findUnique).toHaveBeenCalledWith({
+        where: { groupId: 'group-1' },
+        select: { paymentUrl: true, amount: true },
+      });
+    });
+
+    it('retorna { paymentUrl: null } sin amount cuando no existe ningún Payment para el groupId', async () => {
+      prisma.payment.findUnique.mockResolvedValue(null);
+
+      const result = await service.findCheckoutForBooking('group-sin-cargo');
+
+      expect(result).toEqual({ paymentUrl: null });
+    });
+
+    it('retorna { paymentUrl: null } cuando el cargo existe pero aún no se emitió una orden (sin gateway context, o Flow todavía no respondió)', async () => {
+      prisma.payment.findUnique.mockResolvedValue({
+        paymentUrl: null,
+        amount: 30000,
+      });
+
+      const result = await service.findCheckoutForBooking('group-1');
+
+      expect(result).toEqual({ paymentUrl: null });
+    });
+  });
+
   // Bug fix: PaymentsController.returnFromGateway (GET|POST /payments/return,
   // no guard) uses this to resolve WHERE to bounce the patient's browser
   // after Flow's returnUrl redirect -- never reads or mutates Payment state,
