@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { AvailabilityModule } from '../availability/availability.module';
 import { CalendarIntegrationController } from './calendar-integration.controller';
 import { CalendarOauthService } from './calendar-oauth.service';
 import { CalendarSyncService } from './calendar-sync.service';
+import { CalendarBusyService } from './calendar-busy.service';
 import { GoogleCalendarClient } from './google-calendar.client';
 import { GoogleTokenCryptoService } from './google-token-crypto.service';
 
@@ -16,10 +18,16 @@ import { GoogleTokenCryptoService } from './google-token-crypto.service';
 // AuthModule, pero sin depender de AuthModule (que trae Throttler/Mail/etc.
 // que este módulo no necesita) -- para firmar/verificar el `state` del
 // handshake OAuth (CalendarOauthService).
+//
+// sdd/public-booking-payment-calendar PR 2: importa AvailabilityModule para
+// que CalendarBusyService pueda invalidar el cache de slots tras cada
+// refresh (design.md Decision 3) -- sin ciclo, AvailabilityModule no
+// importa nada de este módulo.
 @Module({
   imports: [
     ConfigModule,
     NotificationsModule,
+    AvailabilityModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -34,6 +42,7 @@ import { GoogleTokenCryptoService } from './google-token-crypto.service';
     CalendarOauthService,
     GoogleCalendarClient,
     CalendarSyncService,
+    CalendarBusyService,
   ],
   exports: [CalendarSyncService],
 })

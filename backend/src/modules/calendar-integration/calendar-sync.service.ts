@@ -462,7 +462,11 @@ export class CalendarSyncService {
   // de "claim" atómico que CalendarOauthService.verifyAndConsumeState /
   // RemindersService.claimAndDispatch -- una segunda falla concurrente sobre
   // una conexión ya DISCONNECTED nunca vuelve a notificar (T6.5/T6.6).
-  private async handleInvalidGrant(connectionId: string): Promise<void> {
+  // sdd/public-booking-payment-calendar PR 2 (tasks.md 2.1): pública (no
+  // `private`) para que CalendarBusyService reuse la MISMA clasificación de
+  // invalid_grant en vez de duplicarla -- decisión mecánica, evita que los
+  // dos jobs (push sync y refresh de overlay) diverjan en cómo desconectan.
+  async handleInvalidGrant(connectionId: string): Promise<void> {
     const result = await this.prisma.googleCalendarConnection.updateMany({
       where: { id: connectionId, status: 'CONNECTED' },
       data: {
@@ -524,9 +528,10 @@ export class CalendarSyncService {
     };
   }
 
-  private buildOAuth2Client(
-    connection: GoogleCalendarConnection,
-  ): OAuth2Client {
+  // sdd/public-booking-payment-calendar PR 2: pública por el mismo motivo
+  // que handleInvalidGrant -- CalendarBusyService arma el OAuth2Client de
+  // lectura con esta misma rutina, no una copia.
+  buildOAuth2Client(connection: GoogleCalendarConnection): OAuth2Client {
     const refreshToken = this.tokenCrypto
       .decrypt(Buffer.from(connection.refreshTokenEncrypted as Buffer))
       .toString('utf-8');

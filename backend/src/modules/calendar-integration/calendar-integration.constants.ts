@@ -49,3 +49,11 @@ export const BUSY_WINDOW_DAYS = 60;
 // RECONCILE_BATCH_LIMIT pero para el job de lectura -- evita saturar la
 // cuota de Google si hay muchos terapeutas conectados a la vez.
 export const BUSY_REFRESH_CONCURRENCY = 5;
+
+// sdd/public-booking-payment-calendar PR 2 (tasks.md 2.3): umbral de
+// "frescura" del overlay que AvailabilityService.computeSlots() exige antes
+// de leer CalendarBusyBlock -- 3x el intervalo del cron (30 min), para
+// tolerar un tick perdido sin degradar a "stale" de inmediato. Si
+// busySyncedAt es null o más viejo que esto, computeSlots() se salta la
+// query de CalendarBusyBlock por completo (no query-y-descarta).
+export const OVERLAY_STALENESS_MS = 90 * 60 * 1000;

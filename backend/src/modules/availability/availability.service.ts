@@ -3,9 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AvailabilityBlockout } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+import { AvailabilityBlockout, CalendarBusyBlock } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { DEFAULT_SESSION_MINUTES } from '../calendar-integration/calendar-integration.constants';
+import {
+  DEFAULT_SESSION_MINUTES,
+  OVERLAY_STALENESS_MS,
+} from '../calendar-integration/calendar-integration.constants';
 import {
   addDaysToDayKey,
   chileDayKeyFromInstant,
@@ -206,8 +210,19 @@ export class AvailabilityService {
     { slots: AvailableSlot[]; expiresAt: number }
   >();
   private readonly versions = new Map<string, number>();
+  // sdd/public-booking-payment-calendar PR 2 (design.md "Migration /
+  // Rollout"): opt-in explícito (=== 'true'), igual criterio que
+  // CalendarBusyService -- ver tasks.md 2.2.
+  private readonly overlayEnabled: boolean;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {
+    this.overlayEnabled =
+      this.config.get<string>('CALENDAR_AVAILABILITY_OVERLAY_ENABLED') ===
+      'true';
+  }
 
   // design.md Decision 6: versión por terapeuta, incrementada en cada
   // escritura de reglas/blockouts/reservas -- invalida todas las entradas de
@@ -233,44 +248,87 @@ export class AvailabilityService {
       return cached.slots;
     }
 
-    const [therapist, weeklyRules, blockouts, holidays, occupiedConsultations] =
-      await Promise.all([
-        this.prisma.user.findUnique({
-          where: { id: therapistId },
-          select: { sessionDurationMinutes: true },
-        }),
-        this.prisma.therapistAvailability.findMany({
-          where: { therapistId },
-          select: { dayOfWeek: true, startMinute: true, endMinute: true },
-        }),
-        this.prisma.availabilityBlockout.findMany({
+    // sdd/public-booking-payment-calendar PR 2 (design.md Decision 3/4,
+    // tasks.md 2.3): la "sexta query" solo se agrega al Promise.all de abajo
+    // cuando el overlay está genuinamente utilizable -- flag prendido Y
+    // GoogleCalendarConnection.busySyncedAt del terapeuta más reciente que
+    // OVERLAY_STALENESS_MS. Si no, se salta la query de CalendarBusyBlock
+    // por completo (no query-y-descarta), para que "sin llamada de red
+    // durante el cómputo de slots" y el flag-off byte-idéntico se cumplan.
+    // Este pre-check (GoogleCalendarConnection.busySyncedAt) es una lectura
+    // local a Postgres, no a Google -- computeSlots() nunca llamó a Google
+    // ni antes ni después de este PR.
+    let busyBlocksQuery: Promise<
+      Pick<CalendarBusyBlock, 'startsAt' | 'endsAt'>[]
+    > = Promise.resolve([]);
+    if (this.overlayEnabled) {
+      const connection = await this.prisma.googleCalendarConnection.findUnique({
+        where: { therapistId },
+        select: { busySyncedAt: true },
+      });
+      const isFresh =
+        !!connection?.busySyncedAt &&
+        now.getTime() - connection.busySyncedAt.getTime() <
+          OVERLAY_STALENESS_MS;
+      if (isFresh) {
+        busyBlocksQuery = this.prisma.calendarBusyBlock.findMany({
           where: { therapistId, startsAt: { lt: to }, endsAt: { gt: from } },
           select: { startsAt: true, endsAt: true },
-        }),
-        // Sin scoping por rango: la tabla de feriados es global y pequeña
-        // (design.md "Chile Public Holidays" -- un puñado de filas por año),
-        // así que traerla completa evita tener que traducir el rango de
-        // instantes a límites de columna @db.Date.
-        this.prisma.publicHoliday.findMany({ select: { date: true } }),
-        // design.md Decision 2 "Occupancy read": mismo predicado que
-        // consultations.service.ts findByRange (correctedBy: null, deletedAt:
-        // null, sessionDate dentro del rango).
-        this.prisma.consultation.findMany({
-          where: {
-            therapistId,
-            correctedBy: null,
-            deletedAt: null,
-            sessionDate: { gte: from, lt: to },
-          },
-          select: { sessionDate: true },
-        }),
-      ]);
+        });
+      }
+    }
+
+    const [
+      therapist,
+      weeklyRules,
+      blockouts,
+      holidays,
+      occupiedConsultations,
+      busyBlocks,
+    ] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: therapistId },
+        select: { sessionDurationMinutes: true },
+      }),
+      this.prisma.therapistAvailability.findMany({
+        where: { therapistId },
+        select: { dayOfWeek: true, startMinute: true, endMinute: true },
+      }),
+      this.prisma.availabilityBlockout.findMany({
+        where: { therapistId, startsAt: { lt: to }, endsAt: { gt: from } },
+        select: { startsAt: true, endsAt: true },
+      }),
+      // Sin scoping por rango: la tabla de feriados es global y pequeña
+      // (design.md "Chile Public Holidays" -- un puñado de filas por año),
+      // así que traerla completa evita tener que traducir el rango de
+      // instantes a límites de columna @db.Date.
+      this.prisma.publicHoliday.findMany({ select: { date: true } }),
+      // design.md Decision 2 "Occupancy read": mismo predicado que
+      // consultations.service.ts findByRange (correctedBy: null, deletedAt:
+      // null, sessionDate dentro del rango).
+      this.prisma.consultation.findMany({
+        where: {
+          therapistId,
+          correctedBy: null,
+          deletedAt: null,
+          sessionDate: { gte: from, lt: to },
+        },
+        select: { sessionDate: true },
+      }),
+      busyBlocksQuery,
+    ]);
 
     const sessionDurationMinutes =
       therapist?.sessionDurationMinutes ?? DEFAULT_SESSION_MINUTES;
     const holidayDayKeys = new Set(
       holidays.map((h: { date: Date }) => dateOnlyDayKey(h.date)),
     );
+    // busyBlocks está vacío (Promise.resolve([]) sin siquiera consultar)
+    // cuando el flag está apagado o el overlay stale/ausente -- concat con
+    // [] es un no-op, así que blockouts queda byte-idéntico al de antes de
+    // este PR en esos casos.
+    const mergedBlockouts =
+      busyBlocks.length > 0 ? [...blockouts, ...busyBlocks] : blockouts;
 
     const slots = computeAvailableSlots({
       from,
@@ -278,7 +336,7 @@ export class AvailabilityService {
       now,
       sessionDurationMinutes,
       weeklyRules,
-      blockouts,
+      blockouts: mergedBlockouts,
       holidayDayKeys,
       occupiedConsultations,
     });
