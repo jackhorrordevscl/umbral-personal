@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from '../context/AuthContext'
@@ -106,6 +107,32 @@ describe('ProfilePage — account-settings Req: Profile Section Scope', () => {
     expect(
       screen.getByText('Bloqueos de disponibilidad'),
     ).toBeInTheDocument()
+  })
+
+  // El link antes había que armarlo a mano con el propio UUID de usuario --
+  // complicado de conseguir para un terapeuta sin acceso a herramientas de
+  // dev. Este test confirma que la página lo arma y lo deja copiable.
+  it('muestra el link de auto-agenda con el id del profesional y permite copiarlo', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { clipboard: { writeText } })
+
+    renderProfilePage()
+
+    const linkInput = await screen.findByDisplayValue(
+      `${window.location.origin}/book/user-1`,
+    )
+    expect(linkInput).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /copiar/i }))
+
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}/book/user-1`,
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /copiado/i }),
+      ).toBeInTheDocument(),
+    )
   })
 
   it('no muestra ningún control de MFA', async () => {

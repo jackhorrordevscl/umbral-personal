@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
+import { Copy, Check, CalendarDays } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
@@ -8,6 +9,63 @@ import ErrorBanner from '../components/ui/ErrorBanner';
 import { useProfile, type Profile } from '../hooks/useProfile';
 import WeeklyScheduleEditor from '../components/availability/WeeklyScheduleEditor';
 import BlockoutEditor from '../components/availability/BlockoutEditor';
+
+// El terapeuta comparte este link con sus pacientes -- antes había que armar
+// la URL a mano con el propio id de usuario (un UUID), que no es trivial de
+// conseguir para alguien sin acceso a herramientas de dev. Mismo patrón de
+// copiar-al-portapapeles que CopyPaymentLinkButton (ConsultationsPage.tsx) e
+// InviteCard (SecurityPage.tsx).
+function PublicBookingLinkCard({ profile }: { profile: Profile | undefined }) {
+  const [copied, setCopied] = useState(false);
+
+  if (!profile) return null;
+
+  const bookingUrl = `${window.location.origin}/book/${profile.id}`;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(bookingUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Sin acceso al portapapeles: el link sigue visible en pantalla para
+      // copiarlo a mano.
+    }
+  };
+
+  return (
+    <div className="card max-w-lg mb-6">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="bg-sage-50 p-3 rounded-lg">
+          <CalendarDays size={22} className="text-sage-600" />
+        </div>
+        <div>
+          <h3 className="font-medium text-slate-800">Link de auto-agenda</h3>
+          <p className="text-xs text-slate-500">
+            Compartilo con tus pacientes para que reserven sesiones directamente
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          readOnly
+          value={bookingUrl}
+          className="input-field flex-1 text-sm text-slate-600 bg-slate-50"
+          onFocus={(e) => e.target.select()}
+        />
+        <button
+          type="button"
+          onClick={() => void handleCopy()}
+          className="btn-secondary flex items-center gap-1.5 whitespace-nowrap"
+        >
+          {copied ? <Check size={16} /> : <Copy size={16} />}
+          {copied ? 'Copiado' : 'Copiar'}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // PR2a (session-calendar-view, design.md "Decision: SettingsPage split"):
 // extraído de SettingsPage.tsx -- esta página cubre solo identidad de cuenta
@@ -421,6 +479,8 @@ export default function ProfilePage() {
           <AccountDataForm profile={profile} />
         )}
       </div>
+
+      <PublicBookingLinkCard profile={profile} />
 
       {/* sdd/patient-self-scheduling PR 4 (tasks.md 4.3, therapist-availability
           spec): editor de horario semanal + bloqueos, autocontenidos (cada
