@@ -31,10 +31,13 @@ describe('ProfileController', () => {
       findOne: jest.fn().mockResolvedValue({ id: 'user-1' }),
       getMfaHistory: jest.fn().mockResolvedValue([]),
       update: jest.fn().mockResolvedValue({ id: 'user-1' }),
-      uploadAvatar: jest.fn().mockResolvedValue({ avatarUpdatedAt: new Date() }),
-      getAvatar: jest
+      uploadAvatar: jest
         .fn()
-        .mockResolvedValue({ buffer: Buffer.from('img'), mimeType: 'image/png' }),
+        .mockResolvedValue({ avatarUpdatedAt: new Date() }),
+      getAvatar: jest.fn().mockResolvedValue({
+        buffer: Buffer.from('img'),
+        mimeType: 'image/png',
+      }),
       deleteAvatar: jest.fn().mockResolvedValue({ avatarUpdatedAt: null }),
     };
 
@@ -79,28 +82,32 @@ describe('ProfileController', () => {
   });
 
   it('POST /avatar delega en profileService.uploadAvatar con el id del usuario autenticado y el archivo', async () => {
-    const file = { buffer: Buffer.from('x'), mimetype: 'image/png' } as unknown as Express.Multer.File;
+    const file = {
+      buffer: Buffer.from('x'),
+      mimetype: 'image/png',
+    } as unknown as Express.Multer.File;
 
     const result = await controller.uploadAvatar(file, user);
 
     expect(profileService.uploadAvatar).toHaveBeenCalledWith('user-1', file);
-    expect(result).toEqual({ avatarUpdatedAt: expect.any(Date) as unknown as Date });
+    expect(result).toEqual({
+      avatarUpdatedAt: expect.any(Date) as unknown as Date,
+    });
   });
 
   it('GET /avatar delega en profileService.getAvatar y escribe el buffer con el Content-Type correcto', async () => {
-    const res = {
-      set: jest.fn(),
-      end: jest.fn(),
-    } as unknown as import('express').Response;
+    const set = jest.fn();
+    const end = jest.fn();
+    const res = { set, end } as unknown as import('express').Response;
 
     await controller.getAvatar(user, res);
 
     expect(profileService.getAvatar).toHaveBeenCalledWith('user-1');
-    expect(res.set).toHaveBeenCalledWith({
+    expect(set).toHaveBeenCalledWith({
       'Content-Type': 'image/png',
       'Content-Length': 3,
     });
-    expect(res.end).toHaveBeenCalledWith(Buffer.from('img'));
+    expect(end).toHaveBeenCalledWith(Buffer.from('img'));
   });
 
   it('DELETE /avatar delega en profileService.deleteAvatar con el id del usuario autenticado', async () => {

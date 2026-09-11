@@ -233,10 +233,7 @@ function AvatarPreview({ avatarUpdatedAt }: { avatarUpdatedAt: string | null }) 
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!avatarUpdatedAt) {
-      setObjectUrl(null);
-      return;
-    }
+    if (!avatarUpdatedAt) return;
 
     let cancelled = false;
     let urlToRevoke: string | null = null;
@@ -271,7 +268,12 @@ function AvatarPreview({ avatarUpdatedAt }: { avatarUpdatedAt: string | null }) 
     );
   }
 
-  if (!objectUrl) {
+  // `avatarUpdatedAt` manda sobre `objectUrl`: tras borrar la foto,
+  // avatarUpdatedAt pasa a null pero el objectUrl del blob anterior puede
+  // seguir en el state (no lo limpiamos synchronously en el efecto, ver
+  // react-hooks/set-state-in-effect) -- sin este chequeo se seguiría
+  // mostrando la foto borrada.
+  if (!avatarUpdatedAt || !objectUrl) {
     return (
       <div className="w-20 h-20 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-medium">
         {/* Sin foto todavía: placeholder simple, sin iniciales (no tenemos

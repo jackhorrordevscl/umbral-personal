@@ -374,7 +374,10 @@ describe('ProfileService', () => {
       );
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { avatarMimeType: 'image/png', avatarUpdatedAt: expect.any(Date) as unknown as Date },
+        data: {
+          avatarMimeType: 'image/png',
+          avatarUpdatedAt: expect.any(Date) as unknown as Date,
+        },
       });
       expect(result.avatarUpdatedAt).toBeInstanceOf(Date);
     });
@@ -385,7 +388,9 @@ describe('ProfileService', () => {
     // acá, solo se comprueba que se invoca y que su throw se propaga.
     it('propaga el error de assertFileContentMatchesMimetype si el contenido no coincide con el mimetype declarado, sin escribir nada', async () => {
       mockAssertFileContentMatchesMimetype.mockImplementationOnce(() => {
-        throw new Error('El contenido del archivo no coincide con el tipo declarado');
+        throw new Error(
+          'El contenido del archivo no coincide con el tipo declarado',
+        );
       });
 
       await expect(service.uploadAvatar('user-1', file)).rejects.toThrow(
