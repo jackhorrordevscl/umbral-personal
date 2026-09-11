@@ -19,15 +19,25 @@ import { ConsultationsService } from '../consultations/consultations.service';
 // para ambos endpoints).
 describe('PublicSchedulingService', () => {
   let service: PublicSchedulingService;
-  let prisma: { user: { findUnique: jest.Mock } };
+  let prisma: {
+    user: { findUnique: jest.Mock };
+    paymentAccount: { findUnique: jest.Mock };
+  };
   let availabilityService: { computeSlots: jest.Mock };
   let patientsService: { resolveForPublicBooking: jest.Mock };
   let consultationsService: { createFromPublicBooking: jest.Mock };
 
-  function buildService(enabled = true): PublicSchedulingService {
+  function buildService(
+    enabled = true,
+    checkoutInlineEnabled = false,
+  ): PublicSchedulingService {
     const config = {
-      get: (key: string) =>
-        key === 'PUBLIC_SCHEDULING_ENABLED' ? String(enabled) : undefined,
+      get: (key: string) => {
+        if (key === 'PUBLIC_SCHEDULING_ENABLED') return String(enabled);
+        if (key === 'PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED')
+          return String(checkoutInlineEnabled);
+        return undefined;
+      },
     };
     return new PublicSchedulingService(
       config as unknown as ConfigService,
@@ -39,7 +49,10 @@ describe('PublicSchedulingService', () => {
   }
 
   beforeEach(() => {
-    prisma = { user: { findUnique: jest.fn() } };
+    prisma = {
+      user: { findUnique: jest.fn() },
+      paymentAccount: { findUnique: jest.fn() },
+    };
     availabilityService = { computeSlots: jest.fn() };
     patientsService = { resolveForPublicBooking: jest.fn() };
     consultationsService = { createFromPublicBooking: jest.fn() };
@@ -206,6 +219,136 @@ describe('PublicSchedulingService', () => {
         new Date('2026-09-05T13:00:00.000Z'),
         30,
       );
+    });
+  });
+
+  // sdd/public-booking-payment-calendar PR 5 (tasks.md 5.1, 5.6, spec.md
+  // "Booking succeeds and carries a checkout URL when available" /
+  // "...without a checkout URL when payment is unavailable"): el hint nunca
+  // lee Payment -- solo PaymentAccount.status (leído directo por
+  // performance, ver comentario en el service) y el defaultSessionAmount del
+  // Patient ya resuelto por resolveForPublicBooking.
+  describe('checkout hint (PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED)', () => {
+    const patientDto = {
+      fullName: 'Paciente Público',
+      rut: '11.111.111-1',
+      birthDate: '1990-01-01',
+      email: 'paciente@ejemplo.cl',
+    };
+
+    function setUpSuccessfulBooking(patient: {
+      id: string;
+      rut: string;
+      defaultSessionAmount: number | null;
+    }): void {
+      prisma.user.findUnique.mockResolvedValue({
+        sessionDurationMinutes: 50,
+      });
+      availabilityService.computeSlots.mockResolvedValue([
+        { start: '2026-09-05T13:00:00.000Z', end: '2026-09-05T13:50:00.000Z' },
+      ]);
+      patientsService.resolveForPublicBooking.mockResolvedValue(patient);
+      consultationsService.createFromPublicBooking.mockResolvedValue({
+        id: 'consultation-1',
+        groupId: 'consultation-1',
+        checkoutUrl: null,
+      });
+    }
+
+    it('con el flag apagado (default), la respuesta NO trae campo "checkout" -- ni siquiera consulta PaymentAccount', async () => {
+      service = buildService(true, false);
+      setUpSuccessfulBooking({
+        id: 'patient-1',
+        rut: '11111111-1',
+        defaultSessionAmount: 30000,
+      });
+
+      const result = await service.book('therapist-1', {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: patientDto,
+      } as never);
+
+      expect(result).not.toHaveProperty('checkout');
+      expect(prisma.paymentAccount.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('con el flag prendido y sin defaultSessionAmount (paciente nuevo autocreado): NOT_APPLICABLE, sin consultar PaymentAccount', async () => {
+      service = buildService(true, true);
+      setUpSuccessfulBooking({
+        id: 'patient-1',
+        rut: '11111111-1',
+        defaultSessionAmount: null,
+      });
+
+      const result = await service.book('therapist-1', {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: patientDto,
+      } as never);
+
+      expect(result).toMatchObject({ checkout: { status: 'NOT_APPLICABLE' } });
+      expect(prisma.paymentAccount.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('con el flag prendido, monto resolvible pero PaymentAccount no CONNECTED: NOT_APPLICABLE', async () => {
+      service = buildService(true, true);
+      setUpSuccessfulBooking({
+        id: 'patient-1',
+        rut: '11111111-1',
+        defaultSessionAmount: 30000,
+      });
+      prisma.paymentAccount.findUnique.mockResolvedValue({
+        status: 'PENDING',
+      });
+
+      const result = await service.book('therapist-1', {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: patientDto,
+      } as never);
+
+      expect(result).toMatchObject({ checkout: { status: 'NOT_APPLICABLE' } });
+      expect(prisma.paymentAccount.findUnique).toHaveBeenCalledWith({
+        where: { therapistId: 'therapist-1' },
+        select: { status: true },
+      });
+    });
+
+    // Triangulación: sin fila de PaymentAccount (nunca se conectó) también
+    // es NOT_APPLICABLE, mismo camino que una fila PENDING/DISCONNECTED --
+    // no un caso especial ni un crash.
+    it('con el flag prendido y sin ninguna fila de PaymentAccount: NOT_APPLICABLE', async () => {
+      service = buildService(true, true);
+      setUpSuccessfulBooking({
+        id: 'patient-1',
+        rut: '11111111-1',
+        defaultSessionAmount: 30000,
+      });
+      prisma.paymentAccount.findUnique.mockResolvedValue(null);
+
+      const result = await service.book('therapist-1', {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: patientDto,
+      } as never);
+
+      expect(result).toMatchObject({ checkout: { status: 'NOT_APPLICABLE' } });
+    });
+
+    it('con el flag prendido, monto resolvible y PaymentAccount CONNECTED: PENDING', async () => {
+      service = buildService(true, true);
+      setUpSuccessfulBooking({
+        id: 'patient-1',
+        rut: '11111111-1',
+        defaultSessionAmount: 30000,
+      });
+      prisma.paymentAccount.findUnique.mockResolvedValue({
+        status: 'CONNECTED',
+      });
+
+      const result = await service.book('therapist-1', {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: patientDto,
+      } as never);
+
+      expect(result).toMatchObject({ checkout: { status: 'PENDING' } });
     });
   });
 });
