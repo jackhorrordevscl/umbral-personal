@@ -68,7 +68,7 @@ Chain strategy: stacked-to-main
 
 ## Phase 5: Public Booking Page (PR 5)
 
-- [ ] 5.1 Modify `frontend/src/utils/datetime.ts`: add slot-grid display helpers (reuse existing Chile-time utilities).
-- [ ] 5.2 Create public booking page (unauthenticated route) fetching `GET .../availability` and rendering a slot picker.
-- [ ] 5.3 Create reduced public patient form (email + minimal fields) submitting `POST .../availability/book`; handle 409 by refetching slots.
-- [ ] 5.4 Write component tests: slot render, 409-triggers-refetch, submission with existing vs. new email.
+- [x] 5.1 Modify `frontend/src/utils/datetime.ts`: add slot-grid display helpers (reuse existing Chile-time utilities).
+- [x] 5.2 Create public booking page (unauthenticated route) fetching `GET .../availability` and rendering a slot picker.
+- [x] 5.3 Create reduced public patient form (email + minimal fields) submitting `POST .../availability/book`; handle 409 by refetching slots.
+- [x] 5.4 Write component tests: slot render, 409-triggers-refetch, submission with existing vs. new email.
