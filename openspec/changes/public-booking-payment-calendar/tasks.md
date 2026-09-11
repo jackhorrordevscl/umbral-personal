@@ -49,19 +49,19 @@ Depends on: PR 1.
 
 ---
 
-## PR 3 — OAuth scope broadening + re-consent (calendar-sync delta)
+## PR 3 — OAuth scope broadening + re-consent (calendar-sync delta) — RECONCILED AS NO-OP
 
-Depends on: PR 1 (needs the connection read-scope concept PR 2's job checks). Can be developed in parallel with PR 2 but ships after it in the stack since PR 2's job references the scope field — sequence as 1 → 3 → 2 if implementation order is more convenient than PR numbering; note this reordering option in the PR description rather than forcing artificial sequence.
+Depends on: PR 1. Originally planned as scope broadening + re-consent; reconciled during `sdd-apply` (see `apply-progress.md` PR 3 section for the full record) once PR 0's spike result and design.md Decision 1 were re-confirmed against what PR 1/PR 2 actually shipped.
 
-- [ ] **3.1** Add scope tracking to `GoogleCalendarConnection` (likely `scopes String[]` or a boolean `hasReadScope`, decide against existing schema conventions during implementation) — may be folded into PR 1's migration if trivial to avoid a second migration; otherwise its own additive migration.
-- [ ] **3.2** Update the OAuth consent request in `calendar-oauth.service.ts` to request the read scope in addition to `calendar.events` **only when** `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` is on, per spec scenario "Therapist connects Google account with only the write scope" vs "...with both scopes".
-- [ ] **3.3** Implement the re-consent path: existing connection can gain the read scope without disconnecting (spec scenario "Re-consent grants the read scope without disconnecting"). Confirm during implementation whether this reuses the existing connect flow (re-running OAuth against the same connection row) or needs a distinct trigger — this is a mechanical decision, not a design gap; do not re-open Decision 1.
-- [ ] **3.4** Unit/integration tests: pre-existing connection keeps push sync without re-consent; pre-existing connection excluded from overlay job until re-consent (covered jointly with PR 2's job test, avoid duplicating fixtures — reference PR 2.4).
+- [x] **3.1** ~~Add scope tracking to `GoogleCalendarConnection`~~ — **not implemented.** No second Google scope is ever requested (Decision 1: `events.list` reads under the existing `calendar.events` scope, permanently, not conditionally). There is nothing to distinguish "has read scope" from "does not" — every `CONNECTED` connection already has full read access. A `scopes`/`hasReadScope` field would have no consumer and no real state to track; adding it would be speculative scope-tracking fiction, which this batch was explicitly instructed not to build.
+- [x] **3.2** ~~Request the read scope in `calendar-oauth.service.ts`~~ — **not implemented.** There is no second scope to request. The OAuth consent request is unchanged from before this change: `calendar.events` only, as the base `calendar-sync` spec already states.
+- [x] **3.3** ~~Implement the re-consent path~~ — **not implemented.** There is nothing to re-consent to. `CalendarBusyService.refresh()` (PR 2) already iterates every `CONNECTED` connection with no scope check (see inline comment at `calendar-busy.service.ts:30-36`, written during PR 2 to flag this exact deviation ahead of PR 3).
+- [x] **3.4** ~~Unit/integration tests for pre-existing vs. re-consented connections~~ — **not implemented.** No tests were added for behavior that does not exist. PR 2.4's existing tests (all `CONNECTED` connections refresh uniformly) already cover the real behavior; inventing a re-consent test would test code that was never written.
 
-**Spec link**: `calendar-sync` MODIFIED "OAuth Connection Lifecycle".
-**Est. lines**: ~120–160.
+**Spec link**: `calendar-sync` — delta reduced to a reconciliation note; no `MODIFIED Requirements` block, nothing merges into the base spec at archive time (see `specs/calendar-sync/spec.md`).
+**Est. lines**: 0 (no production code; two doc files updated: this file and `specs/calendar-sync/spec.md`).
 
-**Note**: Decision 1 already establishes `events.list` needs **zero** new scope in theory (`calendar.events` already permits reading). Re-verify against the PR 0 spike result before writing 3.1–3.3: if the spike confirms `calendar.events` is sufficient, PR 3 may be much smaller (scope tracking becomes bookkeeping/observability only, not a functional gate) or droppable — resolve this against the spike output, do not assume the spec's re-consent language mandates a real new Google scope if the spike proves otherwise. Flag this ambiguity explicitly in the PR 3 description for review.
+**Reconciliation resolution**: PR 0's spike (200 OK under `calendar.events`) confirmed Decision 1 was correct and PR 1/PR 2 were already built on that premise — `listBusyIntervals()` and `CalendarBusyService.refresh()` never reference a scope field, by design. Re-verifying against what actually shipped (not just the spike result in isolation) confirms there is no functional gate left for PR 3 to build. A "track pre-overlay vs. post-overlay connections" observability field was considered (in case Google changes its scope policy later) and rejected: it has no current consumer, tracks no current distinction, and speculative-future-policy-change is out of scope for this release — if Google ever does require a second scope, that is a new design decision with its own spike, not a field bolted on now against nothing.
 
 ---
 
@@ -116,7 +116,7 @@ Depends on: PR 2, PR 3, PR 5 (final integration pass across both slices).
 | 0 | Spike (not shipped as product code) | ~40 (throwaway script, may not even enter the diff if run ad hoc against a scratch file outside the repo) | None — recommend running outside version control entirely, or in a `scripts/` file explicitly marked disposable |
 | 1 | Overlay schema + Google client | ~180–220 | Under budget |
 | 2 | Refresh job + `computeSlots()` consumption | ~220–260 | Under budget, near midpoint |
-| 3 | OAuth scope + re-consent | ~120–160 (possibly smaller pending PR 0/Decision 1 re-check) | Under budget |
+| 3 | OAuth scope + re-consent | 0 (reconciled as no-op — see PR 3 section) | None |
 | 4 | Payments checkout exposure | ~140–180 | Under budget |
 | 5 | Public scheduling endpoint + confirmation UI | ~260–320 | Under budget but the largest single PR — closest to the 400-line ceiling; if 5.4's polling UI plus 5.5's return-param handling push it over, split 5 into **5a** (backend: response field + checkout endpoint) and **5b** (frontend: polling + confirmation UI + flow_return handling) |
 | 6 | Docs + verification | ~20–40 | Negligible |
@@ -134,3 +134,4 @@ Depends on: PR 2, PR 3, PR 5 (final integration pass across both slices).
 - Decision 1's `events.list`-under-existing-scope finding means the `calendar-sync` spec's re-consent language may end up describing a scope-tracking mechanism with no functional gate behind it, pending the PR 0 spike. Tasks 3.1–3.3 stay written against the spec as-is; the PR 3 description is where the spike's actual implication gets reconciled, not this task file.
 - The out-of-scope decision on `defaultSessionAmount` for auto-created public patients is preserved as a known-issue comment only (PR 6.4) — no fix task exists anywhere in this file, per explicit instruction.
 - PR 5 is the single largest PR and the only one flagged as a candidate for a stacked split (5a/5b) if its real diff approaches 400 lines; every other PR has comfortable headroom.
+- PR 3 was reconciled to a no-op during `sdd-apply`: Decision 1's `events.list`-under-existing-scope finding, already confirmed by PR 0's spike, means there was never a second scope for PR 1/PR 2 to gate on — and PR 2 was already built (and commented) without any scope check. Re-verifying the plan against the already-shipped PR 1/PR 2 code, not just against the spike result in isolation, is what confirmed PR 3 had zero remaining surface; see `apply-progress.md` PR 3 section for the full reasoning, including why a speculative scope-tracking field was rejected rather than built "just in case".

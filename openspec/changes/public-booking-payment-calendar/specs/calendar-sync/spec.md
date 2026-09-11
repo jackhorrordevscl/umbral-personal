@@ -1,44 +1,34 @@
 # Delta for calendar-sync
 
-## MODIFIED Requirements
+## Reconciliation note (PR 3, apply phase)
 
-### Requirement: OAuth Connection Lifecycle
+This delta originally carried a `MODIFIED Requirements` block adding OAuth
+scope-broadening and a re-consent flow for `OAuth Connection Lifecycle`,
+written against the *assumption* that `calendar-availability-overlay` would
+need a second, read-oriented Google scope alongside `calendar.events`.
 
-The system MUST let a therapist connect their Google account via OAuth 2.0 authorization-code flow with `access_type=offline`, and MUST let them disconnect anytime. Connection is account-level, never per session. The requested scope set MUST include `calendar.events` (write) and, when the `calendar-availability-overlay` capability is enabled, the free-busy read scope as well. An existing connection created before the read scope was introduced MUST keep working for push sync unchanged, and MUST be treated by the overlay job as not-yet-consented until the therapist explicitly re-authorizes to grant the added scope. Re-consent MUST NOT require disconnecting the existing connection.
-(Previously: requested only `calendar.events` and did not define a scope-broadening or re-consent path.)
+PR 0's spike (see `apply-progress.md`) and design.md Decision 1 confirmed
+`events.list` returns the data the overlay needs under the **existing**
+`calendar.events` scope — zero re-consent, zero scope broadening, zero new
+migration. `google-calendar.client.ts#listBusyIntervals()` (PR 1) and
+`calendar-busy.service.ts` (PR 2) were built and shipped entirely on that
+premise: `CalendarBusyService.refresh()` iterates every `CONNECTED`
+connection with no scope check, gate, or field read (see the inline code
+comment at `calendar-busy.service.ts:30-36` documenting that same
+deviation from tasks.md 2.1's original wording).
 
-#### Scenario: Therapist connects Google account with only the write scope
+Given that, the `OAuth Connection Lifecycle` requirement never actually
+changes for this capability: the base spec (`openspec/specs/calendar-sync/spec.md`)
+already states the connection requests only `calendar.events` and that
+scope is sufficient for both push sync and the new overlay read path. There
+is no second scope to request, no "pre-existing vs. re-consented"
+distinction to draw, and therefore no re-consent flow to build.
 
-- GIVEN no active Google connection and the overlay capability disabled
-- WHEN OAuth consent completes for `calendar.events` offline access
-- THEN Umbral stores the connection as active with only the write scope
-
-#### Scenario: Therapist connects Google account with both scopes
-
-- GIVEN no active Google connection and the overlay capability enabled
-- WHEN OAuth consent completes for both the write and read scopes
-- THEN Umbral stores the connection as active with both scopes granted
-
-#### Scenario: Therapist disconnects Google account
-
-- GIVEN an active Google connection
-- WHEN the therapist disconnects
-- THEN Umbral revokes the token, deletes it, and marks the connection inactive
-
-#### Scenario: Pre-existing connection keeps push sync without re-consent
-
-- GIVEN a connection created before the read scope existed
-- WHEN the therapist takes no re-consent action
-- THEN Umbral continues pushing consultation events to Google exactly as before
-
-#### Scenario: Pre-existing connection is excluded from the overlay until re-consent
-
-- GIVEN a connection created before the read scope existed and the therapist has not re-authorized
-- WHEN the availability overlay job runs
-- THEN that therapist's connection is skipped, consistent with the overlay capability's stale/missing-cache degradation
-
-#### Scenario: Re-consent grants the read scope without disconnecting
-
-- GIVEN an active connection with only the write scope
-- WHEN the therapist completes the re-consent flow
-- THEN the same connection now also holds the read scope and push sync remains uninterrupted throughout
+**Decision**: this delta carries no `MODIFIED Requirements` block. Nothing
+merges into `openspec/specs/calendar-sync/spec.md` at archive time — the
+base requirement stays exactly as it is today. See PR 3 in `tasks.md` and
+`apply-progress.md` for the full reconciliation record, including why a
+speculative "track pre-overlay vs. post-overlay connections" field was
+considered and rejected (no current consumer, no current Google scope
+change to observe, adds unused surface for a hypothetical future policy
+change that is not in scope for this release).

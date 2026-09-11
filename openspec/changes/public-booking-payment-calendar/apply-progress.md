@@ -267,3 +267,78 @@ Full backend unit suite re-run after this batch: **592/592 passed, 52/52 suites*
 ## Status (PR 2)
 
 5/5 tasks complete (2.1–2.5). **PR 2 DONE.** All Work Unit Evidence and TDD Cycle Evidence gates passed with real command execution (no evidence assumed or fabricated) — including a real Postgres E2E run and a manual counter-proof that the flag-off test is not vacuously true. PR 3 (OAuth scope broadening — likely much smaller than originally scoped, per PR 0's finding) and Slice B (PR 4–5, independent) are unblocked and next; this batch did not start either.
+
+---
+
+## Scope of this batch (PR 3 — this session, 2026-09-11)
+
+PR 3 — OAuth scope broadening + re-consent (`calendar-sync` delta), tasks 3.1–3.4. Reconciliation batch, explicitly out of TDD scope: no production code or tests were due unless real tracking value was found. PR 4–6 explicitly out of scope per orchestrator instruction.
+
+### Reconciliation decision (documented per explicit instruction, not escalated to the user)
+
+Re-read `tasks.md` PR 3 (3.1–3.4), `design.md` Decision 1, and `specs/calendar-sync/spec.md`'s MODIFIED "OAuth Connection Lifecycle" requirement before deciding.
+
+**Question**: does PR 3 reduce to a documented no-op, or does it still have real value (e.g., tracking pre-overlay vs. post-overlay connections for audit/observability, or hedging against a future Google policy change)?
+
+**Decision: no-op.** Reasoning:
+
+1. **Design.md Decision 1 is not conditional — it is the chosen, permanent architecture.** `events.list` reads under the existing `calendar.events` scope is not "sufficient for now, revisit later"; it is the accepted alternative to `freebusy.query` + a new scope, full stop. There is no plan, roadmap item, or open question anywhere in `design.md`/`proposal.md` suggesting a second scope is still coming. Building tracking infrastructure for a scope-broadening event that this same change's own design explicitly rejected would be scope-tracking fiction.
+2. **PR 1 and PR 2 already confirm this in code, not just in the spike.** `google-calendar.client.ts#listBusyIntervals()` (PR 1) takes no scope parameter and has no scope-conditional branch. `calendar-busy.service.ts#refresh()` (PR 2) iterates every `status: 'CONNECTED'` connection with **zero** scope check — and PR 2's own inline comment (`calendar-busy.service.ts:30-36`) already documents this exact deviation, written *before* this PR 3 batch even started, anticipating precisely the question this batch was asked to resolve. There is no gate anywhere in the shipped code for a `hasReadScope`/`scopes` field to feed.
+3. **A "pre-overlay vs. post-overlay" audit field was considered and rejected.** The candidate value proposed by the orchestrator's instructions — tracking which connections were created before vs. after this release, in case Google changes its scope policy later — has no current consumer (nothing reads it), tracks no current distinction (every `CONNECTED` connection today has identical, full read access under `calendar.events`), and hedges against a hypothetical future Google policy change that is explicitly not in this release's scope. If Google ever does require a second scope, that is a new problem needing its own spike and its own design decision (a real `freebusy`-style migration, most likely, per the `design.md` Decision 1 comparison table) — not something a silent bookkeeping field added now, against nothing, would meaningfully prepare for. Building it now would be unrequested, unjustified scope.
+4. **The base `calendar-sync` spec (`openspec/specs/calendar-sync/spec.md`) already states the correct, current behavior**: "requesting only `calendar.events`" and "requests no other scope". The delta's MODIFIED block was the part describing a mechanism that turns out to have no functional referent. Reconciling the delta to carry no `MODIFIED Requirements` block (rather than a modified-but-neutered one) means nothing merges into the base spec at archive time — the base spec stays exactly correct, with zero risk of an orphaned "re-consent" requirement surviving into the source of truth.
+
+**No code was written.** No test was written. Per explicit batch instruction: "NO implementes tracking de scope ficticio" and "no inventes tests para código que no se escribe" — both honored.
+
+### Task Status
+
+- [x] **3.1** Scope tracking field — **not implemented**, reconciled as unnecessary (Reasoning #1–3 above). No `scopes`/`hasReadScope` column added to `GoogleCalendarConnection`; no migration.
+- [x] **3.2** OAuth consent scope-broadening request — **not implemented**. `calendar-oauth.service.ts` is untouched by this batch; it still requests only `calendar.events`, exactly matching the base spec's unmodified requirement.
+- [x] **3.3** Re-consent path — **not implemented**. There is no second scope to re-consent to; no distinct trigger, no reuse of the connect flow for this purpose.
+- [x] **3.4** Unit/integration tests for pre-existing vs. re-consented connections — **not implemented**. No test was authored for behavior that does not exist in production code. PR 2.4's existing `CalendarBusyService` tests (uniform treatment of every `CONNECTED` connection, `invalid_grant` isolation) remain the correct and sufficient coverage for the real behavior.
+
+### Files Changed
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `openspec/changes/public-booking-payment-calendar/specs/calendar-sync/spec.md` | Rewritten | Replaced the `MODIFIED Requirements` block (OAuth scope broadening + re-consent) with a reconciliation note. No `ADDED`/`MODIFIED`/`REMOVED` blocks remain — nothing merges into `openspec/specs/calendar-sync/spec.md` at archive time; the base spec's existing "only `calendar.events`" requirement stays correct and untouched. |
+| `openspec/changes/public-booking-payment-calendar/tasks.md` | Modified | PR 3 header marked "RECONCILED AS NO-OP"; 3.1–3.4 marked `[x]` with per-task "not implemented" rationale; PR 3's Review Workload Forecast row updated to 0 lines/None risk; one new Key Learning entry added recording the reconciliation. |
+
+No production or test code files were touched — by design, per the batch instruction not to invent scope tracking or tests for code that was never written.
+
+### Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | N/A — no code authored this batch, nothing to test (per Strict TDD Mode, no test is invented for behavior that was not built) |
+| Runtime harness command/scenario and exact result | `rg -n "hasReadScope\|scopes\|readScope" backend/src/modules/calendar-integration/calendar-busy.service.ts backend/src/modules/calendar-integration/*.ts backend/prisma/schema.prisma` → no matches, confirming PR 1/PR 2 never introduced any scope-gating surface for PR 3 to have completed against |
+| Rollback boundary | 2 files changed, both `.md` documentation under `openspec/changes/public-booking-payment-calendar/`: `specs/calendar-sync/spec.md` (full rewrite, delta-only, no production spec touched) and `tasks.md` (PR 3 section + forecast table row + one Key Learnings line). Zero production or test files touched. Reverting this batch is a clean two-file revert with no call-site or behavioral impact anywhere in the codebase. |
+
+### Deviations from Design
+
+None from `design.md` — this batch's conclusion is that `design.md` Decision 1 was already fully realized by PR 1/PR 2, and PR 3 as originally scoped in `tasks.md` (written before PR 0's spike ran) was an artifact of planning ahead of the spike result. `tasks.md`'s own PR 3 closing note anticipated this outcome ("PR 3 may be much smaller ... or droppable ... resolve this against the spike output") — this batch is that resolution, not a deviation from it.
+
+### Workload / PR Boundary
+
+- Mode: chained PR slice (`stacked-to-main`, per tasks.md `chain_strategy`) — reconciliation batch, not a code-shipping PR
+- Current work unit: PR 3 — OAuth scope broadening + re-consent (tasks 3.1–3.4), reconciled to a documentation-only no-op
+- Boundary: starts from PR 2's shipped, scope-check-free `CalendarBusyService`; ends with the `calendar-sync` delta spec and `tasks.md` both reflecting reality. PR 4 (payments checkout exposure, Slice B, independent) is next and NOT started by this batch.
+- Estimated review budget impact: ~35 changed lines total (spec.md rewrite ~20 lines net, tasks.md diff ~15 lines net) — negligible, well under budget. No `size:exception` needed.
+
+## Status (PR 3)
+
+4/4 tasks complete (3.1–3.4), all as documented no-ops with explicit rationale — **PR 3 RECONCILED, DONE.** No production code, no tests, no migration. `calendar-sync` delta spec updated to carry no `MODIFIED Requirements` block. `tasks.md` PR 3 section, forecast table, and Key Learnings updated. PR 4 (payments checkout exposure, Slice B) is unblocked and next; PR 6's final integration pass now depends on PR 2 + PR 5 only (PR 3 has no runtime behavior to verify at that gate beyond the doc/spec state already committed here).
+
+## Key Learnings
+
+1. The local dev Postgres (`umbral-postgres-local`) currently has zero `GoogleCalendarConnection` rows, so no real refresh token is available to run the PR 0 spike.
+2. This session's sandbox denies reading `backend/.env`, which holds `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_TOKEN_ENCRYPTION_KEY` needed to build the OAuth2Client and decrypt a stored refresh token.
+3. Prior engram memory (obs #1316) records the connected OAuth app is still in Google's Testing status, so any previously connected refresh token expires roughly every 7 days until issue #123's verification completes.
+4. `GoogleCalendarClient` exposes only `insertEvent`/`patchEvent`/`deleteEvent` today; there is no `events.list` method yet, and `getAccessToken()` is private, so PR 0's throwaway script would need to reuse `CalendarSyncService.buildOAuth2Client()`'s pattern directly rather than call an existing public read method.
+5. Docker Desktop and the Postgres container are healthy and reachable, so the blocker is data/credential access, not infrastructure availability.
+6. A real `GoogleCalendarConnection` (CONNECTED, `calendar.events` scope) now exists in the dev DB as of 2026-09-11, resolving the earlier "no connection" blocker.
+7. The `backend/.env` deny rule is a permission-settings restriction, not a sandbox artifact — it blocks Read, Grep, and any Bash command whose text merely references the path, confirmed unchanged across two separate sessions/attempts.
+8. `npx prisma migrate dev` is permanently broken on this repo's local Postgres (shadow-DB P3006/P1014 caused by the `20260812150000_enable_rls_prisma_migrations` migration) — always hand-write the migration SQL in the existing style and apply with `npx prisma migrate deploy` instead, per engram obs #1379.
+9. `npx prisma generate` can fail with `EPERM` on Windows when a running `nest start --watch` dev server holds the query engine DLL locked — this blocks client-type regeneration (not schema/migration work) until that process is stopped or a fresh shell is used.
+10. `URLSearchParams.toString()` percent-encodes `(` and `)`, while `encodeURIComponent()` does not — a test asserting on a `URLSearchParams`-built query string must build its expected value the same way, not with `encodeURIComponent`.
+11. Refactoring `GoogleCalendarClient.request()` to add a `'GET'` method variant (Content-Type header only sent when a body is present) is a safe, minimal way to add a new HTTP verb without duplicating the existing error-classification logic — all 11 pre-existing insert/patch/delete tests stayed green through the change.
+12. **PR 3 reconciled to a documented no-op**: `design.md` Decision 1's `events.list`-under-existing-scope finding is a permanent architectural choice, not a temporary workaround pending a future scope-broadening PR. PR 1 and PR 2 were already built and shipped with zero scope-checking surface — PR 2's own inline comment (written during PR 2, before this reconciliation batch) already flagged the exact deviation this batch confirms. A speculative "pre-overlay vs. post-overlay connection" observability field was considered and explicitly rejected: it would have no current consumer and would hedge against a hypothetical future Google policy change that is out of scope for this release. The reconciliation is documentation-only — `specs/calendar-sync/spec.md` now carries no `MODIFIED Requirements` block (nothing merges into the base spec at archive time), and `tasks.md` PR 3 is marked complete with per-task rationale rather than left `[ ]` against work that was correctly decided not to be built.
