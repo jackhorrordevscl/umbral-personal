@@ -41,6 +41,14 @@ export class AuthController {
     'password-reset': true,
     'mfa-recover': true,
     'resend-verification': true,
+    // sdd/patient-self-scheduling PR 3 (tasks.md 3.3): los dos throttlers
+    // públicos nuevos ('public-availability'/'public-booking',
+    // buildAuthThrottlerOptions en AuthModule) también quedan registrados en
+    // el mismo ThrottlerModule global -- sin este skip explícito, cada ruta
+    // de este controller consumiría cupo de esos dos throttlers además del
+    // suyo propio.
+    'public-availability': true,
+    'public-booking': true,
   })
   @Post('login')
   login(@Body() dto: LoginDto) {
@@ -62,6 +70,8 @@ export class AuthController {
     'password-reset': true,
     'mfa-recover': true,
     'resend-verification': true,
+    'public-availability': true,
+    'public-booking': true,
   })
   @Post('mfa/verify')
   verifyMfa(@Body() dto: VerifyMfaDto) {
@@ -81,6 +91,8 @@ export class AuthController {
     'password-reset': true,
     'mfa-recover': true,
     'resend-verification': true,
+    'public-availability': true,
+    'public-booking': true,
   })
   @Post('signup')
   signup(@Body() dto: SignupDto) {
@@ -103,6 +115,8 @@ export class AuthController {
     'password-reset': true,
     'mfa-recover': true,
     'resend-verification': true,
+    'public-availability': true,
+    'public-booking': true,
   })
   @Post('verify-email')
   verifyEmail(@Body() dto: VerifyEmailDto) {
@@ -127,6 +141,8 @@ export class AuthController {
     'verify-email': true,
     'password-reset': true,
     'mfa-recover': true,
+    'public-availability': true,
+    'public-booking': true,
   })
   @Post('verify-email/resend')
   resendVerification(@Body() dto: ResendVerificationDto) {
@@ -151,6 +167,8 @@ export class AuthController {
     'password-reset': true,
     'mfa-recover': true,
     'resend-verification': true,
+    'public-availability': true,
+    'public-booking': true,
   })
   @Post('mfa/setup/begin')
   beginMfaSetup(@Body() dto: MfaSetupBeginDto) {
@@ -167,6 +185,8 @@ export class AuthController {
     'password-reset': true,
     'mfa-recover': true,
     'resend-verification': true,
+    'public-availability': true,
+    'public-booking': true,
   })
   @Post('mfa/setup/confirm')
   confirmMfaSetup(@Body() dto: MfaSetupConfirmDto, @Req() req: Request) {
@@ -192,6 +212,8 @@ export class AuthController {
     'password-reset': true,
     'mfa-recover': true,
     'resend-verification': true,
+    'public-availability': true,
+    'public-booking': true,
   })
   @Post('password/change')
   changePassword(@Body() dto: ChangePasswordDto) {
@@ -213,6 +235,8 @@ export class AuthController {
     'verify-email': true,
     'mfa-recover': true,
     'resend-verification': true,
+    'public-availability': true,
+    'public-booking': true,
   })
   @Post('password/forgot')
   forgotPassword(@Body() dto: ForgotPasswordDto) {
@@ -229,6 +253,8 @@ export class AuthController {
     'verify-email': true,
     'mfa-recover': true,
     'resend-verification': true,
+    'public-availability': true,
+    'public-booking': true,
   })
   @Post('password/reset')
   resetPassword(@Body() dto: ResetPasswordDto) {
@@ -252,6 +278,8 @@ export class AuthController {
     'verify-email': true,
     'password-reset': true,
     'resend-verification': true,
+    'public-availability': true,
+    'public-booking': true,
   })
   @Post('mfa/recover')
   recoverMfa(@Body() dto: MfaRecoverDto) {

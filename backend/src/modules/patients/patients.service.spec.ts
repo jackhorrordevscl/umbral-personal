@@ -448,4 +448,114 @@ describe('PatientsService', () => {
       expect(result).toEqual({ TREATMENT: false, TELEMEDICINE: true });
     });
   });
+
+  // sdd/patient-self-scheduling PR 3 (tasks.md 3.4, design.md "Identity
+  // resolution gotchas"): Patient.rut es GLOBALMENTE único (no por
+  // terapeuta) -- un paciente ya registrado con otro terapeuta no puede
+  // auto-crearse. Patient.email es nullable y NO único -- el match es
+  // case-insensitive y scopeado a therapistId; más de un match es ambiguo.
+  // Ambos casos devuelven el MISMO 409 uniforme, sin distinguir hacia
+  // afuera cuál ocurrió.
+  describe('resolveForPublicBooking', () => {
+    const dto = {
+      fullName: 'Paciente Público',
+      rut: '11.111.111-1',
+      birthDate: '1990-01-01',
+      email: 'paciente@ejemplo.cl',
+    };
+
+    it('vincula a la ficha existente si hay un único match de email bajo ese terapeuta', async () => {
+      const existing = buildPatient({ email: 'paciente@ejemplo.cl' });
+      prisma.patient.findMany.mockResolvedValue([existing]);
+
+      const result = await service.resolveForPublicBooking(
+        'therapist-1',
+        dto as never,
+      );
+
+      expect(result).toBe(existing);
+      expect(prisma.patient.findMany).toHaveBeenCalledWith({
+        where: {
+          therapistId: 'therapist-1',
+          deletedAt: null,
+          email: { equals: 'paciente@ejemplo.cl', mode: 'insensitive' },
+        },
+      });
+      expect(prisma.patient.create).not.toHaveBeenCalled();
+    });
+
+    it('crea una nueva ficha reducida si no hay match de email bajo ese terapeuta', async () => {
+      prisma.patient.findMany.mockResolvedValue([]);
+      prisma.patient.findUnique.mockResolvedValue(null);
+      const created = buildPatient({ email: 'paciente@ejemplo.cl' });
+      prisma.patient.create.mockResolvedValue(created);
+
+      const result = await service.resolveForPublicBooking(
+        'therapist-1',
+        dto as never,
+      );
+
+      expect(result).toBe(created);
+      expect(prisma.patient.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          rut: '11111111-1',
+          email: 'paciente@ejemplo.cl',
+          therapistId: 'therapist-1',
+        }) as unknown,
+      });
+      // Campos explícitamente excluidos del formulario público reducido
+      // (design.md: "Creation explicitly omits defaultSessionAmount,
+      // documents, and consents").
+      const firstCallArgs = prisma.patient.create.mock.calls[0] as unknown[];
+      const createCall = firstCallArgs[0] as {
+        data: Record<string, unknown>;
+      };
+      expect(createCall.data.defaultSessionAmount).toBeUndefined();
+    });
+
+    it('colisión de RUT con otro terapeuta -> 409 uniforme, sin crear ni filtrar el caso', async () => {
+      prisma.patient.findMany.mockResolvedValue([]);
+      prisma.patient.findUnique.mockResolvedValue({
+        id: 'other-patient',
+        therapistId: 'therapist-2',
+      });
+
+      await expect(
+        service.resolveForPublicBooking('therapist-1', dto as never),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.patient.create).not.toHaveBeenCalled();
+    });
+
+    it('email ambiguo (más de un match bajo el mismo terapeuta) -> mismo 409 uniforme', async () => {
+      prisma.patient.findMany.mockResolvedValue([
+        buildPatient({ id: 'p1' }),
+        buildPatient({ id: 'p2' }),
+      ]);
+
+      await expect(
+        service.resolveForPublicBooking('therapist-1', dto as never),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.patient.create).not.toHaveBeenCalled();
+    });
+
+    it('nunca loguea el email en texto plano al rechazar un match ambiguo', async () => {
+      prisma.patient.findMany.mockResolvedValue([
+        buildPatient({ id: 'p1' }),
+        buildPatient({ id: 'p2' }),
+      ]);
+      const warnSpy = jest.spyOn(
+        (service as unknown as { logger: { warn: (msg: string) => void } })
+          .logger,
+        'warn',
+      );
+
+      await expect(
+        service.resolveForPublicBooking('therapist-1', dto as never),
+      ).rejects.toThrow(ConflictException);
+
+      for (const call of warnSpy.mock.calls) {
+        expect(String(call[0])).not.toContain('paciente@ejemplo.cl');
+      }
+    });
+  });
 });

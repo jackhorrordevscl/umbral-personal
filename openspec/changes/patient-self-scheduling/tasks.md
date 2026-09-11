@@ -46,18 +46,18 @@ Chain strategy: stacked-to-main
 
 ## Phase 3: Public Scheduling & Booking (PR 3)
 
-- [ ] 3.1 Modify `backend/src/modules/auth/auth.module.ts`: extend `buildAuthThrottlerOptions` with `public-availability` and `public-booking` named throttlers.
-- [ ] 3.2 Create `backend/src/modules/public-scheduling/public-schedule-throttler.guard.ts` extending `ThrottlerGuard`, tracker `ip:therapistId` (availability) / `ip:therapistId:sha256(email)` (booking); never log plaintext email.
-- [ ] 3.3 Modify `backend/src/modules/auth/auth.controller.ts`: add both new throttler names to every existing `@SkipThrottle` map.
-- [ ] 3.4 Modify `backend/src/modules/patients/patients.service.ts`: add `resolveForPublicBooking()` — case-insensitive email match scoped to `therapistId`; ambiguous match or cross-therapist RUT collision returns uniform 409.
-- [ ] 3.5 Modify `backend/src/modules/consultations/consultations.service.ts` (and `.module.ts` to export it): add `createFromPublicBooking()` using `prisma.$transaction` (recheck slot → insert `BookedSlot` → insert `Consultation`), unique violation → 409.
-- [ ] 3.6 Create `backend/src/modules/public-scheduling/public-scheduling.controller.ts`: `GET .../availability` and `POST .../availability/book`, gated by `PUBLIC_SCHEDULING_ENABLED`.
-- [ ] 3.7 Create `backend/src/modules/public-scheduling/dto/*.dto.ts` (query range, booking patient form).
-- [ ] 3.8 Create `backend/src/modules/public-scheduling/public-scheduling.module.ts` importing `AvailabilityModule`, `PatientsModule`, `ConsultationsModule`; register in `app.module.ts`.
-- [ ] 3.9 Verify calendar-sync push path already treats `createFromPublicBooking()` output identically (same `emitCalendarSync` call, non-blocking failure) — no calendar-sync module change expected; add a regression assertion if the emit call is not already shared.
-- [ ] 3.10 Write `patients.service.spec.ts` additions: existing match, new create, cross-therapist RUT collision, ambiguous email (mocked Prisma).
-- [ ] 3.11 Write `consultations.service.integration.spec.ts` additions: concurrent `Promise.all` inserts on the same slot yield exactly one consultation and one 409 (real Postgres).
-- [ ] 3.12 Write e2e spec: public routes reachable without JWT, 429 after configured throttle budget, span > 60 days rejected, existing auth throttlers unaffected (Supertest + DI override of throttler options token).
+- [x] 3.1 Modify `backend/src/modules/auth/auth.module.ts`: extend `buildAuthThrottlerOptions` with `public-availability` and `public-booking` named throttlers.
+- [x] 3.2 Create `backend/src/modules/public-scheduling/public-schedule-throttler.guard.ts` extending `ThrottlerGuard`, tracker `ip:therapistId` (availability) / `ip:therapistId:sha256(email)` (booking); never log plaintext email.
+- [x] 3.3 Modify `backend/src/modules/auth/auth.controller.ts`: add both new throttler names to every existing `@SkipThrottle` map.
+- [x] 3.4 Modify `backend/src/modules/patients/patients.service.ts`: add `resolveForPublicBooking()` — case-insensitive email match scoped to `therapistId`; ambiguous match or cross-therapist RUT collision returns uniform 409.
+- [x] 3.5 Modify `backend/src/modules/consultations/consultations.service.ts` (and `.module.ts` to export it): add `createFromPublicBooking()` using `prisma.$transaction` (recheck slot → insert `BookedSlot` → insert `Consultation`), unique violation → 409.
+- [x] 3.6 Create `backend/src/modules/public-scheduling/public-scheduling.controller.ts`: `GET .../availability` and `POST .../availability/book`, gated by `PUBLIC_SCHEDULING_ENABLED`.
+- [x] 3.7 Create `backend/src/modules/public-scheduling/dto/*.dto.ts` (query range, booking patient form).
+- [x] 3.8 Create `backend/src/modules/public-scheduling/public-scheduling.module.ts` importing `AvailabilityModule`, `PatientsModule`, `ConsultationsModule`; register in `app.module.ts`.
+- [x] 3.9 Verify calendar-sync push path already treats `createFromPublicBooking()` output identically (same `emitCalendarSync` call, non-blocking failure) — no calendar-sync module change expected; add a regression assertion if the emit call is not already shared.
+- [x] 3.10 Write `patients.service.spec.ts` additions: existing match, new create, cross-therapist RUT collision, ambiguous email (mocked Prisma).
+- [x] 3.11 Write `consultations.service.integration.spec.ts` additions: concurrent `Promise.all` inserts on the same slot yield exactly one consultation and one 409 (real Postgres).
+- [x] 3.12 Write e2e spec: public routes reachable without JWT, 429 after configured throttle budget, span > 60 days rejected, existing auth throttlers unaffected (Supertest + DI override of throttler options token).
 
 ## Phase 4: Profile Working-Hours Editor (PR 4)
 

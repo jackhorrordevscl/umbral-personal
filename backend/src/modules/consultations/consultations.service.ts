@@ -6,7 +6,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { CalendarSyncStatus, Prisma, SessionType } from '@prisma/client';
+import {
+  CalendarSyncStatus,
+  Consultation,
+  Prisma,
+  SessionType,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
@@ -395,6 +400,90 @@ export class ConsultationsService {
       patientName: c.patient.fullName,
       calendarSync: syncMap.get(c.groupId) ?? null,
     }));
+  }
+
+  // sdd/patient-self-scheduling PR 3 (tasks.md 3.5, design.md Decision 1
+  // "Double-booking guard" + Data Flow "POST .../availability/book"):
+  // recheck slot -> insert BookedSlot -> insert Consultation, todo dentro de
+  // la misma transacción. El recheck contra Consultation es un fast-fail
+  // para el caso obvio (lectura de disponibilidad stale, cache de 5 min);
+  // BookedSlot.@@unique([therapistId, slotStart]) es el guard REAL bajo
+  // carrera concurrente -- dos requests pueden pasar el recheck antes de que
+  // cualquiera escriba, así que P2002 en ese insert también se traduce a 409
+  // (nunca un 500).
+  //
+  // Reutiliza los mismos emitCalendarSync/emitPaymentCharge privados que
+  // create()/correct() -- una consulta creada por reserva pública recibe
+  // exactamente el mismo push a Google Calendar y el mismo cargo
+  // fire-and-forget que una creada por el terapeuta (calendar-sync spec.md
+  // "Publicly booked consultation pushes a new event", tasks.md 3.9).
+  async createFromPublicBooking(
+    therapistId: string,
+    patientId: string,
+    patientRut: string,
+    slotStart: Date,
+    sessionDurationMinutes: number,
+  ) {
+    const slotEnd = new Date(
+      slotStart.getTime() + sessionDurationMinutes * 60000,
+    );
+    const id = randomUUID();
+
+    let consultation: Consultation;
+    try {
+      consultation = await this.prisma.$transaction(async (tx) => {
+        const conflicting = await tx.consultation.findFirst({
+          where: {
+            therapistId,
+            correctedBy: null,
+            deletedAt: null,
+            sessionDate: { gte: slotStart, lt: slotEnd },
+          },
+          select: { id: true },
+        });
+        if (conflicting) {
+          throw new ConflictException(
+            'El horario seleccionado ya no está disponible.',
+          );
+        }
+
+        await tx.bookedSlot.create({
+          data: { therapistId, groupId: id, slotStart },
+        });
+
+        return tx.consultation.create({
+          data: {
+            id,
+            groupId: id,
+            patientId,
+            therapistId,
+            sessionDate: slotStart,
+            consultReason: 'Reserva pública en línea',
+            intervention: 'Pendiente de definir por el terapeuta',
+            sessionType: 'IN_PERSON',
+            scheduledAt: slotStart,
+            patientRut,
+          },
+        });
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'El horario seleccionado ya no está disponible.',
+        );
+      }
+      throw err;
+    }
+
+    this.logger.log(
+      `Consulta creada vía reserva pública: id=${consultation.id} therapistId=${therapistId}`,
+    );
+    this.emitCalendarSync(consultation.groupId);
+    this.emitPaymentCharge(consultation.groupId);
+    return consultation;
   }
 
   // design.md "Sync badge resolved in the same response, via in-memory map":

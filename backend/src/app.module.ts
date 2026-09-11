@@ -16,6 +16,7 @@ import { RemindersModule } from './modules/reminders/reminders.module';
 import { CalendarIntegrationModule } from './modules/calendar-integration/calendar-integration.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
+import { PublicSchedulingModule } from './modules/public-scheduling/public-scheduling.module';
 import { SharedFilesModule } from './shared-files/shared-files.module';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { AppController } from './app.controller';
@@ -45,6 +46,10 @@ import { AppService } from './app.service';
     CalendarIntegrationModule,
     PaymentsModule,
     AvailabilityModule,
+    // sdd/patient-self-scheduling PR 3: superficie pública sin JwtAuthGuard
+    // (GET/POST .../public/therapists/:id/availability[/book]), gateada por
+    // PUBLIC_SCHEDULING_ENABLED (design.md "Migration / Rollout").
+    PublicSchedulingModule,
     SharedFilesModule,
   ],
   controllers: [AppController],

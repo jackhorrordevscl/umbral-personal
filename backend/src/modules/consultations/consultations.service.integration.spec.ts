@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { ConflictException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -440,6 +441,132 @@ describe('ConsultationsService.findByRange (integration, real Prisma)', () => {
     expect(ids).toContain(edgeEnd.id);
     expect(ids).not.toContain(justOutsideBefore.id);
     expect(ids).not.toContain(exactlyAtTo.id);
+  }, 20000);
+});
+
+// sdd/patient-self-scheduling PR 3 (tasks.md 3.11, design.md Decision 1
+// "Double-booking guard"): BookedSlot.@@unique([therapistId, slotStart]) es
+// el guard REAL de concurrencia -- Consultation no puede llevar esa
+// constraint (correct() inserta una fila nueva con el mismo therapistId/
+// sessionDate de la cadena). Postgres real + Promise.all concurrente es la
+// única forma de probar esto de verdad: un mock de $transaction nunca
+// reproduce una carrera real entre dos conexiones separadas.
+describe('ConsultationsService.createFromPublicBooking (integration, concurrencia real)', () => {
+  let prisma: PrismaService;
+  let consultationsService: ConsultationsService;
+  const runId = Date.now() + 3;
+
+  let therapistId: string;
+  let patientId: string;
+
+  function buildConfig(): ConfigService {
+    const values: Record<string, string> = {
+      FRONTEND_URL: 'https://app.umbral.cl',
+      GOOGLE_CLIENT_ID: 'integration-test-client-id',
+      GOOGLE_CLIENT_SECRET: 'integration-test-client-secret',
+      GOOGLE_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString('base64'),
+    };
+    return { get: (key: string) => values[key] } as unknown as ConfigService;
+  }
+
+  beforeAll(async () => {
+    prisma = new PrismaService();
+    await prisma.onModuleInit();
+
+    const passwordHash = await argon2.hash('TestPass123!');
+    const therapist = await prisma.user.create({
+      data: {
+        email: `public-booking-concurrency-${runId}@example.com`,
+        passwordHash,
+        name: 'Dra. Concurrencia',
+      },
+    });
+    therapistId = therapist.id;
+
+    const patient = await prisma.patient.create({
+      data: {
+        fullName: 'Paciente Concurrencia',
+        rut: `${runId}-1`,
+        birthDate: new Date('1990-01-01T12:00:00.000Z'),
+        therapistId,
+      },
+    });
+    patientId = patient.id;
+
+    const auditService = new AuditService(prisma);
+    const tokenCrypto = new GoogleTokenCryptoService(buildConfig());
+    tokenCrypto.onModuleInit();
+    // Sin GoogleCalendarConnection para este therapistId -> syncGroup() es
+    // un no-op real que nunca llega a usar el cliente (mismo criterio que
+    // el resto de esta suite: fire-and-forget cubierto por el .catch interno
+    // de emitCalendarSync, así que ni siquiera necesita un cliente mock que
+    // resuelva algo útil).
+    const calendarSync = new CalendarSyncService(
+      prisma,
+      tokenCrypto,
+      {} as unknown as GoogleCalendarClient,
+      new NotificationsService(prisma),
+      buildConfig(),
+      auditService,
+    );
+    const patientsService = new PatientsService(
+      prisma,
+      auditService,
+      calendarSync,
+      buildDisabledPaymentsService(prisma),
+    );
+    consultationsService = new ConsultationsService(
+      prisma,
+      patientsService,
+      calendarSync,
+      buildDisabledPaymentsService(prisma),
+    );
+  }, 30000);
+
+  afterAll(async () => {
+    await prisma.bookedSlot.deleteMany({ where: { therapistId } });
+    await prisma.consultation.deleteMany({ where: { therapistId } });
+    await prisma.patient.deleteMany({ where: { id: patientId } });
+    await prisma.user.deleteMany({ where: { id: therapistId } });
+    await prisma.onModuleDestroy();
+  }, 30000);
+
+  it('dos inserts concurrentes sobre el mismo slot producen exactamente una consulta y un 409', async () => {
+    const slotStart = new Date('2026-11-02T13:00:00.000Z');
+
+    const results = await Promise.allSettled([
+      consultationsService.createFromPublicBooking(
+        therapistId,
+        patientId,
+        '11111111-1',
+        slotStart,
+        50,
+      ),
+      consultationsService.createFromPublicBooking(
+        therapistId,
+        patientId,
+        '11111111-1',
+        slotStart,
+        50,
+      ),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].reason).toBeInstanceOf(ConflictException);
+
+    const persisted = await prisma.consultation.findMany({
+      where: { therapistId, sessionDate: slotStart },
+    });
+    expect(persisted).toHaveLength(1);
+
+    const bookedSlots = await prisma.bookedSlot.findMany({
+      where: { therapistId, slotStart },
+    });
+    expect(bookedSlots).toHaveLength(1);
   }, 20000);
 });
 

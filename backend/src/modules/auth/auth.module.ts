@@ -254,6 +254,35 @@ export function buildAuthThrottlerOptions(
     'TRUSTED_PROXY_HOPS',
   );
 
+  // sdd/patient-self-scheduling PR 3 (tasks.md 3.1, design.md Decision 7
+  // "Rate limiting"): ThrottlerModule es @Global() (v6), así que registrarlo
+  // acá (la única fábrica existente) alcanza para que PublicSchedulingModule
+  // (que no registra su propio ThrottlerModule) también pueda usar estos dos
+  // throttlers nombrados. Límite más alto para 'public-availability' (ruta de
+  // lectura, sin escritura) que para 'public-booking' (crea Patient +
+  // Consultation, mismo presupuesto conservador que signup/login).
+  const publicAvailabilityLimit = parsePositiveInt(
+    config.get<string>('PUBLIC_AVAILABILITY_THROTTLE_LIMIT'),
+    isTest ? 1000 : 20,
+    'PUBLIC_AVAILABILITY_THROTTLE_LIMIT',
+  );
+  const publicAvailabilityTtl = parsePositiveInt(
+    config.get<string>('PUBLIC_AVAILABILITY_THROTTLE_TTL_MS'),
+    60000,
+    'PUBLIC_AVAILABILITY_THROTTLE_TTL_MS',
+  );
+
+  const publicBookingLimit = parsePositiveInt(
+    config.get<string>('PUBLIC_BOOKING_THROTTLE_LIMIT'),
+    isTest ? 1000 : 5,
+    'PUBLIC_BOOKING_THROTTLE_LIMIT',
+  );
+  const publicBookingTtl = parsePositiveInt(
+    config.get<string>('PUBLIC_BOOKING_THROTTLE_TTL_MS'),
+    60000,
+    'PUBLIC_BOOKING_THROTTLE_TTL_MS',
+  );
+
   return {
     throttlers: [
       { name: 'login', limit: loginLimit, ttl: loginTtl },
@@ -277,6 +306,16 @@ export function buildAuthThrottlerOptions(
         ttl: passwordResetTtl,
       },
       { name: 'mfa-recover', limit: mfaRecoverLimit, ttl: mfaRecoverTtl },
+      {
+        name: 'public-availability',
+        limit: publicAvailabilityLimit,
+        ttl: publicAvailabilityTtl,
+      },
+      {
+        name: 'public-booking',
+        limit: publicBookingLimit,
+        ttl: publicBookingTtl,
+      },
     ],
     getTracker: (req: Record<string, any>) =>
       getLoginTracker(

@@ -13,9 +13,14 @@ import { PaymentsModule } from '../payments/payments.module';
 // PaymentsModule -- ConsultationsService inyecta PaymentsService y dispara
 // ensureCharge() fire-and-forget tras create()/correct() (T2.5); sin ciclo,
 // PaymentsModule no importa consultations ni patients.
+// sdd/patient-self-scheduling PR 3 (tasks.md 3.5, design.md File Changes):
+// exporta ConsultationsService para que PublicSchedulingModule pueda
+// inyectarlo y llamar createFromPublicBooking() -- sin ciclo: consultations
+// no importa public-scheduling.
 @Module({
   imports: [PatientsModule, CalendarIntegrationModule, PaymentsModule],
   controllers: [ConsultationsController],
   providers: [ConsultationsService],
+  exports: [ConsultationsService],
 })
 export class ConsultationsModule {}
