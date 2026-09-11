@@ -36,13 +36,13 @@ Chain strategy: stacked-to-main
 
 ## Phase 2: Availability Core (PR 2)
 
-- [ ] 2.1 Create `backend/src/common/utils/chile-time.util.ts` mirroring frontend Chile wall-clock helpers (`Intl.DateTimeFormat('America/Santiago')`).
-- [ ] 2.2 Create `backend/src/modules/availability/availability.service.ts` with `computeSlots(therapistId, from, to)`: expand weekly rules, subtract blockouts/holidays/consultations, apply 24h/60d bounds.
-- [ ] 2.3 Add in-process `Map` cache to `availability.service.ts` keyed per therapist+range, ~5 min TTL, version bumped on rule/booking writes.
-- [ ] 2.4 Create `backend/src/modules/availability/availability.controller.ts` (authenticated) with CRUD for weekly schedule, blockouts, and `PUT /availability/schedule` saving grid + `sessionDurationMinutes` atomically.
-- [ ] 2.5 Create `backend/src/modules/availability/dto/*.dto.ts` (schedule entry, blockout, schedule-update) with `startTime < endTime` validation.
-- [ ] 2.6 Create `backend/src/modules/availability/availability.module.ts`; register in `backend/src/app.module.ts`.
-- [ ] 2.7 Write `availability.service.spec.ts`: slot expansion, blockout/holiday/consultation subtraction, 24h/60d bounds, DST gap/repeat days, cache invalidation on write (fixed clock, per Testing Strategy).
+- [x] 2.1 Create `backend/src/common/utils/chile-time.util.ts` mirroring frontend Chile wall-clock helpers (`Intl.DateTimeFormat('America/Santiago')`).
+- [x] 2.2 Create `backend/src/modules/availability/availability.service.ts` with `computeSlots(therapistId, from, to)`: expand weekly rules, subtract blockouts/holidays/consultations, apply 24h/60d bounds.
+- [x] 2.3 Add in-process `Map` cache to `availability.service.ts` keyed per therapist+range, ~5 min TTL, version bumped on rule/booking writes.
+- [x] 2.4 Create `backend/src/modules/availability/availability.controller.ts` (authenticated) with CRUD for weekly schedule, blockouts, and `PUT /availability/schedule` saving grid + `sessionDurationMinutes` atomically.
+- [x] 2.5 Create `backend/src/modules/availability/dto/*.dto.ts` (schedule entry, blockout, schedule-update) with `startTime < endTime` validation.
+- [x] 2.6 Create `backend/src/modules/availability/availability.module.ts`; register in `backend/src/app.module.ts`.
+- [x] 2.7 Write `availability.service.spec.ts`: slot expansion, blockout/holiday/consultation subtraction, 24h/60d bounds, DST gap/repeat days, cache invalidation on write (fixed clock, per Testing Strategy).
 
 ## Phase 3: Public Scheduling & Booking (PR 3)
 

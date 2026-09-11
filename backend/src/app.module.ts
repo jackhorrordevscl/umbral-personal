@@ -15,6 +15,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { RemindersModule } from './modules/reminders/reminders.module';
 import { CalendarIntegrationModule } from './modules/calendar-integration/calendar-integration.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { AvailabilityModule } from './modules/availability/availability.module';
 import { SharedFilesModule } from './shared-files/shared-files.module';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { AppController } from './app.controller';
@@ -43,6 +44,7 @@ import { AppService } from './app.service';
     RemindersModule,
     CalendarIntegrationModule,
     PaymentsModule,
+    AvailabilityModule,
     SharedFilesModule,
   ],
   controllers: [AppController],
