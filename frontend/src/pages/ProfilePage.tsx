@@ -6,6 +6,8 @@ import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import { useProfile, type Profile } from '../hooks/useProfile';
+import WeeklyScheduleEditor from '../components/availability/WeeklyScheduleEditor';
+import BlockoutEditor from '../components/availability/BlockoutEditor';
 
 // PR2a (session-calendar-view, design.md "Decision: SettingsPage split"):
 // extraído de SettingsPage.tsx -- esta página cubre solo identidad de cuenta
@@ -419,6 +421,13 @@ export default function ProfilePage() {
           <AccountDataForm profile={profile} />
         )}
       </div>
+
+      {/* sdd/patient-self-scheduling PR 4 (tasks.md 4.3, therapist-availability
+          spec): editor de horario semanal + bloqueos, autocontenidos (cada
+          uno fetchea/muta su propio recurso vía useAvailability.ts) --
+          mismo criterio que AvatarCard/AccountDataForm arriba, sin props. */}
+      <WeeklyScheduleEditor />
+      <BlockoutEditor />
     </div>
   );
 }

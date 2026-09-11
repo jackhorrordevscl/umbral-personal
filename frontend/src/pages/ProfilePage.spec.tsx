@@ -17,7 +17,7 @@ import api from '../api/client'
 // extracción.
 
 vi.mock('../api/client', () => ({
-  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
+  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }))
 
 const mockedApi = vi.mocked(api)
@@ -63,6 +63,15 @@ describe('ProfilePage — account-settings Req: Profile Section Scope', () => {
     )
     mockedApi.get.mockImplementation((url: string) => {
       if (url === '/profile') return Promise.resolve({ data: baseProfile() })
+      // sdd/patient-self-scheduling PR 4 (tasks.md 4.3): ProfilePage ahora
+      // también monta WeeklyScheduleEditor y BlockoutEditor, que fetchean su
+      // propio recurso al montar -- sin este mock, esas dos queries caerían
+      // en el catch-all de abajo y quedarían como promesas rechazadas sin
+      // manejar en cada test de este archivo.
+      if (url === '/availability/schedule') {
+        return Promise.resolve({ data: { sessionDurationMinutes: 50, entries: [] } })
+      }
+      if (url === '/availability/blockouts') return Promise.resolve({ data: [] })
       return Promise.reject(new Error(`GET inesperado: ${url}`))
     })
   })
@@ -82,6 +91,20 @@ describe('ProfilePage — account-settings Req: Profile Section Scope', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Cambiar contraseña' }),
+    ).toBeInTheDocument()
+  })
+
+  // sdd/patient-self-scheduling PR 4 (tasks.md 4.3): confirma que el editor
+  // de horario semanal y el de bloqueos quedan wireados en ProfilePage --
+  // el detalle de su comportamiento (guardar/rechazar horario, agregar/
+  // quitar bloqueo) está cubierto en sus propios specs (WeeklyScheduleEditor
+  // .spec.tsx, BlockoutEditor.spec.tsx).
+  it('incluye el editor de horario semanal y el de bloqueos de disponibilidad', async () => {
+    renderProfilePage()
+
+    expect(await screen.findByText('Horario semanal')).toBeInTheDocument()
+    expect(
+      screen.getByText('Bloqueos de disponibilidad'),
     ).toBeInTheDocument()
   })
 

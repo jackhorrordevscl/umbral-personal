@@ -61,10 +61,10 @@ Chain strategy: stacked-to-main
 
 ## Phase 4: Profile Working-Hours Editor (PR 4)
 
-- [ ] 4.1 Create frontend components for weekly schedule grid + `sessionDurationMinutes` input, wired to `PUT /availability/schedule`.
-- [ ] 4.2 Create blockout editor (full-day / partial-day / date-range) wired to availability blockout CRUD endpoints.
-- [ ] 4.3 Wire both into the existing ProfilePage.
-- [ ] 4.4 Write component tests: save valid schedule, reject `startTime >= endTime`, add/remove blockout.
+- [x] 4.1 Create frontend components for weekly schedule grid + `sessionDurationMinutes` input, wired to `PUT /availability/schedule`.
+- [x] 4.2 Create blockout editor (full-day / partial-day / date-range) wired to availability blockout CRUD endpoints.
+- [x] 4.3 Wire both into the existing ProfilePage.
+- [x] 4.4 Write component tests: save valid schedule, reject `startTime >= endTime`, add/remove blockout.
 
 ## Phase 5: Public Booking Page (PR 5)
 
