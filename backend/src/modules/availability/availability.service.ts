@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AvailabilityBlockout } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DEFAULT_SESSION_MINUTES } from '../calendar-integration/calendar-integration.constants';
@@ -142,6 +146,37 @@ export function computeAvailableSlots(
   return slots;
 }
 
+// Bug reportado en pruebas manuales de PR 4: el editor de Profile deja
+// agregar/editar filas sin chequear contra las demás del mismo día, así que
+// dos entries iguales o superpuestas llegaban intactas hasta el unique
+// constraint (therapistId, dayOfWeek, startMinute) y explotaban como 500
+// crudo en vez de un error legible -- ninguna capa (DTO ni service) las
+// rechazaba antes. Valida por día: ordena por startMinute y compara cada
+// entry contra la siguiente.
+function assertNoOverlappingEntries(entries: ScheduleEntryDto[]): void {
+  const byDay = new Map<number, ScheduleEntryDto[]>();
+  for (const entry of entries) {
+    const dayEntries = byDay.get(entry.dayOfWeek) ?? [];
+    dayEntries.push(entry);
+    byDay.set(entry.dayOfWeek, dayEntries);
+  }
+
+  for (const [dayOfWeek, dayEntries] of byDay) {
+    const sorted = [...dayEntries].sort(
+      (a, b) => a.startMinute - b.startMinute,
+    );
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i].startMinute < sorted[i - 1].endMinute) {
+        throw new BadRequestException(
+          `El horario del día ${dayOfWeek} tiene bloques que se superponen ` +
+            `(${sorted[i - 1].startMinute}-${sorted[i - 1].endMinute} y ` +
+            `${sorted[i].startMinute}-${sorted[i].endMinute}).`,
+        );
+      }
+    }
+  }
+}
+
 @Injectable()
 export class AvailabilityService {
   private readonly cache = new Map<
@@ -281,6 +316,7 @@ export class AvailabilityService {
       | ScheduleUpdateDto
       | { sessionDurationMinutes: number; entries: ScheduleEntryDto[] },
   ): Promise<void> {
+    assertNoOverlappingEntries(dto.entries);
     await this.prisma.$transaction(async (tx) => {
       await tx.therapistAvailability.deleteMany({
         where: { therapistId },

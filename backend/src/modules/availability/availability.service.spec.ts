@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import {
   AvailabilityService,
   computeAvailableSlots,
@@ -421,6 +421,52 @@ describe('AvailabilityService (CRUD)', () => {
       });
 
       expect(invalidateSpy).toHaveBeenCalledWith('therapist-1');
+    });
+
+    // Bug reportado en pruebas manuales: dos entries idénticas (mismo día,
+    // mismo horario) llegaban intactas hasta el unique constraint de Postgres
+    // (therapistId, dayOfWeek, startMinute) y explotaban como 500 crudo en
+    // vez de un 400 legible -- nada entre el DTO y el service las rechazaba.
+    it('rechaza dos entries del mismo día con el mismo horario', async () => {
+      await expect(
+        service.saveSchedule('therapist-1', {
+          sessionDurationMinutes: 60,
+          entries: [
+            { dayOfWeek: 1, startMinute: 600, endMinute: 720 },
+            { dayOfWeek: 1, startMinute: 600, endMinute: 720 },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.therapistAvailability.createMany).not.toHaveBeenCalled();
+    });
+
+    // Triangulación: el mismo problema con horarios que se pisan sin ser
+    // idénticos (09:00-11:00 y 10:00-12:00 el mismo lunes) no viola el
+    // unique constraint (distinto startMinute) pero es igual de inválido
+    // desde el punto de vista de negocio -- dos slots del mismo terapeuta no
+    // pueden coexistir en el mismo rango horario de un día.
+    it('rechaza dos entries del mismo día que se superponen sin ser idénticas', async () => {
+      await expect(
+        service.saveSchedule('therapist-1', {
+          sessionDurationMinutes: 60,
+          entries: [
+            { dayOfWeek: 1, startMinute: 540, endMinute: 660 },
+            { dayOfWeek: 1, startMinute: 600, endMinute: 720 },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('acepta entries del mismo día que no se superponen', async () => {
+      await service.saveSchedule('therapist-1', {
+        sessionDurationMinutes: 60,
+        entries: [
+          { dayOfWeek: 1, startMinute: 540, endMinute: 600 },
+          { dayOfWeek: 1, startMinute: 600, endMinute: 720 },
+        ],
+      });
+
+      expect(prisma.therapistAvailability.createMany).toHaveBeenCalled();
     });
   });
 
