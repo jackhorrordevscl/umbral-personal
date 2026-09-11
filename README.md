@@ -465,6 +465,22 @@ umbral-personal/
   setear, que es el default) sin necesitar un deploy/revert — cubre tanto
   la lectura de disponibilidad como la reserva
 
+#### Overlay de Google Calendar y checkout en línea (sdd/public-booking-payment-calendar)
+- Overlay opcional (`CALENDAR_AVAILABILITY_OVERLAY_ENABLED=true`): un cron
+  cada 30 min (`CalendarBusyService`) sincroniza los eventos ocupados del
+  Google Calendar ya conectado del terapeuta (mismo scope `calendar.events`,
+  sin re-consentimiento) a `CalendarBusyBlock`, y `computeSlots()` los resta
+  del grid de horarios libres junto con los bloqueos propios de Umbral
+- Checkout en línea opcional (`PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED=true`):
+  si el terapeuta tiene una cuenta Flow `CONNECTED` y el paciente ya existe
+  con `defaultSessionAmount` resuelto, la confirmación de la reserva
+  pública pollea `GET .../book/:groupId/checkout` y muestra el link de
+  pago en la misma página, además del email existente
+- Los dos flags son independientes entre sí: cada uno lee su propia env
+  var y ninguno consulta ni depende del estado del otro — apagar uno no
+  afecta al otro. Ambos son opt-in (`=== 'true'`, no `!== 'false'`): sin
+  setear, ninguno de los dos cambia el comportamiento pre-existente
+
 ### Exportación PDF
 - Generación de ficha clínica completa en PDF
 - Incluye datos del paciente e historial clínico completo
@@ -869,6 +885,8 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `PUBLIC_SCHEDULING_ENABLED` | Habilita el portal público de auto-agenda (sdd/patient-self-scheduling): tanto la lectura de disponibilidad como la reserva. **Sin default** — sin setear, ambos endpoints públicos se registran deshabilitados (a diferencia de `PAYMENTS_ENABLED`/`GOOGLE_CALENDAR_SYNC_ENABLED`, acá "ausente" es deshabilitado, no habilitado, por ser superficie pública nueva) | `true` |
 | `PUBLIC_AVAILABILITY_THROTTLE_LIMIT` / `PUBLIC_AVAILABILITY_THROTTLE_TTL_MS` | Límite del throttler `public-availability` (lectura de horarios libres, sin auth) | `20` req / `60000` ms (default) |
 | `PUBLIC_BOOKING_THROTTLE_LIMIT` / `PUBLIC_BOOKING_THROTTLE_TTL_MS` | Límite del throttler `public-booking` (crea `Patient` + `Consultation`, mismo presupuesto conservador que login/signup) | `5` req / `60000` ms (default) |
+| `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` | Habilita el overlay de bloqueos de Google Calendar sobre `computeSlots()` (sdd/public-booking-payment-calendar): el cron `CalendarBusyService` deja de sincronizar `CalendarBusyBlock` y el cálculo de horarios libres deja de consultarlo. Opt-in (`=== 'true'`, no el `!== 'false'` de `GOOGLE_CALENDAR_SYNC_ENABLED`/`PAYMENTS_ENABLED`) — sin setear, `computeSlots()` es byte-idéntico al comportamiento anterior a este cambio. Independiente de `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED`: cada flag lee su propia env var, ninguno depende del estado del otro | `true` |
+| `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` | Habilita el link de checkout Flow en la propia página de confirmación de la auto-agenda pública (sdd/public-booking-payment-calendar), además del email de pago existente. Opt-in (`=== 'true'`) — sin setear, la reserva pública sigue el flujo solo-email de siempre, sin cambios de comportamiento. Independiente de `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` | `true` |
 
 > ⚠️ Si el comando de arranque del hosting ya corre `prisma migrate deploy` antes de iniciar el server (recomendado), **no** setees `RUN_MIGRATIONS=true` también — no rompe nada (la migración es idempotente), pero la corre dos veces innecesariamente.
 

@@ -509,3 +509,87 @@ None in production code. One test-harness lesson (not a production bug) is the f
 2. Mixing Vitest fake timers with `@testing-library/dom`'s `findBy`/`waitFor` is fragile in both directions: enabling fake timers *after* a real `setTimeout` was already scheduled leaves that pending timer unreachable by `vi.advanceTimersByTimeAsync` (it keeps running on the real clock); enabling fake timers *before* the interaction flow instead hangs `findBy`/`waitFor` themselves, since their own internal polling also relies on real timers. For a short poll interval/ceiling (2s/15s here), real-timer waits with extended `it()`/`waitFor()` timeouts are the more reliable choice over fighting the test harness with fake timers.
 3. `design.md`'s "File Changes" table is a real scope boundary, not just documentation — PR 5b intentionally did not touch `hooks/usePublicScheduling.ts` even though this codebase already has a `react-query`-`refetchInterval`-based polling convention (`useNotifications.ts`), because design.md's file list for this slice only names `PublicBookingPage.tsx` and `publicScheduling.ts`.
 4. A plain `<a href>` anchor with no `target="_blank"` is the literal reading of "vas a salir de esta página" ("you will leave this page") — a new tab would technically not leave the current page, so the copy and the navigation behavior have to agree.
+
+---
+
+## PR 6 — Flags documentation, rollback verification, success-criteria pass
+
+**Scope of this batch**: tasks 6.1–6.4 only (docs + verification, no new production code), plus a final full-chain (PR0–6) test pass. Depends on PR 2, PR 3, PR 5 — all already complete per this file's PR 1/PR 2/PR 3/PR 5a/PR 5b sections above.
+
+### Mode
+
+Not applicable — this batch is documentation and verification, not implementation. No RED→GREEN→REFACTOR cycle: there is no new production code and no new test file. Per Step 2b of the tasks themselves, 6.2/6.3 explicitly call for a smoke pass over already-existing coverage, not new automated tests, "unless a gap is found." No gap was found.
+
+### Task Status
+
+- [x] **6.1 [P]** Document both flags in the README env-var reference. **Done**: added `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` and `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` rows to the env-var reference table (`README.md`, right after `PUBLIC_SCHEDULING_ENABLED`/`PUBLIC_BOOKING_THROTTLE_*`), plus a new "Overlay de Google Calendar y checkout en línea (sdd/public-booking-payment-calendar)" sub-section under the existing "Auto-agenda pública de pacientes" section, describing both flags, their defaults (opt-in, `=== 'true'`), and their independence from each other.
+- [x] **6.2** Manually verify each flag toggles independently. **Done, no gap found.** Reasoning: `AvailabilityService` reads only `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` (`availability.service.ts:222-224`, constructor-time `=== 'true'` check, cached in `this.overlayEnabled`); `CalendarBusyService` reads the same single flag (`calendar-busy.service.ts:61`); `PublicSchedulingService` reads only `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` (`public-scheduling.service.ts:67`). None of the three services reads, imports, or branches on the other flag's env var — the architecture structurally guarantees independence (each flag is a single `ConfigService.get()` call scoped to its own module), not just by absence of a bug found today. Smoke evidence (real command execution, not just code reading): `calendar-busy-overlay.e2e-spec.ts` runs its whole suite with `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` toggled (unset → default off, then forced `'true'` in one nested test) while `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` is never set (stays undefined throughout); `public-booking-checkout.e2e-spec.ts` runs its whole suite with `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED='true'` for the duration while `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` is never set. Ran both e2e files in one Jest invocation (`npx jest --config ./test/jest-e2e.json --forceExit calendar-busy-overlay public-booking-checkout`) to rule out cross-suite env leakage inside the same process: **2 suites / 5 tests passed**, both flags observed behaving exactly as when run standalone.
+- [x] **6.3** Confirm rollback plan holds. **Done, both halves re-verified by real test execution**:
+  - **Overlay flag off → byte-identical `computeSlots()`**: re-ran `calendar-busy-overlay.e2e-spec.ts` standalone as the closing gate — `npx jest --config ./test/jest-e2e.json --forceExit calendar-busy-overlay` → **2/2 passed** (`Time: 2.243s`). Test 1 confirms the availability response still includes a slot that a real `CalendarBusyBlock` would block if the overlay were on; test 2 confirms calling the endpoint twice (before/after seeding that same `CalendarBusyBlock`) returns the exact same grid — the suite's own inline comment records a manual counter-proof from a prior session (forcing the flag `true` in `beforeAll` made the seeded block correctly eliminate the slot, then reverted), so this "byte-identical" assertion is proven non-vacuous, not just passing by omission.
+  - **Checkout flag off → email-only flow untouched**: re-ran `public-booking-checkout.e2e-spec.ts` standalone — `npx jest --config ./test/jest-e2e.json --forceExit public-booking-checkout` → **3/3 passed** (`Time: 1.955s`), confirming booking still completes end-to-end with Flow/Google unavailable and the checkout endpoint's response shape stays exactly `{ paymentUrl, amount }` or `{ paymentUrl: null }`. The pre-existing payment-link email path (`ensureCharge()` → `MailService`, unrelated to `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED`) received zero changes anywhere in this change's PR 1–5 diff (confirmed via `git log`/task history — no PR in this chain touches `mail.service.ts` or the email-sending call sites), so "checkout flag off restores email-only flow" holds by construction: there was never a code path where the checkout flag could have altered the email flow to begin with, since `resolveCheckoutHint()` (PR 5.1) is purely additive to the `book()` response and never gates or wraps the existing `ensureCharge()`/email call chain.
+- [x] **6.4** Known-issue note confirmation. **Confirmed already present, no duplicate added.** `Grep` on `defaultSessionAmount` in `public-scheduling.service.ts` locates the comment block at lines 180–186, directly above `resolveCheckoutHint()`, explicitly labeled `known-issue (design.md Open Questions, tasks.md 6.4)` and describing exactly the documented gap (public-created patients have no `defaultSessionAmount`, so `NOT_APPLICABLE` is the only reachable outcome for them, `ensureCharge()` never generates a charge for them, out of scope for this release). This was added during PR 5a, per that section's own record above.
+
+### Final full-chain verification (PR 0–6, one more pass)
+
+Re-ran the complete suites once more as the closing gate for the entire change, in addition to the two targeted e2e re-runs above:
+
+| Command | Result |
+|---|---|
+| `cd backend && npx jest --config ./test/jest-e2e.json --forceExit calendar-busy-overlay` | **2/2 passed** — overlay-flag-off byte-identical gate (PR 2.5, re-run per 6.3) |
+| `cd backend && npx jest --config ./test/jest-e2e.json --forceExit public-booking-checkout` | **3/3 passed** — checkout end-to-end + response-shape gate (re-run per 6.3) |
+| `cd backend && npx jest --config ./test/jest-e2e.json --forceExit calendar-busy-overlay public-booking-checkout` (combined) | **2 suites / 5 tests passed** — flag-independence smoke check (6.2) |
+| `cd backend && npm test` (full unit suite, `jest`) | **52 suites / 605 tests passed** (`Time: 5.648s`) |
+| `cd frontend && npm test` (full suite, `vitest run`) | **21 files / 125 tests passed** (`Duration: 27.83s`) |
+
+No failures, no skips, no `size:exception` needed for this batch (docs-only, ~60 changed lines: 2 table rows + 1 new README sub-section + tasks.md checkbox/evidence updates + this apply-progress section — under the ~20–40 estimate but still well under the 400-line budget and entirely non-production-code).
+
+### Files Changed
+
+| File | Action | What Was Done |
+|------|--------|----------------|
+| `README.md` | Modified | Added `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` / `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` rows to the env-var reference table; added "Overlay de Google Calendar y checkout en línea" sub-section under "Auto-agenda pública de pacientes" |
+| `openspec/changes/public-booking-payment-calendar/tasks.md` | Modified | Marked 6.1–6.4 `[x]` with inline evidence notes |
+| `openspec/changes/public-booking-payment-calendar/apply-progress.md` | Modified | This PR 6 section, merged with all prior sections (PR 0 through PR 5b) — nothing above this section was removed |
+
+### Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `npx jest --config ./test/jest-e2e.json --forceExit calendar-busy-overlay public-booking-checkout` → 2 suites / 5 tests passed |
+| Runtime harness command/scenario and exact result | Full-chain re-run: backend `npm test` → 52/52 suites, 605/605 tests passed; frontend `npm test` → 21/21 files, 125/125 tests passed |
+| Rollback boundary | Docs-only batch. `README.md` and `tasks.md` are independently revertible with zero code impact — no production file, schema, or test was touched in this PR 6 batch. Reverting this batch does not affect PR 0–5's already-shipped, already-tested code in any way. |
+
+### Workload / PR Boundary
+
+- Mode: chained PR slice (`stacked-to-main`, per tasks.md `chain_strategy`) — final PR in the 6-PR (7 counting the 5a/5b split) stacked chain
+- Current work unit: PR 6 — flags documentation, rollback verification, success-criteria pass (tasks 6.1–6.4)
+- Boundary: starts from PR 5b's fully-shipped frontend surface (already tested, untouched by this batch); ends with README documentation for both flags and a re-confirmed rollback gate. This is the **last** work unit in `tasks.md` — no PR 7 exists.
+- Estimated review budget impact: ~60 changed lines across `README.md` + `tasks.md`, no production code — negligible, well under the 400-line budget, no `size:exception` needed (matches the tasks.md forecast row for PR 6: "~20–40, Negligible")
+
+## Status (PR 6)
+
+4/4 tasks complete (6.1, 6.2, 6.3, 6.4). **PR 6 DONE.** All Work Unit Evidence gates passed with real command execution: both targeted e2e re-runs (2/2 and 3/3), the combined flag-independence run (2 suites/5 tests), and the full-chain re-run (backend 605/605, frontend 125/125) — zero failures anywhere.
+
+---
+
+## Executive Summary — PR 0 through PR 6 (full change)
+
+All 7 stacked PR slices (PR 0, 1, 2, 3, 4, 5a, 5b, 6 — PR 5 was pre-emptively split into 5a/5b to stay under the 400-line review budget) are complete. Final state:
+
+- **PR 0** (spike): `events.list` confirmed working under the existing `calendar.events` scope with no new consent — gated Slice A as designed, no fallback needed.
+- **PR 1** (overlay data layer): `CalendarBusyBlock` model + migration, `listBusyIntervals()` on the Google client, unit tests over fixture payloads.
+- **PR 2** (overlay consumption): `CalendarBusyService` 30-min cron, `AvailabilityService.computeSlots()`'s sixth query gated by `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` (`=== 'true'`, reconciled against the spec's `!== 'false'` text in favor of design.md's more specific note), flag-off byte-identical E2E gate.
+- **PR 3** (OAuth scope): reconciled to a documentation-only no-op — Decision 1's spike result meant there was never a second scope to track, request, or re-consent to; zero production code, by design, not by omission.
+- **PR 4** (payments exposure): `findCheckoutForBooking()`, verified (zero-diff) the pre-existing Flow return endpoint already satisfies the spec, `checkoutUrl` surfaced on the booking response without making `ensureCharge()` awaited.
+- **PR 5a** (public-scheduling backend): `checkout` hint on `book()`, `GET .../book/:groupId/checkout` endpoint, reusing the existing `public-availability` throttler bucket.
+- **PR 5b** (public-scheduling frontend): `getBookingCheckout()` wrapper, polling UI (`CHECKOUT_POLL_INTERVAL_MS`/`CHECKOUT_POLL_TIMEOUT_MS`), `flow_return=1` defensive confirmation branch.
+- **PR 6** (this batch): both flags documented in `README.md`; flag independence confirmed architecturally and by smoke test; rollback plan re-verified by re-running both flag-specific E2E gates; known-issue note confirmed already present from PR 5a.
+
+**Final full-chain numbers** (this batch's closing pass): backend `npm test` — **52 suites / 605 tests passed**; frontend `npm test` — **21 files / 125 tests passed**; both flag-specific E2E gates — **5/5 tests passed** standalone and combined. Zero known failures, zero skipped tests, zero open blockers across the entire change.
+
+## Key Learnings
+
+1. Both feature flags are independent by construction, not by convention — each service (`AvailabilityService`, `CalendarBusyService`, `PublicSchedulingService`) reads exactly one `ConfigService.get()` call scoped to its own flag, with no shared config object or cross-flag branch anywhere in the codebase, so "toggles independently" was verifiable from the source alone before any test ever ran.
+2. Running two independently-authored E2E suites in a single Jest process (`calendar-busy-overlay` + `public-booking-checkout` together) is a cheap, real way to smoke-test env-var independence beyond each suite's own isolated `beforeEach`/`afterEach` — it catches the class of bug where one flag's cleanup accidentally clears or leaks into the other's state within the same test run.
+3. A rollback-plan verification task is strongest when it re-runs the exact E2E test that was written to prove the original claim (PR 2.5's byte-identical gate) rather than re-deriving a new, weaker proof — the original test already carries its own non-vacuousness counter-proof from a prior session, which this batch reused rather than re-litigated.
+4. Confirming a "no production code needed" task (6.4) by `Grep`-locating the exact comment and its exact line-referenced task number is meaningfully stronger evidence than asserting "should already be there" — it also surfaced that the comment self-references `tasks.md 6.4`, closing the loop cleanly between the two artifacts.
