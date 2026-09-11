@@ -146,13 +146,34 @@ export function computeAvailableSlots(
   return slots;
 }
 
+// Mismo orden que DAY_LABELS en frontend/src/components/availability/
+// WeeklyScheduleEditor.tsx: 1=lunes...7=domingo (ISO weekday), coherente con
+// el `@Min(1) @Max(7)` de ScheduleEntryDto.
+const DAY_NAMES = [
+  'lunes',
+  'martes',
+  'miércoles',
+  'jueves',
+  'viernes',
+  'sábado',
+  'domingo',
+];
+
+function formatMinutesAsTime(totalMinutes: number): string {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
 // Bug reportado en pruebas manuales de PR 4: el editor de Profile deja
 // agregar/editar filas sin chequear contra las demás del mismo día, así que
 // dos entries iguales o superpuestas llegaban intactas hasta el unique
 // constraint (therapistId, dayOfWeek, startMinute) y explotaban como 500
 // crudo en vez de un error legible -- ninguna capa (DTO ni service) las
 // rechazaba antes. Valida por día: ordena por startMinute y compara cada
-// entry contra la siguiente.
+// entry contra la siguiente. El mensaje usa nombre de día y horas HH:MM
+// (no dayOfWeek numérico ni minutos desde medianoche) porque lo lee
+// directamente el terapeuta en el banner de error del formulario.
 function assertNoOverlappingEntries(entries: ScheduleEntryDto[]): void {
   const byDay = new Map<number, ScheduleEntryDto[]>();
   for (const entry of entries) {
@@ -167,10 +188,11 @@ function assertNoOverlappingEntries(entries: ScheduleEntryDto[]): void {
     );
     for (let i = 1; i < sorted.length; i++) {
       if (sorted[i].startMinute < sorted[i - 1].endMinute) {
+        const dayName = DAY_NAMES[dayOfWeek - 1] ?? `día ${dayOfWeek}`;
         throw new BadRequestException(
-          `El horario del día ${dayOfWeek} tiene bloques que se superponen ` +
-            `(${sorted[i - 1].startMinute}-${sorted[i - 1].endMinute} y ` +
-            `${sorted[i].startMinute}-${sorted[i].endMinute}).`,
+          `El horario del ${dayName} tiene horarios que se superponen: ` +
+            `${formatMinutesAsTime(sorted[i - 1].startMinute)}–${formatMinutesAsTime(sorted[i - 1].endMinute)} y ` +
+            `${formatMinutesAsTime(sorted[i].startMinute)}–${formatMinutesAsTime(sorted[i].endMinute)}.`,
         );
       }
     }

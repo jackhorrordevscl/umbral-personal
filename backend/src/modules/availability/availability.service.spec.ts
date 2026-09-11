@@ -457,6 +457,24 @@ describe('AvailabilityService (CRUD)', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    // Reportado por el usuario probando el flujo real: el mensaje original
+    // exponía dayOfWeek numérico y minutos desde medianoche ("día 4",
+    // "540-900"), ilegible para un terapeuta. Debe leer nombre del día y
+    // horas HH:MM.
+    it('el mensaje de superposición usa nombre de día y horas legibles', async () => {
+      await expect(
+        service.saveSchedule('therapist-1', {
+          sessionDurationMinutes: 60,
+          entries: [
+            { dayOfWeek: 4, startMinute: 540, endMinute: 900 },
+            { dayOfWeek: 4, startMinute: 540, endMinute: 600 },
+          ],
+        }),
+      ).rejects.toThrow(
+        'jueves tiene horarios que se superponen: 09:00–15:00 y 09:00–10:00',
+      );
+    });
+
     it('acepta entries del mismo día que no se superponen', async () => {
       await service.saveSchedule('therapist-1', {
         sessionDurationMinutes: 60,
