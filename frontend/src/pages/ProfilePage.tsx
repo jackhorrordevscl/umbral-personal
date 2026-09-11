@@ -305,12 +305,17 @@ function AvatarCard({ profile }: { profile: Profile | undefined }) {
     setUploading(true);
     setError('');
     try {
-      // FormData + Content-Type sin forzar (issue #51, mismo patrón que
-      // uploadPatientDocument en api/documents.ts): axios setea el boundary
-      // automáticamente, forzarlo a mano rompe el parseo multipart.
+      // Mismo patrón que uploadPatientDocument en api/documents.ts: el
+      // cliente axios de api/client.ts trae `Content-Type: application/json`
+      // como default, así que hay que pisarlo a mano en cada upload -- sin
+      // este override, axios manda el FormData con Content-Type: application/
+      // json (sin boundary), y @UploadedFile() del backend nunca ve el
+      // archivo (file llega undefined).
       const formData = new FormData();
       formData.append('file', selectedFile);
-      const res = await api.post('/profile/avatar', formData);
+      const res = await api.post('/profile/avatar', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
       queryClient.setQueryData<Profile | undefined>(['profile'], (prev) =>
         prev ? { ...prev, avatarUpdatedAt: res.data.avatarUpdatedAt } : prev,
       );
