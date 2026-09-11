@@ -92,9 +92,7 @@ describe('ConsultationsService', () => {
     calendarSync = { syncGroup: jest.fn().mockResolvedValue(undefined) };
     paymentsService = {
       ensureCharge: jest.fn().mockResolvedValue(undefined),
-      findCheckoutForBooking: jest
-        .fn()
-        .mockResolvedValue({ paymentUrl: null }),
+      findCheckoutForBooking: jest.fn().mockResolvedValue({ paymentUrl: null }),
     };
 
     service = new ConsultationsService(
