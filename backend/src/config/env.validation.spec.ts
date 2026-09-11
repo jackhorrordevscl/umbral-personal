@@ -359,6 +359,33 @@ describe('validateEnv', () => {
     expect(validateEnv(config)).toBe(config);
   });
 
+  // sdd/patient-self-scheduling PR 1 (tasks.md 1.3, design.md "Migration /
+  // Rollout"): un solo flag gatea tanto el endpoint público de
+  // disponibilidad como el de booking (PR 3) -- mismo criterio que
+  // PAYMENTS_ENABLED/REMINDERS_ENABLED/GOOGLE_CALENDAR_SYNC_ENABLED, opcional
+  // (PublicSchedulingModule, PR 3, trata "ausente" como deshabilitado por
+  // default -- superficie pública nueva, a diferencia de las anteriores), pero
+  // un typo en el valor debe fallar rápido en el arranque.
+  it('rechaza un PUBLIC_SCHEDULING_ENABLED que no es "true" ni "false"', () => {
+    const config = { NODE_ENV: 'test', PUBLIC_SCHEDULING_ENABLED: 'nope' };
+
+    expect(() => validateEnv(config)).toThrow(
+      /PUBLIC_SCHEDULING_ENABLED inválido/,
+    );
+  });
+
+  it('permite PUBLIC_SCHEDULING_ENABLED="true"', () => {
+    const config = { NODE_ENV: 'test', PUBLIC_SCHEDULING_ENABLED: 'true' };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
+  it('permite PUBLIC_SCHEDULING_ENABLED ausente', () => {
+    const config = { NODE_ENV: 'test' };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
   // sdd/online-payment-integration PR 1: mismo criterio que
   // GOOGLE_TOKEN_ENCRYPTION_KEY -- clave AES-256-GCM propia (cifra
   // PaymentAccount.credentialEncrypted, PR 2), requerida siempre en

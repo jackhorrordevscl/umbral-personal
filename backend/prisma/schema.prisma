@@ -72,26 +72,40 @@ model User {
   // cache-busted (?v=avatarUpdatedAt) tras un re-upload.
   avatarMimeType             String?
   avatarUpdatedAt            DateTime?
+  // sdd/patient-self-scheduling PR 1 (design.md Decision 8 "Duration
+  // ownership"): slot length AND grid step, saved atomically with the weekly
+  // schedule via PUT /availability/schedule (PR 2) -- never a
+  // per-session-type override (therapist-availability spec, "Per-Therapist
+  // Session Duration"). Nullable, no backfill: a therapist who hasn't
+  // configured self-scheduling yet simply has no public availability
+  // computed (AvailabilityService.computeSlots, PR 2).
+  sessionDurationMinutes     Int?
 
-  patients             Patient[]
-  consultations        Consultation[]
-  auditLogs            AuditLog[]
-  patientEdits         PatientHistory[]          @relation("PatientEdits")
-  sharedFiles          SharedFile[]              @relation("UploadedFiles")
-  consultationEdits    ConsultationHistory[]     @relation("ConsultationEdits")
-  patientConsentEvents PatientConsent[]          @relation("PatientConsentEvents")
-  mfaRecoveryCodes     MfaRecoveryCode[]
-  notifications        Notification[]
-  calendarConnection   GoogleCalendarConnection?
-  paymentAccount       PaymentAccount?
+  patients              Patient[]
+  consultations         Consultation[]
+  auditLogs             AuditLog[]
+  patientEdits          PatientHistory[]          @relation("PatientEdits")
+  sharedFiles           SharedFile[]              @relation("UploadedFiles")
+  consultationEdits     ConsultationHistory[]     @relation("ConsultationEdits")
+  patientConsentEvents  PatientConsent[]          @relation("PatientConsentEvents")
+  mfaRecoveryCodes      MfaRecoveryCode[]
+  notifications         Notification[]
+  calendarConnection    GoogleCalendarConnection?
+  paymentAccount        PaymentAccount?
   // Issue #124: signup público sin invitación. Sin rol ADMIN (decisión
   // explícita) -- la autorización para generar invitaciones vive en
   // INVITE_CREATOR_EMAIL (AuthService.createInvitation), no en un permiso de
   // este modelo. Dos relaciones nombradas porque un mismo User puede tanto
   // haber creado invitaciones como haber usado una para crear su propia
   // cuenta.
-  invitationsCreated   InvitationCode[]          @relation("InvitationCreatedBy")
-  invitationUsed       InvitationCode?           @relation("InvitationUsedBy")
+  invitationsCreated    InvitationCode[]          @relation("InvitationCreatedBy")
+  invitationUsed        InvitationCode?           @relation("InvitationUsedBy")
+  // sdd/patient-self-scheduling PR 1: recurring weekly schedule, blockout
+  // exceptions, and the double-booking race guard for this therapist's
+  // public self-scheduling surface (PR 2/3).
+  therapistAvailability TherapistAvailability[]
+  availabilityBlockouts AvailabilityBlockout[]
+  bookedSlots           BookedSlot[]
 }
 
 // Issue #124: signup público sin invitación. Código de un solo uso,
@@ -634,4 +648,82 @@ enum PaymentAccountStatus {
   CONNECTED
   DISCONNECTED
   RECONNECT_REQUIRED
+}
+
+// sdd/patient-self-scheduling PR 1 (design.md "Interfaces / Contracts",
+// Decision 5 "Wall-clock storage"): weekly recurring schedule entry. Wall
+// time is dayOfWeek + startMinute/endMinute (not DateTime) because a weekly
+// rule is not an instant -- a DateTime would silently bind a calendar date
+// and break across DST (AvailabilityService.computeSlots, PR 2).
+model TherapistAvailability {
+  id          String   @id @default(uuid())
+  therapistId String
+  therapist   User     @relation(fields: [therapistId], references: [id])
+  dayOfWeek   Int // 1=Mon .. 7=Sun (ISO)
+  startMinute Int // minutes from Chile local midnight
+  endMinute   Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([therapistId, dayOfWeek, startMinute])
+  @@index([therapistId])
+}
+
+// sdd/patient-self-scheduling PR 1 (design.md Decision 4 "Blockout shape"):
+// one half-open [startsAt, endsAt) interval per exception -- `kind` is
+// presentational only, a single subtraction path in computeSlots (PR 2)
+// handles full-day, partial-day, and date-range the same way. Takes
+// precedence over the recurring weekly schedule (therapist-availability
+// spec, "Availability Blockouts").
+model AvailabilityBlockout {
+  id          String       @id @default(uuid())
+  therapistId String
+  therapist   User         @relation(fields: [therapistId], references: [id])
+  startsAt    DateTime // half-open [startsAt, endsAt)
+  endsAt      DateTime
+  kind        BlockoutKind
+  reason      String?
+  createdAt   DateTime     @default(now())
+
+  @@index([therapistId, startsAt])
+}
+
+enum BlockoutKind {
+  FULL_DAY
+  PARTIAL_DAY
+  DATE_RANGE
+}
+
+// sdd/patient-self-scheduling PR 1 (design.md "Chile Public Holidays as
+// Implicit Blockouts" + "Holiday Data Source"): system-wide defaults seeded
+// from Boostr.cl (backend/scripts/seed-holidays.ts, run manually once a
+// year -- never at request time), applied as an implicit full-day blockout
+// for every therapist without per-therapist configuration. No therapistId:
+// this table is global, not scoped.
+model PublicHoliday {
+  id          String   @id @default(uuid())
+  date        DateTime @db.Date
+  name        String
+  countryCode String   @default("CL")
+  createdAt   DateTime @default(now())
+
+  @@unique([date, countryCode])
+}
+
+// sdd/patient-self-scheduling PR 1 (design.md Decision 1 "Double-booking
+// guard"): race guard for the public booking write path only -- occupancy
+// itself is read from Consultation (Decision 2), this table exists solely so
+// a concurrent double-insert on the same slot hits a unique-constraint
+// violation instead of creating two consultations. groupId is invariant
+// across Consultation.correct() (same criterion as Payment.groupId /
+// ReminderDispatch.groupId).
+model BookedSlot {
+  id          String   @id @default(uuid())
+  therapistId String
+  therapist   User     @relation(fields: [therapistId], references: [id])
+  groupId     String   @unique
+  slotStart   DateTime
+  createdAt   DateTime @default(now())
+
+  @@unique([therapistId, slotStart])
 }

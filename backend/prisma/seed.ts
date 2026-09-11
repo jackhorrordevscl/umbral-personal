@@ -6,6 +6,7 @@ import {
   SEED_ADMIN_EMAIL_DEFAULT,
   SEED_ADMIN_PASSWORD_DEFAULT,
 } from './seed-admin.defaults';
+import { seedHolidaysFromBoostr } from '../src/common/utils/holiday-seed.util';
 
 const prisma = new PrismaClient();
 
@@ -35,6 +36,26 @@ async function main() {
   });
 
   console.log(`✅ Usuario creado: ${user.email}`);
+
+  // sdd/patient-self-scheduling PR 1 (tasks.md 1.5, design.md "Holiday Data
+  // Source"): opt-in y deshabilitado por default -- .github/workflows/ci.yml
+  // corre `npm run seed` en cada build, y ese paso NO debe hacer una llamada
+  // de red real a Boostr.cl en cada corrida de CI. Un desarrollador local que
+  // quiere el calendario de feriados en su bootstrap lo pide a propósito:
+  //   SEED_HOLIDAYS=true npm run seed
+  // Envuelto en try/catch: una falla de Boostr (o de red) nunca debe tumbar
+  // el resto del seed (el usuario admin ya se creó arriba).
+  if (process.env.SEED_HOLIDAYS === 'true') {
+    try {
+      const count = await seedHolidaysFromBoostr(prisma);
+      console.log(`✅ ${count} feriados sincronizados desde Boostr.cl`);
+    } catch (e) {
+      console.error(
+        '⚠️  No se pudo sincronizar el calendario de feriados (Boostr.cl):',
+        e,
+      );
+    }
+  }
 }
 
 main()

@@ -28,11 +28,11 @@ Chain strategy: stacked-to-main
 
 ## Phase 1: Schema & Data Foundation (PR 1)
 
-- [ ] 1.1 Add `TherapistAvailability`, `AvailabilityBlockout`, `BlockoutKind`, `PublicHoliday`, `BookedSlot`, `User.sessionDurationMinutes` to `backend/prisma/schema.prisma` per design's Interfaces/Contracts.
-- [ ] 1.2 Create `backend/prisma/migrations/<ts>_patient_self_scheduling/migration.sql` with the four tables, unique/index constraints, and `ENABLE ROW LEVEL SECURITY` on each.
-- [ ] 1.3 Add `PUBLIC_SCHEDULING_ENABLED` env flag to config/env schema (single flag gating both endpoints).
-- [ ] 1.4 Create `backend/scripts/seed-holidays.ts` fetching Boostr.cl `/holidays.json` and upserting `PublicHoliday` keyed on `(date, countryCode)`; document manual yearly run in a code comment.
-- [ ] 1.5 Modify `backend/prisma/seed.ts` to invoke the holiday seed for local/dev bootstrap.
+- [x] 1.1 Add `TherapistAvailability`, `AvailabilityBlockout`, `BlockoutKind`, `PublicHoliday`, `BookedSlot`, `User.sessionDurationMinutes` to `backend/prisma/schema.prisma` per design's Interfaces/Contracts.
+- [x] 1.2 Create `backend/prisma/migrations/<ts>_patient_self_scheduling/migration.sql` with the four tables, unique/index constraints, and `ENABLE ROW LEVEL SECURITY` on each.
+- [x] 1.3 Add `PUBLIC_SCHEDULING_ENABLED` env flag to config/env schema (single flag gating both endpoints).
+- [x] 1.4 Create `backend/scripts/seed-holidays.ts` fetching Boostr.cl `/holidays.json` and upserting `PublicHoliday` keyed on `(date, countryCode)`; document manual yearly run in a code comment.
+- [x] 1.5 Modify `backend/prisma/seed.ts` to invoke the holiday seed for local/dev bootstrap.
 
 ## Phase 2: Availability Core (PR 2)
 
