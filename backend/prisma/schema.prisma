@@ -106,6 +106,9 @@ model User {
   therapistAvailability TherapistAvailability[]
   availabilityBlockouts AvailabilityBlockout[]
   bookedSlots           BookedSlot[]
+  // sdd/public-booking-payment-calendar PR 1: overlay cache de intervalos
+  // ocupados leídos de Google Calendar (CalendarBusyService, PR 2).
+  calendarBusyBlocks    CalendarBusyBlock[]
 }
 
 // Issue #124: signup público sin invitación. Código de un solo uso,
@@ -499,6 +502,14 @@ model GoogleCalendarConnection {
   disconnectedAt        DateTime?
   lastSyncAt            DateTime?
   lastError             String?
+  // sdd/public-booking-payment-calendar PR 1 (design.md Decision 3): estado
+  // del refresh periódico de CalendarBusyBlock -- separado de
+  // lastSyncAt/lastError (que siguen siendo del push sync existente) porque
+  // son dos jobs independientes con su propio ciclo de éxito/falla
+  // (CalendarBusyService, PR 2). Ambos nullable: ninguna conexión tiene un
+  // valor hasta que el job corre por primera vez.
+  busySyncedAt          DateTime?
+  busySyncError         String?
   links                 CalendarEventLink[]
 }
 
@@ -536,6 +547,26 @@ enum GoogleDisconnectReason {
 enum CalendarSyncStatus {
   SYNCED
   FAILED
+}
+
+// sdd/public-booking-payment-calendar PR 1 (design.md Decision 3 "Postgres
+// table, not in-memory and not Redis"): per-therapist cache of Google
+// free-busy intervals, same shape/index as AvailabilityBlockout (half-open
+// [startsAt, endsAt) interval). Populated by CalendarBusyService's refresh
+// job (PR 2, GoogleCalendarClient.listBusyIntervals) and replaced wholesale
+// per therapist on each successful refresh -- rows here never track a
+// single Google event id, only the busy window. No FK to
+// GoogleCalendarConnection: this cache outlives a reconnect (a fresh
+// connection just repopulates it on the next tick).
+model CalendarBusyBlock {
+  id          String   @id @default(uuid())
+  therapistId String
+  therapist   User     @relation(fields: [therapistId], references: [id])
+  startsAt    DateTime // half-open [startsAt, endsAt)
+  endsAt      DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([therapistId, startsAt])
 }
 
 // sdd/online-payment-integration PR 1: una carga por cadena clínica --
