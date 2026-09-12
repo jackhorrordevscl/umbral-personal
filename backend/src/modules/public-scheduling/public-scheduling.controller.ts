@@ -12,6 +12,7 @@ import { PublicSchedulingService } from './public-scheduling.service';
 import { PublicAvailabilityQueryDto } from './dto/public-availability-query.dto';
 import { BookPublicSlotDto } from './dto/book-public-slot.dto';
 import { PublicScheduleThrottlerGuard } from './public-schedule-throttler.guard';
+import { PaymentsService } from '../payments/payments.service';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.6, spec.md "Public
 // Availability Read Endpoint" / "Public Booking Write Endpoint"): SIN
@@ -51,6 +52,7 @@ const FOREIGN_THROTTLER_NAMES = {
 export class PublicSchedulingController {
   constructor(
     private readonly publicSchedulingService: PublicSchedulingService,
+    private readonly paymentsService: PaymentsService,
   ) {}
 
   @UseGuards(PublicScheduleThrottlerGuard)
@@ -71,5 +73,26 @@ export class PublicSchedulingController {
     @Body() dto: BookPublicSlotDto,
   ) {
     return this.publicSchedulingService.book(therapistId, dto);
+  }
+
+  // sdd/public-booking-payment-calendar PR 5 (tasks.md 5.2, design.md
+  // "Interfaces / Contracts", Decision 5 "Checkout is polled, not awaited"):
+  // sin guard de auth a propósito, mismo criterio que las otras dos rutas de
+  // este controller -- la confirmación pública hace polling acá para saber
+  // si ya apareció un paymentUrl. Reusa el bucket 'public-availability' en
+  // vez de registrar un tercer throttler nombrado: es una lectura sin
+  // efectos, del mismo perfil que GET .../availability, y un tercer nombre
+  // global (ThrottlerModule es @Global(), ver el comentario de
+  // FOREIGN_THROTTLER_NAMES) obligaría a agregar '@SkipThrottle' en TODAS
+  // las rutas de AuthModule/ProfileModule que ya listan
+  // 'public-availability'/'public-booking' explícitamente -- un blast radius
+  // ajeno a este cambio. Por eso esta ruta salta los mismos throttlers
+  // ajenos que getAvailability y su hermana 'public-booking', pero NO
+  // 'public-availability' (comparte ese cupo).
+  @UseGuards(PublicScheduleThrottlerGuard)
+  @SkipThrottle({ ...FOREIGN_THROTTLER_NAMES, 'public-booking': true })
+  @Get('book/:groupId/checkout')
+  getCheckout(@Param('groupId') groupId: string) {
+    return this.paymentsService.findCheckoutForBooking(groupId);
   }
 }

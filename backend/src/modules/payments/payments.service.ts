@@ -364,6 +364,32 @@ export class PaymentsService {
     });
   }
 
+  // sdd/public-booking-payment-calendar PR 4 (tasks.md 4.1, design.md
+  // Interfaces/Contracts "CheckoutResponse"). Two callers: PR 5.2's public,
+  // no-guard polling endpoint (GET .../book/:groupId/checkout) and PR 4.3's
+  // ConsultationsService.createFromPublicBooking, both of which need to
+  // read an already-issued checkout URL without asserting anything about
+  // charge status or touching gateway/patient data. A Prisma `select` (not
+  // a full Payment read filtered in-process) is the leak boundary itself --
+  // there is no field here to accidentally forward even if a future edit
+  // adds one to Payment, since only paymentUrl/amount are ever fetched from
+  // the DB (tasks.md 4.4 "leaks no patient data"). No status assertion:
+  // whatever PENDING/LATE/PAID the charge is in, the same paymentUrl (once
+  // issued) is returned identically -- payment truth lives exclusively in
+  // urlConfirmation/payment/getStatus (design.md Decision 2), never here.
+  async findCheckoutForBooking(
+    groupId: string,
+  ): Promise<{ paymentUrl: string; amount: number } | { paymentUrl: null }> {
+    const payment = await this.prisma.payment.findUnique({
+      where: { groupId },
+      select: { paymentUrl: true, amount: true },
+    });
+    if (!payment?.paymentUrl) {
+      return { paymentUrl: null };
+    }
+    return { paymentUrl: payment.paymentUrl, amount: payment.amount };
+  }
+
   // Flow's /payment/create requires an email param (discovered against a
   // real sandbox, see flow-gateway.client.ts header) unrelated to link
   // delivery -- falls back to the therapist's own email only when the

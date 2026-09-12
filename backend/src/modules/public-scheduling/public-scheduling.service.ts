@@ -7,6 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PaymentAccountStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   AvailabilityService,
@@ -28,6 +29,15 @@ import { BookPublicSlotDto } from './dto/book-public-slot.dto';
 const MAX_QUERY_SPAN_DAYS = 60;
 const MAX_QUERY_SPAN_MS = MAX_QUERY_SPAN_DAYS * 24 * 60 * 60 * 1000;
 
+// sdd/public-booking-payment-calendar PR 5 (tasks.md 5.1, design.md
+// "Interfaces / Contracts", Decision 5 "Checkout is polled, not awaited"):
+// NOT_APPLICABLE le dice al cliente que ni siquiera empiece a hacer polling
+// -- nunca va a aparecer un paymentUrl para esta reserva. PENDING solo
+// significa "puede que aparezca"; ensureCharge() sigue siendo
+// fire-and-forget y puede terminar sin crear ningún Payment igual (p.ej. si
+// Flow rechaza la orden), el poll simplemente se agota en ese caso.
+export type CheckoutHint = { status: 'PENDING' } | { status: 'NOT_APPLICABLE' };
+
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.6, design.md "Data Flow" +
 // "Migration / Rollout"): orquesta AvailabilityService (lectura +
 // recheck previo a escribir) + PatientsService.resolveForPublicBooking +
@@ -38,6 +48,7 @@ const MAX_QUERY_SPAN_MS = MAX_QUERY_SPAN_DAYS * 24 * 60 * 60 * 1000;
 export class PublicSchedulingService {
   private readonly logger = new Logger(PublicSchedulingService.name);
   private readonly enabled: boolean;
+  private readonly checkoutInlineEnabled: boolean;
 
   constructor(
     private readonly config: ConfigService,
@@ -48,6 +59,13 @@ export class PublicSchedulingService {
   ) {
     this.enabled =
       this.config.get<string>('PUBLIC_SCHEDULING_ENABLED') === 'true';
+    // sdd/public-booking-payment-calendar PR 5 (tasks.md 5.1, design.md
+    // "Migration / Rollout"): mismo criterio opt-in `=== 'true'` que
+    // CALENDAR_AVAILABILITY_OVERLAY_ENABLED (PR 2) -- no el `!== 'false'`
+    // default-on de los módulos de sync más viejos.
+    this.checkoutInlineEnabled =
+      this.config.get<string>('PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED') ===
+      'true';
   }
 
   // Mismo criterio que CalendarOauthService.assertEnabled: 503, no 404 --
@@ -129,12 +147,64 @@ export class PublicSchedulingService {
       dto.patient,
     );
 
-    return this.consultationsService.createFromPublicBooking(
+    const consultation =
+      await this.consultationsService.createFromPublicBooking(
+        therapistId,
+        patient.id,
+        patient.rut,
+        slotStart,
+        sessionDurationMinutes,
+      );
+
+    if (!this.checkoutInlineEnabled) {
+      return consultation;
+    }
+
+    const checkout = await this.resolveCheckoutHint(
       therapistId,
-      patient.id,
-      patient.rut,
-      slotStart,
-      sessionDurationMinutes,
+      patient.defaultSessionAmount,
     );
+    return { ...consultation, checkout };
+  }
+
+  // sdd/public-booking-payment-calendar PR 5 (tasks.md 5.1, spec.md
+  // "Booking succeeds and carries a checkout URL when available" /
+  // "...without a checkout URL when payment is unavailable"): a esta altura
+  // ensureCharge() todavía no corrió (fire-and-forget, ver
+  // consultations.service.ts createFromPublicBooking) -- este hint nunca
+  // lee Payment, solo decide si vale la pena que el cliente empiece a
+  // pollear GET .../checkout (PENDING) o directamente no lo intente
+  // (NOT_APPLICABLE), sin agregar ni un tick de latencia a la respuesta de
+  // reserva.
+  //
+  // known-issue (design.md Open Questions, tasks.md 6.4): un paciente
+  // público NUEVO (autocreado por resolveForPublicBooking) nunca tiene
+  // defaultSessionAmount -- PatientsService lo excluye a propósito de la
+  // creación pública (ver public-booking-patient.dto.ts) -- así que cae acá
+  // en NOT_APPLICABLE por monto no resolvible y ensureCharge() jamás genera
+  // un cargo para él. Solo un paciente YA existente (matcheado por email)
+  // puede llegar a PENDING. Fuera de alcance resolverlo en esta release.
+  private async resolveCheckoutHint(
+    therapistId: string,
+    defaultSessionAmount: number | null,
+  ): Promise<CheckoutHint> {
+    if (defaultSessionAmount === null || defaultSessionAmount === undefined) {
+      return { status: 'NOT_APPLICABLE' };
+    }
+
+    // Lectura directa de PaymentAccount.status en vez de
+    // PaymentAccountService.resolveGatewayContext(): esta última desencripta
+    // las credenciales del gateway (trabajo real de CPU/crypto) solo para
+    // devolver un contexto que acá ni se usa -- lo único que importa es el
+    // status. Evita ese costo en una ruta pública no autenticada.
+    const account = await this.prisma.paymentAccount.findUnique({
+      where: { therapistId },
+      select: { status: true },
+    });
+    if (account?.status !== PaymentAccountStatus.CONNECTED) {
+      return { status: 'NOT_APPLICABLE' };
+    }
+
+    return { status: 'PENDING' };
   }
 }

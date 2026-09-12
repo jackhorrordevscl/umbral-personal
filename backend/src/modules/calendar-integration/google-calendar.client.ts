@@ -36,6 +36,37 @@ interface GoogleCalendarEventResponse {
   id: string;
 }
 
+// sdd/public-booking-payment-calendar PR 1 (design.md "Interfaces /
+// Contracts"): forma mínima que listBusyIntervals() devuelve -- se mergea
+// tal cual dentro de blockouts[] en computeSlots() (PR 2), mismo shape que
+// BlockoutInput ({startsAt, endsAt}).
+export interface BusyInterval {
+  startsAt: Date;
+  endsAt: Date;
+}
+
+// design.md Decision 1: el `fields` mask que se manda a Google -- Google
+// nunca devuelve summary/description/attendees/location con esta máscara,
+// así que ningún contenido clínico ni personal entra al proceso.
+const BUSY_EVENT_FIELDS =
+  'items(start,end,status,transparency,extendedProperties),nextPageToken';
+
+// Shape mínimo que este cliente lee de cada item de events.list -- nunca el
+// evento completo de Google (design.md Decision 1: privacidad por
+// field-mask, no por filtrado post-hoc).
+interface GoogleCalendarListEventItem {
+  status?: string;
+  transparency?: string;
+  start?: { date?: string; dateTime?: string };
+  end?: { date?: string; dateTime?: string };
+  extendedProperties?: { private?: Record<string, string> };
+}
+
+interface GoogleCalendarListEventsResponse {
+  items?: GoogleCalendarListEventItem[];
+  nextPageToken?: string;
+}
+
 const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
 
 @Injectable()
@@ -81,6 +112,67 @@ export class GoogleCalendarClient {
     );
   }
 
+  // T1.4 (design.md Decision 1): lee eventos con `events.list` bajo el
+  // scope `calendar.events` existente -- sin freebusy.query, sin scope
+  // nuevo. Pagina hasta agotar nextPageToken y descarta, vía
+  // toBusyInterval(), todo lo que no represente un bloqueo real (cancelado,
+  // transparente, de todo el día, o pusheado por el propio Umbral).
+  async listBusyIntervals(
+    oauth2Client: OAuth2Client,
+    calendarId: string,
+    timeMin: Date,
+    timeMax: Date,
+  ): Promise<BusyInterval[]> {
+    const intervals: BusyInterval[] = [];
+    let pageToken: string | undefined;
+
+    do {
+      const query: Record<string, string> = {
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+        singleEvents: 'true',
+        orderBy: 'startTime',
+        showDeleted: 'false',
+        fields: BUSY_EVENT_FIELDS,
+      };
+      if (pageToken) query.pageToken = pageToken;
+
+      const url = `${this.eventsUrl(calendarId)}?${new URLSearchParams(query).toString()}`;
+      const response = await this.request<GoogleCalendarListEventsResponse>(
+        oauth2Client,
+        'GET',
+        url,
+      );
+
+      for (const item of response.items ?? []) {
+        const interval = this.toBusyInterval(item);
+        if (interval) intervals.push(interval);
+      }
+
+      pageToken = response.nextPageToken;
+    } while (pageToken);
+
+    return intervals;
+  }
+
+  // design.md Decision 1: descarta cancelados, transparentes, de todo el
+  // día (start.date sin start.dateTime -- un marcador de día no bloquea) y
+  // los que Umbral mismo pusheó (extendedProperties.private.umbralGroupId,
+  // ya reflejados en Consultation, incluirlos duplicaría el bloqueo).
+  private toBusyInterval(
+    item: GoogleCalendarListEventItem,
+  ): BusyInterval | null {
+    if (item.status === 'cancelled') return null;
+    if (item.transparency === 'transparent') return null;
+    if (!item.start?.dateTime || !item.end?.dateTime) return null;
+    if (item.extendedProperties?.private?.umbralGroupId) return null;
+
+    return {
+      startsAt: new Date(item.start.dateTime),
+      endsAt: new Date(item.end.dateTime),
+    };
+  }
+
   private eventsUrl(calendarId: string): string {
     return `${CALENDAR_API_BASE}/calendars/${encodeURIComponent(calendarId)}/events`;
   }
@@ -114,9 +206,14 @@ export class GoogleCalendarClient {
     return token;
   }
 
+  // GET agregado en T1.4 (listBusyIntervals) reusando la misma
+  // clasificación de errores que insertEvent/patchEvent/deleteEvent ya
+  // tenían (design.md "Failure classification", reuse requirement de
+  // calendar-sync spec). Content-Type solo se manda cuando hay body --
+  // GET nunca lo tiene.
   private async request<T = void>(
     oauth2Client: OAuth2Client,
-    method: 'POST' | 'PATCH' | 'DELETE',
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     url: string,
     body?: unknown,
   ): Promise<T> {
@@ -128,7 +225,7 @@ export class GoogleCalendarClient {
         method,
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
+          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });

@@ -417,13 +417,24 @@ export class ConsultationsService {
   // exactamente el mismo push a Google Calendar y el mismo cargo
   // fire-and-forget que una creada por el terapeuta (calendar-sync spec.md
   // "Publicly booked consultation pushes a new event", tasks.md 3.9).
+  //
+  // sdd/public-booking-payment-calendar PR 4 (tasks.md 4.3, payments
+  // spec.md "Checkout URL Exposure to the Booking Response", design.md
+  // Decision 5): emitPaymentCharge() sigue sin esperarse -- ensureCharge()
+  // es y sigue siendo fire-and-forget, un fallo o demora de Flow/Google
+  // jamás puede bloquear ni revertir esta reserva. checkoutUrl viene de una
+  // llamada DISTINTA (findCheckoutForBooking, una lectura indexada por
+  // groupId), nunca de esperar la promise de ensureCharge() -- por eso en
+  // la práctica casi siempre resuelve null (ensureCharge todavía no llegó a
+  // crear el Payment), y eso es intencional y no es un error: la respuesta
+  // exitosa nunca depende de que este valor exista.
   async createFromPublicBooking(
     therapistId: string,
     patientId: string,
     patientRut: string,
     slotStart: Date,
     sessionDurationMinutes: number,
-  ) {
+  ): Promise<Consultation & { checkoutUrl: string | null }> {
     const slotEnd = new Date(
       slotStart.getTime() + sessionDurationMinutes * 60000,
     );
@@ -483,7 +494,11 @@ export class ConsultationsService {
     );
     this.emitCalendarSync(consultation.groupId);
     this.emitPaymentCharge(consultation.groupId);
-    return consultation;
+
+    const checkout = await this.paymentsService.findCheckoutForBooking(
+      consultation.groupId,
+    );
+    return { ...consultation, checkoutUrl: checkout.paymentUrl };
   }
 
   // design.md "Sync badge resolved in the same response, via in-memory map":

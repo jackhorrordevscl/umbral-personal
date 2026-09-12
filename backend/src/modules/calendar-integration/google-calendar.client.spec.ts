@@ -27,6 +27,20 @@ function mockFetchOnce(
   });
 }
 
+// sdd/public-booking-payment-calendar PR 1 (T1.5): helper para simular la
+// respuesta paginada de events.list -- distinto de mockFetchOnce porque acá
+// el body es {items, nextPageToken}, no {id}.
+function mockFetchListOnce(body: {
+  items?: unknown[];
+  nextPageToken?: string;
+}) {
+  (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: jest.fn().mockResolvedValue(body),
+  });
+}
+
 describe('GoogleCalendarClient', () => {
   let client: GoogleCalendarClient;
   const CALENDAR_ID = 'primary';
@@ -199,6 +213,245 @@ describe('GoogleCalendarClient', () => {
       await expect(
         client.deleteEvent(oauth2Client, CALENDAR_ID, 'google-event-1'),
       ).rejects.toMatchObject({ kind: 'gone' } as Partial<GoogleCalendarError>);
+    });
+  });
+
+  // sdd/public-booking-payment-calendar PR 1 (T1.4/T1.5, design.md Decision
+  // 1): mapeo puro de events.list -> BusyInterval[], sin llamar a Google de
+  // verdad. WINDOW_START/END son arbitrarios -- el mapeo no depende de su
+  // valor real, solo se usan para armar la query.
+  describe('listBusyIntervals', () => {
+    const WINDOW_START = new Date('2026-02-01T00:00:00.000Z');
+    const WINDOW_END = new Date('2026-04-02T00:00:00.000Z');
+
+    it('mapea eventos con horario (start/end dateTime) a BusyInterval[]', async () => {
+      const oauth2Client = buildOAuth2Client();
+      mockFetchListOnce({
+        items: [
+          {
+            start: { dateTime: '2026-02-10T10:00:00-03:00' },
+            end: { dateTime: '2026-02-10T11:00:00-03:00' },
+          },
+          {
+            start: { dateTime: '2026-02-11T09:00:00-03:00' },
+            end: { dateTime: '2026-02-11T09:30:00-03:00' },
+          },
+        ],
+      });
+
+      const result = await client.listBusyIntervals(
+        oauth2Client,
+        CALENDAR_ID,
+        WINDOW_START,
+        WINDOW_END,
+      );
+
+      expect(result).toEqual([
+        {
+          startsAt: new Date('2026-02-10T10:00:00-03:00'),
+          endsAt: new Date('2026-02-10T11:00:00-03:00'),
+        },
+        {
+          startsAt: new Date('2026-02-11T09:00:00-03:00'),
+          endsAt: new Date('2026-02-11T09:30:00-03:00'),
+        },
+      ]);
+    });
+
+    it('arma la query con timeMin/timeMax/singleEvents/showDeleted/fields y GET', async () => {
+      const oauth2Client = buildOAuth2Client();
+      mockFetchListOnce({ items: [] });
+
+      await client.listBusyIntervals(
+        oauth2Client,
+        CALENDAR_ID,
+        WINDOW_START,
+        WINDOW_END,
+      );
+
+      const [url, init] = (globalThis.fetch as jest.Mock).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect(init.method).toBe('GET');
+      expect(url).toContain('/calendars/primary/events?');
+      expect(url).toContain(
+        `timeMin=${encodeURIComponent(WINDOW_START.toISOString())}`,
+      );
+      expect(url).toContain(
+        `timeMax=${encodeURIComponent(WINDOW_END.toISOString())}`,
+      );
+      expect(url).toContain('singleEvents=true');
+      expect(url).toContain('showDeleted=false');
+      expect(url).toContain(
+        new URLSearchParams({
+          fields:
+            'items(start,end,status,transparency,extendedProperties),nextPageToken',
+        }).toString(),
+      );
+    });
+
+    it('descarta eventos cancelados (status=cancelled)', async () => {
+      const oauth2Client = buildOAuth2Client();
+      mockFetchListOnce({
+        items: [
+          {
+            status: 'cancelled',
+            start: { dateTime: '2026-02-10T10:00:00-03:00' },
+            end: { dateTime: '2026-02-10T11:00:00-03:00' },
+          },
+        ],
+      });
+
+      const result = await client.listBusyIntervals(
+        oauth2Client,
+        CALENDAR_ID,
+        WINDOW_START,
+        WINDOW_END,
+      );
+
+      expect(result).toEqual([]);
+    });
+
+    it('descarta eventos transparentes (transparency=transparent)', async () => {
+      const oauth2Client = buildOAuth2Client();
+      mockFetchListOnce({
+        items: [
+          {
+            transparency: 'transparent',
+            start: { dateTime: '2026-02-10T10:00:00-03:00' },
+            end: { dateTime: '2026-02-10T11:00:00-03:00' },
+          },
+        ],
+      });
+
+      const result = await client.listBusyIntervals(
+        oauth2Client,
+        CALENDAR_ID,
+        WINDOW_START,
+        WINDOW_END,
+      );
+
+      expect(result).toEqual([]);
+    });
+
+    it('descarta eventos de todo el día (start.date, sin start.dateTime)', async () => {
+      const oauth2Client = buildOAuth2Client();
+      mockFetchListOnce({
+        items: [
+          {
+            start: { date: '2026-02-10' },
+            end: { date: '2026-02-11' },
+          },
+        ],
+      });
+
+      const result = await client.listBusyIntervals(
+        oauth2Client,
+        CALENDAR_ID,
+        WINDOW_START,
+        WINDOW_END,
+      );
+
+      expect(result).toEqual([]);
+    });
+
+    it('descarta eventos propios de Umbral (extendedProperties.private.umbralGroupId)', async () => {
+      const oauth2Client = buildOAuth2Client();
+      mockFetchListOnce({
+        items: [
+          {
+            start: { dateTime: '2026-02-10T10:00:00-03:00' },
+            end: { dateTime: '2026-02-10T11:00:00-03:00' },
+            extendedProperties: { private: { umbralGroupId: 'group-1' } },
+          },
+        ],
+      });
+
+      const result = await client.listBusyIntervals(
+        oauth2Client,
+        CALENDAR_ID,
+        WINDOW_START,
+        WINDOW_END,
+      );
+
+      expect(result).toEqual([]);
+    });
+
+    it('sigue la paginación hasta el final y concatena todas las páginas', async () => {
+      const oauth2Client = buildOAuth2Client();
+      mockFetchListOnce({
+        items: [
+          {
+            start: { dateTime: '2026-02-10T10:00:00-03:00' },
+            end: { dateTime: '2026-02-10T11:00:00-03:00' },
+          },
+        ],
+        nextPageToken: 'page-2-token',
+      });
+      mockFetchListOnce({
+        items: [
+          {
+            start: { dateTime: '2026-02-12T14:00:00-03:00' },
+            end: { dateTime: '2026-02-12T15:00:00-03:00' },
+          },
+        ],
+      });
+
+      const result = await client.listBusyIntervals(
+        oauth2Client,
+        CALENDAR_ID,
+        WINDOW_START,
+        WINDOW_END,
+      );
+
+      expect(result).toEqual([
+        {
+          startsAt: new Date('2026-02-10T10:00:00-03:00'),
+          endsAt: new Date('2026-02-10T11:00:00-03:00'),
+        },
+        {
+          startsAt: new Date('2026-02-12T14:00:00-03:00'),
+          endsAt: new Date('2026-02-12T15:00:00-03:00'),
+        },
+      ]);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      const [secondUrl] = (globalThis.fetch as jest.Mock).mock.calls[1] as [
+        string,
+      ];
+      expect(secondUrl).toContain('pageToken=page-2-token');
+    });
+
+    it('clasifica un 401 durante events.list como invalid_grant (reusa GoogleCalendarError)', async () => {
+      const oauth2Client = buildOAuth2Client();
+      mockFetchOnce({ ok: false, status: 401 });
+
+      await expect(
+        client.listBusyIntervals(
+          oauth2Client,
+          CALENDAR_ID,
+          WINDOW_START,
+          WINDOW_END,
+        ),
+      ).rejects.toMatchObject({
+        kind: 'invalid_grant',
+      } as Partial<GoogleCalendarError>);
+    });
+
+    it('clasifica un 403 (quota) durante events.list como transient', async () => {
+      const oauth2Client = buildOAuth2Client();
+      mockFetchOnce({ ok: false, status: 403 });
+
+      await expect(
+        client.listBusyIntervals(
+          oauth2Client,
+          CALENDAR_ID,
+          WINDOW_START,
+          WINDOW_END,
+        ),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<GoogleCalendarError>);
     });
   });
 });

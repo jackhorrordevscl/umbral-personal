@@ -36,3 +36,24 @@ export const GOOGLE_CALENDAR_SCOPE =
 // de `state`, para que JwtStrategy.validate (jwt.strategy.ts) pueda rechazar
 // este token como Bearer de sesión igual que 'password-reset'/'mfa-setup'.
 export const OAUTH_STATE_PURPOSE = 'google-calendar-oauth';
+
+// sdd/public-booking-payment-calendar PR 1 (design.md Decision 1 "events.list
+// under the current calendar.events scope"): ventana hacia adelante que
+// GoogleCalendarClient.listBusyIntervals() consulta en cada refresh --
+// coincide con el máximo de anticipación de reserva pública, no hace falta
+// mirar más lejos.
+export const BUSY_WINDOW_DAYS = 60;
+
+// design.md "Data Flow": tope de conexiones refrescadas en paralelo por cada
+// tick del cron de CalendarBusyService (PR 2), mismo propósito que
+// RECONCILE_BATCH_LIMIT pero para el job de lectura -- evita saturar la
+// cuota de Google si hay muchos terapeutas conectados a la vez.
+export const BUSY_REFRESH_CONCURRENCY = 5;
+
+// sdd/public-booking-payment-calendar PR 2 (tasks.md 2.3): umbral de
+// "frescura" del overlay que AvailabilityService.computeSlots() exige antes
+// de leer CalendarBusyBlock -- 3x el intervalo del cron (30 min), para
+// tolerar un tick perdido sin degradar a "stale" de inmediato. Si
+// busySyncedAt es null o más viejo que esto, computeSlots() se salta la
+// query de CalendarBusyBlock por completo (no query-y-descarta).
+export const OVERLAY_STALENESS_MS = 90 * 60 * 1000;

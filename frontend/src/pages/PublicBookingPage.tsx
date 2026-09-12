@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
-import { useParams } from 'react-router';
+import { useEffect, useMemo, useState } from 'react';
+import { useParams, useSearchParams } from 'react-router';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import PublicBookingForm from '../components/booking/PublicBookingForm';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import { usePublicAvailability } from '../hooks/usePublicScheduling';
+import { getBookingCheckout } from '../api/publicScheduling';
 import {
   buildLocalISO,
   chileMonthGridRange,
@@ -13,6 +14,15 @@ import {
   toChileDayKey,
 } from '../utils/datetime';
 import type { BookingConfirmation, PublicSlot } from '../api/publicScheduling';
+
+// sdd/public-booking-payment-calendar PR 5 (tasks.md 5.4, design.md
+// Decision 5 "Checkout is polled, not awaited"): ensureCharge() es
+// fire-and-forget en el backend, así que paymentUrl casi nunca existe
+// todavía cuando book() responde. Constantes nombradas a propósito (design.md
+// Open Questions: "Poll budget and interval... proposed: 2s / ~15s") para que
+// una PR futura pueda ajustar el presupuesto sin tocar la lógica de polling.
+export const CHECKOUT_POLL_INTERVAL_MS = 2000;
+export const CHECKOUT_POLL_TIMEOUT_MS = 15000;
 
 const MONTH_LABELS = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -49,11 +59,14 @@ function addMonths(view: ViewMonth, delta: number): ViewMonth {
 // visual, que pertenece a un dominio distinto).
 export default function PublicBookingPage() {
   const { therapistId = '' } = useParams<{ therapistId: string }>();
+  const [searchParams] = useSearchParams();
   const [viewMonth, setViewMonth] = useState<ViewMonth>(chileTodayViewMonth);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<PublicSlot | null>(null);
   const [takenMessage, setTakenMessage] = useState('');
   const [confirmation, setConfirmation] = useState<BookingConfirmation | null>(null);
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+  const [checkoutPollExhausted, setCheckoutPollExhausted] = useState(false);
 
   const grid = useMemo(
     () => chileMonthGridRange(viewMonth.year, viewMonth.month),
@@ -77,13 +90,95 @@ export default function PublicBookingPage() {
     refetch();
   };
 
+  // tasks.md 5.4, design.md Decision 5: pollea GET .../checkout cada
+  // CHECKOUT_POLL_INTERVAL_MS hasta que aparezca un paymentUrl o se agote
+  // CHECKOUT_POLL_TIMEOUT_MS. Solo arranca cuando checkout.status === 'PENDING'
+  // -- NOT_APPLICABLE o ausente (flag apagado en el backend) nunca dispara un
+  // solo request de polling.
+  useEffect(() => {
+    if (!confirmation || confirmation.checkout?.status !== 'PENDING') {
+      return;
+    }
+    let cancelled = false;
+    let elapsedMs = 0;
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const poll = async () => {
+      try {
+        const result = await getBookingCheckout(therapistId, confirmation.groupId);
+        if (cancelled) return;
+        if (result.paymentUrl) {
+          setCheckoutUrl(result.paymentUrl);
+          return;
+        }
+      } catch {
+        // Un error de red durante el polling no debe interrumpir la
+        // confirmación de reserva -- ya exitosa e independiente del pago --
+        // simplemente se reintenta en el próximo tick o se agota el
+        // presupuesto igual que si el backend respondiera sin paymentUrl.
+      }
+      if (cancelled) return;
+      elapsedMs += CHECKOUT_POLL_INTERVAL_MS;
+      if (elapsedMs >= CHECKOUT_POLL_TIMEOUT_MS) {
+        setCheckoutPollExhausted(true);
+        return;
+      }
+      timeoutId = setTimeout(poll, CHECKOUT_POLL_INTERVAL_MS);
+    };
+
+    timeoutId = setTimeout(poll, CHECKOUT_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [confirmation, therapistId]);
+
   if (confirmation) {
+    const checkoutStatus = confirmation.checkout?.status;
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
         <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md text-center">
           <h2 className="font-display text-2xl text-slate-900 mb-2">¡Listo!</h2>
           <p className="text-slate-500 text-sm">
             Tu sesión quedó agendada para el {formatChileDate(confirmation.sessionDate)}.
+          </p>
+          {checkoutStatus === 'PENDING' && checkoutUrl && (
+            <div className="mt-4">
+              <p className="text-slate-500 text-xs mb-2">
+                Vas a salir de esta página para completar el pago.
+              </p>
+              <a href={checkoutUrl} className="btn-primary inline-block">
+                Pagar ahora
+              </a>
+            </div>
+          )}
+          {checkoutStatus === 'PENDING' && !checkoutUrl && checkoutPollExhausted && (
+            <p className="text-slate-500 text-xs mt-4">
+              Te vamos a enviar el link de pago a tu email.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // tasks.md 5.5, spec.md "Flow return arrival displays confirmation state,
+  // not payment status": fallback defensivo -- el retorno real de Flow NUNCA
+  // apunta acá (design.md Decision 2: PaymentsController sigue
+  // redirigiendo a /pago-recibido, PaymentReturnPage.tsx), pero si un link
+  // viejo/stale trae a alguien de todos modos con ?flow_return=1 y esta
+  // página se monta sin un `confirmation` local (visitante nuevo en esta
+  // sesión), se muestra el estado de confirmación de reserva SIN asumir
+  // nada sobre el estado del pago -- la verdad del pago vive solo en
+  // urlConfirmation/payment/getStatus, nunca en la sola llegada a esta URL.
+  if (searchParams.get('flow_return') === '1') {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+        <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md text-center">
+          <h2 className="font-display text-2xl text-slate-900 mb-2">¡Listo!</h2>
+          <p className="text-slate-500 text-sm">
+            Tu sesión ya está agendada. Si el pago quedó pendiente, tu terapeuta te lo
+            confirmará por email.
           </p>
         </div>
       </div>

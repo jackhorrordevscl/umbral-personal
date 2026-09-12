@@ -51,7 +51,10 @@ describe('ConsultationsService', () => {
   };
   let patientsService: { assertAccess: jest.Mock };
   let calendarSync: { syncGroup: jest.Mock };
-  let paymentsService: { ensureCharge: jest.Mock };
+  let paymentsService: {
+    ensureCharge: jest.Mock;
+    findCheckoutForBooking: jest.Mock;
+  };
 
   beforeEach(() => {
     prisma = {
@@ -87,7 +90,10 @@ describe('ConsultationsService', () => {
         .mockResolvedValue({ id: 'patient-1', rut: '11111111-1' }),
     };
     calendarSync = { syncGroup: jest.fn().mockResolvedValue(undefined) };
-    paymentsService = { ensureCharge: jest.fn().mockResolvedValue(undefined) };
+    paymentsService = {
+      ensureCharge: jest.fn().mockResolvedValue(undefined),
+      findCheckoutForBooking: jest.fn().mockResolvedValue({ paymentUrl: null }),
+    };
 
     service = new ConsultationsService(
       prisma as unknown as PrismaService,
@@ -630,7 +636,13 @@ describe('ConsultationsService', () => {
         50,
       );
 
-      expect(result).toBe(created);
+      // sdd/public-booking-payment-calendar PR 4 (tasks.md 4.3): el objeto
+      // devuelto ya no es idéntico (toBe) al Consultation crudo -- ahora es
+      // ese mismo Consultation más checkoutUrl, leído sin esperar a
+      // ensureCharge() (findCheckoutForBooking por defecto resuelve
+      // { paymentUrl: null } en este mock, spec.md "omite el checkout sin
+      // fallar").
+      expect(result).toEqual({ ...created, checkoutUrl: null });
       expect(prisma.bookedSlot.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -677,6 +689,68 @@ describe('ConsultationsService', () => {
       expect(paymentsService.ensureCharge).toHaveBeenCalledWith(
         'group-public-1',
       );
+      expect(paymentsService.findCheckoutForBooking).toHaveBeenCalledWith(
+        'group-public-1',
+      );
+    });
+
+    // sdd/public-booking-payment-calendar PR 4 (tasks.md 4.3, payments
+    // spec.md "Booking response carries the checkout URL when already
+    // available"): ensureCharge() sigue sin esperarse (fire-and-forget
+    // intacto, ver el test de arriba) -- este checkoutUrl viene de una
+    // lectura aparte (findCheckoutForBooking), nunca de esperar a
+    // ensureCharge() mismo.
+    it('incluye checkoutUrl en la respuesta cuando ya está disponible al momento de responder', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(null);
+      prisma.bookedSlot.create.mockResolvedValue({ id: 'booked-1' });
+      const created = buildConsultation({
+        groupId: 'group-public-1',
+        sessionDate: slotStart,
+      });
+      prisma.consultation.create.mockResolvedValue(created);
+      paymentsService.findCheckoutForBooking.mockResolvedValue({
+        paymentUrl: 'https://flow.cl/pay/order-token',
+        amount: 30000,
+      });
+
+      const result = await service.createFromPublicBooking(
+        'therapist-1',
+        'patient-1',
+        '11111111-1',
+        slotStart,
+        50,
+      );
+
+      expect(result).toEqual({
+        ...created,
+        checkoutUrl: 'https://flow.cl/pay/order-token',
+      });
+    });
+
+    // payments spec.md "Booking response omits the checkout URL without
+    // failing": cuenta no CONNECTED o URL aún no disponible -- la reserva
+    // igual se resuelve, sin checkoutUrl (null), sin excepción.
+    it('omite checkoutUrl (null) sin fallar cuando el cobro no está disponible', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(null);
+      prisma.bookedSlot.create.mockResolvedValue({ id: 'booked-1' });
+      const created = buildConsultation({
+        groupId: 'group-public-1',
+        sessionDate: slotStart,
+      });
+      prisma.consultation.create.mockResolvedValue(created);
+      paymentsService.findCheckoutForBooking.mockResolvedValue({
+        paymentUrl: null,
+      });
+
+      const result = await service.createFromPublicBooking(
+        'therapist-1',
+        'patient-1',
+        '11111111-1',
+        slotStart,
+        50,
+      );
+
+      expect(result).toEqual({ ...created, checkoutUrl: null });
     });
 
     it('recheck: si ya existe una consulta vigente en ese horario, lanza 409 sin llegar a BookedSlot', async () => {

@@ -1,10 +1,22 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   AvailabilityService,
   computeAvailableSlots,
 } from './availability.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DEFAULT_SESSION_MINUTES } from '../calendar-integration/calendar-integration.constants';
+
+// sdd/public-booking-payment-calendar PR 2 (tasks.md 2.4): config mock que
+// deja CALENDAR_AVAILABILITY_OVERLAY_ENABLED apagado por default -- los
+// describe blocks preexistentes (cache/CRUD) no les concierne el overlay,
+// así que lo pasan apagado y listo (mismo comportamiento byte-idéntico que
+// antes de este PR).
+function buildConfig(overrides: Record<string, string | undefined> = {}) {
+  return {
+    get: jest.fn((key: string) => overrides[key]),
+  } as unknown as ConfigService;
+}
 
 // sdd/patient-self-scheduling PR 2 (design.md "Slot grid" + tasks.md 2.2/2.3/2.7):
 // computeAvailableSlots is the pure core (Jest, fixed clock, no I/O) --
@@ -262,7 +274,10 @@ describe('AvailabilityService (cache)', () => {
       publicHoliday: { findMany: jest.fn().mockResolvedValue([]) },
       consultation: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new AvailabilityService(prisma as unknown as PrismaService);
+    service = new AvailabilityService(
+      prisma as unknown as PrismaService,
+      buildConfig(),
+    );
   });
 
   it('reutiliza el resultado cacheado dentro de la ventana de ~5 minutos', async () => {
@@ -353,7 +368,10 @@ describe('AvailabilityService (CRUD)', () => {
         return Promise.all(arg as Promise<unknown>[]);
       }),
     };
-    service = new AvailabilityService(prisma as unknown as PrismaService);
+    service = new AvailabilityService(
+      prisma as unknown as PrismaService,
+      buildConfig(),
+    );
   });
 
   describe('getSchedule', () => {
@@ -559,5 +577,133 @@ describe('AvailabilityService (CRUD)', () => {
       );
       expect(prisma.availabilityBlockout.delete).not.toHaveBeenCalled();
     });
+  });
+});
+
+// sdd/public-booking-payment-calendar PR 2 (design.md Decision 3/4, tasks.md
+// 2.3/2.4): sexta query paralela de computeSlots() -- lee CalendarBusyBlock
+// solo cuando el flag está prendido Y el overlay del terapeuta está fresco
+// (GoogleCalendarConnection.busySyncedAt dentro de OVERLAY_STALENESS_MS).
+// Flag off, o overlay stale/missing, deben producir la MISMA salida que
+// antes de este PR (computeAvailableSlots() sin overlay) -- la propiedad que
+// el E2E de tasks.md 2.5 verifica a nivel HTTP.
+describe('AvailabilityService (calendar overlay)', () => {
+  let prisma: {
+    user: { findUnique: jest.Mock };
+    therapistAvailability: { findMany: jest.Mock };
+    availabilityBlockout: { findMany: jest.Mock };
+    publicHoliday: { findMany: jest.Mock };
+    consultation: { findMany: jest.Mock };
+    googleCalendarConnection: { findUnique: jest.Mock };
+    calendarBusyBlock: { findMany: jest.Mock };
+  };
+  let service: AvailabilityService;
+
+  // Lunes 2026-06-01, 09:00-13:00 Chile -> 4 slots de 50 min sin overlay
+  // (mismo grid que "expande una regla semanal..." más arriba en este
+  // archivo).
+  const from = new Date('2026-06-01T00:00:00.000Z');
+  const to = new Date('2026-06-08T00:00:00.000Z');
+  const now = new Date('2026-05-01T00:00:00.000Z');
+
+  function buildPrisma() {
+    return {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ sessionDurationMinutes: 50 }),
+      },
+      therapistAvailability: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            { dayOfWeek: 1, startMinute: 9 * 60, endMinute: 13 * 60 },
+          ]),
+      },
+      availabilityBlockout: { findMany: jest.fn().mockResolvedValue([]) },
+      publicHoliday: { findMany: jest.fn().mockResolvedValue([]) },
+      consultation: { findMany: jest.fn().mockResolvedValue([]) },
+      googleCalendarConnection: { findUnique: jest.fn() },
+      calendarBusyBlock: { findMany: jest.fn() },
+    };
+  }
+
+  beforeEach(() => {
+    prisma = buildPrisma();
+  });
+
+  it('flag apagado: nunca consulta GoogleCalendarConnection ni CalendarBusyBlock, salida idéntica a la de antes del overlay', async () => {
+    service = new AvailabilityService(
+      prisma as unknown as PrismaService,
+      buildConfig(),
+    );
+
+    const result = await service.computeSlots('therapist-1', from, to, now);
+
+    expect(result).toHaveLength(4);
+    expect(prisma.googleCalendarConnection.findUnique).not.toHaveBeenCalled();
+    expect(prisma.calendarBusyBlock.findMany).not.toHaveBeenCalled();
+  });
+
+  it('flag prendido y overlay fresco: fusiona CalendarBusyBlock en blockouts y descarta el slot cubierto', async () => {
+    prisma.googleCalendarConnection.findUnique.mockResolvedValue({
+      busySyncedAt: new Date('2026-05-01T00:00:00.000Z'), // now, 0ms de antigüedad
+    });
+    // 09:00 Chile = 13:00 UTC -- bloquea exactamente el primer slot.
+    prisma.calendarBusyBlock.findMany.mockResolvedValue([
+      {
+        startsAt: new Date('2026-06-01T13:00:00.000Z'),
+        endsAt: new Date('2026-06-01T13:50:00.000Z'),
+      },
+    ]);
+    service = new AvailabilityService(
+      prisma as unknown as PrismaService,
+      buildConfig({ CALENDAR_AVAILABILITY_OVERLAY_ENABLED: 'true' }),
+    );
+
+    const result = await service.computeSlots('therapist-1', from, to, now);
+
+    expect(result).toHaveLength(3);
+    expect(result.some((s) => s.start === '2026-06-01T13:00:00.000Z')).toBe(
+      false,
+    );
+    expect(prisma.calendarBusyBlock.findMany).toHaveBeenCalledWith({
+      where: {
+        therapistId: 'therapist-1',
+        startsAt: { lt: to },
+        endsAt: { gt: from },
+      },
+      select: { startsAt: true, endsAt: true },
+    });
+  });
+
+  it('flag prendido pero overlay stale (busySyncedAt viejo): NO consulta CalendarBusyBlock, salida idéntica a la de sin overlay', async () => {
+    prisma.googleCalendarConnection.findUnique.mockResolvedValue({
+      // 2h de antigüedad, > OVERLAY_STALENESS_MS (90 min).
+      busySyncedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+    });
+    service = new AvailabilityService(
+      prisma as unknown as PrismaService,
+      buildConfig({ CALENDAR_AVAILABILITY_OVERLAY_ENABLED: 'true' }),
+    );
+
+    const result = await service.computeSlots('therapist-1', from, to, now);
+
+    expect(result).toHaveLength(4);
+    expect(prisma.calendarBusyBlock.findMany).not.toHaveBeenCalled();
+  });
+
+  // Triangulación: overlay ausente (ninguna conexión de Google todavía) se
+  // trata igual que stale -- ninguna query a CalendarBusyBlock, salida
+  // idéntica.
+  it('flag prendido pero overlay ausente (sin GoogleCalendarConnection): NO consulta CalendarBusyBlock, salida idéntica a la de sin overlay', async () => {
+    prisma.googleCalendarConnection.findUnique.mockResolvedValue(null);
+    service = new AvailabilityService(
+      prisma as unknown as PrismaService,
+      buildConfig({ CALENDAR_AVAILABILITY_OVERLAY_ENABLED: 'true' }),
+    );
+
+    const result = await service.computeSlots('therapist-1', from, to, now);
+
+    expect(result).toHaveLength(4);
+    expect(prisma.calendarBusyBlock.findMany).not.toHaveBeenCalled();
   });
 });
