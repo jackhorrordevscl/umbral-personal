@@ -1,0 +1,48 @@
+name: Deuda técnica / Optimización
+description: Refactor, deuda técnica, performance o costos de infraestructura
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impacto
+      options:
+        - Alto
+        - Medio
+        - Bajo
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Categoría
+      options:
+        - Performance
+        - Costos de infraestructura
+        - Arquitectura / deuda técnica
+        - Cobertura de tests
+        - Documentación
+        - Otro
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Descripción
+      description: Qué se encontró y por qué vale la pena atenderlo.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidencia
+      description: Archivo:línea, métricas, o referencia al hallazgo original.
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: recommendation
+    attributes:
+      label: Recomendación propuesta
+    validations:
+      required: false

@@ -1,0 +1,55 @@
+name: Bug Report
+description: Reportar un comportamiento incorrecto, de seguridad o de compliance
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severidad
+      options:
+        - Crítico
+        - Alto
+        - Medio
+        - Bajo
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Área afectada
+      options:
+        - Backend
+        - Frontend
+        - Infraestructura
+        - Seguridad / Compliance
+        - Otro
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Descripción del problema
+      description: Qué está pasando y por qué es un problema.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidencia
+      description: Archivo:línea, logs, capturas de pantalla o pasos de reproducción.
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportamiento esperado
+    validations:
+      required: false
+  - type: textarea
+    id: recommendation
+    attributes:
+      label: Recomendación
+      description: Si tenés una idea concreta de cómo resolverlo.
+    validations:
+      required: false
