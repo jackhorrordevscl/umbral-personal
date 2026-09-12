@@ -60,7 +60,8 @@ The system MUST seed Chile's official public holiday calendar as system defaults
 
 ### Requirement: Query-Time Slot Computation with Bounded Cache
 
-The system MUST compute available slots at query time by expanding the weekly schedule over the requested range, then subtracting existing consultations, blockouts, and public holidays, and MUST cache the result for approximately 5 minutes per therapist and range.
+The system MUST compute available slots at query time by expanding the weekly schedule over the requested range, then subtracting existing consultations, blockouts, public holidays, and, when the `calendar-availability-overlay` capability is enabled, cached Google free-busy overlay entries, and MUST cache the result for approximately 5 minutes per therapist and range. Consulting the overlay MUST add no synchronous network call and MUST degrade gracefully to the pre-overlay exclusion set when the overlay's own cache is missing or stale.
+(Previously: subtracted only existing consultations, blockouts, and public holidays, with no calendar overlay exclusion source.)
 
 #### Scenario: Existing consultation removes its slot
 
@@ -74,6 +75,17 @@ The system MUST compute available slots at query time by expanding the weekly sc
 - WHEN the same range is queried again within that window
 - THEN the system MAY serve the cached result instead of recomputing
 
+#### Scenario: Overlay-covered busy time is excluded when the capability is enabled
+
+- GIVEN the overlay capability is enabled and the therapist has a fresh overlay cache entry marking a time range busy
+- WHEN slots are computed for a window covering that range
+- THEN the slots overlapping that range are excluded, in addition to consultations, blockouts, and holidays
+
+#### Scenario: Slot computation is unaffected when the overlay capability is disabled
+
+- GIVEN the overlay capability is disabled
+- WHEN slots are computed for a therapist
+- THEN the result matches computation using only consultations, blockouts, and holidays, exactly as before this capability existed
 ### Requirement: Booking Window Bounds
 
 The system MUST reject any slot request or booking outside a minimum lead time of 24 hours from now and a maximum horizon of 60 days from now.
