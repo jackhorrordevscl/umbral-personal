@@ -384,6 +384,27 @@ describe('ConsultationsService', () => {
       expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
+    it('versión ya corregida tiene precedencia sobre falta de consentimiento — 409, no 403 (review R3-003)', async () => {
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation())
+        .mockResolvedValueOnce({ id: 'already-corrected' });
+      patientsService.getConsentStatusMap.mockResolvedValue(
+        new Map([['patient-1', { TREATMENT: false, TELEMEDICINE: false }]]),
+      );
+
+      await expect(
+        service.correct(
+          'consultation-1',
+          { consultReason: 'Motivo corregido' } as never,
+          'therapist-1',
+        ),
+      ).rejects.toThrow(ConflictException);
+      // El chequeo de versión-ya-corregida corta antes de llegar a
+      // consultar el consentimiento -- no es solo el mismo error, es que ni
+      // siquiera se paga la consulta a getConsentStatusMap.
+      expect(patientsService.getConsentStatusMap).not.toHaveBeenCalled();
+    });
+
     it('crea una fila nueva sin modificar la original y guarda el snapshot previo', async () => {
       prisma.consultation.findFirst
         .mockResolvedValueOnce(buildConsultation())

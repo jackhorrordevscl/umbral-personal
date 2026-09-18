@@ -297,6 +297,20 @@ export class ConsultationsService {
   async correct(id: string, dto: CorrectConsultationDto, therapistId: string) {
     const original = await this.findOne(id, therapistId);
 
+    // El chequeo de versión-ya-corregida va primero (precedencia previa a
+    // issue #131, review R3-003): es un problema de integridad de la cadena
+    // de versiones, independiente del consentimiento -- un id de versión
+    // stale sigue siendo 409 aunque además falte consentimiento, no 403.
+    const alreadySuperseded = await this.prisma.consultation.findFirst({
+      where: { correctsId: id },
+      select: { id: true },
+    });
+    if (alreadySuperseded) {
+      throw new ConflictException(
+        'Esta versión ya fue corregida — corrige la versión vigente en su lugar.',
+      );
+    }
+
     // Issue #131: cubre el caso de createFromPublicBooking -- la reserva
     // pública crea una Consultation placeholder sin contenido clínico real
     // ("Pendiente de definir por el terapeuta"); correct() es el punto
@@ -309,16 +323,6 @@ export class ConsultationsService {
     if (!consent?.TREATMENT && !consent?.TELEMEDICINE) {
       throw new ForbiddenException(
         'El paciente no tiene un consentimiento informado vigente. Registra el consentimiento antes de corregir la consulta.',
-      );
-    }
-
-    const alreadySuperseded = await this.prisma.consultation.findFirst({
-      where: { correctsId: id },
-      select: { id: true },
-    });
-    if (alreadySuperseded) {
-      throw new ConflictException(
-        'Esta versión ya fue corregida — corrige la versión vigente en su lugar.',
       );
     }
 

@@ -52,5 +52,13 @@ El schema **ya tiene todo lo necesario, pero desconectado**:
 ## Estado
 Diseño confirmado con el usuario tras corrección legal (Ley 20.584 Arts. 12/14/25) y aclaración del flujo real (upload de archivo, no checkbox digital). TDD: a resolver según configuración del proyecto al empezar T1.
 
+## Review (RDD, review-reliability, riesgo medio)
+Aprobado, 3 hallazgos no bloqueantes atendidos:
+- **R3-001** (`documents.service.ts`): rama catch de `recordConsent` sin cobertura. Creado `documents.service.spec.ts` (no existía) con 6 tests, incluyendo el camino de falla.
+- **R3-002** (`PatientsPage.tsx`): UI de bulk-declare sin tests, y el aviso de fallos parciales quedaba anidado dentro de la caja de selección — al limpiar la selección (siempre, incluso con fallos), el mensaje de error desaparecía antes de que el terapeuta lo viera. Bug real, corregido moviendo el aviso afuera de esa caja. Agregados 3 tests en `PatientsPage.spec.tsx`.
+- **R3-003** (`consultations.service.ts` `correct()`): el guardrail de consentimiento corría antes del chequeo de "versión ya corregida", cambiando la precedencia (403 en vez de 409 esperado). Reordenado: el chequeo de versión va primero. Agregado test de precedencia en `consultations.service.spec.ts`.
+
+Todo re-verificado tras las correcciones: backend 88/88 (unit+integración), e2e 17/17, frontend 128/128.
+
 ## Próximo paso
-Todas las tareas (T1-T6) completas y verificadas (unit + integración + e2e, contra Postgres real). Issue #131 listo para review/PR.
+Todas las tareas (T1-T6) completas y verificadas, más los 3 hallazgos del review atendidos. Issue #131 listo para push/PR.

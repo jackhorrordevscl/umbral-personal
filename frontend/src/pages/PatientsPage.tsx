@@ -266,6 +266,18 @@ export default function PatientsPage() {
         />
       </div>
 
+      {/* Issue #131 (review R3-002): el aviso vive FUERA de la caja de
+          selección a propósito -- handleBulkDeclareConsent limpia
+          selectedForConsent aunque el lote haya fallado parcialmente, así
+          que un aviso anidado ahí adentro desaparecería con la selección
+          antes de que el terapeuta llegue a leerlo. */}
+      {bulkError && (
+        <div className="mb-4 flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          <AlertCircle size={14} className="text-red-500 shrink-0" />
+          <p className="text-red-600 text-sm">{bulkError}</p>
+        </div>
+      )}
+
       {selectedForConsent.size > 0 && (
         <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
           <p className="text-sm text-amber-800 mb-2">
@@ -307,7 +319,6 @@ export default function PatientsPage() {
               Cancelar
             </button>
           </div>
-          {bulkError && <p className="text-red-600 text-xs mt-2">{bulkError}</p>}
         </div>
       )}
 
