@@ -4,12 +4,23 @@ import { normalizeRut, formatRut, validateRut } from "../utils/rut";
 import { getApiErrorMessage } from "../utils/api-error";
 import { downloadPatientReport } from "../api/reports";
 import { downloadBlob } from "../utils/download";
-import { usePatients, useCreatePatient, useDeletePatient } from "../hooks/usePatients";
+import {
+  usePatients,
+  useCreatePatient,
+  useDeletePatient,
+  useBulkDeclareConsent,
+} from "../hooks/usePatients";
 import * as documentsApi from "../api/documents";
 import PatientForm, { type PatientFormValues, type StagedDocument } from "../components/patients/PatientForm";
 import PatientModal from "../components/patients/PatientModal";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
-import { EMPTY_CONSENTS, type ConsentStatus, type Patient } from "../types/patient";
+import {
+  EMPTY_CONSENTS,
+  CONSENT_PURPOSE_LABELS,
+  type ConsentPurpose,
+  type ConsentStatus,
+  type Patient,
+} from "../types/patient";
 
 const emptyForm: PatientFormValues = {
   fullName: "",
@@ -52,6 +63,48 @@ export default function PatientsPage() {
   const { data: patients = [], isError: patientsError } = usePatients();
   const createMutation = useCreatePatient();
   const deleteMutation = useDeletePatient();
+
+  // Issue #131 (T5): declaración retroactiva en bloque para pacientes que ya
+  // estaban en tratamiento antes de que el consentimiento fuera obligatorio
+  // (ej: consentimiento en papel del expediente físico, nunca digitalizado).
+  const [selectedForConsent, setSelectedForConsent] = useState<Set<string>>(new Set());
+  const [bulkPurpose, setBulkPurpose] = useState<ConsentPurpose>("TREATMENT");
+  const [bulkEvidence, setBulkEvidence] = useState("");
+  const [bulkError, setBulkError] = useState("");
+  const bulkConsentMutation = useBulkDeclareConsent();
+
+  const toggleConsentSelection = (patientId: string) => {
+    setSelectedForConsent((prev) => {
+      const next = new Set(prev);
+      if (next.has(patientId)) next.delete(patientId);
+      else next.add(patientId);
+      return next;
+    });
+  };
+
+  const handleBulkDeclareConsent = () => {
+    if (!bulkEvidence.trim() || bulkEvidence.trim().length < 10) {
+      setBulkError("La evidencia debe tener al menos 10 caracteres (ej: dónde está el consentimiento en papel)");
+      return;
+    }
+    setBulkError("");
+    bulkConsentMutation.mutate(
+      { patientIds: Array.from(selectedForConsent), purpose: bulkPurpose, evidence: bulkEvidence.trim() },
+      {
+        onSuccess: (results) => {
+          const failed = results.filter((r) => !r.ok);
+          setSelectedForConsent(new Set());
+          setBulkEvidence("");
+          if (failed.length > 0) {
+            setBulkError(`${failed.length} paciente(s) no se pudieron declarar (revisa que sean tuyos).`);
+          }
+        },
+        onError: (err) => {
+          setBulkError(getApiErrorMessage(err, "No se pudo declarar el consentimiento en bloque"));
+        },
+      },
+    );
+  };
 
   const handleRutChange = (value: string) => {
     const formatted = formatRut(value);
@@ -213,6 +266,51 @@ export default function PatientsPage() {
         />
       </div>
 
+      {selectedForConsent.size > 0 && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
+          <p className="text-sm text-amber-800 mb-2">
+            Declarar consentimiento retroactivo para {selectedForConsent.size} paciente(s) —
+            úsalo cuando ya tenés el consentimiento en papel del expediente físico, previo a este cambio.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <select
+              className="input-field sm:w-48"
+              value={bulkPurpose}
+              onChange={(e) => setBulkPurpose(e.target.value as ConsentPurpose)}
+            >
+              {(Object.keys(CONSENT_PURPOSE_LABELS) as ConsentPurpose[]).map((purpose) => (
+                <option key={purpose} value={purpose}>
+                  {CONSENT_PURPOSE_LABELS[purpose]}
+                </option>
+              ))}
+            </select>
+            <input
+              className="input-field flex-1"
+              placeholder="Evidencia (ej: consentimiento en papel, expediente físico)"
+              value={bulkEvidence}
+              onChange={(e) => setBulkEvidence(e.target.value)}
+            />
+            <button
+              onClick={handleBulkDeclareConsent}
+              disabled={bulkConsentMutation.isPending}
+              className="btn-primary text-sm whitespace-nowrap"
+            >
+              Declarar
+            </button>
+            <button
+              onClick={() => {
+                setSelectedForConsent(new Set());
+                setBulkError("");
+              }}
+              className="btn-secondary text-sm whitespace-nowrap"
+            >
+              Cancelar
+            </button>
+          </div>
+          {bulkError && <p className="text-red-600 text-xs mt-2">{bulkError}</p>}
+        </div>
+      )}
+
       {/* Tabla desktop */}
       <div className="hidden md:block card p-0 overflow-hidden">
         <table className="w-full text-sm">
@@ -222,13 +320,14 @@ export default function PatientsPage() {
               <th className="text-left px-6 py-3 text-xs font-medium text-slate-500">RUT</th>
               <th className="text-left px-6 py-3 text-xs font-medium text-slate-500">Contacto</th>
               <th className="text-left px-6 py-3 text-xs font-medium text-slate-500">Estado</th>
+              <th className="text-left px-6 py-3 text-xs font-medium text-slate-500">Retroactivo</th>
               <th className="text-left px-6 py-3 text-xs font-medium text-slate-500">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={5} className="text-center py-12 text-slate-500">
+                <td colSpan={6} className="text-center py-12 text-slate-500">
                   No se encontraron pacientes.
                 </td>
               </tr>
@@ -253,6 +352,16 @@ export default function PatientsPage() {
                     >
                       {hasAnyConsent(p) ? "Consentimiento ✓" : "Sin consentimiento"}
                     </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    {!hasAnyConsent(p) && (
+                      <input
+                        type="checkbox"
+                        checked={selectedForConsent.has(p.id)}
+                        onChange={() => toggleConsentSelection(p.id)}
+                        aria-label={`Declarar consentimiento retroactivo de ${p.fullName}`}
+                      />
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
@@ -324,6 +433,16 @@ export default function PatientsPage() {
               <p className="text-xs text-slate-500 mb-3">
                 {p.phone} · {p.email}
               </p>
+              {!hasAnyConsent(p) && (
+                <label className="flex items-center gap-2 text-xs text-slate-500 mb-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedForConsent.has(p.id)}
+                    onChange={() => toggleConsentSelection(p.id)}
+                  />
+                  Declarar consentimiento retroactivo
+                </label>
+              )}
               <div className="flex gap-2">
                 <button
                   onClick={() => setModalIntent({ patient: p, tab: "detail" })}

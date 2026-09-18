@@ -13,6 +13,7 @@ import { PatientsService } from './patients.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { RecordConsentDto } from './dto/record-consent.dto';
+import { BulkDeclareConsentDto } from './dto/bulk-declare-consent.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import {
   CurrentUser,
@@ -60,6 +61,17 @@ export class PatientsController {
   @Delete(':id')
   softDelete(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.patientsService.softDelete(id, user.id);
+  }
+
+  // T5 (issue #131): declaración retroactiva en bloque para pacientes que
+  // ya estaban en tratamiento antes de este cambio. Ruta fija (no ':id') --
+  // no colisiona con ':id/consents' porque el segundo segmento no coincide.
+  @Post('consents/bulk-declare')
+  bulkDeclareConsent(
+    @Body() dto: BulkDeclareConsentDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.patientsService.bulkDeclareConsent(dto, user.id);
   }
 
   // T6.1 (issue #27): consentimiento granular por finalidad (Ley 21.719)

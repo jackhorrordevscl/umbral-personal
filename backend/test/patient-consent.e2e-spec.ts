@@ -37,6 +37,15 @@ describe('Patient consent ledger (e2e)', () => {
 
   let patientId: string;
 
+  // Issue #131 (T6): pacientes propios de cada bloque nuevo, para no
+  // interferir con la secuencia de eventos que ya arma la suite original
+  // sobre `patientId`.
+  let guardrailPatientId: string;
+  let uploadPatientId: string;
+  let bulkPatientAId1: string;
+  let bulkPatientAId2: string;
+  let bulkPatientBId: string;
+
   async function createProfessionalAndLogin(
     email: string,
     name: string,
@@ -130,6 +139,28 @@ describe('Patient consent ledger (e2e)', () => {
       if (patientId) {
         await prisma.patientConsent.deleteMany({ where: { patientId } });
         await prisma.patient.deleteMany({ where: { id: patientId } });
+      }
+
+      const extraPatientIds = [
+        guardrailPatientId,
+        uploadPatientId,
+        bulkPatientAId1,
+        bulkPatientAId2,
+        bulkPatientBId,
+      ].filter((id): id is string => Boolean(id));
+      if (extraPatientIds.length > 0) {
+        await prisma.consultation.deleteMany({
+          where: { patientId: { in: extraPatientIds } },
+        });
+        await prisma.patientDocument.deleteMany({
+          where: { patientId: { in: extraPatientIds } },
+        });
+        await prisma.patientConsent.deleteMany({
+          where: { patientId: { in: extraPatientIds } },
+        });
+        await prisma.patient.deleteMany({
+          where: { id: { in: extraPatientIds } },
+        });
       }
 
       const idsToSoftDelete = [therapistAId, therapistBId].filter(Boolean);
@@ -315,6 +346,231 @@ describe('Patient consent ledger (e2e)', () => {
         .get(`/api/v1/patients/${patientId}/consents`)
         .set('Authorization', `Bearer ${therapistBToken}`)
         .expect(404);
+    });
+  });
+
+  // Issue #131 (T6): el guardrail real -- sin consentimiento vigente, ni
+  // create() ni correct() de una Consultation deben pasar.
+  describe('Guardrail de consentimiento en Consultation (issue #131)', () => {
+    let consultationId: string;
+
+    beforeAll(async () => {
+      const patientCreate = await request(app.getHttpServer())
+        .post('/api/v1/patients')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .send({
+          fullName: 'Guardrail Test Patient',
+          rut: `GUARDRAIL${runId}`,
+          birthDate: '1990-01-01',
+        })
+        .expect(201);
+      guardrailPatientId = (patientCreate.body as Record<string, unknown>)
+        .id as string;
+    });
+
+    it('POST /consultations sin consentimiento vigente devuelve 403', () => {
+      return request(app.getHttpServer())
+        .post('/api/v1/consultations')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .send({
+          patientId: guardrailPatientId,
+          sessionDate: '2026-02-10',
+          consultReason: 'Motivo',
+          intervention: 'Intervención',
+        })
+        .expect(403);
+    });
+
+    it('otorgado el consentimiento, POST /consultations crea la sesión (2xx)', async () => {
+      await request(app.getHttpServer())
+        .post(`/api/v1/patients/${guardrailPatientId}/consents`)
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .send({
+          purpose: 'TREATMENT',
+          action: 'GRANT',
+          evidence: 'Firma en papel durante la primera sesión presencial',
+        })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/consultations')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .send({
+          patientId: guardrailPatientId,
+          sessionDate: '2026-02-10',
+          consultReason: 'Motivo',
+          intervention: 'Intervención',
+        })
+        .expect(201);
+      consultationId = (res.body as Record<string, unknown>).id as string;
+    });
+
+    it('revocado el consentimiento, PATCH .../correct devuelve 403', async () => {
+      await request(app.getHttpServer())
+        .post(`/api/v1/patients/${guardrailPatientId}/consents`)
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .send({
+          purpose: 'TREATMENT',
+          action: 'REVOKE',
+          evidence: 'Paciente solicitó revocar consentimiento de tratamiento',
+        })
+        .expect(201);
+
+      return request(app.getHttpServer())
+        .patch(`/api/v1/consultations/${consultationId}/correct`)
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .send({ consultReason: 'Motivo corregido' })
+        .expect(403);
+    });
+  });
+
+  // Issue #131 (T1): subir un documento de tipo consentimiento debe generar
+  // el evento en el ledger automáticamente, sin un segundo paso manual.
+  describe('Upload de documento dispara consentimiento automático (issue #131)', () => {
+    beforeAll(async () => {
+      const patientCreate = await request(app.getHttpServer())
+        .post('/api/v1/patients')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .send({
+          fullName: 'Upload Consent Test Patient',
+          rut: `UPLOADCONSENT${runId}`,
+          birthDate: '1990-01-01',
+        })
+        .expect(201);
+      uploadPatientId = (patientCreate.body as Record<string, unknown>)
+        .id as string;
+    });
+
+    it('subir INFORMED_CONSENT otorga TREATMENT automáticamente en el ledger', async () => {
+      const fakePdf = Buffer.from('%PDF-1.4\n%mock consentimiento firmado');
+
+      await request(app.getHttpServer())
+        .post('/api/v1/documents/upload')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .field('patientId', uploadPatientId)
+        .field('type', 'INFORMED_CONSENT')
+        .attach('file', fakePdf, {
+          filename: 'consentimiento.pdf',
+          contentType: 'application/pdf',
+        })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/patients/${uploadPatientId}/consents/status`)
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .expect(200);
+      expect(res.body).toEqual({ TREATMENT: true, TELEMEDICINE: false });
+
+      const ledger = await prisma.patientConsent.findMany({
+        where: { patientId: uploadPatientId },
+      });
+      expect(ledger.length).toBe(1);
+      expect(ledger[0].evidence).toContain('consentimiento.pdf');
+    });
+
+    it('subir INFORMED_ASSENT NO otorga consentimiento automático (Art. 25, el asentimiento del menor no reemplaza al del tutor)', async () => {
+      const fakePdf = Buffer.from('%PDF-1.4\n%mock asentimiento del menor');
+
+      await request(app.getHttpServer())
+        .post('/api/v1/documents/upload')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .field('patientId', uploadPatientId)
+        .field('type', 'INFORMED_ASSENT')
+        .attach('file', fakePdf, {
+          filename: 'asentimiento.pdf',
+          contentType: 'application/pdf',
+        })
+        .expect(201);
+
+      // El ledger sigue teniendo solo el evento del test anterior -- ninguno
+      // nuevo se generó por este upload.
+      const ledger = await prisma.patientConsent.findMany({
+        where: { patientId: uploadPatientId },
+      });
+      expect(ledger.length).toBe(1);
+    });
+  });
+
+  // Issue #131 (T5): declaración retroactiva en bloque.
+  describe('POST /patients/consents/bulk-declare (issue #131 T5)', () => {
+    beforeAll(async () => {
+      const p1 = await request(app.getHttpServer())
+        .post('/api/v1/patients')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .send({
+          fullName: 'Bulk Patient A1',
+          rut: `BULKA1${runId}`,
+          birthDate: '1990-01-01',
+        })
+        .expect(201);
+      bulkPatientAId1 = (p1.body as Record<string, unknown>).id as string;
+
+      const p2 = await request(app.getHttpServer())
+        .post('/api/v1/patients')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .send({
+          fullName: 'Bulk Patient A2',
+          rut: `BULKA2${runId}`,
+          birthDate: '1990-01-01',
+        })
+        .expect(201);
+      bulkPatientAId2 = (p2.body as Record<string, unknown>).id as string;
+
+      const p3 = await request(app.getHttpServer())
+        .post('/api/v1/patients')
+        .set('Authorization', `Bearer ${therapistBToken}`)
+        .send({
+          fullName: 'Bulk Patient B (ajeno)',
+          rut: `BULKB${runId}`,
+          birthDate: '1990-01-01',
+        })
+        .expect(201);
+      bulkPatientBId = (p3.body as Record<string, unknown>).id as string;
+    });
+
+    it('declara consentimiento para los propios y reporta el ajeno sin abortar el lote', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/patients/consents/bulk-declare')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .send({
+          patientIds: [bulkPatientAId1, bulkPatientAId2, bulkPatientBId],
+          purpose: 'TREATMENT',
+          evidence: 'Consentimiento en papel del expediente físico previo',
+        })
+        .expect(201);
+
+      expect(res.body).toEqual([
+        { patientId: bulkPatientAId1, ok: true },
+        { patientId: bulkPatientAId2, ok: true },
+        {
+          patientId: bulkPatientBId,
+          ok: false,
+          error: 'Paciente no encontrado',
+        },
+      ]);
+
+      const statusA1 = await request(app.getHttpServer())
+        .get(`/api/v1/patients/${bulkPatientAId1}/consents/status`)
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .expect(200);
+      expect(statusA1.body).toEqual({ TREATMENT: true, TELEMEDICINE: false });
+
+      const ledgerB = await prisma.patientConsent.findMany({
+        where: { patientId: bulkPatientBId },
+      });
+      expect(ledgerB.length).toBe(0);
+    });
+
+    it('rechaza evidence menor a 10 caracteres (400)', () => {
+      return request(app.getHttpServer())
+        .post('/api/v1/patients/consents/bulk-declare')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .send({
+          patientIds: [bulkPatientAId1],
+          purpose: 'TREATMENT',
+          evidence: 'corta',
+        })
+        .expect(400);
     });
   });
 });

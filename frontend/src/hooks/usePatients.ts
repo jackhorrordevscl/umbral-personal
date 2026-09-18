@@ -83,6 +83,25 @@ export function useUpdatePatient() {
   });
 }
 
+// Issue #131 (T5): declaración retroactiva en bloque.
+export function useBulkDeclareConsent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      patientIds,
+      purpose,
+      evidence,
+    }: {
+      patientIds: string[];
+      purpose: ConsentPurpose;
+      evidence: string;
+    }) => patientsApi.bulkDeclarePatientConsent(patientIds, purpose, evidence),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+    },
+  });
+}
+
 export function useDeletePatient() {
   const queryClient = useQueryClient();
   return useMutation({

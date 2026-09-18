@@ -11,6 +11,7 @@ import { PaymentsService } from '../payments/payments.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { RecordConsentDto } from './dto/record-consent.dto';
+import { BulkDeclareConsentDto } from './dto/bulk-declare-consent.dto';
 import { ConsentPurpose, Patient } from '@prisma/client';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 
@@ -301,6 +302,37 @@ export class PatientsService {
         evidence: dto.evidence,
       },
     });
+  }
+
+  // T5 (issue #131): declaración retroactiva en bloque para pacientes que
+  // ya estaban en tratamiento antes de este cambio. `assertAccess` dentro de
+  // `recordConsent` sigue corriendo por paciente -- nadie puede declarar
+  // consentimiento sobre un paciente que no es suyo solo por mandarlo en el
+  // mismo lote. Un id inválido/ajeno no aborta el resto del lote.
+  async bulkDeclareConsent(dto: BulkDeclareConsentDto, userId: string) {
+    const results: Array<{ patientId: string; ok: boolean; error?: string }> =
+      [];
+    for (const patientId of dto.patientIds) {
+      try {
+        await this.recordConsent(
+          patientId,
+          {
+            purpose: dto.purpose,
+            action: 'GRANT' as const,
+            evidence: dto.evidence,
+          },
+          userId,
+        );
+        results.push({ patientId, ok: true });
+      } catch (err) {
+        results.push({
+          patientId,
+          ok: false,
+          error: err instanceof Error ? err.message : 'Error desconocido',
+        });
+      }
+    }
+    return results;
   }
 
   async getConsentLedger(id: string, userId: string) {

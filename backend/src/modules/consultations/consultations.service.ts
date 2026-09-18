@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -96,6 +97,22 @@ export class ConsultationsService {
       dto.patientId,
       therapistId,
     );
+
+    // Issue #131 (Ley 20.584 Art. 14): el consentimiento informado debe
+    // existir antes de iniciar el tratamiento -- igual que el badge de la
+    // ficha (issue #27), cualquiera de las dos finalidades (presencial o
+    // telemedicina) habilita la consulta, sin importar el sessionType de
+    // esta sesión puntual.
+    const consentStatus = await this.patientsService.getConsentStatusMap([
+      dto.patientId,
+    ]);
+    const consent = consentStatus.get(dto.patientId);
+    if (!consent?.TREATMENT && !consent?.TELEMEDICINE) {
+      throw new ForbiddenException(
+        'El paciente no tiene un consentimiento informado vigente. Registra el consentimiento antes de crear la consulta.',
+      );
+    }
+
     const patientRut = dto.patientRut || patient.rut;
 
     // Se genera el id de antemano para que groupId (el identificador de la
@@ -279,6 +296,21 @@ export class ConsultationsService {
 
   async correct(id: string, dto: CorrectConsultationDto, therapistId: string) {
     const original = await this.findOne(id, therapistId);
+
+    // Issue #131: cubre el caso de createFromPublicBooking -- la reserva
+    // pública crea una Consultation placeholder sin contenido clínico real
+    // ("Pendiente de definir por el terapeuta"); correct() es el punto
+    // donde ese contenido clínico real se carga por primera vez, así que
+    // necesita el mismo guardrail que create().
+    const consentStatus = await this.patientsService.getConsentStatusMap([
+      original.patientId,
+    ]);
+    const consent = consentStatus.get(original.patientId);
+    if (!consent?.TREATMENT && !consent?.TELEMEDICINE) {
+      throw new ForbiddenException(
+        'El paciente no tiene un consentimiento informado vigente. Registra el consentimiento antes de corregir la consulta.',
+      );
+    }
 
     const alreadySuperseded = await this.prisma.consultation.findFirst({
       where: { correctsId: id },
