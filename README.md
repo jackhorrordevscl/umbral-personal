@@ -218,7 +218,9 @@ Password:  Umbral2024!
 
 **Backend ya desplegado y en producción** en Render:
 https://umbral-backend-uces.onrender.com/api/v1 (servicio `umbral-backend`,
-deploy automático en cada push a `main`). Stack: **backend en Render** (free
+auto-deploy desactivado a propósito para no gastar crédito del free tier con
+cada push — el deploy es manual desde el dashboard de Render). Stack:
+**backend en Render** (free
 tier, ver limitación de cold start más abajo), **frontend pensado para
 Vercel** (`vercel.json` ya en el repo, `rootDir: frontend/`), **Postgres
 gestionado en Supabase** (Supavisor/PgBouncer en modo transacción — la
