@@ -4,6 +4,7 @@ import { ThrottlerModule, ThrottlerModuleOptions } from '@nestjs/throttler';
 import { MailModule } from '../mail/mail.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PaymentsService } from './payments.service';
+import { PaymentReconciliationService } from './payment-reconciliation.service';
 import { PaymentAccountService } from './payment-account.service';
 import { PaymentsController } from './payments.controller';
 import { PaymentGatewayClient } from './payment-gateway.client';
@@ -139,6 +140,7 @@ export function buildPaymentsThrottlerOptions(
   controllers: [PaymentsController],
   providers: [
     PaymentsService,
+    PaymentReconciliationService,
     PaymentAccountService,
     PaymentCredentialCryptoService,
     FlowPaymentGatewayClient,

@@ -50,3 +50,13 @@ export const PAYMENT_RETURN_REDIRECT_PATH = '/api/v1/payments/return';
 // includes the global `api/v1` prefix (main.ts, app.setGlobalPrefix) because
 // Flow never goes through the same route pipeline as the frontend.
 export const PAYMENT_CONFIRM_PATH = '/api/v1/payments/confirm';
+
+// spec.md "Cancellation Preserves Paid Charges and Voids Pending Ones": the
+// only two states from which a charge can be cancelled -- a PAID charge
+// never enters this where, so updateMany() leaves it bit-for-bit identical
+// (same count-gated updateMany pattern as CalendarSyncService.
+// handleInvalidGrant). Shared by PaymentsService (cancelUnpaid,
+// cancelUnpaidForPatient, cancelPaymentRow, confirm, markPaid) and
+// PaymentReconciliationService (reconcilePendingPayments, markPaid via
+// PaymentsService) -- issue #137 extraction.
+export const CANCELLABLE_STATUSES = ['PENDING', 'LATE'] as const;
