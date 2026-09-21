@@ -17,6 +17,11 @@ export interface Profile {
   // servir la foto vieja cacheada por el browser tras un re-upload -- ver
   // AvatarCard en ProfilePage.tsx.
   avatarUpdatedAt: string | null;
+  // issue #155: mostrados en la autoagenda pública (PublicBookingPage.tsx)
+  // vía GET /public/therapists/:id/profile -- null si el terapeuta nunca los
+  // completó, igual criterio que avatarUpdatedAt.
+  bio: string | null;
+  specialty: string | null;
 }
 
 // PR2a (session-calendar-view, design.md "Decision: useProfile react-query

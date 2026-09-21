@@ -200,6 +200,61 @@ describe('ProfileService', () => {
     });
   });
 
+  // Issue #155: perfil público mostrado en la autoagenda. A diferencia de
+  // `name` (chequeo truthy), bio/specialty aceptan '' para permitir borrar
+  // lo ya cargado -- ver comentario en ProfileService.update.
+  describe('update — bio/specialty', () => {
+    it('persiste bio y specialty sin exigir currentPassword', async () => {
+      prisma.user.findFirst.mockResolvedValue(buildUser());
+      prisma.user.update.mockResolvedValue(
+        buildUser({
+          bio: 'Terapia cognitivo-conductual',
+          specialty: 'Ansiedad',
+        }),
+      );
+
+      const result = await service.update('user-1', {
+        bio: 'Terapia cognitivo-conductual',
+        specialty: 'Ansiedad',
+      });
+
+      expect(mockArgon2.verify).not.toHaveBeenCalled();
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: {
+          bio: 'Terapia cognitivo-conductual',
+          specialty: 'Ansiedad',
+        },
+        select: expect.objectContaining({ id: true }) as unknown as Record<
+          string,
+          boolean
+        >,
+      });
+      expect(result.bio).toBe('Terapia cognitivo-conductual');
+      expect(result.specialty).toBe('Ansiedad');
+    });
+
+    it('permite vaciar bio/specialty con string vacío (a diferencia de name)', async () => {
+      prisma.user.findFirst.mockResolvedValue(
+        buildUser({ bio: 'Vieja bio', specialty: 'Vieja specialty' }),
+      );
+      prisma.user.update.mockResolvedValue(
+        buildUser({ bio: '', specialty: '' }),
+      );
+
+      await service.update('user-1', { bio: '', specialty: '' });
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { bio: '', specialty: '' },
+        select: expect.objectContaining({ id: true }) as unknown as Record<
+          string,
+          boolean
+        >,
+      });
+    });
+  });
+
   describe('update — email delta diferido', () => {
     it('con currentPassword correcta, delega el cambio de email en EmailChangeService en vez de pisar `email`', async () => {
       prisma.user.findFirst

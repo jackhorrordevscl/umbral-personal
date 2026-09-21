@@ -3,8 +3,8 @@ import { useParams, useSearchParams } from 'react-router';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import PublicBookingForm from '../components/booking/PublicBookingForm';
 import ErrorBanner from '../components/ui/ErrorBanner';
-import { usePublicAvailability } from '../hooks/usePublicScheduling';
-import { getBookingCheckout } from '../api/publicScheduling';
+import { usePublicAvailability, usePublicTherapistProfile } from '../hooks/usePublicScheduling';
+import { getBookingCheckout, getPublicTherapistAvatarUrl } from '../api/publicScheduling';
 import {
   buildLocalISO,
   chileMonthGridRange,
@@ -46,6 +46,54 @@ function addMonths(view: ViewMonth, delta: number): ViewMonth {
   const year = view.year + Math.floor(zeroIndexed / 12);
   const month = ((zeroIndexed % 12) + 12) % 12 + 1;
   return { year, month };
+}
+
+function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
+// issue #155: se renderiza ANTES del bloque de agenda -- si el fetch del
+// perfil falla o sigue cargando, esta sección simplemente no aparece (return
+// null), nunca bloquea ni muestra un error que compita con el flujo de
+// reserva (spec: "booking debe seguir funcionando aunque el perfil no
+// cargue"). isLoading no se distingue de un perfil vacío a propósito: no
+// vale la pena un skeleton para algo puramente decorativo.
+function TherapistProfileHeader({ therapistId }: { therapistId: string }) {
+  const { data: profile, isError } = usePublicTherapistProfile(therapistId);
+
+  if (isError || !profile) return null;
+
+  return (
+    <div className="flex items-start gap-4 mb-6 pb-6 border-b border-slate-100">
+      {profile.hasAvatar ? (
+        <img
+          src={getPublicTherapistAvatarUrl(therapistId)}
+          alt={profile.name}
+          className="w-16 h-16 rounded-full object-cover flex-shrink-0"
+        />
+      ) : (
+        <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-medium flex-shrink-0">
+          {initials(profile.name)}
+        </div>
+      )}
+      <div className="min-w-0">
+        <p className="font-medium text-slate-800">{profile.name}</p>
+        {profile.specialty && (
+          <span className="inline-block mt-1 text-xs bg-sage-50 text-sage-700 px-2 py-0.5 rounded-full">
+            {profile.specialty}
+          </span>
+        )}
+        {profile.bio && (
+          <p className="text-sm text-slate-500 mt-2 whitespace-pre-line">{profile.bio}</p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // sdd/patient-self-scheduling PR 5 (tasks.md 5.2, public-scheduling Req:
@@ -202,6 +250,8 @@ export default function PublicBookingPage() {
   return (
     <div className="min-h-screen bg-slate-900 p-4 md:p-8">
       <div className="max-w-2xl mx-auto bg-cream-50 rounded-2xl p-6">
+        <TherapistProfileHeader therapistId={therapistId} />
+
         <h2 className="font-display text-2xl text-slate-900 mb-1">Agenda tu sesión</h2>
         <p className="text-slate-500 text-sm mb-6">
           Elige un horario disponible para reservar.
