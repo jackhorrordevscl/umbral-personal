@@ -15,6 +15,7 @@ import { RecordConsentDto } from './dto/record-consent.dto';
 import { BulkDeclareConsentDto } from './dto/bulk-declare-consent.dto';
 import { ConsentPurpose, Patient, Prisma } from '@prisma/client';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
+import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 
 function normalizeRut(rut: string): string {
   return rut.replace(/\./g, '').trim().toUpperCase();
@@ -110,12 +111,17 @@ export class PatientsService {
     const where = { therapistId: userId, deletedAt: null };
     const { page, pageSize } = pagination ?? {};
     const isPaginated = !!page && !!pageSize;
+    // issue #140: sin pagination, take usa el cap de seguridad en vez de
+    // quedar sin límite (ver UNPAGINATED_SAFETY_LIMIT).
+    const take = isPaginated ? pageSize : UNPAGINATED_SAFETY_LIMIT;
+    const skip = isPaginated ? (page - 1) * pageSize : undefined;
 
     const [patients, total] = await Promise.all([
       this.prisma.patient.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        ...(isPaginated ? { take: pageSize, skip: (page - 1) * pageSize } : {}),
+        take,
+        skip,
       }),
       isPaginated
         ? this.prisma.patient.count({ where })

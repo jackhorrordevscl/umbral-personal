@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { PaymentsService } from '../payments/payments.service';
+import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 
 function buildPatient(overrides: Partial<Patient> = {}): Patient {
   return {
@@ -147,6 +148,20 @@ describe('PatientsService', () => {
         TELEMEDICINE: false,
       });
       expect(prisma.patient.count).not.toHaveBeenCalled();
+    });
+
+    // issue #140: sin page/pageSize sigue devolviendo el array plano (no
+    // { data, total, ... }), pero ya no dispara un findMany() sin ningún
+    // límite -- aplica el cap de seguridad UNPAGINATED_SAFETY_LIMIT.
+    it('sin pagination aplica el cap de seguridad en vez de un findMany() sin límite', async () => {
+      prisma.patient.findMany.mockResolvedValue([]);
+      prisma.patientConsent.findMany.mockResolvedValue([]);
+
+      await service.findAll('therapist-1');
+
+      expect(prisma.patient.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: UNPAGINATED_SAFETY_LIMIT }),
+      );
     });
 
     it('con page/pageSize pagina con take/skip y devuelve total', async () => {
