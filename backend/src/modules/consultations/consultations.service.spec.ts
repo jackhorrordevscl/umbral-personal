@@ -366,7 +366,13 @@ describe('ConsultationsService', () => {
           'therapist-1',
         ),
       ).rejects.toThrow(ForbiddenException);
-      expect(prisma.$transaction).not.toHaveBeenCalled();
+      // Review R3-001 (issue #131): el chequeo de consentimiento ahora vive
+      // DENTRO de la transacción junto con la escritura (cierra la ventana
+      // de carrera), así que $transaction sí se invoca -- y su rollback
+      // implícito evita que quede algo escrito.
+      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(prisma.consultationHistory.create).not.toHaveBeenCalled();
+      expect(prisma.consultation.create).not.toHaveBeenCalled();
     });
 
     it('lanza 409 si la versión ya fue corregida', async () => {

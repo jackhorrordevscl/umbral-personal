@@ -472,6 +472,35 @@ describe('PatientsService', () => {
       ]);
     });
 
+    it('bulkDeclareConsent no filtra el mensaje de un error inesperado (review R3-002, issue #131)', async () => {
+      prisma.patient.findFirst
+        .mockResolvedValueOnce(buildPatient())
+        .mockResolvedValueOnce(buildPatient());
+      prisma.patientConsent.create
+        .mockResolvedValueOnce({ id: 'consent-x' })
+        .mockRejectedValueOnce(
+          new Error('connection terminated unexpectedly'),
+        );
+
+      const results = await service.bulkDeclareConsent(
+        {
+          patientIds: ['patient-1', 'patient-2'],
+          purpose: 'TREATMENT',
+          evidence: 'Consentimiento en papel del expediente físico previo',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(results).toEqual([
+        { patientId: 'patient-1', ok: true },
+        {
+          patientId: 'patient-2',
+          ok: false,
+          error: 'No se pudo registrar el consentimiento para este paciente.',
+        },
+      ]);
+    });
+
     it('getConsentLedger valida acceso antes de devolver el ledger completo', async () => {
       prisma.patient.findFirst.mockResolvedValue(null);
 

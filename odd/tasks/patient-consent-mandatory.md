@@ -60,5 +60,23 @@ Aprobado, 3 hallazgos no bloqueantes atendidos:
 
 Todo re-verificado tras las correcciones: backend 88/88 (unit+integración), e2e 17/17, frontend 128/128.
 
+### Segunda review (sobre el diff acumulado, ambos commits)
+Aprobado de nuevo, 5 hallazgos no bloqueantes — anotados, sin atender todavía:
+- **R3-001** (WARNING, `consultations.service.ts:101-116`): el chequeo de consentimiento y la escritura de la `Consultation` no están en la misma transacción — una revocación justo entre medio (carrera de concurrencia) no se detecta, la consulta se crea igual con datos stale.
+- **R3-002** (WARNING, `patients.service.ts:326-332`): `bulkDeclareConsent()` devuelve `err.message` tal cual al cliente. Solo probado el caso esperado (404); un error inesperado de DB podría filtrar detalle interno en la respuesta de un endpoint de datos de salud.
+- **R3-003** (SUGGESTION, `bulk-declare-consent.dto.ts:16-19`): `patientIds` sin límite de tamaño ni chequeo de duplicados — lote gigante puede colgar el request, un id repetido genera eventos GRANT duplicados en el ledger.
+- **R3-004** (SUGGESTION, `documents.service.ts:97-106`): si `recordConsent` falla durante el upload, la respuesta sigue siendo 2xx sin ninguna señal — el frontend no se entera en el momento de que el consentimiento no quedó registrado.
+- **R3-005** (SUGGESTION, `PatientsPage.tsx:276`): el revisor no pudo confirmar solo con el diff que `AlertCircle` esté importado (ícono preexistente en el archivo, probablemente OK, pero no verificable desde el diff).
+
+## Hallazgos de la segunda review — atendidos (WARNING)
+- **R3-001**: chequeo de consentimiento movido dentro de la misma transacción que la escritura de `Consultation`, en `create()` y `correct()` (`consultations.service.ts`) — cierra la ventana de carrera entre el chequeo y el insert. `getConsentStatusMap` ahora acepta un cliente de transacción opcional.
+- **R3-002**: `bulkDeclareConsent` (`patients.service.ts`) solo devuelve `err.message` cuando es una `HttpException` conocida; cualquier otro error se loguea server-side y responde un mensaje genérico, para no filtrar detalle interno de un endpoint de datos de salud.
+- R3-003, R3-004, R3-005 (SUGGESTION) quedan sin atender — no bloqueantes, anotados por si se retoma esta área.
+
+Verificado tras la corrección: type-check limpio, unitarios 604/604 (suite completa) + 65/65 específicos de `consultations`/`patients`, integración 14/14 y e2e de consentimiento 17/17 contra Postgres local.
+
+## Review RDD (candidato: fix R3-001/R3-002)
+Aprobada (`review-reliability`, riesgo medio, 180 líneas/5 archivos). Reconocida con `gentle-ai review acknowledge-approved` — autoridad quemada (`lineage review-fd484b95e0694763`).
+
 ## Próximo paso
-Todas las tareas (T1-T6) completas y verificadas, más los 3 hallazgos del review atendidos. Issue #131 listo para push/PR.
+Todas las tareas (T1-T6) completas y verificadas. Primera review: 3 hallazgos atendidos. Segunda review: los 2 WARNING (R3-001, R3-002) atendidos y con su propia review RDD aprobada; los 3 SUGGESTION quedan anotados sin atender. Issue #131 listo para push/PR cuando el usuario lo pida.
