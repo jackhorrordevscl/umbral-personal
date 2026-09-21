@@ -50,4 +50,55 @@ describe('BookPublicSlotDto', () => {
       true,
     );
   });
+
+  // issue #157: origin es opcional -- clientes viejos (o navegadores sin
+  // referrer) siguen pudiendo reservar sin mandarlo.
+  describe('origin', () => {
+    it('sigue siendo válido si origin está ausente', async () => {
+      const dto = plainToInstance(BookPublicSlotDto, {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: validPatient,
+      });
+      const errors = await validate(dto);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('acepta origin con source y referrer dentro de los límites', async () => {
+      const dto = plainToInstance(BookPublicSlotDto, {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: validPatient,
+        origin: { source: 'google', referrer: 'https://google.com/search' },
+      });
+      const errors = await validate(dto);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('rechaza origin.source con más de 120 caracteres', async () => {
+      const dto = plainToInstance(BookPublicSlotDto, {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: validPatient,
+        origin: { source: 'x'.repeat(121) },
+      });
+      const errors = await validate(dto);
+
+      const originErrors = errors.find((e) => e.property === 'origin');
+      expect(originErrors?.children?.some((c) => c.property === 'source')).toBe(
+        true,
+      );
+    });
+
+    it('rechaza origin.referrer con más de 500 caracteres', async () => {
+      const dto = plainToInstance(BookPublicSlotDto, {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: validPatient,
+        origin: { referrer: 'https://x.cl/' + 'y'.repeat(500) },
+      });
+      const errors = await validate(dto);
+
+      const originErrors = errors.find((e) => e.property === 'origin');
+      expect(
+        originErrors?.children?.some((c) => c.property === 'referrer'),
+      ).toBe(true);
+    });
+  });
 });

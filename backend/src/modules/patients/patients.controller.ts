@@ -39,6 +39,15 @@ export class PatientsController {
     return this.patientsService.findAll(user.id, query);
   }
 
+  // issue #157: agregación de origen de pacientes para el dashboard. Debe
+  // declararse ANTES de :id -- mismo hazard de wildcard documentado en
+  // ConsultationsController para "stats"/"range" (Nest matchea por orden de
+  // declaración y ':id' es un wildcard de un solo segmento).
+  @Get('stats/acquisition')
+  getAcquisitionStats(@CurrentUser() user: RequestUser) {
+    return this.patientsService.getAcquisitionStats(user.id);
+  }
+
   @Get(':id/history')
   getHistory(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.patientsService.getHistory(id, user.id);

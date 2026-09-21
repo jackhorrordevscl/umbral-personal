@@ -178,6 +178,13 @@ model Patient {
   // simplemente nunca genera cargo (design.md "Charge Amount Resolution and
   // Snapshot").
   defaultSessionAmount  Int?
+  // issue #157: origen de adquisición cuando el paciente se autocrea vía
+  // reserva pública (/book/:therapistId) -- null para pacientes creados
+  // manualmente por el terapeuta. acquisitionSource es la etiqueta derivada
+  // (utm_source, hostname del referrer, o "directo"); acquisitionReferrer
+  // guarda la URL cruda del referrer para detalle/debug.
+  acquisitionSource     String?
+  acquisitionReferrer   String?
 
   therapistId   String
   therapist     User              @relation(fields: [therapistId], references: [id])

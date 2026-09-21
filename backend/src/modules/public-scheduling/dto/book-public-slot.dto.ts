@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
-import { IsDateString, ValidateNested } from 'class-validator';
+import { IsDateString, IsOptional, ValidateNested } from 'class-validator';
 import { PublicBookingPatientDto } from './public-booking-patient.dto';
+import { PublicBookingOriginDto } from './public-booking-origin.dto';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.7): body de
 // POST .../availability/book -- slotStart debe ser uno de los `start`
@@ -16,4 +17,11 @@ export class BookPublicSlotDto {
   @ValidateNested()
   @Type(() => PublicBookingPatientDto)
   patient: PublicBookingPatientDto;
+
+  // issue #157: origen de adquisición (referrer + utm_source), opcional --
+  // ausente en clientes viejos o cuando el navegador no expone referrer.
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PublicBookingOriginDto)
+  origin?: PublicBookingOriginDto;
 }
