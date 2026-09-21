@@ -61,4 +61,4 @@ Se desinstaló `svix` (el diff neto de `package.json`/`package-lock.json` quedó
 - Frontend: `npm run test` (Vitest) en `frontend/`, `npm run lint`, `npm run build` (typecheck). **Verificados (T5), ver evidencia arriba.**
 
 ## Próximo paso
-Issue #163 completo (T1-T5), listo para abrir PR — el usuario decide si abrirlo ahora.
+Issue #163 completo (T1-T5). PR #166 abierto (`Closes #163`) contra `main`. Rama rebasada sobre `main` antes de abrir el PR para dejar el diff limpio (solo #163) tras detectar que arrastraba los commits ya squash-mergeados de #157 (PR #165) desde un punto viejo de `main`.
