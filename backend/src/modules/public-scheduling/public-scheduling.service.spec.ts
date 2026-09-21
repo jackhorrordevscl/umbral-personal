@@ -11,7 +11,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../availability/availability.service';
 import { PatientsService } from '../patients/patients.service';
 import { ConsultationsService } from '../consultations/consultations.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import {
+  NotificationsService,
+  CreateNotificationData,
+} from '../notifications/notifications.service';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.6, design.md "Data Flow"):
 // orquesta AvailabilityService.computeSlots (lectura + rewrite del recheck
@@ -28,7 +31,9 @@ describe('PublicSchedulingService', () => {
   let availabilityService: { computeSlots: jest.Mock };
   let patientsService: { resolveForPublicBooking: jest.Mock };
   let consultationsService: { createFromPublicBooking: jest.Mock };
-  let notificationsService: { create: jest.Mock };
+  let notificationsService: {
+    create: jest.Mock<Promise<unknown>, [CreateNotificationData]>;
+  };
 
   function buildService(
     enabled = true,
@@ -60,7 +65,11 @@ describe('PublicSchedulingService', () => {
     availabilityService = { computeSlots: jest.fn() };
     patientsService = { resolveForPublicBooking: jest.fn() };
     consultationsService = { createFromPublicBooking: jest.fn() };
-    notificationsService = { create: jest.fn().mockResolvedValue({}) };
+    notificationsService = {
+      create: jest
+        .fn<Promise<unknown>, [CreateNotificationData]>()
+        .mockResolvedValue({}),
+    };
     service = buildService(true);
   });
 
@@ -426,9 +435,8 @@ describe('PublicSchedulingService', () => {
           linkPath: '/patients',
         }),
       );
-      expect(notificationsService.create.mock.calls[0][0].body).toContain(
-        'Paciente Público',
-      );
+      const [call] = notificationsService.create.mock.calls[0];
+      expect(call.body).toContain('Paciente Público');
     });
 
     it('paciente existente (isNew: false) NO dispara ninguna notificación', async () => {

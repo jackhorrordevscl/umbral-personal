@@ -144,10 +144,11 @@ export class PublicSchedulingService {
       );
     }
 
-    const { patient, isNew } = await this.patientsService.resolveForPublicBooking(
-      therapistId,
-      dto.patient,
-    );
+    const { patient, isNew } =
+      await this.patientsService.resolveForPublicBooking(
+        therapistId,
+        dto.patient,
+      );
 
     // issue #139: un paciente NUEVO autocreado acá nunca tiene
     // defaultSessionAmount (ver resolveForPublicBooking), así que
