@@ -80,6 +80,15 @@ Chile, pero eso ya no es así:
   que el email transaccional de la fila 4 o si, por derivarse de un dato de
   salud, requiere la misma base habilitante que las filas 1-9. Pendiente de
   revisión legal, igual que el resto de esta sección.
+- El cobro en línea por sesión (fila 13) se procesa vía **Flow, cuya
+  infraestructura de checkout corre en AWS us-east-2 (Ohio, Estados
+  Unidos)** — verificado por DNS/rangos IP de AWS, ver evidencia más abajo
+  (issue #118) — pese a que la entidad contratante (Flow Pagos Chile SpA)
+  está domiciliada en Chile. Igual que con Resend/Google, el dato que
+  transita es del **paciente** (nombre, email, monto) pero no es dato
+  clínico, así que la base habilitante en discusión no es el consentimiento
+  informado de tratamiento sino la necesidad contractual de operar el cobro
+  de la sesión.
 
 Esto constituye una transferencia internacional de datos de salud, que la
 Ley 21.719 regula explícitamente (requiere alguna base habilitante: nivel de
@@ -119,16 +128,57 @@ públicas que los proveedores pueden actualizar):
   de subprocesadores en `resend.com/legal/subprocessors`. El alcance del
   DPA es amplio (EU SCCs/GDPR, UK SCCs, Suiza FADP, CCPA) pero, igual que
   con Backblaze, no menciona Chile ni la Ley 21.719 explícitamente.
+- **Google** (issue #117): `google-dpa-2026-09-21.pdf` — Cloud Data
+  Processing Addendum oficial (versión es-419, descargado directo de
+  `cloud.google.com/terms/data-processing-addendum`), que cubre Google
+  Workspace/Cloud Identity según su Appendix 4 (Specific Products). **Ojo**:
+  el DPA aplica a cuentas contratadas bajo un Acuerdo de Google
+  Workspace/Cloud Identity — no está confirmado que rija sobre una cuenta de
+  Google **personal/gratuita**, que es la que el terapeuta conecta hoy vía
+  OAuth (`calendar.events`, fila 11). Sigue pendiente de revisión legal si
+  el DPA aplica igual, o si una cuenta personal se rige solo por los
+  Términos de Servicio generales de Google (sin DPA formal), y cuál base
+  habilitante corresponde en ese caso.
+- **Flow** (issue #118): `flow-privacidad-2026-09-21.pdf` (Política de
+  Privacidad oficial, `flow.cl/docs/privacidad/`) +
+  `flow-terminos-condiciones-2026-09-21.html` (snapshot íntegro de
+  `web.flow.cl/es-cl/legal/` — Flow no publica sus Términos y Condiciones
+  como PDF descargable, a diferencia de Supabase/Backblaze/Resend/Google,
+  así que se capturó la página completa en vez de un PDF). Los T&C
+  confirman que las entidades que operan en Chile (**Flow Pagos Chile
+  SpA**, RUT 76.644.017-7, y **Flow Subadquirente**) están constituidas
+  conforme a la legislación chilena, domiciliadas en Santiago, y que "el
+  tratamiento de datos personales efectuado por las Entidades Flow
+  domiciliadas en Chile se regirá por la normativa chilena vigente en
+  materia de protección de datos". Pero **domicilio legal no es lo mismo
+  que ubicación física del procesamiento** — y verificado por separado
+  (2026-09-21), resulta ser lo contrario: los hosts que efectivamente usa
+  la integración (`sandbox.flow.cl/api`, el `DEFAULT_API_BASE_URL` de
+  `flow-gateway.client.ts`, y su equivalente de producción `www.flow.cl`)
+  resuelven a IPs de **AWS EC2 en la región `us-east-2` (Ohio, Estados
+  Unidos)** — confirmado cruzando la resolución DNS contra
+  `ip-ranges.amazonaws.com` (rangos IP oficiales publicados por AWS), y
+  corroborado por la cookie `AWSALB`/`AWSALBCORS` que ambos hosts
+  devuelven (firma de un Application Load Balancer de AWS). Esto es
+  evidencia técnica directa, no una declaración oficial de Flow, pero es
+  reproducible: cualquiera puede repetir la resolución DNS y el cruce
+  contra los rangos de AWS. **Conclusión**: la fila 13 **sí** constituye
+  una transferencia internacional de datos (mismo tratamiento que
+  Supabase/Backblaze/Resend), pese a que la entidad contratante esté
+  domiciliada en Chile.
 
 ## Pendientes conocidos
 
 - **Transferencia internacional de datos** — ver sección de arriba. Es el
-  pendiente más importante de este documento hoy. Incluye, desde esta
-  versión, la sincronización opcional con Google Calendar (fila 11):
-  falta recopilar evidencia del DPA de Google (mismo criterio que
-  `supabase-dpa-2026-08-03.pdf`/`resend-dpa-2026-08-04.pdf` en
-  `docs/evidencia-compliance/`) y resolver si aplica la base habilitante de
-  dato de salud o la de cuenta de profesional.
+  pendiente más importante de este documento hoy. Incluye la sincronización
+  opcional con Google Calendar (fila 11): la evidencia del DPA de Google ya
+  se recopiló (issue #117, `google-dpa-2026-09-21.pdf`), pero sigue sin
+  resolverse si aplica a una cuenta personal (no Workspace) del terapeuta, y
+  si corresponde la base habilitante de dato de salud o la de cuenta de
+  profesional. También incluye el cobro en línea por sesión (fila 13): ya
+  se confirmó que Flow procesa en AWS us-east-2, Estados Unidos (issue
+  #118) — falta la misma revisión legal de base habilitante que el resto de
+  esta sección.
 - **Firma electrónica avanzada** (filas 2 y 6, a futuro): la firma de cada
   consulta/corrección y el sello de tiempo en los PDF exportados dependen de
   elegir un proveedor acreditado por la Ley 19.799 — ver issues #24, #25, #26
@@ -141,11 +191,6 @@ públicas que los proveedores pueden actualizar):
   confirmada. Si legal determina que corresponde una finalidad separada de
   `TREATMENT`, agregar el member y el gate es un cambio aditivo que no
   altera ninguna otra decisión de este módulo.
-- **Ubicación de procesamiento de Flow (fila 13)**: no se recopiló evidencia
-  del DPA/ubicación de procesamiento de Flow S.A. (mismo criterio de
-  evidencia documentada que Supabase/Backblaze/Resend en
-  `docs/evidencia-compliance/`) — pendiente antes de poder afirmar si la
-  fila 13 constituye o no una transferencia internacional de datos.
 - **Consentimiento para pacientes autocreados vía auto-agenda pública**
   (fila 14): a diferencia de un paciente creado por un terapeuta
   autenticado, un paciente autocreado desde el formulario público de
