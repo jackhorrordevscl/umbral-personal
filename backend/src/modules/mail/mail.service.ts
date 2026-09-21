@@ -164,18 +164,25 @@ export class MailService {
   // y RemindersService igual crea la notificación in-app para ese mismo
   // (consultation, offset) sin bloquearse por esto (design.md "Channels
   // dispatch independently").
+  //
+  // issue #163: devuelve el id de Resend (o null si no se configuró
+  // RESEND_API_KEY, o si Resend respondió error) para que
+  // RemindersService.claimAndDispatch lo persista en
+  // ReminderDispatch.resendMessageId -- es la clave de correlación con el
+  // webhook de entrega/apertura (POST /webhooks/resend). El contrato "nunca
+  // lanza" se mantiene igual, solo cambia qué devuelve en éxito.
   async sendSessionReminderEmail(
     to: string,
     therapistName: string,
     patientFullName: string,
     when: Date,
     offsetLabel: string,
-  ): Promise<void> {
+  ): Promise<string | null> {
     if (!this.resend) {
       this.logger.warn(
         `RESEND_API_KEY no configurada: se salteó el recordatorio de sesión (${offsetLabel}) a ${maskEmail(to)}.`,
       );
-      return;
+      return null;
     }
 
     // Zona horaria fija a propósito (America/Santiago, mismo criterio que
@@ -187,7 +194,7 @@ export class MailService {
       timeStyle: 'short',
     }).format(when);
 
-    const { error } = await this.resend.emails.send({
+    const { data, error } = await this.resend.emails.send({
       from: this.from,
       to,
       subject: `Recordatorio de sesión en ${offsetLabel}`,
@@ -201,7 +208,10 @@ export class MailService {
       this.logger.error(
         `Falló el envío del recordatorio de sesión a ${maskEmail(to)}: ${error.message}`,
       );
+      return null;
     }
+
+    return data?.id ?? null;
   }
 
   // sdd/online-payment-integration PR 3 (T8.1): a diferencia del resto de

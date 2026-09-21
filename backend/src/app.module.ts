@@ -18,6 +18,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
 import { PublicSchedulingModule } from './modules/public-scheduling/public-scheduling.module';
 import { SharedFilesModule } from './shared-files/shared-files.module';
+import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -51,6 +52,10 @@ import { AppService } from './app.service';
     // PUBLIC_SCHEDULING_ENABLED (design.md "Migration / Rollout").
     PublicSchedulingModule,
     SharedFilesModule,
+    // issue #163: POST /webhooks/resend, público (Resend no manda JWT).
+    // Necesita req.rawBody (ver `rawBody: true` en main.ts) para verificar
+    // la firma Svix contra los bytes exactos del body.
+    WebhooksModule,
   ],
   controllers: [AppController],
   providers: [

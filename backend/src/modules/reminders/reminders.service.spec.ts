@@ -80,7 +80,7 @@ describe('RemindersService.scan', () => {
     };
     notificationsService = { create: jest.fn().mockResolvedValue(undefined) };
     mailService = {
-      sendSessionReminderEmail: jest.fn().mockResolvedValue(undefined),
+      sendSessionReminderEmail: jest.fn().mockResolvedValue(null),
     };
     // Ausente => habilitado por default (design.md, T4.5).
     config = { get: jest.fn().mockReturnValue(undefined) };
@@ -145,6 +145,45 @@ describe('RemindersService.scan', () => {
         data: expect.objectContaining({ status: 'SENT' }) as {
           status: string;
         },
+      }),
+    );
+  });
+
+  // issue #163: RemindersService.claimAndDispatch persiste el id devuelto
+  // por MailService.sendSessionReminderEmail en la misma actualización que
+  // marca el dispatch como SENT -- es la clave de correlación que el
+  // webhook de Resend (POST /webhooks/resend) usa para setear
+  // deliveredAt/openedAt más tarde.
+  it('persiste el resendMessageId devuelto por MailService en el update a SENT del canal EMAIL (issue #163)', async () => {
+    mailService.sendSessionReminderEmail.mockResolvedValue('resend-email-1');
+    const consultation = buildConsultation();
+    prisma.consultation.findMany.mockResolvedValue([consultation]);
+
+    await service.scan();
+
+    expect(prisma.reminderDispatch.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'SENT',
+          resendMessageId: 'resend-email-1',
+        }) as { status: string; resendMessageId: string },
+      }),
+    );
+  });
+
+  it('deja resendMessageId en null cuando MailService no pudo enviar (sin RESEND_API_KEY o error del proveedor, issue #163)', async () => {
+    mailService.sendSessionReminderEmail.mockResolvedValue(null);
+    const consultation = buildConsultation();
+    prisma.consultation.findMany.mockResolvedValue([consultation]);
+
+    await service.scan();
+
+    expect(prisma.reminderDispatch.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'SENT',
+          resendMessageId: null,
+        }) as { status: string; resendMessageId: null },
       }),
     );
   });

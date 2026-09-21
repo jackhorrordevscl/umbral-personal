@@ -8,7 +8,13 @@ import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter'
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true (issue #163): además del body ya parseado por Express,
+  // Nest guarda los bytes originales en req.rawBody -- WebhooksController
+  // (POST /webhooks/resend) lo necesita para verificar la firma Svix, que
+  // firma el body exacto que Resend envió, no una re-serialización. No
+  // afecta al resto de los endpoints: siguen recibiendo req.body parseado
+  // como siempre.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.use(helmet());
 

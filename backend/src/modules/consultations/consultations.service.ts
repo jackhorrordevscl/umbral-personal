@@ -11,6 +11,8 @@ import {
   CalendarSyncStatus,
   Consultation,
   Prisma,
+  ReminderChannel,
+  ReminderDispatchStatus,
   SessionType,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -43,6 +45,16 @@ const MAX_RANGE_SPAN_MS = MAX_RANGE_SPAN_DAYS * 24 * 60 * 60 * 1000;
 // consultReason/intervention/agreements/history a propósito -- una vista de
 // mes no debe sobre-exponer PHI clínico (design.md "Decision: Grid payload
 // excludes clinical narrative").
+// issue #163: estado del ReminderDispatch EMAIL más reciente por groupId --
+// null si nunca se despachó un recordatorio por email para esta consulta
+// (ver getReminderEmailStatusMap). deliveredAt/openedAt los setea el webhook
+// de Resend (WebhooksService.handleEvent), nunca esta clase.
+export interface ReminderEmailStatus {
+  status: ReminderDispatchStatus;
+  deliveredAt: string | null;
+  openedAt: string | null;
+}
+
 export interface CalendarSession {
   id: string;
   groupId: string;
@@ -51,6 +63,7 @@ export interface CalendarSession {
   patientId: string;
   patientName: string;
   calendarSync: CalendarSyncStatus | null;
+  reminderEmailStatus: ReminderEmailStatus | null;
 }
 
 @Injectable()
@@ -234,10 +247,18 @@ export class ConsultationsService {
       consultations.map((c) => c.groupId),
     );
 
+    // issue #163: mismo patrón anti-N+1 que paymentMap/historyMap -- una
+    // sola query para el estado de recordatorio por email de todas las
+    // consultas de esta página, en vez de una consulta por fila.
+    const reminderEmailStatusMap = await this.getReminderEmailStatusMap(
+      consultations.map((c) => c.groupId),
+    );
+
     const data = consultations.map((c) => ({
       ...c,
       history: historyMap.get(c.groupId) ?? [],
       payment: paymentMap.get(c.groupId) ?? null,
+      reminderEmailStatus: reminderEmailStatusMap.get(c.groupId) ?? null,
     }));
 
     return isPaginated ? { data, total, page, pageSize } : data;
@@ -442,15 +463,30 @@ export class ConsultationsService {
       consultations.map((c) => c.groupId),
     );
 
-    return consultations.map((c) => ({
-      id: c.id,
-      groupId: c.groupId,
-      sessionDate: c.sessionDate.toISOString(),
-      sessionType: c.sessionType,
-      patientId: c.patientId,
-      patientName: c.patient.fullName,
-      calendarSync: syncMap.get(c.groupId) ?? null,
-    }));
+    // issue #163: mismo patrón anti-N+1 que syncMap.
+    const reminderEmailStatusMap = await this.getReminderEmailStatusMap(
+      consultations.map((c) => c.groupId),
+    );
+
+    return consultations.map((c) => {
+      const reminderStatus = reminderEmailStatusMap.get(c.groupId);
+      return {
+        id: c.id,
+        groupId: c.groupId,
+        sessionDate: c.sessionDate.toISOString(),
+        sessionType: c.sessionType,
+        patientId: c.patientId,
+        patientName: c.patient.fullName,
+        calendarSync: syncMap.get(c.groupId) ?? null,
+        reminderEmailStatus: reminderStatus
+          ? {
+              status: reminderStatus.status,
+              deliveredAt: reminderStatus.deliveredAt?.toISOString() ?? null,
+              openedAt: reminderStatus.openedAt?.toISOString() ?? null,
+            }
+          : null,
+      };
+    });
   }
 
   // sdd/patient-self-scheduling PR 3 (tasks.md 3.5, design.md Decision 1
@@ -568,6 +604,55 @@ export class ConsultationsService {
 
     const map = new Map<string, CalendarSyncStatus>();
     for (const link of links) map.set(link.groupId, link.syncStatus);
+    return map;
+  }
+
+  // issue #163: ReminderDispatch no tiene FK a Consultation por groupId
+  // directamente consultable con un include -- una sola query extra
+  // mapeada por groupId, mismo patrón anti-N+1 que getPaymentMap/
+  // getSyncStatusMap. orderBy: createdAt desc + "solo setear la primera vez
+  // que se ve ese groupId" se queda con el dispatch EMAIL más reciente
+  // (a lo sumo hay uno por offset, pero puede haber varios offsets --
+  // H24/H2 -- para la misma consulta).
+  private async getReminderEmailStatusMap(groupIds: string[]): Promise<
+    Map<
+      string,
+      {
+        status: ReminderDispatchStatus;
+        deliveredAt: Date | null;
+        openedAt: Date | null;
+      }
+    >
+  > {
+    const map = new Map<
+      string,
+      {
+        status: ReminderDispatchStatus;
+        deliveredAt: Date | null;
+        openedAt: Date | null;
+      }
+    >();
+    if (groupIds.length === 0) return map;
+
+    const dispatches = await this.prisma.reminderDispatch.findMany({
+      where: { groupId: { in: groupIds }, channel: ReminderChannel.EMAIL },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        groupId: true,
+        status: true,
+        deliveredAt: true,
+        openedAt: true,
+      },
+    });
+
+    for (const dispatch of dispatches) {
+      if (map.has(dispatch.groupId)) continue;
+      map.set(dispatch.groupId, {
+        status: dispatch.status,
+        deliveredAt: dispatch.deliveredAt,
+        openedAt: dispatch.openedAt,
+      });
+    }
     return map;
   }
 }
