@@ -88,5 +88,6 @@ a través del límite de servicio).
 - `cd backend && npx tsc --noEmit` → sin salida, sin errores.
 - `cd backend && npm run build` → `nest build` completó sin errores.
 
-**Commit**: `refactor(payments): extraer PaymentReconciliationService de
-PaymentsService` (ver hash en el mensaje del reporte final de la tarea).
+**Commit**: `48cdac7` — `refactor(payments): extraer
+PaymentReconciliationService de PaymentsService` (rama
+`refactor/137-extract-payment-reconciliation-service`).
