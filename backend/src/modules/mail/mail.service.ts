@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
+import { maskEmail } from '../../common/utils/mask-email.util';
 
 @Injectable()
 export class MailService {
@@ -27,7 +28,7 @@ export class MailService {
   ): Promise<void> {
     if (!this.resend) {
       this.logger.warn(
-        `RESEND_API_KEY no configurada: se salteó el envío del email de verificación a ${to}.`,
+        `RESEND_API_KEY no configurada: se salteó el envío del email de verificación a ${maskEmail(to)}.`,
       );
       return;
     }
@@ -50,7 +51,7 @@ export class MailService {
       // reenviar verificación) sin perder el registro. Se deja constancia en
       // logs para que quede visible en monitoreo.
       this.logger.error(
-        `Falló el envío del email de verificación a ${to}: ${error.message}`,
+        `Falló el envío del email de verificación a ${maskEmail(to)}: ${error.message}`,
       );
     }
   }
@@ -62,7 +63,7 @@ export class MailService {
   ): Promise<void> {
     if (!this.resend) {
       this.logger.warn(
-        `RESEND_API_KEY no configurada: se salteó el envío del email de restablecimiento a ${to}.`,
+        `RESEND_API_KEY no configurada: se salteó el envío del email de restablecimiento a ${maskEmail(to)}.`,
       );
       return;
     }
@@ -83,7 +84,7 @@ export class MailService {
       // Mismo motivo que sendVerificationEmail: no se relanza como excepción
       // HTTP, forgotPassword ya respondió el mensaje genérico al cliente.
       this.logger.error(
-        `Falló el envío del email de restablecimiento a ${to}: ${error.message}`,
+        `Falló el envío del email de restablecimiento a ${maskEmail(to)}: ${error.message}`,
       );
     }
   }
@@ -97,7 +98,7 @@ export class MailService {
   ): Promise<void> {
     if (!this.resend) {
       this.logger.warn(
-        `RESEND_API_KEY no configurada: se salteó el envío del email de confirmación de cambio de email a ${to}.`,
+        `RESEND_API_KEY no configurada: se salteó el envío del email de confirmación de cambio de email a ${maskEmail(to)}.`,
       );
       return;
     }
@@ -116,7 +117,7 @@ export class MailService {
 
     if (error) {
       this.logger.error(
-        `Falló el envío del email de confirmación de cambio de email a ${to}: ${error.message}`,
+        `Falló el envío del email de confirmación de cambio de email a ${maskEmail(to)}: ${error.message}`,
       );
     }
   }
@@ -133,7 +134,7 @@ export class MailService {
   ): Promise<void> {
     if (!this.resend) {
       this.logger.warn(
-        `RESEND_API_KEY no configurada: se salteó el envío de la notificación de cambio de email a ${to}.`,
+        `RESEND_API_KEY no configurada: se salteó el envío de la notificación de cambio de email a ${maskEmail(to)}.`,
       );
       return;
     }
@@ -151,7 +152,7 @@ export class MailService {
 
     if (error) {
       this.logger.error(
-        `Falló el envío de la notificación de cambio de email a ${to}: ${error.message}`,
+        `Falló el envío de la notificación de cambio de email a ${maskEmail(to)}: ${error.message}`,
       );
     }
   }
@@ -172,7 +173,7 @@ export class MailService {
   ): Promise<void> {
     if (!this.resend) {
       this.logger.warn(
-        `RESEND_API_KEY no configurada: se salteó el recordatorio de sesión (${offsetLabel}) a ${to}.`,
+        `RESEND_API_KEY no configurada: se salteó el recordatorio de sesión (${offsetLabel}) a ${maskEmail(to)}.`,
       );
       return;
     }
@@ -198,7 +199,7 @@ export class MailService {
 
     if (error) {
       this.logger.error(
-        `Falló el envío del recordatorio de sesión a ${to}: ${error.message}`,
+        `Falló el envío del recordatorio de sesión a ${maskEmail(to)}: ${error.message}`,
       );
     }
   }
@@ -220,7 +221,7 @@ export class MailService {
   ): Promise<boolean> {
     if (!this.resend) {
       this.logger.warn(
-        `RESEND_API_KEY no configurada: se salteó el envío del link de pago a ${to}.`,
+        `RESEND_API_KEY no configurada: se salteó el envío del link de pago a ${maskEmail(to)}.`,
       );
       return false;
     }
@@ -244,7 +245,7 @@ export class MailService {
 
     if (error) {
       this.logger.error(
-        `Falló el envío del link de pago a ${to}: ${error.message}`,
+        `Falló el envío del link de pago a ${maskEmail(to)}: ${error.message}`,
       );
       return false;
     }
@@ -268,7 +269,7 @@ export class MailService {
   ): Promise<void> {
     if (!this.resend) {
       this.logger.warn(
-        `RESEND_API_KEY no configurada: se salteó el aviso de cobro vencido a ${to}.`,
+        `RESEND_API_KEY no configurada: se salteó el aviso de cobro vencido a ${maskEmail(to)}.`,
       );
       return;
     }
@@ -295,7 +296,7 @@ export class MailService {
 
     if (error) {
       this.logger.error(
-        `Falló el envío del aviso de cobro vencido a ${to}: ${error.message}`,
+        `Falló el envío del aviso de cobro vencido a ${maskEmail(to)}: ${error.message}`,
       );
     }
   }
