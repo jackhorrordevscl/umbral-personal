@@ -23,14 +23,19 @@ Primero de la lista de "quick wins" priorizada junto al usuario tras comparar Um
 - [x] T1 — Schema: agregar `acquisitionSource`/`acquisitionReferrer` a `Patient` + migración Prisma. Ruta: delegada (writer backend).
 - [x] T2 — Backend: `PublicBookingOriginDto`, extender `BookPublicSlotDto`, pasar `origin` por `PublicSchedulingService.book()` → `resolveForPublicBooking()`, persistir en creación. Tests de servicio/dto. Ruta: delegada (writer backend).
 - [x] T3 — Backend: `PatientsService.getAcquisitionStats(therapistId)` + `GET /patients/stats/acquisition` en el controller. Tests. Ruta: delegada (writer backend).
-- [ ] T4 — Frontend: capturar referrer/UTM en `PublicBookingPage.tsx`, pasar a `PublicBookingForm`, incluir en `bookPublicSlot` payload (`api/publicScheduling.ts`). Tests de form/page. Ruta: delegada (writer frontend).
-- [ ] T5 — Frontend: `api/patients.ts` (`getAcquisitionStats`), nueva sección "Origen de pacientes" en `DashboardPage.tsx`. Tests. Ruta: delegada (writer frontend).
+- [x] T4 — Frontend: capturar referrer/UTM en `PublicBookingPage.tsx`, pasar a `PublicBookingForm`, incluir en `bookPublicSlot` payload (`api/publicScheduling.ts`). Tests de form/page. Ruta: delegada (writer frontend).
+- [x] T5 — Frontend: `api/patients.ts` (`getAcquisitionStats`), nueva sección "Origen de pacientes" en `DashboardPage.tsx`. Tests. Ruta: delegada (writer frontend).
 
 ## Evidencia / commits
 - T1-T3 (backend): commit `feat(patients): rastrear origen de pacientes autoagendados` en `worktree-issue-157-patient-origin-tracking`.
   - Migración `20260921140000_add_patient_acquisition_source` generada con `prisma migrate diff` (shadow DB rota por RLS en `_prisma_migrations`, mismo bug conocido documentado en memoria) y aplicada con `prisma migrate deploy` contra el Postgres local en Docker.
   - Tests: `npx jest` (suite completa, con `DATABASE_URL`/`DIRECT_URL` seteadas para las specs de integración) → 656/656 OK. Subset `public-scheduling patients` → 76/76 OK.
   - Lint: `npm run lint` (eslint --fix) → sin errores.
+- T4-T5 (frontend): commit `feat(dashboard): mostrar desglose de pacientes por canal de origen` en `worktree-issue-157-patient-origin-tracking`.
+  - `node_modules` no estaba instalado en este worktree; se corrió `npm install` (376 paquetes) antes de poder testear.
+  - Tests: `npm run test` (Vitest, suite completa) → 134/134 OK. Subset `PublicBooking Dashboard` → 18/18 OK, incluye 3 tests nuevos en `DashboardPage.spec.tsx` (no existía antes, precedente sí existe para specs de página: `PatientsPage.spec.tsx`, `PublicBookingPage.spec.tsx`, etc.).
+  - Lint: `npm run lint` (eslint) → sin errores.
+  - Build: `npm run build` (`tsc -b && vite build`) → OK, sin errores de tipos.
 
 ## Checks aplicables
 - Backend: `npm run test` (Jest) en `backend/`, `npx prisma validate`.
