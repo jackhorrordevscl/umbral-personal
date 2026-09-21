@@ -19,6 +19,8 @@ export class EmailChangeController {
     'profile-update': true,
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Post('confirm')
   confirm(@Body() dto: ConfirmEmailChangeDto) {

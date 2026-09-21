@@ -1,10 +1,15 @@
 import { BadRequestException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { PaymentProvider } from '@prisma/client';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { PaymentAccountService } from './payment-account.service';
 import { PaymentGatewayRegistry } from './payment-gateway.registry';
 import { GatewayContext, GatewayCredentials } from './payment-gateway.client';
+
+// @nestjs/throttler no exporta THROTTLER_SKIP en su API pública -- ver el
+// mismo criterio en auth.controller.spec.ts.
+const THROTTLER_SKIP = 'THROTTLER:SKIP';
 
 // sdd/payments-multigateway-redesign (design.md "Webhook — after"): POST
 // /payments/confirm is public (no JwtAuthGuard) -- the module's primary
@@ -375,5 +380,83 @@ describe('PaymentsController', () => {
       );
       expect(res.redirect).toHaveBeenCalledWith(302, expect.any(String));
     });
+  });
+
+  // Issue #133: mismo criterio de exhaustividad que
+  // public-scheduling.controller.spec.ts (FOREIGN_THROTTLER_NAMES) --
+  // ThrottlerModule es @Global(), así que confirm/return deben saltear TODO
+  // throttler nombrado de otro módulo (AuthModule + ProfileModule) además de
+  // su propio hermano ('payment-return' para confirm, 'payment-confirm' para
+  // return), y nunca el suyo propio.
+  describe('exhaustividad de @SkipThrottle (throttlers ajenos a payments)', () => {
+    const reflector = new Reflector();
+    const foreignThrottlerNames = [
+      'login',
+      'mfa-verify',
+      'signup',
+      'mfa-setup',
+      'password-change',
+      'verify-email',
+      'resend-verification',
+      'password-reset',
+      'mfa-recover',
+      'public-availability',
+      'public-booking',
+      'profile-update',
+      'email-change-confirm',
+    ] as const;
+
+    it.each([
+      ['confirm', 'payment-return'] as const,
+      ['returnFromGatewayPost', 'payment-confirm'] as const,
+      ['returnFromGatewayGet', 'payment-confirm'] as const,
+    ])(
+      '%s saltea todos los throttlers ajenos y su hermano propio (%s)',
+      (methodName, ownSiblingName) => {
+        const handler = (
+          controller as unknown as Record<string, () => unknown>
+        )[methodName];
+
+        for (const name of foreignThrottlerNames) {
+          expect(
+            reflector.get<boolean | undefined>(THROTTLER_SKIP + name, handler),
+          ).toBe(true);
+        }
+        expect(
+          reflector.get<boolean | undefined>(
+            THROTTLER_SKIP + ownSiblingName,
+            handler,
+          ),
+        ).toBe(true);
+      },
+    );
+
+    it('confirm NO saltea "payment-confirm" -- es su propio throttler', () => {
+      const handler = (controller as unknown as Record<string, () => unknown>)
+        .confirm;
+
+      expect(
+        reflector.get<boolean | undefined>(
+          THROTTLER_SKIP + 'payment-confirm',
+          handler,
+        ),
+      ).toBeUndefined();
+    });
+
+    it.each(['returnFromGatewayPost', 'returnFromGatewayGet'] as const)(
+      '%s NO saltea "payment-return" -- es su propio throttler',
+      (methodName) => {
+        const handler = (
+          controller as unknown as Record<string, () => unknown>
+        )[methodName];
+
+        expect(
+          reflector.get<boolean | undefined>(
+            THROTTLER_SKIP + 'payment-return',
+            handler,
+          ),
+        ).toBeUndefined();
+      },
+    );
   });
 });

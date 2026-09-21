@@ -14,7 +14,12 @@ const THROTTLER_SKIP = 'THROTTLER:SKIP';
 // decorador, este test recorre los métodos reales del controller vía
 // Reflector -- si alguien agrega una ruta nueva con ThrottlerGuard y se
 // olvida uno de los dos nombres nuevos, este test falla.
-describe('AuthController — exhaustividad de @SkipThrottle (public-scheduling)', () => {
+//
+// Issue #133: 'payment-confirm'/'payment-return' (buildPaymentsThrottlerOptions
+// en payments.module.ts) son otro módulo satélite más registrando su propio
+// ThrottlerModule.forRootAsync -- mismo riesgo que public-scheduling, así que
+// se cubren en la misma lista en vez de un describe separado.
+describe('AuthController — exhaustividad de @SkipThrottle (public-scheduling, payments)', () => {
   const reflector = new Reflector();
   const controller = new AuthController({} as AuthService);
 
@@ -32,8 +37,15 @@ describe('AuthController — exhaustividad de @SkipThrottle (public-scheduling)'
     'recoverMfa',
   ] as const;
 
+  const foreignThrottlerNames = [
+    'public-availability',
+    'public-booking',
+    'payment-confirm',
+    'payment-return',
+  ] as const;
+
   it.each(throttledMethodNames)(
-    '%s saltea explícitamente public-availability y public-booking',
+    '%s saltea explícitamente public-availability, public-booking, payment-confirm y payment-return',
     (methodName) => {
       const handler = (controller as unknown as Record<string, () => unknown>)[
         methodName
@@ -42,17 +54,11 @@ describe('AuthController — exhaustividad de @SkipThrottle (public-scheduling)'
       // reflect-metadata bajo su propia clave 'THROTTLER:SKIP' + name (ver
       // SkipThrottle en throttler.decorator.js) -- de ahí la lectura por
       // clave compuesta en vez de un solo reflector.get() sobre un objeto.
-      const skipsAvailability = reflector.get<boolean | undefined>(
-        THROTTLER_SKIP + 'public-availability',
-        handler,
-      );
-      const skipsBooking = reflector.get<boolean | undefined>(
-        THROTTLER_SKIP + 'public-booking',
-        handler,
-      );
-
-      expect(skipsAvailability).toBe(true);
-      expect(skipsBooking).toBe(true);
+      for (const name of foreignThrottlerNames) {
+        expect(
+          reflector.get<boolean | undefined>(THROTTLER_SKIP + name, handler),
+        ).toBe(true);
+      }
     },
   );
 });

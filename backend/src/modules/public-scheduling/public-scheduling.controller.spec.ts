@@ -106,6 +106,11 @@ describe('PublicSchedulingController', () => {
       'mfa-recover',
       'profile-update',
       'email-change-confirm',
+      // Issue #133: 'payment-confirm'/'payment-return'
+      // (buildPaymentsThrottlerOptions en payments.module.ts) son otro
+      // módulo satélite más registrando su propio ThrottlerModule.forRootAsync.
+      'payment-confirm',
+      'payment-return',
     ] as const;
 
     it.each([

@@ -46,6 +46,11 @@ const FOREIGN_THROTTLER_NAMES = {
   'resend-verification': true,
   'profile-update': true,
   'email-change-confirm': true,
+  // Issue #133: 'payment-confirm'/'payment-return' (buildPaymentsThrottlerOptions
+  // en payments.module.ts) son otro módulo satélite más registrando su propio
+  // ThrottlerModule.forRootAsync -- mismo criterio que el resto de esta lista.
+  'payment-confirm': true,
+  'payment-return': true,
 } as const;
 
 @Controller('public/therapists/:therapistId/availability')

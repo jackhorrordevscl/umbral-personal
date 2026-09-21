@@ -13,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { ThrottlerGuard, SkipThrottle } from '@nestjs/throttler';
 import { PaymentsService } from './payments.service';
 import { PaymentAccountService } from './payment-account.service';
 import { PaymentGatewayRegistry } from './payment-gateway.registry';
@@ -27,6 +28,46 @@ import { UpdatePaymentAmountDto } from './dto/update-payment-amount.dto';
 import { ConfirmPaymentDto } from './dto/confirm-payment.dto';
 
 const CONFIRM_SIGNATURE_ERROR = 'Firma de confirmación inválida.';
+
+// Issue #133: throttlers ajenos que POST /confirm y GET|POST /return deben
+// saltear -- los de AuthModule/ProfileModule más el otro nombre propio de
+// este módulo, mismo criterio que FOREIGN_THROTTLER_NAMES en
+// public-scheduling.controller.ts (ThrottlerModule es @Global(), así que
+// cualquier throttler nombrado en cualquier módulo aplica acá salvo que se
+// saltee explícitamente).
+const PAYMENT_CONFIRM_SKIP = {
+  login: true,
+  'mfa-verify': true,
+  signup: true,
+  'mfa-setup': true,
+  'password-change': true,
+  'verify-email': true,
+  'resend-verification': true,
+  'password-reset': true,
+  'mfa-recover': true,
+  'public-availability': true,
+  'public-booking': true,
+  'profile-update': true,
+  'email-change-confirm': true,
+  'payment-return': true,
+} as const;
+
+const PAYMENT_RETURN_SKIP = {
+  login: true,
+  'mfa-verify': true,
+  signup: true,
+  'mfa-setup': true,
+  'password-change': true,
+  'verify-email': true,
+  'resend-verification': true,
+  'password-reset': true,
+  'mfa-recover': true,
+  'public-availability': true,
+  'public-booking': true,
+  'profile-update': true,
+  'email-change-confirm': true,
+  'payment-confirm': true,
+} as const;
 
 // design.md "REST" table + sequence "Connect account — after": POST
 // /account/validate is the wizard's paste step (no write, task 3.1/3.2) and
@@ -119,6 +160,14 @@ export class PaymentsController {
   // paymentsService.confirm (the only path to a Prisma write) --
   // design.md's preserved invariant: "no state is mutated and no mail is
   // sent before the signature verifies".
+  // Issue #133: sin JwtAuthGuard (es un webhook), pero eso no la eximía de
+  // rate limiting -- throttler propio ('payment-confirm', ver
+  // buildPaymentsThrottlerOptions en payments.module.ts). @SkipThrottle
+  // saltea TODOS los throttlers ajenos (los de AuthModule/ProfileModule más
+  // 'payment-return', la otra ruta pública de este módulo): ThrottlerModule
+  // es @Global(), mismo criterio que public-scheduling.controller.ts.
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle(PAYMENT_CONFIRM_SKIP)
   @Post('confirm')
   @HttpCode(200)
   async confirm(@Body() dto: ConfirmPaymentDto) {
@@ -156,6 +205,14 @@ export class PaymentsController {
   // (same tier as /confirm) because it never reads or mutates Payment state,
   // only resolves where to bounce the browser -- GET is kept alongside POST
   // as a safety net in case Flow ever redirects that way instead.
+  // Issue #133: redirect del browser del paciente, también público -- mismo
+  // criterio de throttling que confirm arriba, pero con su propio throttler
+  // nombrado ('payment-return') para no compartir presupuesto con el
+  // webhook server-to-server. GET y POST comparten el mismo nombre: son el
+  // mismo caso de uso (safety net de método HTTP, ver el comentario sobre
+  // returnFromGatewayPost/Get más abajo), no dos flujos distintos.
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle(PAYMENT_RETURN_SKIP)
   @Post('return')
   returnFromGatewayPost(
     @Body('token') token: string | undefined,
@@ -164,6 +221,8 @@ export class PaymentsController {
     res.redirect(302, this.paymentsService.resolveReturnRedirectUrl(token));
   }
 
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle(PAYMENT_RETURN_SKIP)
   @Get('return')
   returnFromGatewayGet(
     @Query('token') token: string | undefined,

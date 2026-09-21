@@ -49,6 +49,8 @@ export class AuthController {
     // suyo propio.
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Post('login')
   login(@Body() dto: LoginDto) {
@@ -72,6 +74,8 @@ export class AuthController {
     'resend-verification': true,
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Post('mfa/verify')
   verifyMfa(@Body() dto: VerifyMfaDto) {
@@ -93,6 +97,8 @@ export class AuthController {
     'resend-verification': true,
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Post('signup')
   signup(@Body() dto: SignupDto) {
@@ -117,6 +123,8 @@ export class AuthController {
     'resend-verification': true,
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Post('verify-email')
   verifyEmail(@Body() dto: VerifyEmailDto) {
@@ -143,6 +151,8 @@ export class AuthController {
     'mfa-recover': true,
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Post('verify-email/resend')
   resendVerification(@Body() dto: ResendVerificationDto) {
@@ -169,6 +179,8 @@ export class AuthController {
     'resend-verification': true,
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Post('mfa/setup/begin')
   beginMfaSetup(@Body() dto: MfaSetupBeginDto) {
@@ -187,6 +199,8 @@ export class AuthController {
     'resend-verification': true,
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Post('mfa/setup/confirm')
   confirmMfaSetup(@Body() dto: MfaSetupConfirmDto, @Req() req: Request) {
@@ -214,6 +228,8 @@ export class AuthController {
     'resend-verification': true,
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Post('password/change')
   changePassword(@Body() dto: ChangePasswordDto) {
@@ -237,6 +253,8 @@ export class AuthController {
     'resend-verification': true,
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Post('password/forgot')
   forgotPassword(@Body() dto: ForgotPasswordDto) {
@@ -255,6 +273,8 @@ export class AuthController {
     'resend-verification': true,
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Post('password/reset')
   resetPassword(@Body() dto: ResetPasswordDto) {
@@ -280,6 +300,8 @@ export class AuthController {
     'resend-verification': true,
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Post('mfa/recover')
   recoverMfa(@Body() dto: MfaRecoverDto) {

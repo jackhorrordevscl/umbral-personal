@@ -61,6 +61,8 @@ export class ProfileController {
     'email-change-confirm': true,
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Patch()
   update(@Body() dto: UpdateProfileDto, @CurrentUser() user: RequestUser) {
@@ -78,6 +80,8 @@ export class ProfileController {
     'email-change-confirm': true,
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Post('avatar')
   @UseInterceptors(
@@ -122,6 +126,8 @@ export class ProfileController {
     'email-change-confirm': true,
     'public-availability': true,
     'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
   })
   @Delete('avatar')
   deleteAvatar(@CurrentUser() user: RequestUser) {
