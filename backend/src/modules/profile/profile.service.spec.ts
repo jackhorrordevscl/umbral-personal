@@ -207,7 +207,10 @@ describe('ProfileService', () => {
     it('persiste bio y specialty sin exigir currentPassword', async () => {
       prisma.user.findFirst.mockResolvedValue(buildUser());
       prisma.user.update.mockResolvedValue(
-        buildUser({ bio: 'Terapia cognitivo-conductual', specialty: 'Ansiedad' }),
+        buildUser({
+          bio: 'Terapia cognitivo-conductual',
+          specialty: 'Ansiedad',
+        }),
       );
 
       const result = await service.update('user-1', {
