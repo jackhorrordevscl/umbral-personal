@@ -546,7 +546,7 @@ describe('PatientsService', () => {
         dto as never,
       );
 
-      expect(result).toBe(existing);
+      expect(result).toEqual({ patient: existing, isNew: false });
       expect(prisma.patient.findMany).toHaveBeenCalledWith({
         where: {
           therapistId: 'therapist-1',
@@ -568,7 +568,7 @@ describe('PatientsService', () => {
         dto as never,
       );
 
-      expect(result).toBe(created);
+      expect(result).toEqual({ patient: created, isNew: true });
       expect(prisma.patient.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           rut: '11111111-1',

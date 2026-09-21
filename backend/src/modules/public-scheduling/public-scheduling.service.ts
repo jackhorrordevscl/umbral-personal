@@ -7,7 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PaymentAccountStatus } from '@prisma/client';
+import { NotificationType, PaymentAccountStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   AvailabilityService,
@@ -15,6 +15,7 @@ import {
 } from '../availability/availability.service';
 import { PatientsService } from '../patients/patients.service';
 import { ConsultationsService } from '../consultations/consultations.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { DEFAULT_SESSION_MINUTES } from '../calendar-integration/calendar-integration.constants';
 import { PublicAvailabilityQueryDto } from './dto/public-availability-query.dto';
 import { BookPublicSlotDto } from './dto/book-public-slot.dto';
@@ -56,6 +57,7 @@ export class PublicSchedulingService {
     private readonly availabilityService: AvailabilityService,
     private readonly patientsService: PatientsService,
     private readonly consultationsService: ConsultationsService,
+    private readonly notificationsService: NotificationsService,
   ) {
     this.enabled =
       this.config.get<string>('PUBLIC_SCHEDULING_ENABLED') === 'true';
@@ -142,10 +144,33 @@ export class PublicSchedulingService {
       );
     }
 
-    const patient = await this.patientsService.resolveForPublicBooking(
+    const { patient, isNew } = await this.patientsService.resolveForPublicBooking(
       therapistId,
       dto.patient,
     );
+
+    // issue #139: un paciente NUEVO autocreado acá nunca tiene
+    // defaultSessionAmount (ver resolveForPublicBooking), así que
+    // ensureCharge() no va a generar cargo para su primera sesión -- fire-and
+    // -forget (mismo patrón que emitPaymentCharge en
+    // ConsultationsService), nunca debe agregar latencia ni poder fallar la
+    // reserva. No se genera cobro automático acá: solo se avisa al
+    // terapeuta para que complete el monto manualmente.
+    if (isNew) {
+      void this.notificationsService
+        .create({
+          userId: therapistId,
+          type: NotificationType.PATIENT_MISSING_SESSION_AMOUNT,
+          title: 'Nuevo paciente sin monto de sesión configurado',
+          body: `${patient.fullName} se autoagendó por primera vez. No se generará cobro hasta que definas el monto de sesión en su ficha.`,
+          linkPath: '/patients',
+        })
+        .catch((err: unknown) => {
+          this.logger.error(
+            `Fallo no bloqueante al notificar paciente sin defaultSessionAmount (patientId=${patient.id}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+    }
 
     const consultation =
       await this.consultationsService.createFromPublicBooking(
@@ -177,13 +202,19 @@ export class PublicSchedulingService {
   // (NOT_APPLICABLE), sin agregar ni un tick de latencia a la respuesta de
   // reserva.
   //
-  // known-issue (design.md Open Questions, tasks.md 6.4): un paciente
-  // público NUEVO (autocreado por resolveForPublicBooking) nunca tiene
-  // defaultSessionAmount -- PatientsService lo excluye a propósito de la
-  // creación pública (ver public-booking-patient.dto.ts) -- así que cae acá
-  // en NOT_APPLICABLE por monto no resolvible y ensureCharge() jamás genera
-  // un cargo para él. Solo un paciente YA existente (matcheado por email)
-  // puede llegar a PENDING. Fuera de alcance resolverlo en esta release.
+  // issue #139 (resuelto vía notificación, ya NO es un caso silencioso sin
+  // mitigar): un paciente público NUEVO (autocreado por
+  // resolveForPublicBooking) nunca tiene defaultSessionAmount --
+  // PatientsService lo excluye a propósito de la creación pública (ver
+  // public-booking-patient.dto.ts) -- así que sigue cayendo acá en
+  // NOT_APPLICABLE por monto no resolvible y ensureCharge() sigue sin
+  // generar un cargo para él. Eso no cambia: no se generó cobro automático
+  // en la primera reserva a propósito (decisión de producto). Lo que sí
+  // cambia es que book() ahora dispara una notificación al terapeuta
+  // (PATIENT_MISSING_SESSION_AMOUNT) cuando esto ocurre, para que complete
+  // el monto manualmente antes de la primera sesión -- ya no es revenue
+  // perdido en silencio. Solo un paciente YA existente (matcheado por
+  // email) puede llegar a PENDING acá.
   private async resolveCheckoutHint(
     therapistId: string,
     defaultSessionAmount: number | null,

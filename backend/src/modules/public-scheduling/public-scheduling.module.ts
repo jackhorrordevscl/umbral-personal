@@ -6,6 +6,7 @@ import { AvailabilityModule } from '../availability/availability.module';
 import { PatientsModule } from '../patients/patients.module';
 import { ConsultationsModule } from '../consultations/consultations.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 // sdd/patient-self-scheduling PR 3 (design.md "Technical Approach"):
 // importa AvailabilityModule + PatientsModule + ConsultationsModule -- sin
@@ -20,12 +21,18 @@ import { PaymentsModule } from '../payments/payments.module';
 // exponer GET .../checkout (findCheckoutForBooking, PR 4.1). PaymentsModule
 // no importa ni consultations ni public-scheduling (ver
 // payments.module.ts), así que tampoco hay ciclo acá.
+//
+// issue #139: importa NotificationsModule para que book() pueda notificar
+// al terapeuta cuando el paciente autocreado no tiene defaultSessionAmount.
+// NotificationsModule no importa public-scheduling (mismo criterio que los
+// demás imports de este módulo), así que tampoco hay ciclo.
 @Module({
   imports: [
     AvailabilityModule,
     PatientsModule,
     ConsultationsModule,
     PaymentsModule,
+    NotificationsModule,
   ],
   controllers: [PublicSchedulingController],
   providers: [PublicSchedulingService, PublicScheduleThrottlerGuard],

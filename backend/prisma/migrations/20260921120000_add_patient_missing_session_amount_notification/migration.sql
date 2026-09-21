@@ -1,0 +1,12 @@
+-- Issue #139: nuevo miembro del enum "NotificationType" para notificar al
+-- terapeuta cuando PublicSchedulingService.book() autocrea un paciente sin
+-- defaultSessionAmount (ver comentario en schema.prisma).
+--
+-- Generada a mano (no vía `prisma migrate dev`): la shadow DB que ese
+-- comando recrea desde cero no puede replayar
+-- 20260812150000_enable_rls_prisma_migrations (ALTER TABLE
+-- "_prisma_migrations" ENABLE ROW LEVEL SECURITY) y falla con P3006/P1014
+-- antes de llegar a esta migración -- problema preexistente del entorno de
+-- shadow DB, no de este cambio. Aplicada con `prisma db execute` contra la
+-- base real y registrada con `prisma migrate resolve --applied`.
+ALTER TYPE "NotificationType" ADD VALUE 'PATIENT_MISSING_SESSION_AMOUNT';

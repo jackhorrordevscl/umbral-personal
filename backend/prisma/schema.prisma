@@ -431,6 +431,13 @@ enum NotificationType {
   // miembro existe desde PR 1 junto con el resto del schema aditivo aunque
   // todavía no lo emite nadie.
   PAYMENT_LATE
+  // issue #139: emitida cuando PublicSchedulingService.book() autocrea un
+  // paciente nuevo vía reserva pública -- ese paciente nunca tiene
+  // defaultSessionAmount (PatientsService.resolveForPublicBooking lo excluye
+  // a propósito), así que ensureCharge() no genera cargo para su primera
+  // sesión. Notifica al terapeuta para que complete el monto manualmente en
+  // vez de perder ese revenue en silencio.
+  PATIENT_MISSING_SESSION_AMOUNT
 }
 
 // sdd/session-reminders PR 2: log de despachos de recordatorios, uno por
