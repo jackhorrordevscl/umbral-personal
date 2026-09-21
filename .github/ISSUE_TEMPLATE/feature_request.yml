@@ -1,0 +1,46 @@
+name: Feature Request
+description: Proponer una funcionalidad nueva o mejora de producto
+labels: ["enhancement", "feature"]
+body:
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Prioridad
+      options:
+        - Alta
+        - Media
+        - Baja
+    validations:
+      required: true
+  - type: dropdown
+    id: cost
+    attributes:
+      label: Costo estimado
+      options:
+        - Free tier (sin gasto nuevo)
+        - Requiere evaluación de costo
+        - Costo real confirmado
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Descripción
+      description: Qué se propone construir y qué problema resuelve.
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: Referencia / inspiración
+      description: Link, competidor, o hallazgo que originó la propuesta.
+      render: markdown
+    validations:
+      required: false
+  - type: textarea
+    id: scope
+    attributes:
+      label: Alcance propuesto
+      description: Qué módulos/archivos toca, a alto nivel.
+    validations:
+      required: false
