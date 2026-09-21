@@ -5,21 +5,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import { NotificationType, Payment } from '@prisma/client';
+import { Payment } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GatewayContext } from './payment-gateway.client';
 import { PaymentGatewayRegistry } from './payment-gateway.registry';
 import { PaymentAccountService } from './payment-account.service';
 import { MailService } from '../mail/mail.service';
-import { NotificationsService } from '../notifications/notifications.service';
 import {
+  CANCELLABLE_STATUSES,
   PAYMENT_CONFIRM_PATH,
   PAYMENT_RETURN_PATH,
   PAYMENT_RETURN_REDIRECT_PATH,
-  RECONCILE_MIN_AGE_MS,
-  SWEEP_BATCH_LIMIT,
-  SWEEP_CONCURRENCY,
 } from './payments.constants';
 
 const DEFAULT_FRONTEND_URL = 'http://localhost:5173';
@@ -29,13 +25,6 @@ const DEFAULT_FRONTEND_URL = 'http://localhost:5173';
 const DEFAULT_BACKEND_URL = 'http://localhost:3001';
 const DEFAULT_CURRENCY = 'CLP';
 const CHARGE_SUBJECT = 'Sesión clínica';
-
-// spec.md "Cancellation Preserves Paid Charges and Voids Pending Ones": the
-// only two states from which a charge can be cancelled -- a PAID charge
-// never enters this where, so updateMany() leaves it bit-for-bit identical
-// (same count-gated updateMany pattern as CalendarSyncService.
-// handleInvalidGrant).
-const CANCELLABLE_STATUSES = ['PENDING', 'LATE'] as const;
 
 // Mismo criterio duck-typed que EmailChangeService.isUniqueConstraintError
 // (email-change.service.ts) -- evita acoplar este archivo al tipo exacto de
@@ -79,7 +68,6 @@ export class PaymentsService {
     private gatewayRegistry: PaymentGatewayRegistry,
     private config: ConfigService,
     private mailService: MailService,
-    private notificationsService: NotificationsService,
   ) {
     // Absent => enabled by default, same criterion as
     // RemindersService/CalendarSyncService -- only an explicit "false"
@@ -668,136 +656,6 @@ export class PaymentsService {
     }
   }
 
-  // T6.1-6.2 + design.md "Data Flow": same shape as
-  // CalendarSyncService.reconcile -- two independent passes.
-  // @nestjs/schedule's EVERY_30_MINUTES covers exactly the cadence from
-  // design.md ("@Cron(EVERY_30_MINUTES) sweep()"). design.md Decision 2:
-  // the gateway context each candidate needs is resolved per payment and
-  // memoized in a Map local to this one run (keyed by therapistId), so two
-  // pending charges owned by the same therapist in the same sweep tick only
-  // decrypt once -- the map is discarded when sweep() returns, no
-  // long-lived plaintext cache.
-  @Cron(CronExpression.EVERY_30_MINUTES)
-  async sweep(): Promise<void> {
-    if (!this.enabled) return;
-
-    const contextCache = new Map<string, Promise<GatewayContext | null>>();
-    await this.transitionLatePayments();
-    await this.reconcilePendingPayments(contextCache);
-  }
-
-  // T8.4 + design.md "Data Flow": unlike PR 2 (bulk updateMany, no
-  // notifications), this PR needs to know WHICH rows won the transition to
-  // fire the email + notification exactly once per charge -- same
-  // bounded-concurrency batch shape (runInBatches, issue #115) as
-  // reconcilePendingPayments/reconcileOne. Batched to SWEEP_BATCH_LIMIT for
-  // the same reason as pass 2 (row cap per cron run). This pass never calls
-  // the gateway, so it needs no gateway context at all.
-  private async transitionLatePayments(): Promise<void> {
-    const candidates = await this.prisma.payment.findMany({
-      where: { status: 'PENDING', dueDate: { lte: new Date() } },
-      take: SWEEP_BATCH_LIMIT,
-    });
-
-    await this.runInBatches(candidates, (payment) =>
-      this.transitionOneToLate(payment).catch((err: unknown) => {
-        this.logger.error(
-          `Sweep: fallo al transicionar a LATE paymentId=${payment.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }),
-    );
-  }
-
-  // design.md "PENDING -> LATE is a stored transition, not computed" + "The
-  // Payment row IS the claim -- no ReminderDispatch-style table needed":
-  // the same count-gated updateMany as the rest of the module (id + status:
-  // 'PENDING' in the WHERE) decides who "wins" the transition -- 1 row
-  // affected fires exactly one email + one in-app notification (spec.md
-  // "One-Shot Late-Payment Notification"); 0 rows (already transitioned by
-  // another tick/instance, or the charge was paid/cancelled between the
-  // findMany and this update) is a silent no-op, WITHOUT notifying again
-  // (T10.3: "a second tick emits none"). lateNotifiedAt is persisted in the
-  // same write that wins the race -- "already transitioned" and "already
-  // notified" are the same atomic fact.
-  private async transitionOneToLate(payment: Payment): Promise<void> {
-    const result = await this.prisma.payment.updateMany({
-      where: { id: payment.id, status: 'PENDING' },
-      data: { status: 'LATE', lateNotifiedAt: new Date() },
-    });
-    if (result.count === 0) return;
-
-    const patient = await this.prisma.patient.findUnique({
-      where: { id: payment.patientId },
-      select: { email: true, fullName: true },
-    });
-    if (!patient) return;
-
-    if (patient.email) {
-      await this.mailService.sendLatePaymentEmail(
-        patient.email,
-        patient.fullName,
-        payment.amount,
-        payment.dueDate,
-      );
-    }
-
-    await this.notificationsService.create({
-      userId: payment.therapistId,
-      type: NotificationType.PAYMENT_LATE,
-      title: 'Cobro vencido',
-      body: `El cobro de la sesión con ${patient.fullName} venció sin pago.`,
-      linkPath: `/consultations?patientId=${payment.patientId}`,
-    });
-  }
-
-  // T6.2: reconciliation of missed callbacks -- candidates whose token was
-  // issued more than RECONCILE_MIN_AGE_MS ago, batched to
-  // SWEEP_BATCH_LIMIT per run (same bounded-reconcile pattern as
-  // CalendarSyncService.repairFailedLinks/backfill). Each candidate requires
-  // one network call to Flow (gateway.getOrderStatus) -- runInBatches
-  // (issue #115) runs up to SWEEP_CONCURRENCY of those concurrently, and an
-  // isolated failure (per-item .catch below) never aborts the rest of the
-  // batch.
-  private async reconcilePendingPayments(
-    contextCache: Map<string, Promise<GatewayContext | null>>,
-  ): Promise<void> {
-    const cutoff = new Date(Date.now() - RECONCILE_MIN_AGE_MS);
-    const candidates = await this.prisma.payment.findMany({
-      where: {
-        status: { in: [...CANCELLABLE_STATUSES] },
-        gatewayToken: { not: null },
-        orderIssuedAt: { lte: cutoff },
-      },
-      take: SWEEP_BATCH_LIMIT,
-    });
-
-    await this.runInBatches(candidates, (payment) =>
-      this.reconcileOne(payment, contextCache).catch((err: unknown) => {
-        this.logger.error(
-          `Sweep: fallo al reconciliar paymentId=${payment.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }),
-    );
-  }
-
-  // issue #115: transitionLatePayments()/reconcilePendingPayments() ran
-  // their candidates fully sequentially, one DB/mail write or Flow round
-  // trip at a time -- with up to SWEEP_BATCH_LIMIT (200) candidates, that
-  // serializes the cron's duration on gateway latency. Per-item failure
-  // isolation already comes from each candidate's own .catch (passed in by
-  // the caller, never rejects here), not from running one at a time, so a
-  // bounded worker pool is safe: SWEEP_CONCURRENCY candidates processed
-  // concurrently per chunk, chunks run one after another.
-  private async runInBatches<T>(
-    items: T[],
-    handler: (item: T) => Promise<void>,
-  ): Promise<void> {
-    for (let i = 0; i < items.length; i += SWEEP_CONCURRENCY) {
-      const chunk = items.slice(i, i + SWEEP_CONCURRENCY);
-      await Promise.all(chunk.map((item) => handler(item)));
-    }
-  }
-
   // design.md Decision 2: resolves through the run-scoped memo cache
   // instead of calling PaymentAccountService.resolveGatewayContext (which
   // decrypts) on every candidate -- an account with several stale charges
@@ -823,35 +681,17 @@ export class PaymentsService {
     return cache.get(therapistId)!;
   }
 
-  private async reconcileOne(
-    payment: Payment,
-    contextCache: Map<string, Promise<GatewayContext | null>>,
-  ): Promise<void> {
-    if (!payment.gatewayToken) return;
-
-    const context = await this.resolveContextMemoized(
-      payment.therapistId,
-      contextCache,
-    );
-    if (!context) return;
-
-    const orderStatus = await this.gatewayRegistry
-      .get(context.provider)
-      .getOrderStatus(context.credentials, payment.gatewayToken);
-    if (orderStatus.status !== 'PAID') return;
-
-    await this.markPaid(payment.id, orderStatus.gatewayPaymentId);
-  }
-
-  // issue #114: confirm() (webhook callback) y reconcileOne() (sweep de
-  // reconciliación) transicionaban a PAID con el mismo bloque updateMany
-  // copiado en los dos lugares -- el gate CANCELLABLE_STATUSES en el where
-  // es la misma garantía de idempotencia documentada en el comentario de
-  // confirm() (una charge ya PAID o CANCELLED queda fuera del where, así
-  // que un webhook repetido o una reconciliación tardía nunca la reabren).
-  // Centralizado acá para que ambos caminos no puedan divergir si uno se
-  // corrige y el otro se olvida.
-  private async markPaid(
+  // issue #114: confirm() (webhook callback) y reconcileOne()
+  // (PaymentReconciliationService, issue #137) transicionaban a PAID con el
+  // mismo bloque updateMany copiado en los dos lugares -- el gate
+  // CANCELLABLE_STATUSES en el where es la misma garantía de idempotencia
+  // documentada en el comentario de confirm() (una charge ya PAID o
+  // CANCELLED queda fuera del where, así que un webhook repetido o una
+  // reconciliación tardía nunca la reabren). Centralizado acá para que
+  // ambos caminos no puedan divergir si uno se corrige y el otro se olvida.
+  // Público porque PaymentReconciliationService lo invoca desde
+  // reconcileOne() -- ya no es una llamada interna únicamente.
+  async markPaid(
     paymentId: string,
     gatewayPaymentId: string | undefined,
   ): Promise<void> {

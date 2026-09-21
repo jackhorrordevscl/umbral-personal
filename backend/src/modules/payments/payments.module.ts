@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { MailModule } from '../mail/mail.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PaymentsService } from './payments.service';
+import { PaymentReconciliationService } from './payment-reconciliation.service';
 import { PaymentAccountService } from './payment-account.service';
 import { PaymentsController } from './payments.controller';
 import { PaymentGatewayClient } from './payment-gateway.client';
@@ -40,6 +41,7 @@ import { PaymentCredentialCryptoService } from './payment-credential-crypto.serv
   controllers: [PaymentsController],
   providers: [
     PaymentsService,
+    PaymentReconciliationService,
     PaymentAccountService,
     PaymentCredentialCryptoService,
     FlowPaymentGatewayClient,
