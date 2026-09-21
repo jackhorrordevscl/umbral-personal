@@ -39,7 +39,11 @@ function buildFile(
 describe('DocumentsService', () => {
   let service: DocumentsService;
   let prisma: {
-    patientDocument: { create: jest.Mock; findMany: jest.Mock; findUnique: jest.Mock };
+    patientDocument: {
+      create: jest.Mock;
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
+    };
   };
   let patientsService: {
     assertAccess: jest.Mock;

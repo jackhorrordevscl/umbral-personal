@@ -92,9 +92,11 @@ describe('ConsultationsService', () => {
       assertAccess: jest
         .fn()
         .mockResolvedValue({ id: 'patient-1', rut: '11111111-1' }),
-      getConsentStatusMap: jest.fn().mockResolvedValue(
-        new Map([['patient-1', { TREATMENT: true, TELEMEDICINE: false }]]),
-      ),
+      getConsentStatusMap: jest
+        .fn()
+        .mockResolvedValue(
+          new Map([['patient-1', { TREATMENT: true, TELEMEDICINE: false }]]),
+        ),
     };
     calendarSync = { syncGroup: jest.fn().mockResolvedValue(undefined) };
     paymentsService = {

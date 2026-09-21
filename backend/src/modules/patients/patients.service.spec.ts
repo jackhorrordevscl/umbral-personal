@@ -478,9 +478,7 @@ describe('PatientsService', () => {
         .mockResolvedValueOnce(buildPatient());
       prisma.patientConsent.create
         .mockResolvedValueOnce({ id: 'consent-x' })
-        .mockRejectedValueOnce(
-          new Error('connection terminated unexpectedly'),
-        );
+        .mockRejectedValueOnce(new Error('connection terminated unexpectedly'));
 
       const results = await service.bulkDeclareConsent(
         {
