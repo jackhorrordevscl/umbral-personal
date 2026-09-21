@@ -249,9 +249,15 @@ model Consultation {
   history            ConsultationHistory[]
   reminderDispatches ReminderDispatch[]
 
+  // issue #135: computeSlots (availability.service.ts) y findByRange
+  // (consultations.service.ts) filtran siempre therapistId + sessionDate en
+  // rango -- el índice simple [therapistId] no cubre ese predicado
+  // eficientemente y, con versionado inmutable, la tabla crece sin límite
+  // por terapeuta. El compuesto reemplaza al simple (leftmost prefix: sigue
+  // cubriendo cualquier query que filtre solo por therapistId).
   @@index([groupId])
   @@index([patientId])
-  @@index([therapistId])
+  @@index([therapistId, sessionDate])
 }
 
 enum SessionType {
