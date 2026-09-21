@@ -6,6 +6,7 @@ import ErrorBanner from '../components/ui/ErrorBanner';
 import FormField from '../components/ui/FormField';
 import ConsultationForm from '../components/consultations/ConsultationForm';
 import PaymentStatusBadge from '../components/payments/PaymentStatusBadge';
+import ReminderEmailStatusBadge from '../components/reminders/ReminderEmailStatusBadge';
 import api from '../api/client';
 import { usePatients } from '../hooks/usePatients';
 import { useConsultations, useCorrectConsultation } from '../hooks/useConsultations';
@@ -578,6 +579,7 @@ export default function ConsultationsPage() {
                             {c.sessionType === 'TELEMED' ? 'Telemedicina' : 'Presencial'}
                           </span>
                           <PaymentStatusBadge payment={c.payment} />
+                          <ReminderEmailStatusBadge status={c.reminderEmailStatus} />
                           {c.payment?.paymentUrl && (
                             <>
                               <CopyPaymentLinkButton paymentUrl={c.payment.paymentUrl} />

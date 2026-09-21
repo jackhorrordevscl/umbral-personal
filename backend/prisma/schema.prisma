@@ -474,9 +474,18 @@ model ReminderDispatch {
   error          String?
   sentAt         DateTime?
   createdAt      DateTime               @default(now())
+  // issue #163: id devuelto por Resend al enviar (channel EMAIL), para
+  // correlacionar el webhook de entrega/apertura con este dispatch --
+  // channel IN_APP nunca lo setea (queda null). deliveredAt/openedAt solo se
+  // escriben una vez (el webhook de Resend no debe pisar un timestamp real
+  // con uno de un reenvío del mismo evento).
+  resendMessageId String?
+  deliveredAt     DateTime?
+  openedAt        DateTime?
 
   @@unique([groupId, sessionDate, offsetKind, channel])
   @@index([consultationId])
+  @@index([resendMessageId])
 }
 
 enum ReminderOffset {

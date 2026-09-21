@@ -1,5 +1,5 @@
 import api from './client';
-import type { Consultation } from '../types/patient';
+import type { Consultation, ReminderEmailStatus } from '../types/patient';
 
 export interface ConsultationStats {
   total: number;
@@ -52,6 +52,13 @@ export interface CalendarSession {
   patientId: string;
   patientName: string;
   calendarSync: 'SYNCED' | 'FAILED' | null;
+  // issue #163: mismo shape que ConsultationsService.ReminderEmailStatus --
+  // no se muestra en CalendarPage por ahora (no hay dónde encaja
+  // visualmente en la grilla), pero se agrega al tipo por consistencia con
+  // lo que el backend ya devuelve en /consultations/range. Opcional (no
+  // required) para no romper fixtures de tests existentes que construyen un
+  // CalendarSession sin este campo.
+  reminderEmailStatus?: ReminderEmailStatus | null;
 }
 
 export function listConsultationsByRange(from: string, to: string) {

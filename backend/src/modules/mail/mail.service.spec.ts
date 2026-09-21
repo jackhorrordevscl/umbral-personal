@@ -30,13 +30,13 @@ describe('MailService.sendSessionReminderEmail', () => {
     sendMock.mockReset();
   });
 
-  it('envía el recordatorio con el nombre del paciente y el offset en el asunto cuando RESEND_API_KEY está configurada', async () => {
+  it('envía el recordatorio con el nombre del paciente y el offset en el asunto, y devuelve el id de Resend cuando RESEND_API_KEY está configurada (issue #163)', async () => {
     sendMock.mockResolvedValue({ data: { id: 'email-1' }, error: null });
     const service = new MailService(
       buildConfig({ RESEND_API_KEY: 'test-key' }),
     );
 
-    await service.sendSessionReminderEmail(
+    const resendMessageId = await service.sendSessionReminderEmail(
       'therapist@example.com',
       'Dra. Pérez',
       'Juan Soto',
@@ -44,6 +44,7 @@ describe('MailService.sendSessionReminderEmail', () => {
       '24 horas',
     );
 
+    expect(resendMessageId).toBe('email-1');
     expect(sendMock).toHaveBeenCalledTimes(1);
     const payload = sendMock.mock.calls[0][0] as {
       to: string;
@@ -56,7 +57,7 @@ describe('MailService.sendSessionReminderEmail', () => {
     expect(payload.html).toContain('Dra. Pérez');
   });
 
-  it('no lanza y no intenta enviar si RESEND_API_KEY no está configurada (skip silencioso)', async () => {
+  it('no lanza, no intenta enviar, y resuelve null si RESEND_API_KEY no está configurada (skip silencioso, issue #163)', async () => {
     const service = new MailService(buildConfig({}));
 
     await expect(
@@ -67,11 +68,11 @@ describe('MailService.sendSessionReminderEmail', () => {
         new Date('2026-06-16T14:00:00.000Z'),
         '2 horas',
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBeNull();
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it('no lanza si el proveedor de email responde con error (loggea, no relanza)', async () => {
+  it('no lanza y resuelve null si el proveedor de email responde con error (loggea, no relanza, issue #163)', async () => {
     sendMock.mockResolvedValue({
       data: null,
       error: { message: 'provider down' },
@@ -88,7 +89,7 @@ describe('MailService.sendSessionReminderEmail', () => {
         new Date('2026-06-16T14:00:00.000Z'),
         '2 horas',
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBeNull();
   });
 });
 

@@ -175,6 +175,11 @@ export class RemindersService {
     const offsetLabel = OFFSET_LABELS[offsetKind];
 
     try {
+      // issue #163: resendMessageId queda null para IN_APP (no aplica) y
+      // también si sendSessionReminderEmail resolvió null (sin
+      // RESEND_API_KEY, o error del proveedor) -- el campo es nullable a
+      // propósito, ver schema.prisma.
+      let resendMessageId: string | null = null;
       if (channel === ReminderChannel.IN_APP) {
         await this.notificationsService.create({
           userId: consultation.therapistId,
@@ -191,7 +196,7 @@ export class RemindersService {
         // (ver mail.service.ts), pero igual queda dentro de este try/catch:
         // ambos canales deben permanecer independientes sin importar qué
         // garantice la implementación concreta de cada uno.
-        await this.mailService.sendSessionReminderEmail(
+        resendMessageId = await this.mailService.sendSessionReminderEmail(
           consultation.therapist.email,
           consultation.therapist.name,
           consultation.patient.fullName,
@@ -201,7 +206,7 @@ export class RemindersService {
       }
       await this.prisma.reminderDispatch.update({
         where: { id: claim.id },
-        data: { status: 'SENT', sentAt: new Date() },
+        data: { status: 'SENT', sentAt: new Date(), resendMessageId },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

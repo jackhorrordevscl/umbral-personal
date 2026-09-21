@@ -48,6 +48,7 @@ describe('ConsultationsService', () => {
     consultationHistory: { findMany: jest.Mock; create: jest.Mock };
     calendarEventLink: { findMany: jest.Mock };
     payment: { findMany: jest.Mock };
+    reminderDispatch: { findMany: jest.Mock };
     bookedSlot: { create: jest.Mock };
     $transaction: jest.Mock;
   };
@@ -77,6 +78,9 @@ describe('ConsultationsService', () => {
         findMany: jest.fn().mockResolvedValue([]),
       },
       payment: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      reminderDispatch: {
         findMany: jest.fn().mockResolvedValue([]),
       },
       bookedSlot: {
@@ -330,6 +334,42 @@ describe('ConsultationsService', () => {
         expect.objectContaining({ take: 5, skip: 0 }),
       );
       expect(result).toEqual(expect.objectContaining({ total: 1 }));
+    });
+
+    // issue #163: mismo estado que expone findByRange, agregado en el
+    // payload de findByPatient (usado por ConsultationsPage).
+    it('agrega reminderEmailStatus null si nunca se despachó un recordatorio por email para esa consulta', async () => {
+      prisma.consultation.findMany.mockResolvedValue([buildConsultation()]);
+
+      const [result] = (await service.findByPatient(
+        'patient-1',
+        'therapist-1',
+      )) as { reminderEmailStatus: unknown }[];
+
+      expect(result.reminderEmailStatus).toBeNull();
+    });
+
+    it('agrega el estado del ReminderDispatch EMAIL más reciente cuando existe (issue #163)', async () => {
+      prisma.consultation.findMany.mockResolvedValue([buildConsultation()]);
+      prisma.reminderDispatch.findMany.mockResolvedValue([
+        {
+          groupId: 'consultation-1',
+          status: 'SENT',
+          deliveredAt: null,
+          openedAt: new Date('2026-01-11T09:00:00.000Z'),
+        },
+      ]);
+
+      const [result] = (await service.findByPatient(
+        'patient-1',
+        'therapist-1',
+      )) as { reminderEmailStatus: unknown }[];
+
+      expect(result.reminderEmailStatus).toEqual({
+        status: 'SENT',
+        deliveredAt: null,
+        openedAt: new Date('2026-01-11T09:00:00.000Z'),
+      });
     });
   });
 
@@ -696,7 +736,58 @@ describe('ConsultationsService', () => {
         patientId: 'patient-9',
         patientName: 'Dana Vera',
         calendarSync: null,
+        reminderEmailStatus: null,
       });
+    });
+
+    // issue #163: getReminderEmailStatusMap se queda con el ReminderDispatch
+    // EMAIL más reciente por groupId (orderBy createdAt desc + "solo setear
+    // la primera vez que se ve ese groupId").
+    it('incluye el estado del ReminderDispatch EMAIL más reciente por groupId (issue #163)', async () => {
+      prisma.consultation.findMany.mockResolvedValue([
+        buildRangeConsultation({
+          id: 'c-1',
+          groupId: 'group-1',
+          patient: { fullName: 'Ana Paz' },
+        }),
+        buildRangeConsultation({
+          id: 'c-2',
+          groupId: 'group-2',
+          patient: { fullName: 'Beto Ruiz' },
+        }),
+      ] as never);
+      prisma.reminderDispatch.findMany.mockResolvedValue([
+        {
+          groupId: 'group-1',
+          status: 'SENT',
+          deliveredAt: new Date('2026-09-10T16:00:00.000Z'),
+          openedAt: null,
+        },
+      ]);
+
+      const result = await service.findByRange(therapistId, {
+        from: '2026-09-01T00:00:00-04:00',
+        to: '2026-10-01T00:00:00-03:00',
+      });
+
+      expect(
+        result.find((s) => s.groupId === 'group-1')?.reminderEmailStatus,
+      ).toEqual({
+        status: 'SENT',
+        deliveredAt: '2026-09-10T16:00:00.000Z',
+        openedAt: null,
+      });
+      expect(
+        result.find((s) => s.groupId === 'group-2')?.reminderEmailStatus,
+      ).toBeNull();
+      expect(prisma.reminderDispatch.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            groupId: { in: ['group-1', 'group-2'] },
+            channel: 'EMAIL',
+          }) as unknown,
+        }) as unknown,
+      );
     });
 
     it('no consulta calendarEventLink cuando no hay sesiones en el rango', async () => {
