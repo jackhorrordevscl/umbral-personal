@@ -2,6 +2,7 @@ import { Controller, Post, Body, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { ThrottlerGuard, SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
+import { MfaService } from './mfa.service';
 import { LoginDto } from './dto/login.dto';
 import { VerifyMfaDto } from './dto/verify-mfa.dto';
 import { MfaSetupBeginDto } from './dto/mfa-setup-begin.dto';
@@ -21,7 +22,10 @@ import {
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private mfaService: MfaService,
+  ) {}
 
   // T4.2 (issue #20): rate limiting en login y en mfa/verify, con throttlers
   // nombrados independientes ('login' / 'mfa-verify' / 'signup', ver
@@ -75,7 +79,7 @@ export class AuthController {
   })
   @Post('mfa/verify')
   verifyMfa(@Body() dto: VerifyMfaDto) {
-    return this.authService.verifyMfa(dto);
+    return this.mfaService.verifyMfa(dto);
   }
 
   // Issue #5: signup propio, la única ruta no autenticada que crea una
@@ -172,7 +176,7 @@ export class AuthController {
   })
   @Post('mfa/setup/begin')
   beginMfaSetup(@Body() dto: MfaSetupBeginDto) {
-    return this.authService.beginMfaSetup(dto.setupToken);
+    return this.mfaService.beginMfaSetup(dto.setupToken);
   }
 
   @UseGuards(ThrottlerGuard)
@@ -190,7 +194,7 @@ export class AuthController {
   })
   @Post('mfa/setup/confirm')
   confirmMfaSetup(@Body() dto: MfaSetupConfirmDto, @Req() req: Request) {
-    return this.authService.confirmMfaSetup(
+    return this.mfaService.confirmMfaSetup(
       dto.setupToken,
       dto.token,
       req.ip,
@@ -283,13 +287,13 @@ export class AuthController {
   })
   @Post('mfa/recover')
   recoverMfa(@Body() dto: MfaRecoverDto) {
-    return this.authService.recoverMfa(dto);
+    return this.mfaService.recoverMfa(dto);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('mfa/generate')
   generateMfaSecret(@CurrentUser() user: RequestUser) {
-    return this.authService.generateMfaSecret(user.id);
+    return this.mfaService.generateMfaSecret(user.id);
   }
 
   // Issue de compliance: enableMfa/disableMfa no dejaban rastro de
@@ -304,7 +308,7 @@ export class AuthController {
     @Body('token') token: string,
     @Req() req: Request,
   ) {
-    return this.authService.enableMfa(
+    return this.mfaService.enableMfa(
       user.id,
       token,
       req.ip,
@@ -319,7 +323,7 @@ export class AuthController {
     @Body('token') token: string,
     @Req() req: Request,
   ) {
-    return this.authService.disableMfa(
+    return this.mfaService.disableMfa(
       user.id,
       token,
       req.ip,
