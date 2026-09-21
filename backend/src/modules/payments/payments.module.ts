@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { Logger, Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ThrottlerModule, ThrottlerModuleOptions } from '@nestjs/throttler';
 import { MailModule } from '../mail/mail.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PaymentsService } from './payments.service';
@@ -9,6 +10,94 @@ import { PaymentGatewayClient } from './payment-gateway.client';
 import { PaymentGatewayRegistry } from './payment-gateway.registry';
 import { FlowPaymentGatewayClient } from './flow-gateway.client';
 import { PaymentCredentialCryptoService } from './payment-credential-crypto.service';
+import { AuthModule, getLoginTracker } from '../auth/auth.module';
+
+/**
+ * Issue #133: /payments/confirm (webhook de Flow) y /payments/return
+ * (redirect del browser del paciente) son públicas a propósito (sin
+ * JwtAuthGuard, ver el comentario de PaymentsController) pero no tenían
+ * ningún ThrottlerGuard, a diferencia de auth/profile/public-scheduling.
+ * Mismo patrón que ProfileModule (AuthModule no exporta su propio
+ * ThrottlerModule.forRootAsync): dos throttlers nombrados, tracker
+ * IP-based reusando getLoginTracker de AuthModule -- ninguna de las dos
+ * rutas corre detrás de JwtAuthGuard, así que no hay req.user.id
+ * disponible como en ProfileModule.
+ *
+ * - 'payment-confirm': POST /payments/confirm, tráfico server-to-server
+ *   legítimo de un único servidor (Flow) -- límite más generoso.
+ * - 'payment-return': GET|POST /payments/return, redirect del browser del
+ *   paciente -- límite más conservador, mismo orden de magnitud que
+ *   public-booking.
+ */
+const throttlerLogger = new Logger('PaymentsThrottlerConfig');
+
+function parsePositiveInt(
+  raw: string | undefined,
+  fallback: number,
+  varName: string,
+): number {
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw);
+  if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  throttlerLogger.warn(
+    `${varName}="${raw}" no es un entero positivo válido, usando el default (${fallback}).`,
+  );
+  return fallback;
+}
+
+export function buildPaymentsThrottlerOptions(
+  config: ConfigService,
+): ThrottlerModuleOptions {
+  const isTest = config.get<string>('NODE_ENV') === 'test';
+
+  const paymentConfirmLimit = parsePositiveInt(
+    config.get<string>('PAYMENT_CONFIRM_THROTTLE_LIMIT'),
+    isTest ? 1000 : 30,
+    'PAYMENT_CONFIRM_THROTTLE_LIMIT',
+  );
+  const paymentConfirmTtl = parsePositiveInt(
+    config.get<string>('PAYMENT_CONFIRM_THROTTLE_TTL_MS'),
+    60000,
+    'PAYMENT_CONFIRM_THROTTLE_TTL_MS',
+  );
+
+  const paymentReturnLimit = parsePositiveInt(
+    config.get<string>('PAYMENT_RETURN_THROTTLE_LIMIT'),
+    isTest ? 1000 : 20,
+    'PAYMENT_RETURN_THROTTLE_LIMIT',
+  );
+  const paymentReturnTtl = parsePositiveInt(
+    config.get<string>('PAYMENT_RETURN_THROTTLE_TTL_MS'),
+    60000,
+    'PAYMENT_RETURN_THROTTLE_TTL_MS',
+  );
+
+  const trustedProxyHops = parsePositiveInt(
+    config.get<string>('TRUSTED_PROXY_HOPS'),
+    1,
+    'TRUSTED_PROXY_HOPS',
+  );
+
+  return {
+    throttlers: [
+      {
+        name: 'payment-confirm',
+        limit: paymentConfirmLimit,
+        ttl: paymentConfirmTtl,
+      },
+      {
+        name: 'payment-return',
+        limit: paymentReturnLimit,
+        ttl: paymentReturnTtl,
+      },
+    ],
+    getTracker: (req: Record<string, any>) =>
+      getLoginTracker(
+        req as Parameters<typeof getLoginTracker>[0],
+        trustedProxyHops,
+      ),
+  };
+}
 
 // design.md "File Changes": imports ConfigModule (flag/env), MailModule
 // (sendPaymentLinkEmail/sendLatePaymentEmail, PR 3) and NotificationsModule
@@ -36,7 +125,17 @@ import { PaymentCredentialCryptoService } from './payment-credential-crypto.serv
 // credentials (dev/CI/e2e), same as CalendarOauthService/MailService
 // without their own credentials.
 @Module({
-  imports: [ConfigModule, MailModule, NotificationsModule],
+  imports: [
+    ConfigModule,
+    MailModule,
+    NotificationsModule,
+    AuthModule,
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: buildPaymentsThrottlerOptions,
+    }),
+  ],
   controllers: [PaymentsController],
   providers: [
     PaymentsService,

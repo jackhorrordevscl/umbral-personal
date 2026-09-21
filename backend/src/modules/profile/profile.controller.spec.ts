@@ -128,28 +128,31 @@ describe('ProfileController', () => {
   // ThrottlerGuard en toda la app, no solo a AuthController -- este
   // controller quedó afuera de esa exhaustividad porque el named-throttler
   // audit de PR 3 (tasks.md 3.3) solo tocó auth.controller.ts.
-  describe('exhaustividad de @SkipThrottle (public-availability/public-booking)', () => {
+  //
+  // Issue #133: 'payment-confirm'/'payment-return' (buildPaymentsThrottlerOptions
+  // en payments.module.ts) son otro módulo satélite más registrando su propio
+  // ThrottlerModule.forRootAsync -- mismo riesgo, se cubren en la misma lista.
+  describe('exhaustividad de @SkipThrottle (public-availability/public-booking/payments)', () => {
     const reflector = new Reflector();
+    const foreignThrottlerNames = [
+      'public-availability',
+      'public-booking',
+      'payment-confirm',
+      'payment-return',
+    ] as const;
 
     it.each(['update', 'uploadAvatar', 'deleteAvatar'] as const)(
-      '%s saltea public-availability y public-booking',
+      '%s saltea public-availability, public-booking, payment-confirm y payment-return',
       (methodName) => {
         const handler = (
           controller as unknown as Record<string, () => unknown>
         )[methodName];
 
-        expect(
-          reflector.get<boolean | undefined>(
-            THROTTLER_SKIP + 'public-availability',
-            handler,
-          ),
-        ).toBe(true);
-        expect(
-          reflector.get<boolean | undefined>(
-            THROTTLER_SKIP + 'public-booking',
-            handler,
-          ),
-        ).toBe(true);
+        for (const name of foreignThrottlerNames) {
+          expect(
+            reflector.get<boolean | undefined>(THROTTLER_SKIP + name, handler),
+          ).toBe(true);
+        }
       },
     );
   });
