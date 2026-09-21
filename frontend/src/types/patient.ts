@@ -87,6 +87,19 @@ export interface PaymentSummary {
   amount: number;
 }
 
+// issue #163: mismo shape que ConsultationsService.ReminderEmailStatus
+// devuelve por groupId en GET /consultations/patient/:id y
+// GET /consultations/range -- null si nunca se despachó un recordatorio por
+// email para esta consulta. deliveredAt/openedAt los setea el webhook de
+// Resend, nunca se infieren en el frontend.
+export type ReminderEmailDispatchStatus = 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
+
+export interface ReminderEmailStatus {
+  status: ReminderEmailDispatchStatus;
+  deliveredAt: string | null;
+  openedAt: string | null;
+}
+
 export interface Consultation {
   id: string;
   groupId: string;
@@ -100,6 +113,7 @@ export interface Consultation {
   therapist: { name: string; email: string };
   history: ConsultationHistory[];
   payment: PaymentSummary | null;
+  reminderEmailStatus: ReminderEmailStatus | null;
 }
 
 export const FIELD_LABELS: Record<string, string> = {
