@@ -379,10 +379,15 @@ export class PatientsService {
   // ambiguo) devuelven el MISMO ConflictException uniforme, sin distinguir
   // hacia afuera cuál ocurrió -- nunca revela si el RUT/email pertenece a
   // otra ficha.
+  //
+  // issue #139: devuelve { patient, isNew } (no solo Patient) para que el
+  // caller (PublicSchedulingService.book()) pueda notificar al terapeuta
+  // cuando el paciente se autocreó -- ese caso es el único donde
+  // defaultSessionAmount queda null y ensureCharge() no genera cargo.
   async resolveForPublicBooking(
     therapistId: string,
     dto: PublicBookingPatientInput,
-  ): Promise<Patient> {
+  ): Promise<{ patient: Patient; isNew: boolean }> {
     const normalizedEmail = dto.email.trim().toLowerCase();
 
     const matches = await this.prisma.patient.findMany({
@@ -393,7 +398,7 @@ export class PatientsService {
       },
     });
 
-    if (matches.length === 1) return matches[0];
+    if (matches.length === 1) return { patient: matches[0], isNew: false };
 
     if (matches.length > 1) {
       // Nunca se loguea el email en texto plano (mismo criterio que el
@@ -418,7 +423,7 @@ export class PatientsService {
       throw new ConflictException('No fue posible procesar la reserva.');
     }
 
-    return this.prisma.patient.create({
+    const patient = await this.prisma.patient.create({
       data: {
         fullName: dto.fullName,
         rut,
@@ -434,6 +439,7 @@ export class PatientsService {
         therapistId,
       },
     });
+    return { patient, isNew: true };
   }
 }
 

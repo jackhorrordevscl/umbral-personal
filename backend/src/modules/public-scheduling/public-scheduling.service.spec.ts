@@ -5,11 +5,16 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NotificationType } from '@prisma/client';
 import { PublicSchedulingService } from './public-scheduling.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../availability/availability.service';
 import { PatientsService } from '../patients/patients.service';
 import { ConsultationsService } from '../consultations/consultations.service';
+import {
+  NotificationsService,
+  CreateNotificationData,
+} from '../notifications/notifications.service';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.6, design.md "Data Flow"):
 // orquesta AvailabilityService.computeSlots (lectura + rewrite del recheck
@@ -26,6 +31,9 @@ describe('PublicSchedulingService', () => {
   let availabilityService: { computeSlots: jest.Mock };
   let patientsService: { resolveForPublicBooking: jest.Mock };
   let consultationsService: { createFromPublicBooking: jest.Mock };
+  let notificationsService: {
+    create: jest.Mock<Promise<unknown>, [CreateNotificationData]>;
+  };
 
   function buildService(
     enabled = true,
@@ -45,6 +53,7 @@ describe('PublicSchedulingService', () => {
       availabilityService as unknown as AvailabilityService,
       patientsService as unknown as PatientsService,
       consultationsService as unknown as ConsultationsService,
+      notificationsService as unknown as NotificationsService,
     );
   }
 
@@ -56,6 +65,11 @@ describe('PublicSchedulingService', () => {
     availabilityService = { computeSlots: jest.fn() };
     patientsService = { resolveForPublicBooking: jest.fn() };
     consultationsService = { createFromPublicBooking: jest.fn() };
+    notificationsService = {
+      create: jest
+        .fn<Promise<unknown>, [CreateNotificationData]>()
+        .mockResolvedValue({}),
+    };
     service = buildService(true);
   });
 
@@ -166,8 +180,15 @@ describe('PublicSchedulingService', () => {
       availabilityService.computeSlots.mockResolvedValue([
         { start: '2026-09-05T13:00:00.000Z', end: '2026-09-05T13:50:00.000Z' },
       ]);
-      const patient = { id: 'patient-1', rut: '11111111-1' };
-      patientsService.resolveForPublicBooking.mockResolvedValue(patient);
+      const patient = {
+        id: 'patient-1',
+        rut: '11111111-1',
+        fullName: 'Paciente Público',
+      };
+      patientsService.resolveForPublicBooking.mockResolvedValue({
+        patient,
+        isNew: false,
+      });
       const consultation = { id: 'consultation-1', groupId: 'consultation-1' };
       consultationsService.createFromPublicBooking.mockResolvedValue(
         consultation,
@@ -200,8 +221,12 @@ describe('PublicSchedulingService', () => {
         { start: '2026-09-05T13:00:00.000Z', end: '2026-09-05T13:30:00.000Z' },
       ]);
       patientsService.resolveForPublicBooking.mockResolvedValue({
-        id: 'patient-1',
-        rut: '11111111-1',
+        patient: {
+          id: 'patient-1',
+          rut: '11111111-1',
+          fullName: 'Paciente Público',
+        },
+        isNew: false,
       });
       consultationsService.createFromPublicBooking.mockResolvedValue({
         id: 'c-1',
@@ -236,18 +261,24 @@ describe('PublicSchedulingService', () => {
       email: 'paciente@ejemplo.cl',
     };
 
-    function setUpSuccessfulBooking(patient: {
-      id: string;
-      rut: string;
-      defaultSessionAmount: number | null;
-    }): void {
+    function setUpSuccessfulBooking(
+      patient: {
+        id: string;
+        rut: string;
+        defaultSessionAmount: number | null;
+      },
+      isNew = false,
+    ): void {
       prisma.user.findUnique.mockResolvedValue({
         sessionDurationMinutes: 50,
       });
       availabilityService.computeSlots.mockResolvedValue([
         { start: '2026-09-05T13:00:00.000Z', end: '2026-09-05T13:50:00.000Z' },
       ]);
-      patientsService.resolveForPublicBooking.mockResolvedValue(patient);
+      patientsService.resolveForPublicBooking.mockResolvedValue({
+        patient: { ...patient, fullName: 'Paciente Público' },
+        isNew,
+      });
       consultationsService.createFromPublicBooking.mockResolvedValue({
         id: 'consultation-1',
         groupId: 'consultation-1',
@@ -349,6 +380,94 @@ describe('PublicSchedulingService', () => {
       } as never);
 
       expect(result).toMatchObject({ checkout: { status: 'PENDING' } });
+    });
+  });
+
+  // issue #139: paciente nuevo autocreado vía autoagenda nunca tiene
+  // defaultSessionAmount -> ensureCharge() no genera cargo para su primera
+  // sesión. book() notifica al terapeuta fire-and-forget en ese caso, sin
+  // agregar latencia ni poder fallar la reserva.
+  describe('notificación PATIENT_MISSING_SESSION_AMOUNT (paciente autocreado)', () => {
+    const patientDto = {
+      fullName: 'Paciente Público',
+      rut: '11.111.111-1',
+      birthDate: '1990-01-01',
+      email: 'paciente@ejemplo.cl',
+    };
+
+    function setUpBooking(isNew: boolean): void {
+      prisma.user.findUnique.mockResolvedValue({ sessionDurationMinutes: 50 });
+      availabilityService.computeSlots.mockResolvedValue([
+        { start: '2026-09-05T13:00:00.000Z', end: '2026-09-05T13:50:00.000Z' },
+      ]);
+      patientsService.resolveForPublicBooking.mockResolvedValue({
+        patient: {
+          id: 'patient-1',
+          rut: '11111111-1',
+          fullName: 'Paciente Público',
+        },
+        isNew,
+      });
+      consultationsService.createFromPublicBooking.mockResolvedValue({
+        id: 'consultation-1',
+        groupId: 'consultation-1',
+      });
+    }
+
+    it('paciente nuevo (isNew: true) dispara la notificación al terapeuta con tipo/userId/linkPath correctos', async () => {
+      setUpBooking(true);
+
+      await service.book('therapist-1', {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: patientDto,
+      } as never);
+
+      // fire-and-forget: la promesa se dispara de forma síncrona dentro de
+      // book(), pero su resolución puede quedar pendiente en el microtask
+      // queue -- flush antes de aserto.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(notificationsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'therapist-1',
+          type: NotificationType.PATIENT_MISSING_SESSION_AMOUNT,
+          linkPath: '/patients',
+        }),
+      );
+      const [call] = notificationsService.create.mock.calls[0];
+      expect(call.body).toContain('Paciente Público');
+    });
+
+    it('paciente existente (isNew: false) NO dispara ninguna notificación', async () => {
+      setUpBooking(false);
+
+      await service.book('therapist-1', {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: patientDto,
+      } as never);
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(notificationsService.create).not.toHaveBeenCalled();
+    });
+
+    it('un fallo de notificationsService.create no bloquea ni demora la respuesta de book()', async () => {
+      setUpBooking(true);
+      notificationsService.create.mockRejectedValue(new Error('boom'));
+
+      const result = await service.book('therapist-1', {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: patientDto,
+      } as never);
+
+      expect(result).toMatchObject({ id: 'consultation-1' });
+
+      // deja que el .catch() interno procese el rechazo antes de que Jest
+      // termine el test, para que no aparezca como unhandled rejection.
+      await Promise.resolve();
+      await Promise.resolve();
     });
   });
 });
