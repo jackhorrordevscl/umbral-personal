@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -11,7 +12,8 @@ import { PaymentsService } from '../payments/payments.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { RecordConsentDto } from './dto/record-consent.dto';
-import { ConsentPurpose, Patient } from '@prisma/client';
+import { BulkDeclareConsentDto } from './dto/bulk-declare-consent.dto';
+import { ConsentPurpose, Patient, Prisma } from '@prisma/client';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 
 function normalizeRut(rut: string): string {
@@ -75,11 +77,12 @@ export class PatientsService {
   // que el resultado sea determinístico.
   async getConsentStatusMap(
     patientIds: string[],
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
   ): Promise<Map<string, ConsentStatusMap>> {
     const map = new Map<string, ConsentStatusMap>();
     if (patientIds.length === 0) return map;
 
-    const latestEvents = await this.prisma.patientConsent.findMany({
+    const latestEvents = await client.patientConsent.findMany({
       where: { patientId: { in: patientIds } },
       distinct: ['patientId', 'purpose'],
       orderBy: [
@@ -301,6 +304,47 @@ export class PatientsService {
         evidence: dto.evidence,
       },
     });
+  }
+
+  // T5 (issue #131): declaración retroactiva en bloque para pacientes que
+  // ya estaban en tratamiento antes de este cambio. `assertAccess` dentro de
+  // `recordConsent` sigue corriendo por paciente -- nadie puede declarar
+  // consentimiento sobre un paciente que no es suyo solo por mandarlo en el
+  // mismo lote. Un id inválido/ajeno no aborta el resto del lote.
+  async bulkDeclareConsent(dto: BulkDeclareConsentDto, userId: string) {
+    const results: Array<{ patientId: string; ok: boolean; error?: string }> =
+      [];
+    for (const patientId of dto.patientIds) {
+      try {
+        await this.recordConsent(
+          patientId,
+          {
+            purpose: dto.purpose,
+            action: 'GRANT' as const,
+            evidence: dto.evidence,
+          },
+          userId,
+        );
+        results.push({ patientId, ok: true });
+      } catch (err) {
+        // Review R3-002 (issue #131): solo se expone el mensaje cuando es
+        // una HttpException conocida (ej. NotFoundException de assertAccess
+        // -- paciente inexistente/ajeno). Cualquier otro error (ej. de DB)
+        // se loguea server-side y responde genérico, para no filtrar detalle
+        // interno en un endpoint que maneja datos de salud.
+        const message =
+          err instanceof HttpException
+            ? err.message
+            : 'No se pudo registrar el consentimiento para este paciente.';
+        if (!(err instanceof HttpException)) {
+          this.logger.error(
+            `Fallo inesperado en bulkDeclareConsent (patientId=${patientId}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        results.push({ patientId, ok: false, error: message });
+      }
+    }
+    return results;
   }
 
   async getConsentLedger(id: string, userId: string) {

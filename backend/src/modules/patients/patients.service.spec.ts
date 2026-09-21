@@ -426,6 +426,79 @@ describe('PatientsService', () => {
       });
     });
 
+    it('bulkDeclareConsent crea el evento GRANT para cada paciente del lote (issue #131 T5)', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+
+      const results = await service.bulkDeclareConsent(
+        {
+          patientIds: ['patient-1', 'patient-2'],
+          purpose: 'TREATMENT',
+          evidence: 'Consentimiento en papel del expediente físico previo',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.patientConsent.create).toHaveBeenCalledTimes(2);
+      expect(results).toEqual([
+        { patientId: 'patient-1', ok: true },
+        { patientId: 'patient-2', ok: true },
+      ]);
+    });
+
+    it('bulkDeclareConsent no aborta el lote si un paciente no pertenece al terapeuta', async () => {
+      prisma.patient.findFirst
+        .mockResolvedValueOnce(buildPatient())
+        .mockResolvedValueOnce(null);
+      prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+
+      const results = await service.bulkDeclareConsent(
+        {
+          patientIds: ['patient-1', 'ajeno-1'],
+          purpose: 'TREATMENT',
+          evidence: 'Consentimiento en papel del expediente físico previo',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.patientConsent.create).toHaveBeenCalledTimes(1);
+      expect(results).toEqual([
+        { patientId: 'patient-1', ok: true },
+        {
+          patientId: 'ajeno-1',
+          ok: false,
+          error: 'Paciente no encontrado',
+        },
+      ]);
+    });
+
+    it('bulkDeclareConsent no filtra el mensaje de un error inesperado (review R3-002, issue #131)', async () => {
+      prisma.patient.findFirst
+        .mockResolvedValueOnce(buildPatient())
+        .mockResolvedValueOnce(buildPatient());
+      prisma.patientConsent.create
+        .mockResolvedValueOnce({ id: 'consent-x' })
+        .mockRejectedValueOnce(new Error('connection terminated unexpectedly'));
+
+      const results = await service.bulkDeclareConsent(
+        {
+          patientIds: ['patient-1', 'patient-2'],
+          purpose: 'TREATMENT',
+          evidence: 'Consentimiento en papel del expediente físico previo',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(results).toEqual([
+        { patientId: 'patient-1', ok: true },
+        {
+          patientId: 'patient-2',
+          ok: false,
+          error: 'No se pudo registrar el consentimiento para este paciente.',
+        },
+      ]);
+    });
+
     it('getConsentLedger valida acceso antes de devolver el ledger completo', async () => {
       prisma.patient.findFirst.mockResolvedValue(null);
 

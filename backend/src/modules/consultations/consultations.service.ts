@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -96,31 +97,52 @@ export class ConsultationsService {
       dto.patientId,
       therapistId,
     );
+
     const patientRut = dto.patientRut || patient.rut;
 
     // Se genera el id de antemano para que groupId (el identificador de la
     // cadena de versiones) sea igual al id de esta primera versión.
     const id = randomUUID();
 
-    const consultation = await this.prisma.consultation.create({
-      data: {
-        id,
-        groupId: id,
-        patientId: dto.patientId,
-        therapistId,
-        sessionDate: parseDate(dto.sessionDate),
-        consultReason: dto.consultReason,
-        intervention: dto.intervention,
-        agreements: dto.agreements,
-        nextSessionDate: dto.nextSessionDate
-          ? parseDate(dto.nextSessionDate)
-          : null,
-        sessionType: dto.sessionType ?? 'IN_PERSON',
-        scheduledAt: dto.scheduledAt
-          ? parseDate(dto.scheduledAt)
-          : parseDate(dto.sessionDate),
-        patientRut,
-      },
+    // Issue #131 (Ley 20.584 Art. 14 / review R3-001): el chequeo de
+    // consentimiento y la escritura de la Consultation viven en la misma
+    // transacción -- así una revocación concurrente entre el chequeo y el
+    // insert no puede colarse (antes eran dos queries separadas con una
+    // ventana de carrera). Cualquiera de las dos finalidades (presencial o
+    // telemedicina) habilita la consulta, sin importar el sessionType de
+    // esta sesión puntual.
+    const consultation = await this.prisma.$transaction(async (tx) => {
+      const consentStatus = await this.patientsService.getConsentStatusMap(
+        [dto.patientId],
+        tx,
+      );
+      const consent = consentStatus.get(dto.patientId);
+      if (!consent?.TREATMENT && !consent?.TELEMEDICINE) {
+        throw new ForbiddenException(
+          'El paciente no tiene un consentimiento informado vigente. Registra el consentimiento antes de crear la consulta.',
+        );
+      }
+
+      return tx.consultation.create({
+        data: {
+          id,
+          groupId: id,
+          patientId: dto.patientId,
+          therapistId,
+          sessionDate: parseDate(dto.sessionDate),
+          consultReason: dto.consultReason,
+          intervention: dto.intervention,
+          agreements: dto.agreements,
+          nextSessionDate: dto.nextSessionDate
+            ? parseDate(dto.nextSessionDate)
+            : null,
+          sessionType: dto.sessionType ?? 'IN_PERSON',
+          scheduledAt: dto.scheduledAt
+            ? parseDate(dto.scheduledAt)
+            : parseDate(dto.sessionDate),
+          patientRut,
+        },
+      });
     });
     this.logger.log(
       `Consulta creada: id=${consultation.id} patientId=${dto.patientId} therapistId=${therapistId}`,
@@ -280,6 +302,10 @@ export class ConsultationsService {
   async correct(id: string, dto: CorrectConsultationDto, therapistId: string) {
     const original = await this.findOne(id, therapistId);
 
+    // El chequeo de versión-ya-corregida va primero (precedencia previa a
+    // issue #131, review R3-003): es un problema de integridad de la cadena
+    // de versiones, independiente del consentimiento -- un id de versión
+    // stale sigue siendo 409 aunque además falte consentimiento, no 403.
     const alreadySuperseded = await this.prisma.consultation.findFirst({
       where: { correctsId: id },
       select: { id: true },
@@ -301,6 +327,25 @@ export class ConsultationsService {
     });
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // Issue #131 (Ley 20.584 Art. 14 / review R3-001): cubre el caso de
+      // createFromPublicBooking -- la reserva pública crea una Consultation
+      // placeholder sin contenido clínico real ("Pendiente de definir por
+      // el terapeuta"); correct() es el punto donde ese contenido clínico
+      // real se carga por primera vez, así que necesita el mismo guardrail
+      // que create(). Corre dentro de la misma transacción que la
+      // escritura -- misma razón que en create(), cierra la ventana de
+      // carrera entre el chequeo y el insert.
+      const consentStatus = await this.patientsService.getConsentStatusMap(
+        [original.patientId],
+        tx,
+      );
+      const consent = consentStatus.get(original.patientId);
+      if (!consent?.TREATMENT && !consent?.TELEMEDICINE) {
+        throw new ForbiddenException(
+          'El paciente no tiene un consentimiento informado vigente. Registra el consentimiento antes de corregir la consulta.',
+        );
+      }
+
       // El snapshot queda indexado por groupId, no por el id de la versión
       // que se está corrigiendo, para que el historial sea el mismo visto
       // desde cualquier versión de la cadena.

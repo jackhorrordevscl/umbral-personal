@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { Consultation, Prisma } from '@prisma/client';
@@ -49,7 +50,10 @@ describe('ConsultationsService', () => {
     bookedSlot: { create: jest.Mock };
     $transaction: jest.Mock;
   };
-  let patientsService: { assertAccess: jest.Mock };
+  let patientsService: {
+    assertAccess: jest.Mock;
+    getConsentStatusMap: jest.Mock;
+  };
   let calendarSync: { syncGroup: jest.Mock };
   let paymentsService: {
     ensureCharge: jest.Mock;
@@ -88,6 +92,11 @@ describe('ConsultationsService', () => {
       assertAccess: jest
         .fn()
         .mockResolvedValue({ id: 'patient-1', rut: '11111111-1' }),
+      getConsentStatusMap: jest
+        .fn()
+        .mockResolvedValue(
+          new Map([['patient-1', { TREATMENT: true, TELEMEDICINE: false }]]),
+        ),
     };
     calendarSync = { syncGroup: jest.fn().mockResolvedValue(undefined) };
     paymentsService = {
@@ -121,6 +130,44 @@ describe('ConsultationsService', () => {
         ),
       ).rejects.toThrow(NotFoundException);
       expect(prisma.consultation.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza crear la consulta si el paciente no tiene consentimiento vigente (issue #131)', async () => {
+      patientsService.getConsentStatusMap.mockResolvedValue(
+        new Map([['patient-1', { TREATMENT: false, TELEMEDICINE: false }]]),
+      );
+
+      await expect(
+        service.create(
+          {
+            patientId: 'patient-1',
+            sessionDate: '2026-01-10',
+            consultReason: 'Motivo',
+            intervention: 'Intervención',
+          } as never,
+          'therapist-1',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+      expect(prisma.consultation.create).not.toHaveBeenCalled();
+    });
+
+    it('acepta consentimiento de telemedicina aunque no haya presencial (issue #27/#131)', async () => {
+      prisma.consultation.create.mockResolvedValue(buildConsultation());
+      patientsService.getConsentStatusMap.mockResolvedValue(
+        new Map([['patient-1', { TREATMENT: false, TELEMEDICINE: true }]]),
+      );
+
+      await service.create(
+        {
+          patientId: 'patient-1',
+          sessionDate: '2026-01-10',
+          consultReason: 'Motivo',
+          intervention: 'Intervención',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.consultation.create).toHaveBeenCalled();
     });
 
     it('usa el rut del paciente cuando el DTO no trae patientRut', async () => {
@@ -308,6 +355,28 @@ describe('ConsultationsService', () => {
   });
 
   describe('correct', () => {
+    it('rechaza corregir la consulta si el paciente no tiene consentimiento vigente (issue #131)', async () => {
+      prisma.consultation.findFirst.mockResolvedValueOnce(buildConsultation());
+      patientsService.getConsentStatusMap.mockResolvedValue(
+        new Map([['patient-1', { TREATMENT: false, TELEMEDICINE: false }]]),
+      );
+
+      await expect(
+        service.correct(
+          'consultation-1',
+          { consultReason: 'Motivo corregido' } as never,
+          'therapist-1',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+      // Review R3-001 (issue #131): el chequeo de consentimiento ahora vive
+      // DENTRO de la transacción junto con la escritura (cierra la ventana
+      // de carrera), así que $transaction sí se invoca -- y su rollback
+      // implícito evita que quede algo escrito.
+      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(prisma.consultationHistory.create).not.toHaveBeenCalled();
+      expect(prisma.consultation.create).not.toHaveBeenCalled();
+    });
+
     it('lanza 409 si la versión ya fue corregida', async () => {
       prisma.consultation.findFirst
         .mockResolvedValueOnce(buildConsultation())
@@ -321,6 +390,27 @@ describe('ConsultationsService', () => {
         ),
       ).rejects.toThrow(ConflictException);
       expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('versión ya corregida tiene precedencia sobre falta de consentimiento — 409, no 403 (review R3-003)', async () => {
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation())
+        .mockResolvedValueOnce({ id: 'already-corrected' });
+      patientsService.getConsentStatusMap.mockResolvedValue(
+        new Map([['patient-1', { TREATMENT: false, TELEMEDICINE: false }]]),
+      );
+
+      await expect(
+        service.correct(
+          'consultation-1',
+          { consultReason: 'Motivo corregido' } as never,
+          'therapist-1',
+        ),
+      ).rejects.toThrow(ConflictException);
+      // El chequeo de versión-ya-corregida corta antes de llegar a
+      // consultar el consentimiento -- no es solo el mismo error, es que ni
+      // siquiera se paga la consulta a getConsentStatusMap.
+      expect(patientsService.getConsentStatusMap).not.toHaveBeenCalled();
     });
 
     it('crea una fila nueva sin modificar la original y guarda el snapshot previo', async () => {

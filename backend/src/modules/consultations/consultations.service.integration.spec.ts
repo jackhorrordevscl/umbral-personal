@@ -113,6 +113,17 @@ describe('ConsultationsService + CalendarSyncService (integration, Google client
     });
     patientId = patient.id;
 
+    // Issue #131: create()/correct() ahora exigen consentimiento vigente.
+    await prisma.patientConsent.create({
+      data: {
+        patientId,
+        purpose: 'TREATMENT',
+        action: 'GRANT',
+        recordedById: therapistId,
+        evidence: 'Consentimiento otorgado en fixture de test (integration)',
+      },
+    });
+
     const tokenCrypto = new GoogleTokenCryptoService(buildConfig());
     tokenCrypto.onModuleInit();
 
@@ -181,6 +192,7 @@ describe('ConsultationsService + CalendarSyncService (integration, Google client
     await prisma.googleCalendarConnection.deleteMany({
       where: { therapistId },
     });
+    await prisma.patientConsent.deleteMany({ where: { patientId } });
     await prisma.patient.deleteMany({ where: { id: patientId } });
     await prisma.user.deleteMany({ where: { id: therapistId } });
     await prisma.onModuleDestroy();
@@ -301,6 +313,17 @@ describe('ConsultationsService.findByRange (integration, real Prisma)', () => {
     });
     patientId = patient.id;
 
+    // Issue #131: create()/correct() ahora exigen consentimiento vigente.
+    await prisma.patientConsent.create({
+      data: {
+        patientId,
+        purpose: 'TREATMENT',
+        action: 'GRANT',
+        recordedById: therapistId,
+        evidence: 'Consentimiento otorgado en fixture de test (integration)',
+      },
+    });
+
     const tokenCrypto = new GoogleTokenCryptoService(buildConfig());
     tokenCrypto.onModuleInit();
 
@@ -353,6 +376,7 @@ describe('ConsultationsService.findByRange (integration, real Prisma)', () => {
       where: { editedById: therapistId },
     });
     await prisma.consultation.deleteMany({ where: { therapistId } });
+    await prisma.patientConsent.deleteMany({ where: { patientId } });
     await prisma.patient.deleteMany({ where: { id: patientId } });
     await prisma.user.deleteMany({ where: { id: therapistId } });
     await prisma.onModuleDestroy();
@@ -689,6 +713,17 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
     });
     patientId = patient.id;
 
+    // Issue #131: create()/correct() ahora exigen consentimiento vigente.
+    await prisma.patientConsent.create({
+      data: {
+        patientId,
+        purpose: 'TREATMENT',
+        action: 'GRANT',
+        recordedById: therapistId,
+        evidence: 'Consentimiento otorgado en fixture de test (integration)',
+      },
+    });
+
     const tokenCrypto = new GoogleTokenCryptoService(buildConfig());
     tokenCrypto.onModuleInit();
 
@@ -749,6 +784,7 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
     });
     await prisma.consultation.deleteMany({ where: { therapistId } });
     await prisma.paymentAccount.deleteMany({ where: { therapistId } });
+    await prisma.patientConsent.deleteMany({ where: { patientId } });
     await prisma.patient.deleteMany({ where: { id: patientId } });
     await prisma.user.deleteMany({ where: { id: therapistId } });
     await prisma.onModuleDestroy();

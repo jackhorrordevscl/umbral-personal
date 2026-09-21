@@ -51,3 +51,25 @@ export function recordPatientConsent(
 ) {
   return api.post(`/patients/${id}/consents`, { purpose, action, evidence });
 }
+
+// Issue #131 (T5): declaración retroactiva en bloque para pacientes que ya
+// estaban en tratamiento antes de que el consentimiento fuera obligatorio.
+export interface BulkConsentResult {
+  patientId: string;
+  ok: boolean;
+  error?: string;
+}
+
+export function bulkDeclarePatientConsent(
+  patientIds: string[],
+  purpose: ConsentPurpose,
+  evidence: string,
+) {
+  return api
+    .post<BulkConsentResult[]>('/patients/consents/bulk-declare', {
+      patientIds,
+      purpose,
+      evidence,
+    })
+    .then((r) => r.data);
+}
