@@ -34,7 +34,11 @@ import { PaymentsService } from '../payments/payments.service';
 // (10 req/60s) hasta devolver 429 -- ver
 // public-scheduling.controller.spec.ts para el test de exhaustividad
 // inversa que ahora lo cubre.
-const FOREIGN_THROTTLER_NAMES = {
+// Exportado para que PublicTherapistProfileController (issue #155, mismo
+// dominio "público del terapeuta") reuse exactamente la misma lista en vez
+// de mantener una copia que puede desincronizarse cuando otro módulo
+// satélite registre un throttler nombrado nuevo.
+export const FOREIGN_THROTTLER_NAMES = {
   login: true,
   'mfa-verify': true,
   signup: true,

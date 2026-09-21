@@ -10,17 +10,13 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { EmailChangeService } from './email-change.service';
 import { AuditService } from '../audit/audit.service';
 import { assertFileContentMatchesMimetype } from '../../common/utils/file-signature.util';
+import {
+  AVATAR_DIR,
+  avatarPath,
+  readAvatarBuffer,
+} from '../../common/utils/avatar-storage.util';
 import * as argon2 from 'argon2';
-import * as path from 'path';
 import * as fs from 'fs/promises';
-
-// Ruta fija por usuario (SIN extensión) -- cada nuevo upload pisa el
-// anterior, sin dejar huérfanos ni necesitar limpieza de archivos viejos.
-// El tipo real detectado se guarda aparte en User.avatarMimeType para poder
-// servir el Content-Type correcto al leerlo (ver getAvatar). No es PHI
-// clínico (es la foto del propio profesional, no de un paciente), por eso
-// no pasa por DocumentEncryptionService como los documentos de `documents/`.
-const AVATAR_DIR = path.join(process.cwd(), 'uploads', 'avatars');
 
 const PROFILE_SELECT = {
   id: true,
@@ -29,6 +25,11 @@ const PROFILE_SELECT = {
   mfaEnabled: true,
   updatedAt: true,
   pendingEmail: true,
+  // Issue #155: expuestos acá para que el propio profesional pueda ver (y
+  // precargar en el form de edición) su bio/specialty actuales -- mismos
+  // campos que persiste `update` más abajo.
+  bio: true,
+  specialty: true,
 } as const;
 
 @Injectable()
@@ -51,6 +52,10 @@ export class ProfileService {
         createdAt: true,
         pendingEmail: true,
         avatarUpdatedAt: true,
+        // Issue #155: el propio profesional edita esto vía PATCH /profile --
+        // necesita verlo acá para precargar el form.
+        bio: true,
+        specialty: true,
       },
     });
 
@@ -143,12 +148,20 @@ export class ProfileService {
 
     const data: {
       name?: string;
+      bio?: string;
+      specialty?: string;
       passwordHash?: string;
       passwordChangedAt?: Date;
       pendingEmail?: null;
       pendingEmailTokenIssuedAt?: null;
     } = {};
     if (dto.name) data.name = dto.name;
+    // Issue #155: a diferencia de `name` (chequeo truthy, nunca se puede
+    // vaciar por este endpoint), bio/specialty sí aceptan '' para que el
+    // profesional pueda borrar lo que ya había cargado -- por eso se chequea
+    // `!== undefined` en vez de truthy.
+    if (dto.bio !== undefined) data.bio = dto.bio;
+    if (dto.specialty !== undefined) data.specialty = dto.specialty;
     if (dto.password) {
       data.passwordHash = await argon2.hash(dto.password);
       // Issue #76 (PR B): JwtStrategy.validate() invalida cualquier token
@@ -202,7 +215,7 @@ export class ProfileService {
     assertFileContentMatchesMimetype(file.buffer, file.mimetype);
 
     await fs.mkdir(AVATAR_DIR, { recursive: true });
-    await fs.writeFile(path.join(AVATAR_DIR, id), file.buffer);
+    await fs.writeFile(avatarPath(id), file.buffer);
 
     const avatarUpdatedAt = new Date();
     await this.prisma.user.update({
@@ -226,7 +239,7 @@ export class ProfileService {
       throw new NotFoundException('No hay foto de perfil');
     }
 
-    const buffer = await fs.readFile(path.join(AVATAR_DIR, id));
+    const buffer = await readAvatarBuffer(id);
     return { buffer, mimeType: user.avatarMimeType };
   }
 
@@ -236,7 +249,7 @@ export class ProfileService {
   // cualquier otro error de fs (permisos, disco, etc.) se propaga tal cual.
   async deleteAvatar(id: string) {
     try {
-      await fs.unlink(path.join(AVATAR_DIR, id));
+      await fs.unlink(avatarPath(id));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
         throw err;

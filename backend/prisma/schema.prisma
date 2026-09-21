@@ -80,6 +80,12 @@ model User {
   // configured self-scheduling yet simply has no public availability
   // computed (AvailabilityService.computeSlots, PR 2).
   sessionDurationMinutes     Int?
+  // Issue #155: perfil público del profesional mostrado en la autoagenda
+  // (PublicBookingPage), antes del calendario. No PHI, editable por el
+  // propio profesional vía PATCH /profile. Bio acotada a 500 caracteres
+  // para evitar abuso (ver UpdateProfileDto).
+  bio                        String?
+  specialty                  String?
 
   patients              Patient[]
   consultations         Consultation[]

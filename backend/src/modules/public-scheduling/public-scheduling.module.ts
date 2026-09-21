@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { PublicSchedulingController } from './public-scheduling.controller';
 import { PublicSchedulingService } from './public-scheduling.service';
 import { PublicScheduleThrottlerGuard } from './public-schedule-throttler.guard';
+import { PublicTherapistProfileController } from './public-therapist-profile.controller';
+import { PublicTherapistProfileService } from './public-therapist-profile.service';
 import { AvailabilityModule } from '../availability/availability.module';
 import { PatientsModule } from '../patients/patients.module';
 import { ConsultationsModule } from '../consultations/consultations.module';
@@ -34,7 +36,11 @@ import { NotificationsModule } from '../notifications/notifications.module';
     PaymentsModule,
     NotificationsModule,
   ],
-  controllers: [PublicSchedulingController],
-  providers: [PublicSchedulingService, PublicScheduleThrottlerGuard],
+  controllers: [PublicSchedulingController, PublicTherapistProfileController],
+  providers: [
+    PublicSchedulingService,
+    PublicScheduleThrottlerGuard,
+    PublicTherapistProfileService,
+  ],
 })
 export class PublicSchedulingModule {}
