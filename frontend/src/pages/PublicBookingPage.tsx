@@ -13,7 +13,7 @@ import {
   groupSlotsByChileDay,
   toChileDayKey,
 } from '../utils/datetime';
-import type { BookingConfirmation, PublicSlot } from '../api/publicScheduling';
+import type { BookingConfirmation, PublicBookingOrigin, PublicSlot } from '../api/publicScheduling';
 
 // sdd/public-booking-payment-calendar PR 5 (tasks.md 5.4, design.md
 // Decision 5 "Checkout is polled, not awaited"): ensureCharge() es
@@ -67,6 +67,20 @@ export default function PublicBookingPage() {
   const [confirmation, setConfirmation] = useState<BookingConfirmation | null>(null);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [checkoutPollExhausted, setCheckoutPollExhausted] = useState(false);
+
+  // issue #157: derivado UNA sola vez al montar (lazy initializer) -- ni
+  // utm_source (query string en el momento de la carga) ni document.referrer
+  // (el referrer que trajo a este visitante) cambian durante la sesión de
+  // reserva, así que recalcularlo en cada render no tiene sentido y además
+  // podría perder el referrer real si el usuario navega dentro de la propia
+  // SPA. source?/referrer? ausentes ⇒ undefined completo (nunca un objeto
+  // vacío) para que el backend lo trate igual que "sin origin en el payload".
+  const [origin] = useState<PublicBookingOrigin | undefined>(() => {
+    const source = searchParams.get('utm_source') ?? undefined;
+    const referrer = document.referrer || undefined;
+    if (!source && !referrer) return undefined;
+    return { source, referrer };
+  });
 
   const grid = useMemo(
     () => chileMonthGridRange(viewMonth.year, viewMonth.month),
@@ -295,6 +309,7 @@ export default function PublicBookingPage() {
             slotStart={selectedSlot.start}
             onSuccess={setConfirmation}
             onSlotTaken={handleSlotTaken}
+            origin={origin}
           />
         )}
       </div>

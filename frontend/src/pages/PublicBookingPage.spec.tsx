@@ -140,6 +140,47 @@ describe('PublicBookingPage — public-scheduling Req: Public Availability Read 
       ).toBeGreaterThanOrEqual(2),
     )
   })
+
+  // issue #157: utm_source de la URL se deriva UNA vez al montar y se manda
+  // dentro de `origin` en el payload de reserva -- jsdom no navega desde un
+  // referrer real, así que acá solo se prueba la parte de utm_source
+  // (document.referrer vacío en jsdom ⇒ queda undefined, no se manda).
+  it('deriva origin.source de utm_source en la URL y lo manda en la reserva', async () => {
+    const slot = futureSlotOnChileDay(11, 13)
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === `/public/therapists/therapist-1/availability`) {
+        return Promise.resolve({ data: [slot] })
+      }
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+    mockedApi.post.mockResolvedValue({
+      data: { id: 'consult-1', groupId: 'group-1', sessionDate: slot.start },
+    })
+
+    const user = userEvent.setup()
+    renderPage(`/book/therapist-1?utm_source=instagram`)
+
+    await user.click(
+      await screen.findByRole('button', { name: `Ver horarios del ${slot.dayKey}` }),
+    )
+    const grid = await screen.findByRole('group', { name: 'Horarios disponibles' })
+    await user.click(within(grid).getAllByRole('button')[0])
+
+    await user.type(screen.getByLabelText(/nombre completo/i), 'Juana Pérez')
+    await user.type(screen.getByLabelText(/^rut/i), '12345678-5')
+    await user.type(screen.getByLabelText(/fecha de nacimiento/i), '1990-05-01')
+    await user.type(screen.getByLabelText(/^email/i), 'instagram@example.com')
+    await user.click(screen.getByRole('button', { name: 'Confirmar reserva' }))
+
+    await waitFor(() =>
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          origin: expect.objectContaining({ source: 'instagram' }),
+        }),
+      ),
+    )
+  })
 })
 
 // sdd/public-booking-payment-calendar PR 5 (tasks.md 5.4, design.md

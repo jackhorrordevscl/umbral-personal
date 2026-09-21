@@ -8,7 +8,7 @@ import FormField from '../ui/FormField';
 import { getApiErrorMessage } from '../../utils/api-error';
 import { normalizeRut, validateRut } from '../../utils/rut';
 import { useBookPublicSlot } from '../../hooks/usePublicScheduling';
-import type { BookingConfirmation } from '../../api/publicScheduling';
+import type { BookingConfirmation, PublicBookingOrigin } from '../../api/publicScheduling';
 
 // sdd/patient-self-scheduling PR 5 (tasks.md 5.3, design.md "Identity
 // resolution gotchas"): formulario REDUCIDO -- solo los campos que
@@ -31,6 +31,10 @@ interface PublicBookingFormProps {
   slotStart: string;
   onSuccess: (confirmation: BookingConfirmation) => void;
   onSlotTaken: () => void;
+  // issue #157: origen ya derivado por PublicBookingPage.tsx (utm_source +
+  // document.referrer) -- el form solo lo reenvía tal cual en el payload de
+  // reserva, sin recalcularlo.
+  origin?: PublicBookingOrigin;
 }
 
 export default function PublicBookingForm({
@@ -38,6 +42,7 @@ export default function PublicBookingForm({
   slotStart,
   onSuccess,
   onSlotTaken,
+  origin,
 }: PublicBookingFormProps) {
   const [submitError, setSubmitError] = useState('');
   const bookSlot = useBookPublicSlot(therapistId);
@@ -57,6 +62,7 @@ export default function PublicBookingForm({
       const confirmation = await bookSlot.mutateAsync({
         slotStart,
         patient: { ...values, rut: normalizeRut(values.rut) },
+        origin,
       });
       onSuccess(confirmation);
     } catch (err) {

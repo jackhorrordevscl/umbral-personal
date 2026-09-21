@@ -5,6 +5,7 @@ import { useAuth } from "../context/useAuth";
 import { useNavigate } from "react-router";
 import { usePatients } from "../hooks/usePatients";
 import { getConsultationStats } from "../api/consultations";
+import { getAcquisitionStats } from "../api/patients";
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -26,6 +27,19 @@ export default function DashboardPage() {
   // Un fetch fallido no debe verse igual que "todavía no hay datos" -- son
   // estadísticas clínicas, no un estado vacío benigno (issue #23).
   const hasLoadError = patientsError || consultationsError;
+
+  // issue #157: NO se suma a hasLoadError a propósito -- es un endpoint
+  // nuevo y aislado (desglose por canal de origen), y un fallo puntual acá
+  // no debe tapar el resto del dashboard con el banner grande de error. Se
+  // maneja con un estado local chico dentro de su propia sección.
+  const {
+    data: acquisitionStats = [],
+    isLoading: acquisitionLoading,
+    isError: acquisitionError,
+  } = useQuery({
+    queryKey: ["acquisition-stats"],
+    queryFn: getAcquisitionStats,
+  });
 
   // Issue #42: las tarjetas/filas clickeables eran <div onClick> sin rol ni
   // manejo de teclado, inalcanzables navegando solo con Tab/Enter.
@@ -178,6 +192,36 @@ export default function DashboardPage() {
                 ))}
               </div>
             )}
+      </div>
+
+      {/* Origen de pacientes */}
+      <div className="card p-4 md:p-6 mt-6 md:mt-8">
+        <h3 className="font-display text-lg md:text-xl text-slate-900 mb-4">
+          Origen de pacientes
+        </h3>
+        {acquisitionError ? (
+          <p className="text-slate-500 text-sm text-center py-8">
+            No se pudo cargar el origen de pacientes.
+          </p>
+        ) : acquisitionLoading ? (
+          <p className="text-slate-500 text-sm text-center py-8">Cargando...</p>
+        ) : acquisitionStats.length === 0 ? (
+          <p className="text-slate-500 text-sm text-center py-8">
+            Sin datos de origen todavía.
+          </p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {acquisitionStats.map((stat) => (
+              <li
+                key={stat.source}
+                className="py-3 flex items-center justify-between gap-2"
+              >
+                <span className="text-sm font-medium text-slate-800">{stat.source}</span>
+                <span className="text-sm text-slate-500">{stat.count}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

@@ -33,9 +33,19 @@ export interface PublicBookingPatientInput {
   treatingDoctor?: string;
 }
 
+// issue #157: espejo de PublicBookingOriginDto (backend/src/modules/
+// public-scheduling/dto/public-booking-origin.dto.ts) -- ambos campos
+// opcionales, capturados al montar PublicBookingPage.tsx (utm_source de la
+// query string + document.referrer) y enviados solo cuando alguno existe.
+export interface PublicBookingOrigin {
+  source?: string;
+  referrer?: string;
+}
+
 export interface BookPublicSlotPayload {
   slotStart: string;
   patient: PublicBookingPatientInput;
+  origin?: PublicBookingOrigin;
 }
 
 // sdd/public-booking-payment-calendar PR 5 (tasks.md 5.3, design.md

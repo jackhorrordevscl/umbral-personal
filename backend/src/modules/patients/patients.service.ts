@@ -17,6 +17,35 @@ import { ConsentPurpose, Patient, Prisma } from '@prisma/client';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 
+// issue #157: origen de adquisición capturado en el frontend (referrer +
+// utm_source) y pasado por PublicSchedulingService.book() ->
+// resolveForPublicBooking(). Interfaz chica en vez de importar el DTO de
+// public-scheduling/dto -- mismo criterio "no cycle" que
+// PublicBookingPatientInput más abajo.
+export interface PublicBookingOriginInput {
+  source?: string;
+  referrer?: string;
+}
+
+// issue #157: deriva la etiqueta de acquisitionSource a partir del origen
+// capturado -- utm_source tal cual (truncado a 120 chars) si viene; si no,
+// el hostname del referrer; si tampoco hay referrer válido, "directo".
+function resolveAcquisitionSource(origin?: PublicBookingOriginInput): string {
+  const source = origin?.source?.trim();
+  if (source) return source.slice(0, 120);
+
+  const referrer = origin?.referrer?.trim();
+  if (referrer) {
+    try {
+      return new URL(referrer).hostname;
+    } catch {
+      // referrer no es una URL válida -- cae a "directo" abajo.
+    }
+  }
+
+  return 'directo';
+}
+
 function normalizeRut(rut: string): string {
   return rut.replace(/\./g, '').trim().toUpperCase();
 }
@@ -393,6 +422,7 @@ export class PatientsService {
   async resolveForPublicBooking(
     therapistId: string,
     dto: PublicBookingPatientInput,
+    origin?: PublicBookingOriginInput,
   ): Promise<{ patient: Patient; isNew: boolean }> {
     const normalizedEmail = dto.email.trim().toLowerCase();
 
@@ -443,9 +473,37 @@ export class PatientsService {
         treatingPsychiatrist: dto.treatingPsychiatrist,
         treatingDoctor: dto.treatingDoctor,
         therapistId,
+        // issue #157: solo se setean acá (creación autoagendada) -- pacientes
+        // creados por el terapeuta en la ficha completa quedan null.
+        acquisitionSource: resolveAcquisitionSource(origin),
+        acquisitionReferrer: origin?.referrer ?? null,
       },
     });
     return { patient, isNew: true };
+  }
+
+  // issue #157: agregación en backend (mismo criterio que getStats en
+  // consultations.service.ts, issue #40) para no traer todas las filas al
+  // frontend. acquisitionSource null (pacientes creados antes de este
+  // feature, o vía ficha del terapeuta) se etiqueta como "directo".
+  async getAcquisitionStats(
+    therapistId: string,
+  ): Promise<Array<{ source: string; count: number }>> {
+    const grouped = await this.prisma.patient.groupBy({
+      by: ['acquisitionSource'],
+      where: { therapistId, deletedAt: null },
+      _count: true,
+    });
+
+    const counts = new Map<string, number>();
+    for (const row of grouped) {
+      const label = row.acquisitionSource ?? 'directo';
+      counts.set(label, (counts.get(label) ?? 0) + row._count);
+    }
+
+    return Array.from(counts.entries())
+      .map(([source, count]) => ({ source, count }))
+      .sort((a, b) => b.count - a.count);
   }
 }
 

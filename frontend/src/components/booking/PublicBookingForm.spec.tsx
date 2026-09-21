@@ -131,4 +131,49 @@ describe('PublicBookingForm — public-scheduling Req: Patient Identity Resoluti
     await waitFor(() => expect(onSlotTaken).toHaveBeenCalled())
     expect(onSuccess).not.toHaveBeenCalled()
   })
+
+  // issue #157: el form solo reenvía el `origin` que ya le pasó
+  // PublicBookingPage.tsx (utm_source + document.referrer derivados al
+  // montar) -- no lo recalcula ni lo transforma.
+  it('cuando se pasa origin como prop, lo incluye en el payload de la reserva', async () => {
+    mockedApi.post.mockResolvedValue({
+      data: { id: 'consult-3', sessionDate: '2026-09-20T13:00:00.000Z' },
+    })
+    const origin = { source: 'google', referrer: 'https://google.com/' }
+    renderForm({ origin })
+
+    await fillAndSubmit('con-origen@example.com')
+
+    await waitFor(() =>
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        '/public/therapists/therapist-1/availability/book',
+        expect.objectContaining({ origin }),
+      ),
+    )
+  })
+
+  it('sin origin (undefined), la reserva funciona igual y no rompe el payload', async () => {
+    mockedApi.post.mockResolvedValue({
+      data: { id: 'consult-4', sessionDate: '2026-09-20T13:00:00.000Z' },
+    })
+    const { onSuccess } = renderForm()
+
+    await fillAndSubmit('sin-origen@example.com')
+
+    await waitFor(() =>
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        '/public/therapists/therapist-1/availability/book',
+        {
+          slotStart: '2026-09-20T13:00:00.000Z',
+          patient: {
+            fullName: 'Juana Pérez',
+            rut: '12345678-5',
+            birthDate: '1990-05-01',
+            email: 'sin-origen@example.com',
+          },
+        },
+      ),
+    )
+    expect(onSuccess).toHaveBeenCalled()
+  })
 })

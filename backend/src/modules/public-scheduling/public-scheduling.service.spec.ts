@@ -203,6 +203,7 @@ describe('PublicSchedulingService', () => {
       expect(patientsService.resolveForPublicBooking).toHaveBeenCalledWith(
         'therapist-1',
         patientDto,
+        undefined,
       );
       expect(consultationsService.createFromPublicBooking).toHaveBeenCalledWith(
         'therapist-1',

@@ -40,6 +40,7 @@ describe('PatientsService', () => {
       count: jest.Mock;
       findFirst: jest.Mock;
       update: jest.Mock;
+      groupBy: jest.Mock;
     };
     patientConsent: { findMany: jest.Mock; create: jest.Mock };
     patientHistory: { create: jest.Mock; findMany: jest.Mock };
@@ -57,6 +58,7 @@ describe('PatientsService', () => {
         count: jest.fn(),
         findFirst: jest.fn(),
         update: jest.fn(),
+        groupBy: jest.fn(),
       },
       patientConsent: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -644,6 +646,100 @@ describe('PatientsService', () => {
       for (const call of warnSpy.mock.calls) {
         expect(String(call[0])).not.toContain('paciente@ejemplo.cl');
       }
+    });
+
+    // issue #157: acquisitionSource/acquisitionReferrer solo se setean en la
+    // creación del paciente -- nunca al vincular a una ficha existente.
+    describe('origin (issue #157)', () => {
+      it('paciente nuevo con origin.source -> se persiste tal cual', async () => {
+        prisma.patient.findMany.mockResolvedValue([]);
+        prisma.patient.findUnique.mockResolvedValue(null);
+        prisma.patient.create.mockResolvedValue(buildPatient());
+
+        await service.resolveForPublicBooking('therapist-1', dto as never, {
+          source: 'google',
+          referrer: 'https://google.com/search?q=terapia',
+        });
+
+        expect(prisma.patient.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            acquisitionSource: 'google',
+            acquisitionReferrer: 'https://google.com/search?q=terapia',
+          }) as unknown,
+        });
+      });
+
+      it('paciente nuevo sin source pero con referrer -> persiste el hostname', async () => {
+        prisma.patient.findMany.mockResolvedValue([]);
+        prisma.patient.findUnique.mockResolvedValue(null);
+        prisma.patient.create.mockResolvedValue(buildPatient());
+
+        await service.resolveForPublicBooking('therapist-1', dto as never, {
+          referrer: 'https://www.instagram.com/reel/xyz',
+        });
+
+        expect(prisma.patient.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            acquisitionSource: 'www.instagram.com',
+            acquisitionReferrer: 'https://www.instagram.com/reel/xyz',
+          }) as unknown,
+        });
+      });
+
+      it('paciente nuevo sin source ni referrer -> "directo"', async () => {
+        prisma.patient.findMany.mockResolvedValue([]);
+        prisma.patient.findUnique.mockResolvedValue(null);
+        prisma.patient.create.mockResolvedValue(buildPatient());
+
+        await service.resolveForPublicBooking('therapist-1', dto as never);
+
+        expect(prisma.patient.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            acquisitionSource: 'directo',
+            acquisitionReferrer: null,
+          }) as unknown,
+        });
+      });
+
+      it('paciente EXISTENTE (match por email) -> no toca los campos de acquisition', async () => {
+        const existing = buildPatient({ email: 'paciente@ejemplo.cl' });
+        prisma.patient.findMany.mockResolvedValue([existing]);
+
+        const result = await service.resolveForPublicBooking(
+          'therapist-1',
+          dto as never,
+          { source: 'google' },
+        );
+
+        expect(result).toEqual({ patient: existing, isNew: false });
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+        expect(prisma.patient.update).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  // issue #157: agregación en backend (mismo criterio que getStats en
+  // consultations.service.ts, issue #40).
+  describe('getAcquisitionStats', () => {
+    it('agrupa por acquisitionSource, mapea null a "directo" y ordena desc', async () => {
+      prisma.patient.groupBy.mockResolvedValue([
+        { acquisitionSource: 'google', _count: 3 },
+        { acquisitionSource: null, _count: 5 },
+        { acquisitionSource: 'instagram.com', _count: 1 },
+      ]);
+
+      const result = await service.getAcquisitionStats('therapist-1');
+
+      expect(prisma.patient.groupBy).toHaveBeenCalledWith({
+        by: ['acquisitionSource'],
+        where: { therapistId: 'therapist-1', deletedAt: null },
+        _count: true,
+      });
+      expect(result).toEqual([
+        { source: 'directo', count: 5 },
+        { source: 'google', count: 3 },
+        { source: 'instagram.com', count: 1 },
+      ]);
     });
   });
 });

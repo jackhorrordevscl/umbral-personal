@@ -43,6 +43,19 @@ export function getPatientHistory(id: string) {
   return api.get<PatientHistoryEntry[]>(`/patients/${id}/history`).then((r) => r.data);
 }
 
+// issue #157: agregación en backend (PatientsService.getAcquisitionStats,
+// mismo criterio que getConsultationStats -- issue #40) -- ordenado por
+// count descendente, 'directo' como label para pacientes sin origen
+// registrado.
+export interface AcquisitionStat {
+  source: string;
+  count: number;
+}
+
+export function getAcquisitionStats() {
+  return api.get<AcquisitionStat[]>('/patients/stats/acquisition').then((r) => r.data);
+}
+
 export function recordPatientConsent(
   id: string,
   purpose: ConsentPurpose,

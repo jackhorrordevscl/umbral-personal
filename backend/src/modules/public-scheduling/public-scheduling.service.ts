@@ -148,6 +148,7 @@ export class PublicSchedulingService {
       await this.patientsService.resolveForPublicBooking(
         therapistId,
         dto.patient,
+        dto.origin,
       );
 
     // issue #139: un paciente NUEVO autocreado acá nunca tiene
