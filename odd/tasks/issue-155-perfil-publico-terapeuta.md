@@ -35,9 +35,9 @@ Sin configuración de TDD obligatoria detectada en el proyecto (no hay mandato e
 - [x] T2 (backend/endpoint público perfil): `GET /public/therapists/:therapistId/profile` en módulo nuevo `public-therapist-profile` (controller+service+specs), sin JWT, con `PublicScheduleThrottlerGuard`. Devuelve `{ name, bio, specialty, hasAvatar }`, 404 si no existe/no es PROFESSIONAL. Ruta: delegado (writer).
 - [x] T3 (backend/endpoint público avatar): `GET /public/therapists/:therapistId/avatar`, mismo guard/throttle, sirve el binario vía `readAvatarBuffer()` extraído a `backend/src/common/utils/avatar-storage.util.ts` (compartido con el flujo privado). Ruta: delegado (mismo writer).
 - [x] T4 (backend/edición bio-specialty): `UpdateProfileDto` con `bio?` (`@MaxLength(500)`) y `specialty?` (`@MaxLength(120)`); `ProfileService.update` los persiste con chequeo `!== undefined` (permite vaciar con `''`, a diferencia del chequeo truthy de `name`) para poder borrar bio/specialty. Ruta: delegado (mismo writer).
-- [ ] T5 (frontend/API cliente): agregar funciones en `frontend/src/api/publicScheduling.ts` (o archivo nuevo) para pedir perfil público y URL del avatar público. Ruta: delegado (writer frontend).
-- [ ] T6 (frontend/UI PublicBookingPage): sección de perfil (avatar, bio, badge specialty) antes del calendario en `PublicBookingPage.tsx`. Ruta: delegado (mismo writer frontend).
-- [ ] T7 (frontend/ProfilePage): inputs de edición bio/specialty en `ProfilePage.tsx`. Ruta: delegado (mismo writer frontend).
+- [x] T5 (frontend/API cliente): `getPublicTherapistProfile`/`getPublicTherapistAvatarUrl` en `api/publicScheduling.ts`, hook `usePublicTherapistProfile` en `hooks/usePublicScheduling.ts`. Ruta: delegado (writer frontend).
+- [x] T6 (frontend/UI PublicBookingPage): componente `TherapistProfileHeader` antes del `<h2>Agenda tu sesión</h2>` (avatar/iniciales, badge specialty, bio); `return null` en loading/error, degradación graciosa sin bloquear booking. Ruta: delegado (mismo writer frontend).
+- [x] T7 (frontend/ProfilePage): bloque "Perfil público" en `AccountDataForm` con input specialty (120) y textarea bio (500, contador), mismo patrón de estado/PATCH que el form de nombre existente. Ruta: delegado (mismo writer frontend).
 
 ## Verificación por tarea
 - Backend: `cd backend && npx prisma validate`, `npm run build`, `npm test` (si aplica al módulo tocado).
@@ -45,7 +45,8 @@ Sin configuración de TDD obligatoria detectada en el proyecto (no hay mandato e
 
 ## Progreso
 - 2026-09-21: exploración completa (agente Explore), decisión de storage tomada con el usuario, tasks creadas.
-- 2026-09-21: T1-T4 (backend) completo. `npm run build` OK, `npm test -- profile public-scheduling public-therapist-profile` → 12 suites/97 tests OK. Full suite: 673 OK, 14 fallas pre-existentes en `*.integration.spec.ts` (falta `DATABASE_URL`/`DIRECT_URL` en este worktree, no relacionado al cambio).
+- 2026-09-21: T1-T4 (backend) completo. `npm run build` OK, `npm test -- profile public-scheduling public-therapist-profile` → 12 suites/97 tests OK. Full suite: 673 OK, 14 fallas pre-existentes en `*.integration.spec.ts` (falta `DATABASE_URL`/`DIRECT_URL` en este worktree, no relacionado al cambio). Commit `b6e6a08`.
+- 2026-09-21: T5-T7 (frontend) completo. `npm run build` OK, `npm run lint` OK. No había tests existentes de estos archivos.
 
 ## Próximo paso
-Commit de work-unit backend (T1-T4), luego frontend (T5-T7).
+Commit de work-unit frontend (T5-T7). Feature completa (T1-T7) — falta decidir con el usuario si se abre PR ahora.

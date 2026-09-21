@@ -88,6 +88,8 @@ function AccountDataForm({ profile }: { profile: Profile | undefined }) {
   // error (isLoading ya en false, data undefined), se arranca igual con
   // campos vacíos -- mismo comportamiento que el fetch original.
   const [accountName, setAccountName] = useState(profile?.name ?? '');
+  const [accountBio, setAccountBio] = useState(profile?.bio ?? '');
+  const [accountSpecialty, setAccountSpecialty] = useState(profile?.specialty ?? '');
   const [accountEmail] = useState(profile?.email ?? '');
   const [pendingEmail, setPendingEmail] = useState<string | null>(
     profile?.pendingEmail ?? null,
@@ -97,6 +99,16 @@ function AccountDataForm({ profile }: { profile: Profile | undefined }) {
   const [nameSaving, setNameSaving] = useState(false);
   const [nameError, setNameError] = useState('');
   const [nameMessage, setNameMessage] = useState('');
+
+  // issue #155: bio/specialty se muestran en la autoagenda pública
+  // (PublicBookingPage.tsx) -- mismo patrón de estado/guardado que
+  // nameInput arriba, pero en su propio form porque no comparten el mismo
+  // "guardado" conceptual que el nombre de la cuenta.
+  const [bioInput, setBioInput] = useState(profile?.bio ?? '');
+  const [specialtyInput, setSpecialtyInput] = useState(profile?.specialty ?? '');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileMessage, setProfileMessage] = useState('');
 
   const [emailInput, setEmailInput] = useState('');
   const [emailCurrentPassword, setEmailCurrentPassword] = useState('');
@@ -125,6 +137,30 @@ function AccountDataForm({ profile }: { profile: Profile | undefined }) {
       setNameError(getApiErrorMessage(err, 'No se pudo actualizar el nombre.'));
     } finally {
       setNameSaving(false);
+    }
+  };
+
+  // Bio/specialty se guardan juntos (mismo endpoint, ambos opcionales) --
+  // ProfileService.updateProfile acepta '' para vaciar el campo (comentario
+  // en profile.service.ts), así que un textarea/input vacío es un valor
+  // válido, no "no cambiar nada".
+  const handleUpdatePublicProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileSaving(true);
+    setProfileError('');
+    setProfileMessage('');
+    try {
+      const res = await api.patch('/profile', {
+        bio: bioInput,
+        specialty: specialtyInput,
+      });
+      setAccountBio(res.data.bio ?? '');
+      setAccountSpecialty(res.data.specialty ?? '');
+      setProfileMessage('Perfil público actualizado correctamente.');
+    } catch (err) {
+      setProfileError(getApiErrorMessage(err, 'No se pudo actualizar el perfil público.'));
+    } finally {
+      setProfileSaving(false);
     }
   };
 
@@ -204,6 +240,50 @@ function AccountDataForm({ profile }: { profile: Profile | undefined }) {
           {nameSaving ? 'Guardando...' : 'Guardar nombre'}
         </button>
       </form>
+
+      {/* Perfil público (issue #155): visible en la autoagenda pública */}
+      <div className="border-t border-slate-100 pt-6">
+        <p className="text-sm font-medium text-slate-700 mb-3">Perfil público</p>
+        <form onSubmit={handleUpdatePublicProfile} className="space-y-3">
+          <div>
+            <input
+              type="text"
+              aria-label="Especialidad"
+              placeholder="Especialidad (ej. Psicología clínica)"
+              maxLength={120}
+              value={specialtyInput}
+              onChange={(e) => setSpecialtyInput(e.target.value)}
+              className="input-field"
+            />
+          </div>
+          <div>
+            <textarea
+              aria-label="Bio"
+              placeholder="Cuéntales a tus pacientes un poco sobre vos"
+              maxLength={500}
+              rows={3}
+              value={bioInput}
+              onChange={(e) => setBioInput(e.target.value)}
+              className="input-field resize-none"
+            />
+            <p className="text-xs text-slate-400 mt-1 text-right">
+              {bioInput.length}/500
+            </p>
+          </div>
+          {profileMessage && <ErrorBanner message={profileMessage} variant="success" />}
+          {profileError && <ErrorBanner message={profileError} />}
+          <button
+            type="submit"
+            disabled={
+              profileSaving ||
+              (bioInput === accountBio && specialtyInput === accountSpecialty)
+            }
+            className="btn-primary disabled:opacity-50"
+          >
+            {profileSaving ? 'Guardando...' : 'Guardar perfil público'}
+          </button>
+        </form>
+      </div>
 
       {/* Email */}
       <div className="border-t border-slate-100 pt-6 space-y-3">

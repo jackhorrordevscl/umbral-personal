@@ -15,6 +15,20 @@ export function usePublicAvailability(therapistId: string, from: string, to: str
   });
 }
 
+// issue #155: sección de perfil ANTES del calendario -- degradación graciosa
+// a propósito (design del issue: "booking debe seguir funcionando aunque el
+// perfil no cargue"), así que esta query nunca debe bloquear ni reintentar
+// agresivo: si el 404 (terapeuta sin perfil público) o un error de red pasa,
+// PublicBookingPage simplemente no renderiza la sección.
+export function usePublicTherapistProfile(therapistId: string) {
+  return useQuery({
+    queryKey: ['public-therapist-profile', therapistId],
+    queryFn: () => publicSchedulingApi.getPublicTherapistProfile(therapistId),
+    enabled: Boolean(therapistId),
+    retry: false,
+  });
+}
+
 export function useBookPublicSlot(therapistId: string) {
   const queryClient = useQueryClient();
   return useMutation({

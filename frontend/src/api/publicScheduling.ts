@@ -1,5 +1,13 @@
 import api from './client';
 
+// issue #155: mismo criterio de armado de baseURL que api/client.ts (env
+// VITE_API_URL con fallback de dev) -- necesario acá porque el avatar
+// público se sirve directo en un <img src>, sin pasar por axios (el
+// endpoint no exige auth, así que no hace falta el patrón blob+Bearer que
+// usa el avatar privado en ProfilePage.tsx).
+const PUBLIC_API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
+
 // sdd/patient-self-scheduling PR 5 (tasks.md 5.2/5.3): tipos y wrappers axios
 // para la agenda pública -- contrato tomado directo de
 // backend/src/modules/public-scheduling/public-scheduling.controller.ts y
@@ -76,6 +84,30 @@ export interface BookingConfirmation {
   // backend -- distinto de NOT_APPLICABLE (flag prendido pero sin cargo
   // posible).
   checkout?: CheckoutHint;
+}
+
+// issue #155: espejo de la respuesta de GET /public/therapists/:id/profile
+// (sin auth) -- bio/specialty pueden no estar completados por el terapeuta,
+// de ahí `| null` en vez de opcional (el backend siempre incluye la clave).
+export interface PublicTherapistProfile {
+  name: string;
+  bio: string | null;
+  specialty: string | null;
+  hasAvatar: boolean;
+}
+
+export function getPublicTherapistProfile(therapistId: string) {
+  return api
+    .get<PublicTherapistProfile>(`/public/therapists/${therapistId}/profile`)
+    .then((r) => r.data);
+}
+
+// Sin fetch de por medio: el endpoint es público y sirve el binario
+// directo, así que un <img src={getPublicTherapistAvatarUrl(id)}> alcanza
+// (a diferencia del avatar privado de ProfilePage.tsx, que necesita
+// Authorization y por eso pasa por blob).
+export function getPublicTherapistAvatarUrl(therapistId: string) {
+  return `${PUBLIC_API_BASE_URL}/public/therapists/${therapistId}/avatar`;
 }
 
 export function getPublicAvailability(therapistId: string, from: string, to: string) {
