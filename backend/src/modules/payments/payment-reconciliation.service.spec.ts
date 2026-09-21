@@ -102,7 +102,9 @@ describe('PaymentReconciliationService', () => {
     paymentAccountService = { resolveGatewayContext: jest.fn() };
     gatewayAdapter = { getOrderStatus: jest.fn() };
     gatewayRegistry = { get: jest.fn().mockReturnValue(gatewayAdapter) };
-    mailService = { sendLatePaymentEmail: jest.fn().mockResolvedValue(undefined) };
+    mailService = {
+      sendLatePaymentEmail: jest.fn().mockResolvedValue(undefined),
+    };
     notificationsService = { create: jest.fn().mockResolvedValue(undefined) };
     paymentsService = { markPaid: jest.fn().mockResolvedValue(undefined) };
     service = buildService(true);
