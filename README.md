@@ -147,7 +147,7 @@ cd ../frontend
 npm install --legacy-peer-deps
 ```
 
-Si vas a usar en red local, seteá `VITE_API_URL` en el `.env` del frontend
+Si vas a usar en red local, setea `VITE_API_URL` en el `.env` del frontend
 con la IP de tu servidor (ver `frontend/src/api/client.ts`):
 
 ```
@@ -190,9 +190,9 @@ invitación:
   pruebas en dev).
 - **Cuenta semilla** (`npm run seed`, ver más abajo): crea una única cuenta
   de prueba para no tener que pasar por signup+verificación en cada corrida
-  local. Es la vía más simple en dev para generar la primera invitación: seteá
+  local. Es la vía más simple en dev para generar la primera invitación: setea
   `INVITE_CREATOR_EMAIL` con el mismo email de la cuenta semilla
-  (`SEED_ADMIN_EMAIL`), logueate con ella, y llamá `POST /auth/invitations`
+  (`SEED_ADMIN_EMAIL`), inicia sesión con ella, y llama a `POST /auth/invitations`
   desde la sección "Generar invitación" de Seguridad (o directo por API) para
   conseguir un código válido.
 
@@ -296,6 +296,9 @@ umbral-personal/
 │   │   │   ├── notifications/    # Modelo genérico de notificaciones in-app (sdd/session-reminders)
 │   │   │   ├── reminders/        # Cron de recordatorios de sesión (24h/2h, in-app + email)
 │   │   │   ├── calendar-integration/ # OAuth + sync push-only con Google Calendar (issue #78)
+│   │   │   ├── availability/     # Horario semanal, bloqueos y cálculo de horarios libres (sdd/patient-self-scheduling)
+│   │   │   ├── payments/         # Cuenta Flow por terapeuta, cargos y webhook de confirmación (sdd/online-payment-integration)
+│   │   │   ├── public-scheduling/ # Portal público de auto-agenda sin autenticación (sdd/patient-self-scheduling)
 │   │   │   ├── mail/             # Envío de emails transaccionales (Resend)
 │   │   │   ├── reports/          # Generación de PDF
 │   │   │   └── audit/            # Bitácora inmutable (interceptor global)
@@ -380,6 +383,9 @@ umbral-personal/
   JWT en cada request)
 - Throttler propio (`profile-update`, keyed por `userId`) en `PATCH
   /profile`, independiente del resto de los throttlers de `auth`
+- Foto de perfil: subir/reemplazar (`POST /profile/avatar`, JPG/PNG/WEBP/GIF
+  hasta 5MB), verla (`GET /profile/avatar`) y eliminarla (`DELETE
+  /profile/avatar`)
 
 ### Recordatorios y notificaciones (sdd/session-reminders)
 - Modelo genérico de notificaciones in-app (`GET /notifications`, contador
@@ -390,6 +396,10 @@ umbral-personal/
   un canal no bloquea ni duplica el otro
 - Cron de escaneo cada 5 minutos (`RemindersService`, desactivable con
   `REMINDERS_ENABLED=false` sin necesitar un deploy/revert)
+- Notificación al terapeuta cuando un paciente se autoagenda sin tener un
+  monto de cobro (`defaultSessionAmount`) configurado, para que complete el
+  monto a mano en vez de perder ese cargo en silencio
+  (`PATIENT_MISSING_SESSION_AMOUNT`)
 
 ### Integración con Google Calendar (sdd/google-calendar-integration, issue #78)
 - Conexión OAuth 2.0 por cuenta de terapeuta (`calendar.events`, acceso
@@ -521,6 +531,7 @@ Todas las rutas usan el prefijo global `/api/v1`.
 POST /api/v1/auth/signup               (requiere inviteCode, issue #124)
 POST /api/v1/auth/invitations          🔒 (solo INVITE_CREATOR_EMAIL, issue #124)
 POST /api/v1/auth/verify-email
+POST /api/v1/auth/verify-email/resend
 POST /api/v1/auth/login
 POST /api/v1/auth/mfa/verify
 POST /api/v1/auth/mfa/generate         🔒
@@ -540,6 +551,9 @@ GET   /api/v1/profile                        🔒
 PATCH /api/v1/profile                        🔒
 GET   /api/v1/profile/mfa-history            🔒
 POST  /api/v1/profile/email-change/confirm      (token de un solo uso)
+POST   /api/v1/profile/avatar                 🔒 (multipart, imagen, máx. 5MB)
+GET    /api/v1/profile/avatar                 🔒
+DELETE /api/v1/profile/avatar                 🔒
 ```
 
 ### Pacientes
@@ -553,6 +567,7 @@ DELETE /api/v1/patients/:id                    🔒
 POST   /api/v1/patients/:id/consents           🔒
 GET    /api/v1/patients/:id/consents/status    🔒
 GET    /api/v1/patients/:id/consents           🔒
+POST   /api/v1/patients/consents/bulk-declare  🔒 (declaración retroactiva en bloque, issue #131)
 ```
 
 ### Consultas
@@ -560,6 +575,7 @@ GET    /api/v1/patients/:id/consents           🔒
 POST  /api/v1/consultations                        🔒
 GET   /api/v1/consultations/patient/:patientId     🔒
 GET   /api/v1/consultations/stats                  🔒
+GET   /api/v1/consultations/range                  🔒 (rango de fechas, sdd/session-calendar-view)
 GET   /api/v1/consultations/:id                    🔒
 PATCH /api/v1/consultations/:id/correct            🔒
 ```
@@ -615,6 +631,19 @@ POST   /api/v1/public/therapists/:therapistId/availability/book         (públic
 Las dos últimas requieren `PUBLIC_SCHEDULING_ENABLED=true` (ver Variables
 de Entorno) y no llevan 🔒 porque son intencionalmente accesibles sin
 sesión — es el portal que usa el paciente para autoagendarse.
+
+### Cobro en línea (sdd/online-payment-integration, sdd/payments-multigateway-redesign)
+```
+GET    /api/v1/payments/account                  🔒
+POST   /api/v1/payments/account/validate         🔒 (paso previo del wizard, sin persistir)
+POST   /api/v1/payments/account                   🔒 (confirmación, persiste la cuenta Flow)
+DELETE /api/v1/payments/account                   🔒
+PATCH  /api/v1/payments/:groupId                  🔒 (corrige el monto de un cargo)
+POST   /api/v1/payments/:groupId/resend-link       🔒
+POST   /api/v1/payments/confirm                       (webhook de Flow, sin auth, firma verificada)
+GET    /api/v1/payments/return                        (redirect del paciente tras el checkout, sin auth)
+POST   /api/v1/payments/return                        (mismo caso, safety net de método HTTP)
+```
 
 > 🔒 Requiere token JWT en el header `Authorization: Bearer <token>`
 
@@ -746,7 +775,7 @@ Restaurar un backup (aplica a los dos casos, A y B; verificado end-to-end el
 
 ```bash
 # 1. Bajar el backup más reciente de B2 (o usar directamente el archivo ya
-#    presente en b2-local-mirror/, si restaurás desde la copia local):
+#    presente en b2-local-mirror/, si restauras desde la copia local):
 rclone copy b2remote:mi-bucket/umbral/umbral_backup_2026-07-15_02-00-00.sql.gz.enc .
 
 # 2. Desencriptar + descomprimir + restaurar. La frase de cifrado va siempre
@@ -757,12 +786,12 @@ openssl enc -d -aes-256-cbc -pbkdf2 -pass file:"$HOME/.umbral_backup_passphrase"
   psql -U umbral_user -h localhost -d umbral_db
 ```
 
-Si restaurás un dump que viene de Supabase (backup offsite vía A) contra un
+Si restauras un dump que viene de Supabase (backup offsite vía A) contra un
 Postgres que no es Supabase (ej. un descartable local para probar), vas a ver
 ~600 líneas de `ERROR: no existe el rol «...»` para roles internos de
 Supabase (`supabase_admin`, `dashboard_user`, `vault`, `pgbouncer`, etc.) —
 son esperables y no afectan las tablas de la app, `psql -f`/`psql <` los
-saltea y sigue. Confirmá que restauró bien mirando solo tus tablas:
+saltea y sigue. Confirma que restauró bien mirando solo tus tablas:
 
 ```sql
 SELECT relname, n_live_tup FROM pg_stat_user_tables WHERE schemaname = 'public';

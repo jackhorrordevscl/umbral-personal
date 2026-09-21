@@ -264,6 +264,9 @@ editar tus propios datos:
   en este dispositivo: cualquier otra sesión abierta en otro navegador o
   celular también queda invalidada. Vuelve a loguear con la contraseña
   nueva.
+- **Foto de perfil**: puedes subir o cambiar tu foto (JPG, PNG, WEBP o GIF,
+  hasta 5MB) desde la misma sección, y también eliminarla si quieres volver a
+  no tener foto.
 
 > 📝 Observaciones UX:
 >
@@ -277,7 +280,7 @@ El ícono de campana en la barra superior muestra tus notificaciones, con un
 contador de las que no has leído. Al abrirlas puedes marcarlas una por una
 como leídas, o todas de una vez.
 
-Dos tipos de notificación llegan hoy:
+Tres tipos de notificación llegan hoy:
 
 - **Recordatorio de sesión**: se genera automáticamente 24 horas y 2 horas
   antes de cada consulta agendada, y llega por dos canales independientes —
@@ -285,6 +288,10 @@ Dos tipos de notificación llegan hoy:
   uno de los dos canales falla, el otro igual te llega.
 - **Aviso de Google Calendar desconectado**: si tu conexión con Google
   Calendar (ver punto 12) deja de funcionar, te avisa una sola vez.
+- **Paciente autoagendado sin monto de cobro**: si un paciente se agenda
+  solo por primera vez y todavía no tiene un monto de cobro configurado en
+  su ficha, te llega un aviso para que completes ese monto a mano — de lo
+  contrario esa primera sesión queda sin generar cargo.
 
 > 📝 Observaciones UX: (¿el contador de no leídas se nota fácil? ¿los recordatorios llegan con tiempo suficiente para prepararte?)
 >

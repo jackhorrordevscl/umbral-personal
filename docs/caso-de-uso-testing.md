@@ -129,7 +129,7 @@ después intenta abrir ese mismo link de pago desde otra pestaña.
 > 📝 Anota: ¿el link cancelado te dejó pagar igual, o te avisó que ya no era
 > válido?
 
-### 10:40 — Probás tu link de auto-agenda, haciéndote pasar por un paciente
+### 10:40 — Pruebas tu link de auto-agenda, haciéndote pasar por un paciente
 
 Antes de que un paciente real use esto, pruébalo tú misma jugando los dos
 roles. Primero, como Dra. Constanza: entra a "Perfil" y configura tu
