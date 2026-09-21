@@ -335,8 +335,7 @@ describe('CalendarOauthService', () => {
     });
 
     it('revoca el token en Google, lo borra localmente y audita (caso feliz)', async () => {
-      const { service, connectionMock, tokenCrypto, logMock } =
-        buildService();
+      const { service, connectionMock, tokenCrypto, logMock } = buildService();
       const plainRefreshToken = '1//plain-text-refresh-token-google';
       const encrypted = tokenCrypto.encrypt(
         Buffer.from(plainRefreshToken, 'utf-8'),
@@ -370,8 +369,7 @@ describe('CalendarOauthService', () => {
     });
 
     it('desconecta localmente aunque la revocación en Google falle (best-effort)', async () => {
-      const { service, connectionMock, tokenCrypto, logMock } =
-        buildService();
+      const { service, connectionMock, tokenCrypto, logMock } = buildService();
       const encrypted = tokenCrypto.encrypt(
         Buffer.from('1//plain-text-refresh-token-google', 'utf-8'),
       );
