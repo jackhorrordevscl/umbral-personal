@@ -21,6 +21,7 @@ import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { CorrectConsultationDto } from './dto/correct-consultation.dto';
 import { ConsultationRangeQueryDto } from './dto/consultation-range-query.dto';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
+import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 
 function parseDate(dateStr: string): Date {
   if (dateStr.includes('T') || dateStr.includes(' ')) {
@@ -183,6 +184,10 @@ export class ConsultationsService {
     const where = { patientId, correctedBy: null, deletedAt: null };
     const { page, pageSize } = pagination ?? {};
     const isPaginated = !!page && !!pageSize;
+    // issue #140: sin pagination, take usa el cap de seguridad en vez de
+    // quedar sin límite (ver UNPAGINATED_SAFETY_LIMIT).
+    const take = isPaginated ? pageSize : UNPAGINATED_SAFETY_LIMIT;
+    const skip = isPaginated ? (page - 1) * pageSize : undefined;
 
     // Solo la versión vigente de cada consulta (correctedBy: null = nadie la corrigió después)
     const [consultations, total] = await Promise.all([
@@ -190,7 +195,8 @@ export class ConsultationsService {
         where,
         orderBy: { createdAt: 'desc' },
         include: THERAPIST_SELECT,
-        ...(isPaginated ? { take: pageSize, skip: (page - 1) * pageSize } : {}),
+        take,
+        skip,
       }),
       isPaginated
         ? this.prisma.consultation.count({ where })

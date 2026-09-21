@@ -10,6 +10,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { PaymentsService } from '../payments/payments.service';
+import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 
 function buildConsultation(
   overrides: Partial<Consultation> = {},
@@ -303,6 +304,17 @@ describe('ConsultationsService', () => {
         'therapist-1',
       );
       expect((result as { history: unknown[] }[])[0].history).toHaveLength(1);
+    });
+
+    // issue #140: mismo cap de seguridad que PatientsService.findAll.
+    it('sin pagination aplica el cap de seguridad en vez de un findMany() sin límite', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+
+      await service.findByPatient('patient-1', 'therapist-1');
+
+      expect(prisma.consultation.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: UNPAGINATED_SAFETY_LIMIT }),
+      );
     });
 
     it('con pagination pagina con take/skip y devuelve total', async () => {
