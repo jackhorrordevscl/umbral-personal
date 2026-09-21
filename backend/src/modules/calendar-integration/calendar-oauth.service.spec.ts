@@ -1,6 +1,6 @@
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { UnauthorizedException } from '@nestjs/common';
+import { NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { CalendarOauthService } from './calendar-oauth.service';
 import { GoogleTokenCryptoService } from './google-token-crypto.service';
@@ -68,6 +68,22 @@ function buildTokenCrypto(): GoogleTokenCryptoService {
   const service = new GoogleTokenCryptoService(config);
   service.onModuleInit();
   return service;
+}
+
+// Reemplaza el OAuth2Client real que buildOAuth2Client() (privado)
+// construiría, para interceptar getToken()/revokeToken() sin hablar con
+// google-auth-library -- mismo criterio que el spyOn de
+// exchangeAuthorizationCode ya usado en este archivo.
+function stubOAuth2Client(
+  service: CalendarOauthService,
+  overrides: { getToken?: jest.Mock; revokeToken?: jest.Mock },
+) {
+  return jest
+    .spyOn(
+      service as unknown as { buildOAuth2Client: () => unknown },
+      'buildOAuth2Client',
+    )
+    .mockReturnValue(overrides);
 }
 
 describe('CalendarOauthService', () => {
@@ -232,6 +248,168 @@ describe('CalendarOauthService', () => {
         resource: 'GoogleCalendarConnection',
         resourceId: 'therapist-1',
       });
+    });
+
+    it('rechaza cuando Google no devuelve refresh_token (falta access_type=offline/prompt=consent)', async () => {
+      const { prisma } = buildPrismaMock();
+      const tokenCrypto = buildTokenCrypto();
+      const { auditService, logMock } = buildAuditServiceMock();
+      const service = new CalendarOauthService(
+        prisma,
+        buildJwt(),
+        buildConfig(),
+        tokenCrypto,
+        auditService,
+      );
+      stubOAuth2Client(service, {
+        getToken: jest
+          .fn()
+          .mockResolvedValue({ tokens: { access_token: 'a', scope: 'x' } }),
+      });
+
+      await expect(
+        service.exchangeCodeAndPersist('therapist-1', 'auth-code'),
+      ).rejects.toThrow(UnauthorizedException);
+      // Sin refresh_token no hay nada que persistir ni auditar.
+      expect(logMock).not.toHaveBeenCalled();
+    });
+
+    it('propaga el error de Google al intercambiar el código (getToken rechaza)', async () => {
+      const { prisma } = buildPrismaMock();
+      const tokenCrypto = buildTokenCrypto();
+      const { auditService, logMock } = buildAuditServiceMock();
+      const service = new CalendarOauthService(
+        prisma,
+        buildJwt(),
+        buildConfig(),
+        tokenCrypto,
+        auditService,
+      );
+      stubOAuth2Client(service, {
+        getToken: jest.fn().mockRejectedValue(new Error('invalid_grant')),
+      });
+
+      await expect(
+        service.exchangeCodeAndPersist('therapist-1', 'auth-code'),
+      ).rejects.toThrow('invalid_grant');
+      expect(logMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('disconnect', () => {
+    const therapistId = 'therapist-1';
+
+    function buildService() {
+      const { prisma, connectionMock } = buildPrismaMock();
+      const tokenCrypto = buildTokenCrypto();
+      const { auditService, logMock } = buildAuditServiceMock();
+      const service = new CalendarOauthService(
+        prisma,
+        buildJwt(),
+        buildConfig(),
+        tokenCrypto,
+        auditService,
+      );
+      return { service, connectionMock, tokenCrypto, logMock };
+    }
+
+    it('rechaza si no existe una conexión para el terapeuta', async () => {
+      const { service, connectionMock } = buildService();
+      connectionMock.findUnique.mockResolvedValue(null);
+
+      await expect(service.disconnect(therapistId)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('rechaza si la conexión existe pero no está CONNECTED', async () => {
+      const { service, connectionMock } = buildService();
+      connectionMock.findUnique.mockResolvedValue({
+        status: 'DISCONNECTED',
+        refreshTokenEncrypted: null,
+      });
+
+      await expect(service.disconnect(therapistId)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('revoca el token en Google, lo borra localmente y audita (caso feliz)', async () => {
+      const { service, connectionMock, tokenCrypto, logMock } =
+        buildService();
+      const plainRefreshToken = '1//plain-text-refresh-token-google';
+      const encrypted = tokenCrypto.encrypt(
+        Buffer.from(plainRefreshToken, 'utf-8'),
+      );
+      connectionMock.findUnique.mockResolvedValue({
+        status: 'CONNECTED',
+        refreshTokenEncrypted: Buffer.from(encrypted),
+      });
+      connectionMock.update.mockResolvedValue({ status: 'DISCONNECTED' });
+      const revokeToken = jest.fn().mockResolvedValue(undefined);
+      stubOAuth2Client(service, { revokeToken });
+
+      const result = await service.disconnect(therapistId);
+
+      expect(result).toEqual({ status: 'DISCONNECTED' });
+      // El token pasado a Google debe ser el texto plano original, nunca el
+      // ciphertext -- confirma que se desencriptó antes de revocar.
+      expect(revokeToken).toHaveBeenCalledWith(plainRefreshToken);
+      const callArg = connectionMock.update.mock.calls[0][0] as {
+        data: { status: string; refreshTokenEncrypted: null };
+      };
+      expect(callArg.data.status).toBe('DISCONNECTED');
+      expect(callArg.data.refreshTokenEncrypted).toBeNull();
+      expect(logMock).toHaveBeenCalledWith({
+        userId: therapistId,
+        action: 'CALENDAR_DISCONNECTED',
+        resource: 'GoogleCalendarConnection',
+        resourceId: therapistId,
+        detail: 'USER_REQUEST',
+      });
+    });
+
+    it('desconecta localmente aunque la revocación en Google falle (best-effort)', async () => {
+      const { service, connectionMock, tokenCrypto, logMock } =
+        buildService();
+      const encrypted = tokenCrypto.encrypt(
+        Buffer.from('1//plain-text-refresh-token-google', 'utf-8'),
+      );
+      connectionMock.findUnique.mockResolvedValue({
+        status: 'CONNECTED',
+        refreshTokenEncrypted: Buffer.from(encrypted),
+      });
+      connectionMock.update.mockResolvedValue({ status: 'DISCONNECTED' });
+      const revokeToken = jest
+        .fn()
+        .mockRejectedValue(new Error('Google ya invalidó el token'));
+      stubOAuth2Client(service, { revokeToken });
+
+      const result = await service.disconnect(therapistId);
+
+      // proposal.md "Disconnect": revoke es best-effort -- el borrado local
+      // (y la auditoría) deben ocurrir igual aunque Google rechace.
+      expect(result).toEqual({ status: 'DISCONNECTED' });
+      expect(connectionMock.update).toHaveBeenCalledTimes(1);
+      expect(logMock).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'CALENDAR_DISCONNECTED' }),
+      );
+    });
+
+    it('no intenta revocar en Google si no hay refresh token almacenado', async () => {
+      const { service, connectionMock } = buildService();
+      connectionMock.findUnique.mockResolvedValue({
+        status: 'CONNECTED',
+        refreshTokenEncrypted: null,
+      });
+      connectionMock.update.mockResolvedValue({ status: 'DISCONNECTED' });
+      const revokeToken = jest.fn();
+      stubOAuth2Client(service, { revokeToken });
+
+      const result = await service.disconnect(therapistId);
+
+      expect(result).toEqual({ status: 'DISCONNECTED' });
+      expect(revokeToken).not.toHaveBeenCalled();
     });
   });
 });
