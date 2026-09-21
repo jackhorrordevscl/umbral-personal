@@ -121,12 +121,27 @@ describe('AuditLog — escritura real end-to-end (e2e)', () => {
       },
     });
     patientId = patient.id;
+
+    // Issue #131: el guardrail de consentimiento bloquea POST /consultations
+    // sin un PatientConsent vigente. Igual que el paciente de arriba, se
+    // otorga directo vía Prisma para no depender del comportamiento que
+    // este spec audita.
+    await prisma.patientConsent.create({
+      data: {
+        patientId,
+        purpose: 'TREATMENT',
+        action: 'GRANT',
+        recordedById: userId,
+        evidence: 'Consentimiento otorgado para fixture audit-log',
+      },
+    });
   });
 
   afterAll(async () => {
     try {
       if (patientId) {
         await prisma.consultation.deleteMany({ where: { patientId } });
+        await prisma.patientConsent.deleteMany({ where: { patientId } });
         await prisma.patient.deleteMany({ where: { id: patientId } });
       }
       // Nunca hard-delete de User: AuditLog.userId usa onDelete: Restrict a

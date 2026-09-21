@@ -187,6 +187,19 @@ describe('RBAC ownership guard (e2e)', () => {
       .expect(201);
     patientId = (patientCreate.body as Record<string, unknown>).id as string;
 
+    // Issue #131: el guardrail de consentimiento bloquea POST /consultations
+    // sin un PatientConsent vigente -- fixture de esta suite necesita
+    // otorgarlo antes de crear la consulta.
+    await request(app.getHttpServer())
+      .post(`/api/v1/patients/${patientId}/consents`)
+      .set('Authorization', `Bearer ${therapistAToken}`)
+      .send({
+        purpose: 'TREATMENT',
+        action: 'GRANT',
+        evidence: 'Consentimiento otorgado para fixture RBAC',
+      })
+      .expect(201);
+
     const consultationCreate = await request(app.getHttpServer())
       .post('/api/v1/consultations')
       .set('Authorization', `Bearer ${therapistAToken}`)
@@ -221,12 +234,13 @@ describe('RBAC ownership guard (e2e)', () => {
           }
         }
 
-        // Borrado respetando FKs: documentos/consultas -> paciente.
+        // Borrado respetando FKs: documentos/consultas/consentimientos -> paciente.
         await prisma.patientDocument.deleteMany({ where: { patientId } });
         await prisma.consultationHistory.deleteMany({
           where: { consultation: { patientId } },
         });
         await prisma.consultation.deleteMany({ where: { patientId } });
+        await prisma.patientConsent.deleteMany({ where: { patientId } });
         await prisma.patient.deleteMany({ where: { id: patientId } });
       }
 

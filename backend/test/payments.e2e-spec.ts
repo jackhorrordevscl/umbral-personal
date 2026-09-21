@@ -216,6 +216,18 @@ describe('Payments (e2e)', () => {
       .expect(201);
     patientAId = (patient.body as { id: string }).id;
 
+    // Issue #131: el guardrail de consentimiento bloquea POST /consultations
+    // sin un PatientConsent vigente.
+    await request(app.getHttpServer())
+      .post(`/api/v1/patients/${patientAId}/consents`)
+      .set('Authorization', `Bearer ${therapistAToken}`)
+      .send({
+        purpose: 'TREATMENT',
+        action: 'GRANT',
+        evidence: 'Consentimiento otorgado para fixture de pagos',
+      })
+      .expect(201);
+
     const consultation = await request(app.getHttpServer())
       .post('/api/v1/consultations')
       .set('Authorization', `Bearer ${therapistAToken}`)
@@ -239,6 +251,9 @@ describe('Payments (e2e)', () => {
       });
       await prisma.consultation.deleteMany({ where: { groupId: groupIdA } });
       if (patientAId) {
+        await prisma.patientConsent.deleteMany({
+          where: { patientId: patientAId },
+        });
         await prisma.patient.deleteMany({ where: { id: patientAId } });
       }
       await prisma.user.updateMany({
@@ -387,6 +402,18 @@ describe('Payments (e2e)', () => {
         })
         .expect(201);
       patientCId = (patient.body as { id: string }).id;
+
+      // Issue #131: el guardrail de consentimiento bloquea POST /consultations
+      // sin un PatientConsent vigente.
+      await request(app.getHttpServer())
+        .post(`/api/v1/patients/${patientCId}/consents`)
+        .set('Authorization', `Bearer ${therapistCToken}`)
+        .send({
+          purpose: 'TREATMENT',
+          action: 'GRANT',
+          evidence: 'Consentimiento otorgado para fixture de reconexión',
+        })
+        .expect(201);
     }, 30000);
 
     afterAll(async () => {
@@ -397,6 +424,9 @@ describe('Payments (e2e)', () => {
         where: { therapistId: therapistCId },
       });
       if (patientCId) {
+        await prisma.patientConsent.deleteMany({
+          where: { patientId: patientCId },
+        });
         await prisma.patient.deleteMany({ where: { id: patientCId } });
       }
       await prisma.user.updateMany({
