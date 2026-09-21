@@ -242,6 +242,161 @@ describe('computeAvailableSlots (pure)', () => {
   it('sin reglas semanales no hay slots', () => {
     expect(computeAvailableSlots(baseInput())).toEqual([]);
   });
+
+  // issue #141: el sweep con puntero avanzante contra blockouts/occupied
+  // exige que los slots se generen en orden temporal no decreciente. Como
+  // weeklyRules llega de Prisma sin orderBy, el fix ordena rulesByWeekday por
+  // startMinute internamente -- este caso prueba que el orden de salida no
+  // depende del orden de entrada.
+  describe('sweep con puntero avanzante (issue #141)', () => {
+    it('con reglas del mismo día en orden NO ordenado por startMinute, produce los slots en orden temporal ascendente', () => {
+      const result = computeAvailableSlots(
+        baseInput({
+          // Deliberadamente desordenado: la regla de las 10:00 aparece antes
+          // que la de las 09:00.
+          weeklyRules: [
+            { dayOfWeek: 1, startMinute: 10 * 60, endMinute: 11 * 60 },
+            { dayOfWeek: 1, startMinute: 9 * 60, endMinute: 10 * 60 },
+          ],
+          sessionDurationMinutes: 60,
+          now: new Date('2026-05-01T00:00:00.000Z'),
+        }),
+      );
+
+      expect(result).toHaveLength(2);
+      expect(result[0].start).toBe('2026-06-01T13:00:00.000Z'); // 09:00 Chile
+      expect(result[1].start).toBe('2026-06-01T14:00:00.000Z'); // 10:00 Chile
+    });
+
+    it('múltiples blockouts solapados entre sí, con un borde exacto en el startsAt de un slot y uno tardío, bloquean solo los slots correctos', () => {
+      // Lunes 09:00-13:00 Chile, sesiones de 50 min:
+      // S0 09:00-09:50 (13:00-13:50Z), S1 09:50-10:40 (13:50-14:40Z),
+      // S2 10:40-11:30 (14:40-15:30Z), S3 11:30-12:20 (15:30-16:20Z).
+      const result = computeAvailableSlots(
+        baseInput({
+          weeklyRules: [
+            { dayOfWeek: 1, startMinute: 9 * 60, endMinute: 13 * 60 },
+          ],
+          // Desordenados a propósito (no vienen ordenados por startsAt):
+          blockouts: [
+            // Tardío: bloquea exactamente S3, tras varios slots libres --
+            // verifica que el puntero no lo descarte de más ni lo pierda.
+            {
+              startsAt: new Date('2026-06-01T15:30:00.000Z'),
+              endsAt: new Date('2026-06-01T16:20:00.000Z'),
+            },
+            // B1: bloquea S0. endsAt cae justo en el startsAt de S1 (borde
+            // half-open) -- no debe bloquear S1.
+            {
+              startsAt: new Date('2026-06-01T13:00:00.000Z'),
+              endsAt: new Date('2026-06-01T13:30:00.000Z'),
+            },
+            // B_extra: se solapa con B1 y también termina justo en el
+            // startsAt de S1 -- otro borde half-open, tampoco bloquea S1.
+            {
+              startsAt: new Date('2026-06-01T13:20:00.000Z'),
+              endsAt: new Date('2026-06-01T13:50:00.000Z'),
+            },
+          ],
+          now: new Date('2026-05-01T00:00:00.000Z'),
+        }),
+      );
+
+      expect(result.map((s) => s.start)).toEqual([
+        '2026-06-01T13:50:00.000Z', // S1, libre
+        '2026-06-01T14:40:00.000Z', // S2, libre
+      ]);
+    });
+
+    it('múltiples consultas ocupadas desordenadas en el input, intercaladas con slots libres, ocupan solo el slot exacto', () => {
+      // Mismos 4 slots (S0..S3) de 50 min que el caso anterior.
+      const result = computeAvailableSlots(
+        baseInput({
+          weeklyRules: [
+            { dayOfWeek: 1, startMinute: 9 * 60, endMinute: 13 * 60 },
+          ],
+          // Desordenadas a propósito: la de S3 aparece antes que la de S1.
+          occupiedConsultations: [
+            { sessionDate: new Date('2026-06-01T15:30:00.000Z') }, // ocupa S3
+            { sessionDate: new Date('2026-06-01T13:50:00.000Z') }, // ocupa S1
+          ],
+          now: new Date('2026-05-01T00:00:00.000Z'),
+        }),
+      );
+
+      expect(result.map((s) => s.start)).toEqual([
+        '2026-06-01T13:00:00.000Z', // S0, libre
+        '2026-06-01T14:40:00.000Z', // S2, libre
+      ]);
+    });
+
+    it('con blockouts y occupiedConsultations vacíos, todos los slots quedan disponibles (regresión trivial)', () => {
+      const result = computeAvailableSlots(
+        baseInput({
+          weeklyRules: [
+            { dayOfWeek: 1, startMinute: 9 * 60, endMinute: 13 * 60 },
+          ],
+          blockouts: [],
+          occupiedConsultations: [],
+          now: new Date('2026-05-01T00:00:00.000Z'),
+        }),
+      );
+
+      expect(result).toHaveLength(4);
+    });
+
+    it('un blockout que cubre todo el rango bloquea absolutamente todos los slots candidatos', () => {
+      const result = computeAvailableSlots(
+        baseInput({
+          weeklyRules: [
+            { dayOfWeek: 1, startMinute: 9 * 60, endMinute: 13 * 60 },
+          ],
+          blockouts: [
+            {
+              startsAt: new Date('2026-06-01T00:00:00.000Z'),
+              endsAt: new Date('2026-06-08T00:00:00.000Z'),
+            },
+          ],
+          now: new Date('2026-05-01T00:00:00.000Z'),
+        }),
+      );
+
+      expect(result).toEqual([]);
+    });
+
+    it('no muta los arrays de blockouts/occupiedConsultations recibidos', () => {
+      const blockouts = [
+        {
+          startsAt: new Date('2026-06-01T15:30:00.000Z'),
+          endsAt: new Date('2026-06-01T16:20:00.000Z'),
+        },
+        {
+          startsAt: new Date('2026-06-01T13:00:00.000Z'),
+          endsAt: new Date('2026-06-01T13:30:00.000Z'),
+        },
+      ];
+      const occupiedConsultations = [
+        { sessionDate: new Date('2026-06-01T15:30:00.000Z') },
+        { sessionDate: new Date('2026-06-01T13:50:00.000Z') },
+      ];
+      const blockoutsBefore = [...blockouts];
+      const occupiedBefore = [...occupiedConsultations];
+
+      computeAvailableSlots(
+        baseInput({
+          weeklyRules: [
+            { dayOfWeek: 1, startMinute: 9 * 60, endMinute: 13 * 60 },
+          ],
+          blockouts,
+          occupiedConsultations,
+          now: new Date('2026-05-01T00:00:00.000Z'),
+        }),
+      );
+
+      expect(blockouts).toEqual(blockoutsBefore);
+      expect(occupiedConsultations).toEqual(occupiedBefore);
+    });
+  });
 });
 
 describe('AvailabilityService (cache)', () => {

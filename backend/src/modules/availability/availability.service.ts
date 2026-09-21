@@ -92,6 +92,31 @@ export function computeAvailableSlots(
     list.push(rule);
     rulesByWeekday.set(rule.dayOfWeek, list);
   }
+  // issue #141: el caller (computeSlots) trae weeklyRules desde Prisma sin
+  // orderBy, así que dentro de un mismo día no hay garantía de orden por
+  // startMinute. El sweep de blockouts/occupied de más abajo depende de que
+  // los slots se generen en orden temporal estrictamente no decreciente, así
+  // que ordenamos una vez acá (no por día). assertNoOverlappingEntries ya
+  // garantiza que un mismo terapeuta no tiene reglas superpuestas el mismo
+  // día, así que ordenar por startMinute alcanza para slots crecientes tanto
+  // dentro del día como entre días.
+  for (const rules of rulesByWeekday.values()) {
+    rules.sort((a, b) => a.startMinute - b.startMinute);
+  }
+
+  // issue #141: sweep con puntero avanzante en vez de .some() lineal por
+  // slot -- blockouts/occupiedConsultations son inputs del caller, así que
+  // ordenamos copias locales en vez de mutar los arrays recibidos. Los
+  // índices persisten entre slots (nunca retroceden) porque los slots se
+  // generan en orden temporal no decreciente.
+  const sortedBlockouts = [...blockouts].sort(
+    (a, b) => a.startsAt.getTime() - b.startsAt.getTime(),
+  );
+  const sortedOccupied = [...occupiedConsultations].sort(
+    (a, b) => a.sessionDate.getTime() - b.sessionDate.getTime(),
+  );
+  let blockoutIdx = 0;
+  let occupiedIdx = 0;
 
   const slots: AvailableSlot[] = [];
   const lastDayKey = chileDayKeyFromInstant(new Date(to.getTime() - 1));
@@ -125,18 +150,42 @@ export function computeAvailableSlots(
 
         const end = new Date(startMs + sessionDurationMinutes * 60000);
 
-        const isBlocked = blockouts.some(
-          (b) =>
-            b.startsAt.getTime() < end.getTime() &&
-            b.endsAt.getTime() > startMs,
-        );
+        const endMs = end.getTime();
+
+        // Descarta permanentemente los blockouts que ya terminaron: como los
+        // slots solo avanzan en el tiempo, uno que terminó antes de este
+        // slot no puede solapar ningún slot futuro.
+        while (
+          blockoutIdx < sortedBlockouts.length &&
+          sortedBlockouts[blockoutIdx].endsAt.getTime() <= startMs
+        ) {
+          blockoutIdx++;
+        }
+        let isBlocked = false;
+        for (
+          let j = blockoutIdx;
+          j < sortedBlockouts.length &&
+          sortedBlockouts[j].startsAt.getTime() < endMs;
+          j++
+        ) {
+          if (sortedBlockouts[j].endsAt.getTime() > startMs) {
+            isBlocked = true;
+            break;
+          }
+        }
         if (isBlocked) continue;
 
-        const isOccupied = occupiedConsultations.some(
-          (c) =>
-            c.sessionDate.getTime() >= startMs &&
-            c.sessionDate.getTime() < end.getTime(),
-        );
+        // Mismo criterio: descarta permanentemente las consultas ocupadas
+        // que ya pasaron.
+        while (
+          occupiedIdx < sortedOccupied.length &&
+          sortedOccupied[occupiedIdx].sessionDate.getTime() < startMs
+        ) {
+          occupiedIdx++;
+        }
+        const isOccupied =
+          occupiedIdx < sortedOccupied.length &&
+          sortedOccupied[occupiedIdx].sessionDate.getTime() < endMs;
         if (isOccupied) continue;
 
         slots.push({ start: start.toISOString(), end: end.toISOString() });
