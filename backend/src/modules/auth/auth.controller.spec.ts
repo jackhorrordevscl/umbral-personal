@@ -1,6 +1,7 @@
 import { Reflector } from '@nestjs/core';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { MfaService } from './mfa.service';
 
 // @nestjs/throttler no exporta THROTTLER_SKIP en su API pública (vive en
 // throttler.constants.ts, interno) -- se replica el valor literal tal cual
@@ -21,7 +22,7 @@ const THROTTLER_SKIP = 'THROTTLER:SKIP';
 // se cubren en la misma lista en vez de un describe separado.
 describe('AuthController — exhaustividad de @SkipThrottle (public-scheduling, payments)', () => {
   const reflector = new Reflector();
-  const controller = new AuthController({} as AuthService);
+  const controller = new AuthController({} as AuthService, {} as MfaService);
 
   const throttledMethodNames = [
     'login',

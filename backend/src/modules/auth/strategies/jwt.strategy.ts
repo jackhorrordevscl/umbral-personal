@@ -25,7 +25,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     iat: number;
   }) {
     // Los JWT de corta duración emitidos para forzar el enrolamiento MFA
-    // (purpose: 'mfa-setup', ver AuthService.login/verifySetupToken), el
+    // (purpose: 'mfa-setup', ver AuthService.login / MfaService.verifySetupToken), el
     // cambio de contraseña (purpose: 'password-change', ver
     // AuthService.login/verifyPasswordChangeToken), la verificación de
     // email del signup propio (purpose: 'email-verify', issue #5), el
