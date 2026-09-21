@@ -3,15 +3,15 @@ import { createHmac } from 'crypto';
 import { WebhooksService } from './webhooks.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
-// issue #163: mismo secret de ejemplo que usa la suite de tests de la propia
-// librería svix (node_modules/svix/src/webhook.test.ts) -- string base64
-// válido, no un valor real de Resend. WebhooksService reimplementa la
-// verificación del esquema Standard Webhooks con Node `crypto` (ver el
-// comentario en webhooks.service.ts sobre por qué no se importa el paquete
-// npm `svix` en runtime -- es ESM-only e incompatible con Jest/ts-jest en
-// modo CommonJS); este helper firma el payload con el mismo algoritmo,
-// independiente de la implementación bajo prueba.
-const TEST_SECRET = 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw';
+// issue #163: secreto de prueba de baja entropía (todo ceros en base64) a
+// propósito -- un valor con pinta de secreto real (aunque inventado) hacía
+// que GitGuardian lo marcara como posible fuga en el PR #166. WebhooksService
+// reimplementa la verificación del esquema Standard Webhooks con Node
+// `crypto` (ver el comentario en webhooks.service.ts sobre por qué no se
+// importa el paquete npm `svix` en runtime -- es ESM-only e incompatible con
+// Jest/ts-jest en modo CommonJS); este helper firma el payload con el mismo
+// algoritmo, independiente de la implementación bajo prueba.
+const TEST_SECRET = 'whsec_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 function buildConfig(secret: string | undefined): ConfigService {
   return {
