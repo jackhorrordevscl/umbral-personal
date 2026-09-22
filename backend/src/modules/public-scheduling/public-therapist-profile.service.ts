@@ -1,7 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { readAvatarBuffer } from '../../common/utils/avatar-storage.util';
+import {
+  readAvatarBuffer,
+  isAvatarNotFoundError,
+} from '../../common/utils/avatar-storage.util';
 
 // Issue #155: perfil público del terapeuta mostrado en la autoagenda
 // (PublicBookingPage), antes del calendario. Servicio separado de
@@ -48,11 +51,10 @@ export class PublicTherapistProfileService {
       const buffer = await readAvatarBuffer(therapistId);
       return { buffer, mimeType: therapist.avatarMimeType };
     } catch (err) {
-      // El disco de Render (plan free) es efímero: un redeploy borra
-      // uploads/avatars/ pero no toca avatarMimeType en la DB, dejando un
-      // registro "tiene avatar" que apunta a un archivo que ya no existe.
-      // Se trata como "sin avatar" (404) en vez de explotar con 500.
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      // avatarMimeType puede quedar "seteado" en la DB sin un objeto real
+      // detrás en B2 (borrado manual, migración incompleta, etc.). Se trata
+      // como "sin avatar" (404) en vez de explotar con 500.
+      if (isAvatarNotFoundError(err)) {
         throw new NotFoundException('El terapeuta no tiene foto de perfil.');
       }
       throw err;

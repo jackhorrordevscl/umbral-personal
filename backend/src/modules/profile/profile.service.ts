@@ -11,12 +11,12 @@ import { EmailChangeService } from './email-change.service';
 import { AuditService } from '../audit/audit.service';
 import { assertFileContentMatchesMimetype } from '../../common/utils/file-signature.util';
 import {
-  AVATAR_DIR,
-  avatarPath,
   readAvatarBuffer,
+  writeAvatarBuffer,
+  deleteAvatarObject,
+  isAvatarNotFoundError,
 } from '../../common/utils/avatar-storage.util';
 import * as argon2 from 'argon2';
-import * as fs from 'fs/promises';
 
 const PROFILE_SELECT = {
   id: true,
@@ -209,13 +209,12 @@ export class ProfileService {
   // El `fileFilter` del controller solo mira el header `mimetype` declarado
   // por el cliente (spoofable); esta es la validación real de contenido
   // (mismo criterio que DocumentsService.uploadDocument, issue #51), corre
-  // sobre el buffer ya completo. Ruta fija (AVATAR_DIR/<id>, sin extensión):
-  // este write pisa el archivo anterior si existía.
+  // sobre el buffer ya completo. Ruta fija (objeto <id> en el bucket de
+  // avatares, sin extensión): este write pisa el objeto anterior si existía.
   async uploadAvatar(id: string, file: Express.Multer.File) {
     assertFileContentMatchesMimetype(file.buffer, file.mimetype);
 
-    await fs.mkdir(AVATAR_DIR, { recursive: true });
-    await fs.writeFile(avatarPath(id), file.buffer);
+    await writeAvatarBuffer(id, file.buffer);
 
     const avatarUpdatedAt = new Date();
     await this.prisma.user.update({
@@ -243,10 +242,11 @@ export class ProfileService {
       const buffer = await readAvatarBuffer(id);
       return { buffer, mimeType: user.avatarMimeType };
     } catch (err) {
-      // Mismo caso que PublicTherapistProfileService.getAvatar: el disco de
-      // Render (plan free) es efímero, así que avatarMimeType puede quedar
-      // "seteado" en la DB después de un redeploy que borró el archivo real.
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      // Mismo caso que PublicTherapistProfileService.getAvatar: aunque B2 es
+      // persistente (a diferencia del disco de Render, plan free),
+      // avatarMimeType puede quedar "seteado" en la DB sin un objeto real
+      // detrás (borrado manual, migración incompleta, etc.).
+      if (isAvatarNotFoundError(err)) {
         throw new NotFoundException('No hay foto de perfil');
       }
       throw err;
@@ -255,13 +255,13 @@ export class ProfileService {
 
   // Idempotente a propósito: "quitar foto" puede ejecutarse más de una vez
   // (doble click, retry de red) sin que el segundo intento deba fallar solo
-  // porque el archivo ya no está. Solo se traga ENOENT (archivo inexistente);
-  // cualquier otro error de fs (permisos, disco, etc.) se propaga tal cual.
+  // porque el objeto ya no está. Solo se traga el "no encontrado" de B2;
+  // cualquier otro error (permisos, credenciales, etc.) se propaga tal cual.
   async deleteAvatar(id: string) {
     try {
-      await fs.unlink(avatarPath(id));
+      await deleteAvatarObject(id);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      if (!isAvatarNotFoundError(err)) {
         throw err;
       }
     }

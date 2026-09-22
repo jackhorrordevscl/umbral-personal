@@ -261,6 +261,12 @@ copia offsite de backups en **Backblaze B2** (ver
    (nunca el default del README), `RESEND_API_KEY`/`MAIL_FROM` (issue #5) y
    `FRONTEND_URL` (se completa después del paso 3, se puede editar y
    redeployar). `JWT_SECRET` se autogenera vía `generateValue: true`.
+   También cargar `B2_AVATARS_ENDPOINT`/`B2_AVATARS_REGION`/
+   `B2_AVATARS_BUCKET`/`B2_AVATARS_KEY_ID`/`B2_AVATARS_APPLICATION_KEY`
+   (issue #170): storage de avatares en un bucket B2 **privado y separado**
+   del que usan los backups offsite (ver
+   [Copia offsite real](#copia-offsite-real-backblaze-b2--rclone)) — crear
+   una Application Key nueva restringida solo a ese bucket, Read+Write.
 3. **Frontend en Vercel**: importar el repo con root directory `frontend/`
    (usa `vercel.json` para el rewrite de rutas del SPA). Variable
    `VITE_API_URL` apuntando a la URL pública del backend de Render + `/api/v1`.
