@@ -2,15 +2,22 @@ import { NotFoundException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PublicTherapistProfileService } from './public-therapist-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { readAvatarBuffer } from '../../common/utils/avatar-storage.util';
+import * as avatarStorage from '../../common/utils/avatar-storage.util';
 
-jest.mock('../../common/utils/avatar-storage.util', () => ({
-  readAvatarBuffer: jest.fn(),
-}));
+jest.mock('../../common/utils/avatar-storage.util');
 
-const mockReadAvatarBuffer = readAvatarBuffer as jest.MockedFunction<
-  typeof readAvatarBuffer
->;
+const mockReadAvatarBuffer =
+  avatarStorage.readAvatarBuffer as jest.MockedFunction<
+    typeof avatarStorage.readAvatarBuffer
+  >;
+// isAvatarNotFoundError es lógica pura (no I/O) -- se usa la implementación
+// real para seguir probando la traducción real de errores de B2 a 404.
+const { isAvatarNotFoundError } = jest.requireActual<typeof avatarStorage>(
+  '../../common/utils/avatar-storage.util',
+);
+(avatarStorage.isAvatarNotFoundError as jest.Mock).mockImplementation(
+  isAvatarNotFoundError,
+);
 
 // Issue #155: GET /public/therapists/:id/profile y .../avatar -- sin
 // JwtAuthGuard, así que nunca deben devolver email ni ningún otro campo
@@ -110,24 +117,26 @@ describe('PublicTherapistProfileService', () => {
       );
     });
 
-    it('lanza 404 (no 500) si el archivo del avatar no existe en disco (ENOENT)', async () => {
+    it('lanza 404 (no 500) si el objeto del avatar no existe en B2 (NoSuchKey)', async () => {
       prisma.user.findFirst.mockResolvedValue({ avatarMimeType: 'image/png' });
-      const enoent = Object.assign(new Error('no such file'), {
-        code: 'ENOENT',
-      });
-      mockReadAvatarBuffer.mockRejectedValue(enoent);
+      const notFound = Object.assign(
+        new Error('The specified key does not exist.'),
+        { name: 'NoSuchKey' },
+      );
+      mockReadAvatarBuffer.mockRejectedValue(notFound);
 
       await expect(service.getAvatar('therapist-1')).rejects.toThrow(
         NotFoundException,
       );
     });
 
-    it('propaga cualquier otro error de fs distinto de ENOENT', async () => {
+    it('propaga cualquier otro error de B2 distinto de "no encontrado"', async () => {
       prisma.user.findFirst.mockResolvedValue({ avatarMimeType: 'image/png' });
-      const eacces = Object.assign(new Error('permission denied'), {
-        code: 'EACCES',
+      const accessDenied = Object.assign(new Error('permission denied'), {
+        name: 'AccessDenied',
+        $metadata: { httpStatusCode: 403 },
       });
-      mockReadAvatarBuffer.mockRejectedValue(eacces);
+      mockReadAvatarBuffer.mockRejectedValue(accessDenied);
 
       await expect(service.getAvatar('therapist-1')).rejects.toThrow(
         'permission denied',

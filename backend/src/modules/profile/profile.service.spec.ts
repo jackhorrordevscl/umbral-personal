@@ -5,24 +5,45 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
-import * as fs from 'fs/promises';
 import { User } from '@prisma/client';
 import { ProfileService } from './profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailChangeService } from './email-change.service';
 import { AuditService } from '../audit/audit.service';
 import { assertFileContentMatchesMimetype } from '../../common/utils/file-signature.util';
+import * as avatarStorage from '../../common/utils/avatar-storage.util';
 
 jest.mock('argon2');
-jest.mock('fs/promises');
 jest.mock('../../common/utils/file-signature.util');
+jest.mock('../../common/utils/avatar-storage.util');
 
 const mockArgon2 = argon2 as jest.Mocked<typeof argon2>;
-const mockFs = fs as jest.Mocked<typeof fs>;
 const mockAssertFileContentMatchesMimetype =
   assertFileContentMatchesMimetype as jest.MockedFunction<
     typeof assertFileContentMatchesMimetype
   >;
+const mockWriteAvatarBuffer =
+  avatarStorage.writeAvatarBuffer as jest.MockedFunction<
+    typeof avatarStorage.writeAvatarBuffer
+  >;
+const mockReadAvatarBuffer =
+  avatarStorage.readAvatarBuffer as jest.MockedFunction<
+    typeof avatarStorage.readAvatarBuffer
+  >;
+const mockDeleteAvatarObject =
+  avatarStorage.deleteAvatarObject as jest.MockedFunction<
+    typeof avatarStorage.deleteAvatarObject
+  >;
+// isAvatarNotFoundError es lógica pura (no I/O) -- se usa la implementación
+// real en vez de mockearla, así estos tests siguen probando la traducción
+// real de errores de B2 a 404, no un mock que siempre dice lo que el test
+// quiere.
+const { isAvatarNotFoundError } = jest.requireActual<typeof avatarStorage>(
+  '../../common/utils/avatar-storage.util',
+);
+(avatarStorage.isAvatarNotFoundError as jest.Mock).mockImplementation(
+  isAvatarNotFoundError,
+);
 
 function buildUser(overrides: Partial<User> = {}): User {
   return {
@@ -408,9 +429,8 @@ describe('ProfileService', () => {
       mimetype: 'image/png',
     } as unknown as Express.Multer.File;
 
-    it('valida el contenido real del archivo, guarda el buffer y actualiza avatarMimeType/avatarUpdatedAt', async () => {
-      mockFs.mkdir.mockResolvedValue(undefined as never);
-      mockFs.writeFile.mockResolvedValue(undefined);
+    it('valida el contenido real del archivo, guarda el buffer en B2 y actualiza avatarMimeType/avatarUpdatedAt', async () => {
+      mockWriteAvatarBuffer.mockResolvedValue(undefined);
       prisma.user.update.mockResolvedValue(buildUser());
 
       const result = await service.uploadAvatar('user-1', file);
@@ -419,12 +439,8 @@ describe('ProfileService', () => {
         file.buffer,
         file.mimetype,
       );
-      expect(mockFs.mkdir).toHaveBeenCalledWith(
-        expect.stringContaining('avatars') as unknown as string,
-        { recursive: true },
-      );
-      expect(mockFs.writeFile).toHaveBeenCalledWith(
-        expect.stringContaining('user-1') as unknown as string,
+      expect(mockWriteAvatarBuffer).toHaveBeenCalledWith(
+        'user-1',
         file.buffer,
       );
       expect(prisma.user.update).toHaveBeenCalledWith({
@@ -451,7 +467,7 @@ describe('ProfileService', () => {
       await expect(service.uploadAvatar('user-1', file)).rejects.toThrow(
         'El contenido del archivo no coincide con el tipo declarado',
       );
-      expect(mockFs.writeFile).not.toHaveBeenCalled();
+      expect(mockWriteAvatarBuffer).not.toHaveBeenCalled();
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
   });
@@ -465,46 +481,47 @@ describe('ProfileService', () => {
       await expect(service.getAvatar('user-1')).rejects.toThrow(
         NotFoundException,
       );
-      expect(mockFs.readFile).not.toHaveBeenCalled();
+      expect(mockReadAvatarBuffer).not.toHaveBeenCalled();
     });
 
-    it('devuelve el buffer del archivo y el mimeType guardado', async () => {
+    it('devuelve el buffer del objeto y el mimeType guardado', async () => {
       prisma.user.findFirst.mockResolvedValue(
         buildUser({ avatarMimeType: 'image/png' } as Partial<User>),
       );
       const buffer = Buffer.from('avatar-bytes');
-      mockFs.readFile.mockResolvedValue(buffer);
+      mockReadAvatarBuffer.mockResolvedValue(buffer);
 
       const result = await service.getAvatar('user-1');
 
       expect(result).toEqual({ buffer, mimeType: 'image/png' });
     });
 
-    // Disco efímero (Render plan free): un redeploy puede borrar
-    // uploads/avatars/ sin tocar avatarMimeType en la DB, dejando un
-    // registro "tiene avatar" apuntando a un archivo inexistente.
-    it('lanza 404 (no 500) si avatarMimeType está seteado pero el archivo no existe (ENOENT)', async () => {
+    // avatarMimeType puede quedar "seteado" en la DB sin un objeto real
+    // detrás en B2 (borrado manual, migración incompleta, etc.).
+    it('lanza 404 (no 500) si avatarMimeType está seteado pero el objeto no existe en B2 (NoSuchKey)', async () => {
       prisma.user.findFirst.mockResolvedValue(
         buildUser({ avatarMimeType: 'image/png' } as Partial<User>),
       );
-      const enoentError = Object.assign(new Error('no such file'), {
-        code: 'ENOENT',
-      });
-      mockFs.readFile.mockRejectedValue(enoentError);
+      const notFoundError = Object.assign(
+        new Error('The specified key does not exist.'),
+        { name: 'NoSuchKey' },
+      );
+      mockReadAvatarBuffer.mockRejectedValue(notFoundError);
 
       await expect(service.getAvatar('user-1')).rejects.toThrow(
         NotFoundException,
       );
     });
 
-    it('propaga cualquier otro error de fs distinto de ENOENT', async () => {
+    it('propaga cualquier otro error de B2 distinto de "no encontrado"', async () => {
       prisma.user.findFirst.mockResolvedValue(
         buildUser({ avatarMimeType: 'image/png' } as Partial<User>),
       );
-      const eaccesError = Object.assign(new Error('permission denied'), {
-        code: 'EACCES',
-      });
-      mockFs.readFile.mockRejectedValue(eaccesError);
+      const accessDeniedError = Object.assign(
+        new Error('permission denied'),
+        { name: 'AccessDenied', $metadata: { httpStatusCode: 403 } },
+      );
+      mockReadAvatarBuffer.mockRejectedValue(accessDeniedError);
 
       await expect(service.getAvatar('user-1')).rejects.toThrow(
         'permission denied',
@@ -513,15 +530,13 @@ describe('ProfileService', () => {
   });
 
   describe('deleteAvatar', () => {
-    it('borra el archivo y limpia avatarMimeType/avatarUpdatedAt', async () => {
-      mockFs.unlink.mockResolvedValue(undefined);
+    it('borra el objeto en B2 y limpia avatarMimeType/avatarUpdatedAt', async () => {
+      mockDeleteAvatarObject.mockResolvedValue(undefined);
       prisma.user.update.mockResolvedValue(buildUser());
 
       const result = await service.deleteAvatar('user-1');
 
-      expect(mockFs.unlink).toHaveBeenCalledWith(
-        expect.stringContaining('user-1') as unknown as string,
-      );
+      expect(mockDeleteAvatarObject).toHaveBeenCalledWith('user-1');
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
         data: { avatarMimeType: null, avatarUpdatedAt: null },
@@ -531,11 +546,12 @@ describe('ProfileService', () => {
 
     // Idempotente a propósito (ver comentario en el service): "quitar foto"
     // sin una foto previa no debe fallar (doble click, retry de red, etc.).
-    it('no lanza si el archivo no existe (ENOENT) y de todos modos limpia los campos', async () => {
-      const enoentError = Object.assign(new Error('no such file'), {
-        code: 'ENOENT',
-      });
-      mockFs.unlink.mockRejectedValue(enoentError);
+    it('no lanza si el objeto no existe en B2 (NoSuchKey) y de todos modos limpia los campos', async () => {
+      const notFoundError = Object.assign(
+        new Error('The specified key does not exist.'),
+        { name: 'NoSuchKey' },
+      );
+      mockDeleteAvatarObject.mockRejectedValue(notFoundError);
       prisma.user.update.mockResolvedValue(buildUser());
 
       const result = await service.deleteAvatar('user-1');
@@ -547,11 +563,12 @@ describe('ProfileService', () => {
       expect(result).toEqual({ avatarUpdatedAt: null });
     });
 
-    it('propaga errores de fs que no sean ENOENT', async () => {
-      const permissionError = Object.assign(new Error('permission denied'), {
-        code: 'EACCES',
-      });
-      mockFs.unlink.mockRejectedValue(permissionError);
+    it('propaga errores de B2 que no sean "no encontrado"', async () => {
+      const accessDeniedError = Object.assign(
+        new Error('permission denied'),
+        { name: 'AccessDenied', $metadata: { httpStatusCode: 403 } },
+      );
+      mockDeleteAvatarObject.mockRejectedValue(accessDeniedError);
 
       await expect(service.deleteAvatar('user-1')).rejects.toThrow(
         'permission denied',

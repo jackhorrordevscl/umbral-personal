@@ -48,6 +48,22 @@ services:
         sync: false
       - key: MAIL_FROM
         sync: false
+      # Issue #170: Render (plan free) no tiene disco persistente -- los
+      # avatares se perdían en cada deploy. Storage migrado a Backblaze B2
+      # (bucket "umbral-avatars", privado, región us-west-004). Endpoint y
+      # región no son secretos pero se cargan igual sin valor acá para no
+      # repetir por accidente un bucket/región distinto al de producción;
+      # keyID/applicationKey si son secretos. Ver checklist en README.md.
+      - key: B2_AVATARS_ENDPOINT
+        sync: false
+      - key: B2_AVATARS_REGION
+        sync: false
+      - key: B2_AVATARS_BUCKET
+        sync: false
+      - key: B2_AVATARS_KEY_ID
+        sync: false
+      - key: B2_AVATARS_APPLICATION_KEY
+        sync: false
       # Config no secreta, con el mismo valor en cada deploy: fija acá para
       # no tener que repetirla a mano en el dashboard.
       - key: NODE_ENV
