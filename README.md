@@ -267,6 +267,14 @@ copia offsite de backups en **Backblaze B2** (ver
    del que usan los backups offsite (ver
    [Copia offsite real](#copia-offsite-real-backblaze-b2--rclone)) — crear
    una Application Key nueva restringida solo a ese bucket, Read+Write.
+   Mismo criterio para `B2_SHARED_FILES_ENDPOINT`/`B2_SHARED_FILES_REGION`/
+   `B2_SHARED_FILES_BUCKET`/`B2_SHARED_FILES_KEY_ID`/
+   `B2_SHARED_FILES_APPLICATION_KEY` (issue #170, parte pendiente de la
+   migración de avatares): storage de los archivos de la biblioteca privada
+   de cada terapeuta (`shared-files`), en otro bucket B2 **propio**, también
+   separado del de avatares y del de backups offsite — crear otra
+   Application Key restringida solo a ese bucket, Read+Write. Ya está
+   cargada en el `.env` local; falta cargarla en Render.
 3. **Frontend en Vercel**: importar el repo con root directory `frontend/`
    (usa `vercel.json` para el rewrite de rutas del SPA). Variable
    `VITE_API_URL` apuntando a la URL pública del backend de Render + `/api/v1`.

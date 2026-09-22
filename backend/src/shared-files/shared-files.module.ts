@@ -1,8 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
-import { randomUUID } from 'crypto';
+import { memoryStorage } from 'multer';
+import { extname } from 'path';
 import { SharedFilesController } from './shared-files.controller';
 import { SharedFilesService } from './shared-files.service';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -31,13 +30,10 @@ const ALLOWED_MIMETYPES: Record<string, string> = {
   imports: [
     PrismaModule,
     MulterModule.register({
-      storage: diskStorage({
-        destination: join(process.cwd(), 'uploads', 'shared'),
-        filename: (_req, file, cb) => {
-          const uniqueName = `${randomUUID()}${extname(file.originalname)}`;
-          cb(null, uniqueName);
-        },
-      }),
+      // Issue #170: Render (plan free) no tiene disco persistente -- el
+      // buffer queda solo en RAM (nunca toca disco) hasta que el service lo
+      // sube a B2 (ver shared-files.service.ts / shared-file-storage.util.ts).
+      storage: memoryStorage(),
       limits: { fileSize: 50 * 1024 * 1024 },
       fileFilter: (_req, file, cb) => {
         if (ALLOWED_MIMETYPES[file.mimetype]) {
