@@ -239,8 +239,18 @@ export class ProfileService {
       throw new NotFoundException('No hay foto de perfil');
     }
 
-    const buffer = await readAvatarBuffer(id);
-    return { buffer, mimeType: user.avatarMimeType };
+    try {
+      const buffer = await readAvatarBuffer(id);
+      return { buffer, mimeType: user.avatarMimeType };
+    } catch (err) {
+      // Mismo caso que PublicTherapistProfileService.getAvatar: el disco de
+      // Render (plan free) es efímero, así que avatarMimeType puede quedar
+      // "seteado" en la DB después de un redeploy que borró el archivo real.
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new NotFoundException('No hay foto de perfil');
+      }
+      throw err;
+    }
   }
 
   // Idempotente a propósito: "quitar foto" puede ejecutarse más de una vez

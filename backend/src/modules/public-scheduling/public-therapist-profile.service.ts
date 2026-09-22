@@ -44,7 +44,18 @@ export class PublicTherapistProfileService {
       throw new NotFoundException('El terapeuta no tiene foto de perfil.');
     }
 
-    const buffer = await readAvatarBuffer(therapistId);
-    return { buffer, mimeType: therapist.avatarMimeType };
+    try {
+      const buffer = await readAvatarBuffer(therapistId);
+      return { buffer, mimeType: therapist.avatarMimeType };
+    } catch (err) {
+      // El disco de Render (plan free) es efímero: un redeploy borra
+      // uploads/avatars/ pero no toca avatarMimeType en la DB, dejando un
+      // registro "tiene avatar" que apunta a un archivo que ya no existe.
+      // Se trata como "sin avatar" (404) en vez de explotar con 500.
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new NotFoundException('El terapeuta no tiene foto de perfil.');
+      }
+      throw err;
+    }
   }
 }

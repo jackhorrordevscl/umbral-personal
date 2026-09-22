@@ -479,6 +479,37 @@ describe('ProfileService', () => {
 
       expect(result).toEqual({ buffer, mimeType: 'image/png' });
     });
+
+    // Disco efímero (Render plan free): un redeploy puede borrar
+    // uploads/avatars/ sin tocar avatarMimeType en la DB, dejando un
+    // registro "tiene avatar" apuntando a un archivo inexistente.
+    it('lanza 404 (no 500) si avatarMimeType está seteado pero el archivo no existe (ENOENT)', async () => {
+      prisma.user.findFirst.mockResolvedValue(
+        buildUser({ avatarMimeType: 'image/png' } as Partial<User>),
+      );
+      const enoentError = Object.assign(new Error('no such file'), {
+        code: 'ENOENT',
+      });
+      mockFs.readFile.mockRejectedValue(enoentError);
+
+      await expect(service.getAvatar('user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('propaga cualquier otro error de fs distinto de ENOENT', async () => {
+      prisma.user.findFirst.mockResolvedValue(
+        buildUser({ avatarMimeType: 'image/png' } as Partial<User>),
+      );
+      const eaccesError = Object.assign(new Error('permission denied'), {
+        code: 'EACCES',
+      });
+      mockFs.readFile.mockRejectedValue(eaccesError);
+
+      await expect(service.getAvatar('user-1')).rejects.toThrow(
+        'permission denied',
+      );
+    });
   });
 
   describe('deleteAvatar', () => {
