@@ -109,5 +109,29 @@ describe('PublicTherapistProfileService', () => {
         NotFoundException,
       );
     });
+
+    it('lanza 404 (no 500) si el archivo del avatar no existe en disco (ENOENT)', async () => {
+      prisma.user.findFirst.mockResolvedValue({ avatarMimeType: 'image/png' });
+      const enoent = Object.assign(new Error('no such file'), {
+        code: 'ENOENT',
+      });
+      mockReadAvatarBuffer.mockRejectedValue(enoent);
+
+      await expect(service.getAvatar('therapist-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('propaga cualquier otro error de fs distinto de ENOENT', async () => {
+      prisma.user.findFirst.mockResolvedValue({ avatarMimeType: 'image/png' });
+      const eacces = Object.assign(new Error('permission denied'), {
+        code: 'EACCES',
+      });
+      mockReadAvatarBuffer.mockRejectedValue(eacces);
+
+      await expect(service.getAvatar('therapist-1')).rejects.toThrow(
+        'permission denied',
+      );
+    });
   });
 });
