@@ -48,5 +48,8 @@ Sin configuración de TDD obligatoria detectada en el proyecto (no hay mandato e
 - 2026-09-21: T1-T4 (backend) completo. `npm run build` OK, `npm test -- profile public-scheduling public-therapist-profile` → 12 suites/97 tests OK. Full suite: 673 OK, 14 fallas pre-existentes en `*.integration.spec.ts` (falta `DATABASE_URL`/`DIRECT_URL` en este worktree, no relacionado al cambio). Commit `b6e6a08`.
 - 2026-09-21: T5-T7 (frontend) completo. `npm run build` OK, `npm run lint` OK. No había tests existentes de estos archivos.
 
+- 2026-09-21: fix de lint (Prettier) por CI en rojo, commit `1a76cd7`. PR #167 mergeado a main (`e644f64`).
+- 2026-09-21: bug reportado en prod — `GET .../avatar` falla en el navegador con `ERR_BLOCKED_BY_RESPONSE.NotSameOrigin` al cargarse como `<img src>` desde el frontend (Vercel) contra el backend (Render, otro origen). Causa: Helmet (`backend/src/main.ts:19`) aplica `Cross-Origin-Resource-Policy: same-origin` por defecto, que bloquea recursos `no-cors` (como `<img>`) cargados cross-origin, aunque HTTP responda 200. El endpoint privado de avatar no lo sufre porque se pide vía fetch/axios (modo `cors`), no `<img>`. Fix: agregar header `Cross-Origin-Resource-Policy: cross-origin` solo en la respuesta de `GET /public/therapists/:id/avatar` (no se toca la config global de Helmet). Test del controller actualizado. Pendiente: commitear y pushear este fix a la rama ya mergeada (requiere PR nuevo ya que #167 cerró).
+
 ## Próximo paso
-Commit de work-unit frontend (T5-T7). Feature completa (T1-T7) — falta decidir con el usuario si se abre PR ahora.
+Commitear el fix de CORP del avatar público, abrir PR nuevo (la rama de #167 ya se mergeó) y pushear.

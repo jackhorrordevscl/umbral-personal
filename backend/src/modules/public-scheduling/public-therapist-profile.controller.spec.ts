@@ -29,7 +29,7 @@ describe('PublicTherapistProfileController', () => {
     expect(service.getProfile).toHaveBeenCalledWith('therapist-1');
   });
 
-  it('GET avatar delega en el service y escribe Content-Type/Content-Length en la respuesta', async () => {
+  it('GET avatar delega en el service y escribe Content-Type/Content-Length/CORP en la respuesta', async () => {
     const buffer = Buffer.from('fake-image');
     service.getAvatar.mockResolvedValue({ buffer, mimeType: 'image/png' });
     const res = { set: jest.fn(), end: jest.fn() };
@@ -40,6 +40,7 @@ describe('PublicTherapistProfileController', () => {
     expect(res.set).toHaveBeenCalledWith({
       'Content-Type': 'image/png',
       'Content-Length': buffer.length,
+      'Cross-Origin-Resource-Policy': 'cross-origin',
     });
     expect(res.end).toHaveBeenCalledWith(buffer);
   });

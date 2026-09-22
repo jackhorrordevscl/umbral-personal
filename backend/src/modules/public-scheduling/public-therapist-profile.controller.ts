@@ -41,6 +41,13 @@ export class PublicTherapistProfileController {
     res.set({
       'Content-Type': mimeType,
       'Content-Length': buffer.length,
+      // Helmet aplica `Cross-Origin-Resource-Policy: same-origin` por defecto
+      // (main.ts), lo que bloquea un <img src> cargado desde otro origen
+      // (frontend en Vercel, backend en Render) aunque la respuesta sea 200 --
+      // el navegador la descarta con ERR_BLOCKED_BY_RESPONSE.NotSameOrigin.
+      // Esta ruta es pública por diseño y se consume vía <img>, así que se
+      // relaja solo acá, sin bajar la protección global de Helmet.
+      'Cross-Origin-Resource-Policy': 'cross-origin',
     });
     res.end(buffer);
   }
