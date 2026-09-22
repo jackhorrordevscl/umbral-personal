@@ -74,10 +74,10 @@ function TherapistProfileHeader({ therapistId }: { therapistId: string }) {
         <img
           src={getPublicTherapistAvatarUrl(therapistId)}
           alt={profile.name}
-          className="w-16 h-16 rounded-full object-cover flex-shrink-0"
+          className="w-28 h-28 rounded-lg object-cover flex-shrink-0"
         />
       ) : (
-        <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-medium flex-shrink-0">
+        <div className="w-28 h-28 rounded-lg bg-slate-200 flex items-center justify-center text-slate-500 font-medium flex-shrink-0">
           {initials(profile.name)}
         </div>
       )}
