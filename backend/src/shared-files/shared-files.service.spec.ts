@@ -2,17 +2,25 @@ import { NotFoundException } from '@nestjs/common';
 import { SharedFile } from '@prisma/client';
 import { SharedFilesService } from './shared-files.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { readSharedFileBuffer } from '../common/utils/shared-file-storage.util';
+import * as sharedFileStorage from '../common/utils/shared-file-storage.util';
 
-jest.mock('../common/utils/shared-file-storage.util', () => ({
-  readSharedFileBuffer: jest.fn(),
-  writeSharedFileBuffer: jest.fn(),
-  isSharedFileNotFoundError: jest.requireActual(
-    '../common/utils/shared-file-storage.util',
-  ).isSharedFileNotFoundError,
-}));
+jest.mock('../common/utils/shared-file-storage.util');
 
-const mockReadSharedFileBuffer = readSharedFileBuffer as jest.Mock;
+const mockReadSharedFileBuffer =
+  sharedFileStorage.readSharedFileBuffer as jest.MockedFunction<
+    typeof sharedFileStorage.readSharedFileBuffer
+  >;
+
+// isSharedFileNotFoundError es lógica pura (no I/O) -- se usa la
+// implementación real en vez de mockearla, así estos tests siguen probando
+// la traducción real de errores de B2 a 404, no un mock que siempre dice lo
+// que el test quiere.
+const { isSharedFileNotFoundError } = jest.requireActual<
+  typeof sharedFileStorage
+>('../common/utils/shared-file-storage.util');
+(sharedFileStorage.isSharedFileNotFoundError as jest.Mock).mockImplementation(
+  isSharedFileNotFoundError,
+);
 
 function buildFile(overrides: Partial<SharedFile> = {}): SharedFile {
   return {
@@ -112,7 +120,9 @@ describe('SharedFilesService', () => {
     it('propaga errores de infraestructura que no son "no encontrado"', async () => {
       const file = buildFile();
       prisma.sharedFile.findFirst.mockResolvedValue(file);
-      mockReadSharedFileBuffer.mockRejectedValue(new Error('credenciales inválidas'));
+      mockReadSharedFileBuffer.mockRejectedValue(
+        new Error('credenciales inválidas'),
+      );
 
       await expect(service.getFileBuffer('file-1', 'user-1')).rejects.toThrow(
         'credenciales inválidas',
