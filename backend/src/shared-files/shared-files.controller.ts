@@ -50,13 +50,14 @@ export class SharedFilesController {
     @Res() res: Response,
   ) {
     const file = await this.sharedFilesService.findOne(id, user.id);
-    const filePath = await this.sharedFilesService.getFilePath(id, user.id);
+    const buffer = await this.sharedFilesService.getFileBuffer(id, user.id);
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="${encodeURIComponent(file.originalName)}"`,
     );
     res.setHeader('Content-Type', file.mimetype);
-    res.sendFile(filePath);
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
   }
 
   @Post('upload')

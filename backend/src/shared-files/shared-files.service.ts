@@ -2,11 +2,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FileCategory } from '@prisma/client';
-import * as fs from 'fs';
-import * as fsp from 'fs/promises';
+import { randomUUID } from 'crypto';
+import { extname } from 'path';
 import { UploadSharedFileDto } from './dto/upload-shared-file.dto';
 import { UpdateSharedFileDto } from './dto/update-shared-file.dto';
 import { assertFileContentMatchesMimetype } from '../common/utils/file-signature.util';
+import {
+  readSharedFileBuffer,
+  writeSharedFileBuffer,
+  isSharedFileNotFoundError,
+} from '../common/utils/shared-file-storage.util';
 
 // "Shared" es el nombre heredado de la versión institucional multi-
 // profesional: hoy cada método filtra por uploadedById === userId, es una
@@ -32,22 +37,26 @@ export class SharedFilesService {
   ) {
     // El `fileFilter` del multer module (shared-files.module.ts) solo mira
     // el header `mimetype` declarado por el cliente (spoofable); acá se
-    // valida el contenido real ya escrito a disco (issue #51). Si no
-    // coincide, se borra el archivo huérfano antes de propagar el error.
-    try {
-      const buffer = await fsp.readFile(file.path);
-      assertFileContentMatchesMimetype(buffer, file.mimetype);
-    } catch (err) {
-      await fsp.unlink(file.path).catch(() => undefined);
-      throw err;
-    }
+    // valida el contenido real ya en memoria (issue #51). Con
+    // `memoryStorage` no hay archivo huérfano en disco que limpiar si la
+    // validación falla -- simplemente no se sube a B2.
+    assertFileContentMatchesMimetype(file.buffer, file.mimetype);
+
+    // Issue #170: un objeto por archivo (no "un objeto fijo por usuario"
+    // como en avatares), mismo criterio de nombrado que antes generaba
+    // `diskStorage` en el multer module.
+    const objectKey = `${randomUUID()}${extname(file.originalname)}`;
+    await writeSharedFileBuffer(objectKey, file.buffer);
 
     return this.prisma.sharedFile.create({
       data: {
         name: dto.name || file.originalname,
         originalName: file.originalname,
-        filename: file.filename,
-        path: file.path,
+        // `filename` se reutiliza como objectKey en B2 -- sin cambio de
+        // schema. `path` ya no representa una ruta real en disco, se
+        // mantiene con el mismo valor por ser un campo NOT NULL heredado.
+        filename: objectKey,
+        path: objectKey,
         mimetype: file.mimetype,
         size: file.size,
         category: dto.category ?? 'GENERAL',
@@ -87,14 +96,23 @@ export class SharedFilesService {
     return file;
   }
 
-  async getFilePath(id: string, userId: string): Promise<string> {
+  async getFileBuffer(id: string, userId: string): Promise<Buffer> {
     const file = await this.findOne(id, userId);
-    if (!fs.existsSync(file.path)) {
-      throw new NotFoundException(
-        'Archivo físico no encontrado en el servidor',
-      );
+    try {
+      return await readSharedFileBuffer(file.filename);
+    } catch (err) {
+      // El registro en DB puede sobrevivir aunque el objeto en B2 ya no
+      // exista (borrado manual, migración incompleta, o -- para archivos
+      // subidos antes de esta migración -- pérdida por el disco efímero de
+      // Render). Se trata como 404 en vez de explotar con 500 (mismo fix
+      // que PR #169 aplicó a avatares).
+      if (isSharedFileNotFoundError(err)) {
+        throw new NotFoundException(
+          'Archivo físico no encontrado en el servidor',
+        );
+      }
+      throw err;
     }
-    return file.path;
   }
 
   async deleteFile(id: string, userId: string) {

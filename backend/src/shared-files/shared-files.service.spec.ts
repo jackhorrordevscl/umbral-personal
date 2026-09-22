@@ -2,6 +2,17 @@ import { NotFoundException } from '@nestjs/common';
 import { SharedFile } from '@prisma/client';
 import { SharedFilesService } from './shared-files.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { readSharedFileBuffer } from '../common/utils/shared-file-storage.util';
+
+jest.mock('../common/utils/shared-file-storage.util', () => ({
+  readSharedFileBuffer: jest.fn(),
+  writeSharedFileBuffer: jest.fn(),
+  isSharedFileNotFoundError: jest.requireActual(
+    '../common/utils/shared-file-storage.util',
+  ).isSharedFileNotFoundError,
+}));
+
+const mockReadSharedFileBuffer = readSharedFileBuffer as jest.Mock;
 
 function buildFile(overrides: Partial<SharedFile> = {}): SharedFile {
   return {
@@ -62,6 +73,50 @@ describe('SharedFilesService', () => {
       prisma.sharedFile.findFirst.mockResolvedValue(file);
 
       await expect(service.findOne('file-1', 'user-1')).resolves.toEqual(file);
+    });
+  });
+
+  describe('getFileBuffer', () => {
+    beforeEach(() => {
+      mockReadSharedFileBuffer.mockReset();
+    });
+
+    it('devuelve el buffer si el objeto existe en B2', async () => {
+      const file = buildFile();
+      prisma.sharedFile.findFirst.mockResolvedValue(file);
+      const buffer = Buffer.from('contenido');
+      mockReadSharedFileBuffer.mockResolvedValue(buffer);
+
+      await expect(service.getFileBuffer('file-1', 'user-1')).resolves.toEqual(
+        buffer,
+      );
+      expect(mockReadSharedFileBuffer).toHaveBeenCalledWith(file.filename);
+    });
+
+    // Mismo caso que PR #169 (avatares): el registro sobrevive en DB pero el
+    // objeto detrás en B2 ya no existe (disco efímero de Render en archivos
+    // subidos antes de esta migración, borrado manual, etc.) -- debe ser 404,
+    // no un 500.
+    it('lanza 404 si el registro existe en DB pero el objeto no está en B2', async () => {
+      const file = buildFile();
+      prisma.sharedFile.findFirst.mockResolvedValue(file);
+      mockReadSharedFileBuffer.mockRejectedValue(
+        Object.assign(new Error('not found'), { name: 'NoSuchKey' }),
+      );
+
+      await expect(service.getFileBuffer('file-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('propaga errores de infraestructura que no son "no encontrado"', async () => {
+      const file = buildFile();
+      prisma.sharedFile.findFirst.mockResolvedValue(file);
+      mockReadSharedFileBuffer.mockRejectedValue(new Error('credenciales inválidas'));
+
+      await expect(service.getFileBuffer('file-1', 'user-1')).rejects.toThrow(
+        'credenciales inválidas',
+      );
     });
   });
 });
