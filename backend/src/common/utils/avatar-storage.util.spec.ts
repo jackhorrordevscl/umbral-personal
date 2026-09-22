@@ -1,11 +1,12 @@
 import type { S3Client } from '@aws-sdk/client-s3';
 
-const mockSend = jest.fn();
+type SentCommand = { constructor: { name: string }; input: unknown };
+
+const mockSend = jest.fn<Promise<unknown>, [SentCommand]>();
 
 jest.mock('@aws-sdk/client-s3', () => {
-  const actual: typeof import('@aws-sdk/client-s3') = jest.requireActual(
-    '@aws-sdk/client-s3',
-  );
+  const actual: typeof import('@aws-sdk/client-s3') =
+    jest.requireActual('@aws-sdk/client-s3');
   return {
     ...actual,
     S3Client: jest.fn().mockImplementation(() => ({ send: mockSend })),
@@ -23,9 +24,10 @@ function loadIsolated() {
   let mod!: typeof import('./avatar-storage.util');
   let MockedS3Client!: jest.MockedClass<typeof S3Client>;
   jest.isolateModules(() => {
-    const s3 = require('@aws-sdk/client-s3') as typeof import('@aws-sdk/client-s3');
+    const s3: typeof import('@aws-sdk/client-s3') =
+      jest.requireMock('@aws-sdk/client-s3');
     MockedS3Client = s3.S3Client as jest.MockedClass<typeof S3Client>;
-    mod = require('./avatar-storage.util') as typeof import('./avatar-storage.util');
+    mod = jest.requireActual('./avatar-storage.util');
   });
   return { ...mod, MockedS3Client };
 }
@@ -72,10 +74,7 @@ describe('avatar-storage.util', () => {
       const result = await readAvatarBuffer('user-1');
 
       expect(mockSend).toHaveBeenCalledTimes(1);
-      const command = mockSend.mock.calls[0][0] as {
-        constructor: { name: string };
-        input: unknown;
-      };
+      const command = mockSend.mock.calls[0][0];
       expect(command.constructor.name).toBe('GetObjectCommand');
       expect(command.input).toEqual({
         Bucket: 'umbral-avatars',
@@ -114,10 +113,7 @@ describe('avatar-storage.util', () => {
       await writeAvatarBuffer('user-1', buffer);
 
       expect(mockSend).toHaveBeenCalledTimes(1);
-      const command = mockSend.mock.calls[0][0] as {
-        constructor: { name: string };
-        input: unknown;
-      };
+      const command = mockSend.mock.calls[0][0];
       expect(command.constructor.name).toBe('PutObjectCommand');
       expect(command.input).toEqual({
         Bucket: 'umbral-avatars',
@@ -135,10 +131,7 @@ describe('avatar-storage.util', () => {
       await deleteAvatarObject('user-1');
 
       expect(mockSend).toHaveBeenCalledTimes(1);
-      const command = mockSend.mock.calls[0][0] as {
-        constructor: { name: string };
-        input: unknown;
-      };
+      const command = mockSend.mock.calls[0][0];
       expect(command.constructor.name).toBe('DeleteObjectCommand');
       expect(command.input).toEqual({
         Bucket: 'umbral-avatars',

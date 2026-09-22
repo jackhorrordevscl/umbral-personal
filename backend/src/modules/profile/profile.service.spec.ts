@@ -439,10 +439,7 @@ describe('ProfileService', () => {
         file.buffer,
         file.mimetype,
       );
-      expect(mockWriteAvatarBuffer).toHaveBeenCalledWith(
-        'user-1',
-        file.buffer,
-      );
+      expect(mockWriteAvatarBuffer).toHaveBeenCalledWith('user-1', file.buffer);
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
         data: {
@@ -517,10 +514,10 @@ describe('ProfileService', () => {
       prisma.user.findFirst.mockResolvedValue(
         buildUser({ avatarMimeType: 'image/png' } as Partial<User>),
       );
-      const accessDeniedError = Object.assign(
-        new Error('permission denied'),
-        { name: 'AccessDenied', $metadata: { httpStatusCode: 403 } },
-      );
+      const accessDeniedError = Object.assign(new Error('permission denied'), {
+        name: 'AccessDenied',
+        $metadata: { httpStatusCode: 403 },
+      });
       mockReadAvatarBuffer.mockRejectedValue(accessDeniedError);
 
       await expect(service.getAvatar('user-1')).rejects.toThrow(
@@ -564,10 +561,10 @@ describe('ProfileService', () => {
     });
 
     it('propaga errores de B2 que no sean "no encontrado"', async () => {
-      const accessDeniedError = Object.assign(
-        new Error('permission denied'),
-        { name: 'AccessDenied', $metadata: { httpStatusCode: 403 } },
-      );
+      const accessDeniedError = Object.assign(new Error('permission denied'), {
+        name: 'AccessDenied',
+        $metadata: { httpStatusCode: 403 },
+      });
       mockDeleteAvatarObject.mockRejectedValue(accessDeniedError);
 
       await expect(service.deleteAvatar('user-1')).rejects.toThrow(
