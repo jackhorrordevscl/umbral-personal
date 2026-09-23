@@ -1,0 +1,15 @@
+-- Issue #158: nuevo miembro del enum "NotificationType" para el broadcast
+-- único a todos los usuarios tras la limpieza de 15 PatientDocument
+-- huérfanos en producción (disco efímero de Render antes de la migración a
+-- B2, PR #180). Ver comentario en schema.prisma.
+--
+-- Generada a mano (no vía `prisma migrate dev`): la shadow DB que ese
+-- comando recrea desde cero no puede replayar
+-- 20260812150000_enable_rls_prisma_migrations (ALTER TABLE
+-- "_prisma_migrations" ENABLE ROW LEVEL SECURITY) y falla con P3006/P1014
+-- antes de llegar a esta migración -- mismo problema preexistente del
+-- entorno de shadow DB documentado en
+-- 20260921120000_add_patient_missing_session_amount_notification. Aplicada
+-- con `prisma db execute` contra la base real y registrada con
+-- `prisma migrate resolve --applied`.
+ALTER TYPE "NotificationType" ADD VALUE 'PATIENT_DOCUMENT_REUPLOAD_REQUIRED';
