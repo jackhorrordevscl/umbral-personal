@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import type { KeyboardEvent } from "react";
 import { Users, ClipboardList, FileText, Calendar, AlertCircle } from "lucide-react";
 import { useAuth } from "../context/useAuth";
 import { useNavigate } from "react-router";
 import { usePatients } from "../hooks/usePatients";
 import { getConsultationStats } from "../api/consultations";
 import { getAcquisitionStats } from "../api/patients";
+import { activateOnKey } from "../utils/activate-on-key";
 
 const ACQUISITION_COLORS = [
   "bg-sage-500",
@@ -50,15 +50,6 @@ export default function DashboardPage() {
     queryFn: getAcquisitionStats,
   });
   const acquisitionTotal = acquisitionStats.reduce((sum, s) => sum + s.count, 0);
-
-  // Issue #42: las tarjetas/filas clickeables eran <div onClick> sin rol ni
-  // manejo de teclado, inalcanzables navegando solo con Tab/Enter.
-  const activateOnKey = (fn: () => void) => (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      fn();
-    }
-  };
 
   const stats = [
     {

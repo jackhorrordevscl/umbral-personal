@@ -7,6 +7,7 @@ import { useUploadPatientDocument } from '../../hooks/usePatientDocuments';
 import type { Patient } from '../../types/patient';
 import { buildLocalISO } from '../../utils/datetime';
 import { getApiErrorMessage } from '../../utils/api-error';
+import { activateOnKey } from '../../utils/activate-on-key';
 import { useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
 
@@ -205,6 +206,9 @@ export default function ConsultationForm({
           <div
             className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center cursor-pointer hover:border-sage-300 transition-colors"
             onClick={() => fileInputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => activateOnKey(() => fileInputRef.current?.click())(e)}
           >
             {summaryFile ? (
               <p className="text-sm text-sage-600 font-medium">{summaryFile.name}</p>
