@@ -292,10 +292,11 @@ export default function PatientsPage() {
           </p>
           <p className="text-sm text-amber-800 mb-2">
             <span className="font-medium">¿Para qué sirve declararlo?</span> Esta acción no reemplaza el
-            consentimiento en papel: deja constancia en el sistema de que ya lo obtuviste, para que puedas
-            seguir registrando consultas de estos pacientes sin quedar bloqueado. Declará solo si el
-            paciente realmente firmó el consentimiento — quedás como responsable de esa declaración.
-            Si tenés el documento digitalizado, subilo desde la ficha del paciente en vez de declarar acá.
+            consentimiento en papel: deja constancia en el sistema de que ya fue obtenido, para poder
+            seguir registrando consultas de estos pacientes sin quedar bloqueado. Declarar solo si el
+            paciente realmente firmó el consentimiento — el terapeuta queda como responsable de esa
+            declaración. Si el documento está digitalizado, debe subirse desde la ficha del paciente en
+            vez de declararlo aquí.
           </p>
           <div className="flex flex-col sm:flex-row gap-2">
             <select
