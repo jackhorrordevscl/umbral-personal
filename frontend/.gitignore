@@ -38,3 +38,4 @@ AGENTS.md
 *.sw?
 .vercel
 .env*
+!.env.example
