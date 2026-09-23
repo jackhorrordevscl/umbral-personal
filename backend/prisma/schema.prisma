@@ -458,6 +458,12 @@ enum NotificationType {
   // sesión. Notifica al terapeuta para que complete el monto manualmente en
   // vez de perder ese revenue en silencio.
   PATIENT_MISSING_SESSION_AMOUNT
+  // issue #158: broadcast único a todos los usuarios tras la limpieza de 15
+  // PatientDocument huérfanos en producción (disco efímero de Render antes
+  // de la migración a B2, PR #180). Pide volver a subir los documentos
+  // legales perdidos. No la emite ningún flujo de la aplicación -- solo el
+  // script one-off de este anuncio (backend/scripts/notify-document-reupload.ts).
+  PATIENT_DOCUMENT_REUPLOAD_REQUIRED
 }
 
 // sdd/session-reminders PR 2: log de despachos de recordatorios, uno por
