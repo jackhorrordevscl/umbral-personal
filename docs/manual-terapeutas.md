@@ -254,6 +254,11 @@ Desde "Ajustes" (además de la sección de MFA descrita en el punto 1) puedes
 editar tus propios datos:
 
 - **Nombre**: se actualiza al instante, sin pedir contraseña.
+- **Perfil público**: especialidad (ej. "Psicología clínica") y una bio
+  corta (hasta 500 caracteres) que se muestran sin que el paciente necesite
+  loguearse, en la página de tu auto-agenda pública (ver sección 13), junto
+  a tu foto de perfil. Ambos campos son opcionales — si los dejas vacíos,
+  simplemente no aparecen ahí.
 - **Email**: pide tu contraseña actual. El cambio **no se aplica de
   inmediato** — queda pendiente hasta que confirmes desde un enlace enviado
   a la casilla nueva (válido 24 horas). Tu email actual sigue funcionando
@@ -285,7 +290,11 @@ Tres tipos de notificación llegan hoy:
 - **Recordatorio de sesión**: se genera automáticamente 24 horas y 2 horas
   antes de cada consulta agendada, y llega por dos canales independientes —
   una notificación en la app y, si tienes email configurado, un correo. Si
-  uno de los dos canales falla, el otro igual te llega.
+  uno de los dos canales falla, el otro igual te llega. En la lista de
+  Consultas, cada sesión muestra un chip con el estado del último
+  recordatorio por email enviado: "Recordatorio enviado", "Entregado",
+  "Abierto" o "Recordatorio no enviado" si falló — así sabes si tu paciente
+  llegó a verlo, sin tener que preguntarle.
 - **Aviso de Google Calendar desconectado**: si tu conexión con Google
   Calendar (ver punto 12) deja de funcionar, te avisa una sola vez.
 - **Paciente autoagendado sin monto de cobro**: si un paciente se agenda
@@ -342,13 +351,20 @@ sesión directamente, sin que tengas que agendarlos tú a mano.
   link público de agenda y un botón para copiarlo — no hace falta que
   busques ni construyas ningún ID técnico, ya viene armado y listo para
   compartir por el canal que uses con tus pacientes (WhatsApp, email, etc.).
-- **Qué ve el paciente.** Entra al link sin necesidad de crear ninguna
-  cuenta ni loguearse. Ve los horarios libres respetando tu horario, tus
-  bloqueos y los feriados, elige uno y completa un formulario corto (nombre,
-  RUT, fecha de nacimiento y email). Si el email coincide con un paciente
-  que ya tienes registrado, la reserva se liga automáticamente a su ficha
-  existente; si es alguien nuevo, se crea una ficha nueva con esos datos
-  mínimos.
+- **Qué ve el paciente.** Antes del calendario, ve tu foto de perfil (o tus
+  iniciales si no subiste una), tu especialidad y tu bio, si los cargaste
+  desde "Ajustes" (ver sección 10). Después, entra sin necesidad de crear
+  ninguna cuenta ni loguearse: ve los horarios libres respetando tu horario,
+  tus bloqueos y los feriados, elige uno y completa un formulario corto
+  (nombre, RUT, fecha de nacimiento y email). Si el email coincide con un
+  paciente que ya tienes registrado, la reserva se liga automáticamente a su
+  ficha existente; si es alguien nuevo, se crea una ficha nueva con esos
+  datos mínimos.
+- **De dónde vino el paciente.** Si alguien llega a tu link con parámetros de
+  campaña (`utm_source`) o desde un link compartido en otra página, Umbral
+  guarda ese origen junto con la ficha nueva. En el Dashboard tienes una
+  sección "Origen de pacientes" con el desglose por canal (directo,
+  campaña, sitio de referencia) para saber de dónde te están llegando.
 - **Ventana de reserva.** Solo se puede reservar con al menos 24 horas de
   anticipación (para que siempre tengas tiempo de verla) y hasta 60 días
   hacia adelante — no vas a ver reservas de último minuto ni agendadas a
