@@ -121,6 +121,20 @@ describe('RemindersService.scan', () => {
     );
   });
 
+  it('excluye sesiones de pacientes con soft-delete en la query de scan', async () => {
+    prisma.consultation.findMany.mockResolvedValue([]);
+
+    await service.scan();
+
+    expect(prisma.consultation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          patient: { deletedAt: null },
+        }) as { patient: { deletedAt: null } },
+      }),
+    );
+  });
+
   it('despacha un único offset due en ambos canales y marca el dispatch como SENT', async () => {
     const consultation = buildConsultation();
     prisma.consultation.findMany.mockResolvedValue([consultation]);
