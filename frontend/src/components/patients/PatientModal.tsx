@@ -34,6 +34,13 @@ import { getApiErrorMessage } from "../../utils/api-error";
 
 type ModalTab = "detail" | "edit" | "history";
 
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  INFORMED_CONSENT: "Consentimiento informado",
+  INFORMED_ASSENT: "Asentimiento informado",
+  TELEMED_AGREEMENT: "Acuerdo telemedicina",
+  OTHER: "Otro",
+};
+
 const displayRut = (rut: string) =>
   rut.replace(/\./g, "").replace(/(\d{1,3})(\d{3})(\d{3})([\dkK])$/, "$1.$2.$3-$4");
 
@@ -323,7 +330,9 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                             <p className="text-xs font-medium text-slate-700 truncate">
                               {doc.fileName}
                             </p>
-                            <p className="text-xs text-slate-500">{doc.type}</p>
+                            <p className="text-xs text-slate-500">
+                              {DOCUMENT_TYPE_LABELS[doc.type] ?? doc.type}
+                            </p>
                           </div>
                         </div>
                         <button
