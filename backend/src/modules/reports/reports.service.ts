@@ -98,11 +98,9 @@ export class ReportsService {
         .font('Helvetica')
         .text('Ficha Clínica del Paciente', { align: 'center' });
 
-      doc
-        .fontSize(10)
-        .text(`Generado el: ${formatChileDate(new Date())}`, {
-          align: 'center',
-        });
+      doc.fontSize(10).text(`Generado el: ${formatChileDate(new Date())}`, {
+        align: 'center',
+      });
 
       doc.moveDown(2);
 
