@@ -65,6 +65,27 @@ describe('PatientsPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('issue #188: mientras carga muestra "cargando", no el estado vacío ni "0 pacientes"', async () => {
+    let resolveList!: (value: { data: Patient[] }) => void
+    mockedApi.get.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveList = resolve
+      }),
+    )
+
+    renderPatientsPage()
+
+    expect(screen.getAllByText(/cargando pacientes/i).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/no se encontraron pacientes/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/0 pacientes registrados/i)).not.toBeInTheDocument()
+
+    resolveList({ data: [] })
+
+    expect((await screen.findAllByText(/no se encontraron pacientes/i)).length).toBeGreaterThan(0)
+    expect(screen.getByText(/0 pacientes registrados/i)).toBeInTheDocument()
+    expect(screen.queryByText(/cargando pacientes/i)).not.toBeInTheDocument()
+  })
+
   it('alta de paciente: crea el paciente, otorga los consentimientos marcados y refresca la lista', async () => {
     const user = userEvent.setup()
     mockedApi.get.mockResolvedValueOnce({ data: [] })
