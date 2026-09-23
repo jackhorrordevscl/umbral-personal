@@ -127,8 +127,11 @@ export class MfaService {
     // chequeo de deletedAt -- sin esto, una cuenta desactivada tras un
     // incidente (ej. offboarding de un colaborador comprometido) podía
     // seguir logueando con el TOTP que ya tenía de antes de la revocación.
+    // El mensaje es el mismo que el de un TOTP incorrecto: como el endpoint
+    // recibe un userId crudo, distinguirlos permitiría enumerar qué userId
+    // existen y tienen MFA activo.
     if (!user || !user.mfaSecret || user.deletedAt) {
-      throw new UnauthorizedException('Usuario no válido');
+      throw new UnauthorizedException('Código MFA inválido');
     }
 
     const isValid = speakeasy.totp.verify({
