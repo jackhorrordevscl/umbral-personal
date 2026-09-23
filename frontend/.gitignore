@@ -17,6 +17,7 @@ coverage
 # `test:e2e` run, never source.
 playwright-report/
 test-results/
+e2e/screenshots/
 
 .env
 .env.local
