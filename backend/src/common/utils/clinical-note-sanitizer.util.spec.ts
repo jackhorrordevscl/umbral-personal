@@ -6,9 +6,7 @@ describe('sanitizeClinicalNote', () => {
       '<p>Paciente reporta <strong>ansiedad</strong> y <em>insomnio</em>.</p>' +
       '<ul><li>Tarea 1</li><li>Tarea 2</li></ul><p><u>Subrayado</u></p><br>';
 
-    expect(sanitizeClinicalNote(input)).toBe(
-      input.replace('<br>', '<br />'),
-    );
+    expect(sanitizeClinicalNote(input)).toBe(input.replace('<br>', '<br />'));
   });
 
   it('elimina tags de script y su contenido', () => {
