@@ -135,7 +135,42 @@ describe('NotificationBell', () => {
     })
   })
 
-  it('click en una notificación con linkPath navega y cierra el panel', async () => {
+  it('click en una notificación abre el detalle completo y cierra el panel', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/notifications/unread-count') {
+        return Promise.resolve({ data: { count: 1 } })
+      }
+      if (url === '/notifications') {
+        return Promise.resolve({
+          data: [
+            buildNotification({
+              linkPath: '/consultations',
+              body: 'Tienes una sesión con Juan Pérez mañana a las 10:00. Confirma tu asistencia.',
+            }),
+          ],
+        })
+      }
+      return Promise.resolve({ data: [] })
+    })
+    mockedApi.patch.mockResolvedValue({
+      data: buildNotification({ readAt: new Date().toISOString() }),
+    })
+
+    renderBell()
+    await screen.findByTestId('notification-badge')
+
+    await user.click(screen.getByRole('button', { name: /notificaciones/i }))
+    await user.click(await screen.findByRole('button', { name: 'Sesión en 24 horas' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Notificaciones' })).not.toBeInTheDocument()
+    expect(
+      await screen.findByText('Tienes una sesión con Juan Pérez mañana a las 10:00. Confirma tu asistencia.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Página de consultas')).not.toBeInTheDocument()
+  })
+
+  it('el botón "Ir ahora" del detalle navega y cierra el modal', async () => {
     const user = userEvent.setup()
     mockedApi.get.mockImplementation((url: string) => {
       if (url === '/notifications/unread-count') {
@@ -157,12 +192,13 @@ describe('NotificationBell', () => {
 
     await user.click(screen.getByRole('button', { name: /notificaciones/i }))
     await user.click(await screen.findByRole('button', { name: 'Sesión en 24 horas' }))
+    await user.click(await screen.findByRole('button', { name: 'Ir ahora' }))
 
     expect(await screen.findByText('Página de consultas')).toBeInTheDocument()
-    expect(screen.queryByRole('dialog', { name: 'Notificaciones' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Sesión en 24 horas' })).not.toBeInTheDocument()
   })
 
-  it('click en una notificación sin linkPath solo marca como leída, sin navegar', async () => {
+  it('click en una notificación sin linkPath abre el detalle sin botón "Ir ahora"', async () => {
     const user = userEvent.setup()
     mockedApi.get.mockImplementation((url: string) => {
       if (url === '/notifications/unread-count') {
@@ -188,6 +224,7 @@ describe('NotificationBell', () => {
     await waitFor(() => {
       expect(mockedApi.patch).toHaveBeenCalledWith('/notifications/notif-1/read')
     })
+    expect(screen.queryByRole('button', { name: 'Ir ahora' })).not.toBeInTheDocument()
     expect(screen.queryByText('Página de consultas')).not.toBeInTheDocument()
   })
 

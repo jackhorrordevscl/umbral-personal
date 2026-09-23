@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { Bell } from 'lucide-react';
 import NotificationList from './NotificationList';
+import NotificationDetailModal from './NotificationDetailModal';
 import { FOCUSABLE_SELECTOR } from '../ui/Modal';
 import type { Notification } from '../../types/notification';
 import {
@@ -19,6 +20,7 @@ import {
 // de overlay + panel ya existe para el sidebar móvil en Layout.tsx.
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
+  const [detail, setDetail] = useState<Notification | null>(null);
   const navigate = useNavigate();
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -32,10 +34,18 @@ export default function NotificationBell() {
 
   const unreadCount = unread?.count ?? 0;
 
+  // Título y cuerpo llegan truncados en la lista (NotificationList: truncate
+  // / line-clamp-2) -- clickear abre el detalle completo en vez de navegar
+  // directo, para no perder el resto del mensaje sin haberlo leído.
   const handleOpen = (notification: Notification) => {
     if (!notification.readAt) markReadMutation.mutate(notification.id);
     setOpen(false);
-    if (notification.linkPath) navigate(notification.linkPath);
+    setDetail(notification);
+  };
+
+  const handleNavigateFromDetail = (linkPath: string) => {
+    setDetail(null);
+    navigate(linkPath);
   };
 
   // #121: mismo focus trap que <Modal> (Modal.tsx), pero aplicado a mano
@@ -128,6 +138,14 @@ export default function NotificationBell() {
             />
           </div>
         </>
+      )}
+
+      {detail && (
+        <NotificationDetailModal
+          notification={detail}
+          onClose={() => setDetail(null)}
+          onNavigate={handleNavigateFromDetail}
+        />
       )}
     </div>
   );
