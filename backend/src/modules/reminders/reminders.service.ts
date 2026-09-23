@@ -78,6 +78,9 @@ export class RemindersService {
       where: {
         deletedAt: null,
         correctedBy: null,
+        // Soft-deleted patients must not keep receiving reminders for their
+        // future sessions (same guard as calendar-sync.service.ts).
+        patient: { deletedAt: null },
         sessionDate: {
           gt: now,
           lte: new Date(now.getTime() + MAX_LOOKAHEAD_MS),
