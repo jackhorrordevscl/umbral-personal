@@ -7,6 +7,15 @@ import { usePatients } from "../hooks/usePatients";
 import { getConsultationStats } from "../api/consultations";
 import { getAcquisitionStats } from "../api/patients";
 
+const ACQUISITION_COLORS = [
+  "bg-sage-500",
+  "bg-blue-500",
+  "bg-amber-500",
+  "bg-emerald-500",
+  "bg-purple-500",
+  "bg-rose-500",
+];
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -40,6 +49,7 @@ export default function DashboardPage() {
     queryKey: ["acquisition-stats"],
     queryFn: getAcquisitionStats,
   });
+  const acquisitionTotal = acquisitionStats.reduce((sum, s) => sum + s.count, 0);
 
   // Issue #42: las tarjetas/filas clickeables eran <div onClick> sin rol ni
   // manejo de teclado, inalcanzables navegando solo con Tab/Enter.
@@ -196,9 +206,14 @@ export default function DashboardPage() {
 
       {/* Origen de pacientes */}
       <div className="card p-4 md:p-6 mt-6 md:mt-8">
-        <h3 className="font-display text-lg md:text-xl text-slate-900 mb-4">
+        <h3 className="font-display text-lg md:text-xl text-slate-900">
           Origen de pacientes
         </h3>
+        <p className="text-slate-500 text-sm mt-1 mb-4">
+          De dónde llegan tus pacientes: te ayuda a ver qué canal (redes,
+          referidos, búsqueda directa) está funcionando mejor para captar
+          nuevas consultas.
+        </p>
         {acquisitionError ? (
           <p className="text-slate-500 text-sm text-center py-8">
             No se pudo cargar el origen de pacientes.
@@ -210,16 +225,32 @@ export default function DashboardPage() {
             Sin datos de origen todavía.
           </p>
         ) : (
-          <ul className="divide-y divide-slate-100">
-            {acquisitionStats.map((stat) => (
-              <li
-                key={stat.source}
-                className="py-3 flex items-center justify-between gap-2"
-              >
-                <span className="text-sm font-medium text-slate-800">{stat.source}</span>
-                <span className="text-sm text-slate-500">{stat.count}</span>
-              </li>
-            ))}
+          <ul className="space-y-4">
+            {acquisitionStats.map((stat, i) => {
+              const percent =
+                acquisitionTotal === 0
+                  ? 0
+                  : Math.round((stat.count / acquisitionTotal) * 100);
+              const barColor = ACQUISITION_COLORS[i % ACQUISITION_COLORS.length];
+              return (
+                <li key={stat.source}>
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="text-sm font-medium text-slate-800">
+                      {stat.source}
+                    </span>
+                    <span className="text-sm text-slate-500 shrink-0">
+                      <span>{stat.count}</span> · {percent}%
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${barColor}`}
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
