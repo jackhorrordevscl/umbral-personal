@@ -1,0 +1,6 @@
+version: 2
+secret:
+  ignored_paths:
+    # Public example keys, intentionally committed. The production boot check
+    # in backend/src/config/env.validation.ts rejects them by SHA-256.
+    - backend/.env.example
