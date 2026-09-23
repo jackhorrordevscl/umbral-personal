@@ -133,11 +133,12 @@ PAYMENT_CREDENTIALS_ENCRYPTION_KEY="wgh8ZnZbpZMfvKifp5ufX9uFp+WoISHDRsDCRFkRP1U=
 PAYMENTS_ENABLED="false"
 ```
 
-> La foto de perfil (`POST/GET/DELETE /profile/avatar`) y los archivos
-> personales (`shared-files`) se guardan en Backblaze B2, no en disco local
-> (issue #170) — sin `B2_AVATARS_*`/`B2_SHARED_FILES_*` configuradas en tu
-> `.env` local, esas dos funciones fallan (ver Variables de Entorno). El
-> resto de la app funciona igual sin ellas.
+> La foto de perfil (`POST/GET/DELETE /profile/avatar`), los archivos
+> personales (`shared-files`) y los documentos de ficha clínica (`documents`,
+> issue #158) se guardan en Backblaze B2, no en disco local (issue #170) —
+> sin `B2_AVATARS_*`/`B2_SHARED_FILES_*`/`B2_PATIENT_DOCUMENTS_*` configuradas
+> en tu `.env` local, esas tres funciones fallan (ver Variables de Entorno).
+> El resto de la app funciona igual sin ellas.
 
 Ejecutar migraciones y seed inicial:
 
@@ -281,6 +282,14 @@ copia offsite de backups en **Backblaze B2** (ver
    separado del de avatares y del de backups offsite — crear otra
    Application Key restringida solo a ese bucket, Read+Write. Ya está
    cargada en el `.env` local; falta cargarla en Render.
+   Mismo criterio para `B2_PATIENT_DOCUMENTS_ENDPOINT`/
+   `B2_PATIENT_DOCUMENTS_REGION`/`B2_PATIENT_DOCUMENTS_BUCKET`/
+   `B2_PATIENT_DOCUMENTS_KEY_ID`/`B2_PATIENT_DOCUMENTS_APPLICATION_KEY`
+   (issue #158): storage de los documentos de ficha clínica (`documents`:
+   exámenes, certificados, consentimientos), cifrados con AES-256-GCM antes
+   de subirlos — en un bucket B2 **propio**, separado del de avatares,
+   shared-files y backups offsite, con su propia Application Key
+   restringida solo a ese bucket, Read+Write.
 3. **Frontend en Vercel**: importar el repo con root directory `frontend/`
    (usa `vercel.json` para el rewrite de rutas del SPA). Variable
    `VITE_API_URL` apuntando a la URL pública del backend de Render + `/api/v1`.
@@ -966,6 +975,7 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `RESEND_WEBHOOK_SECRET` | Secreto del webhook de Resend (issue #163) para verificar la firma Svix de `POST /webhooks/resend` (tracking de entrega/apertura de recordatorios por email). Sin setear, esa ruta responde `501` sin intentar verificar nada — no bloquea el resto de la app | Conseguir en el dashboard de Resend, sección Webhooks |
 | `B2_AVATARS_ENDPOINT` / `B2_AVATARS_REGION` / `B2_AVATARS_BUCKET` / `B2_AVATARS_KEY_ID` / `B2_AVATARS_APPLICATION_KEY` | Credenciales de un bucket Backblaze B2 **privado**, dedicado solo a fotos de perfil (issue #170) — storage vía `@aws-sdk/client-s3` (S3-compatible), reemplaza el disco local que Render (free tier) no persiste entre deploys. Sin estas variables, subir/ver un avatar falla | Ver [Despliegue](#despliegue-issue-8), paso 2 |
 | `B2_SHARED_FILES_ENDPOINT` / `B2_SHARED_FILES_REGION` / `B2_SHARED_FILES_BUCKET` / `B2_SHARED_FILES_KEY_ID` / `B2_SHARED_FILES_APPLICATION_KEY` | Mismo patrón que `B2_AVATARS_*` (issue #170, parte pendiente), pero para la biblioteca personal de archivos (`shared-files`) — bucket B2 propio y separado del de avatares. Sin estas variables, subir/descargar un archivo personal falla | Ver [Despliegue](#despliegue-issue-8), paso 2 |
+| `B2_PATIENT_DOCUMENTS_ENDPOINT` / `B2_PATIENT_DOCUMENTS_REGION` / `B2_PATIENT_DOCUMENTS_BUCKET` / `B2_PATIENT_DOCUMENTS_KEY_ID` / `B2_PATIENT_DOCUMENTS_APPLICATION_KEY` | Mismo patrón que `B2_AVATARS_*`/`B2_SHARED_FILES_*` (issue #158), pero para los documentos de ficha clínica (`documents`: exámenes, certificados, consentimientos) — bucket B2 propio, separado de los anteriores. El contenido sigue cifrado en reposo con `DOCUMENT_ENCRYPTION_KEY` (AES-256-GCM) antes de subirse. Sin estas variables, subir/descargar un documento clínico falla | Ver [Despliegue](#despliegue-issue-8), paso 2 |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar el refresh token de Google Calendar en reposo — distinta de `DOCUMENT_ENCRYPTION_KEY` a propósito (sdd/google-calendar-integration) | Generar con `openssl rand -base64 32` |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Credenciales OAuth del proyecto de Google Cloud. Sin setear, el módulo de integración con Google Calendar se registra deshabilitado (mismo criterio que `MailService` sin `RESEND_API_KEY`) — no bloquea el arranque en dev/test/CI | Conseguir en Google Cloud Console |
 | `GOOGLE_REDIRECT_URI` | Redirect URI del handshake OAuth, registrada en Google Cloud Console | `http://localhost:3001/api/v1/calendar-integration/callback` |

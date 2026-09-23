@@ -4,10 +4,23 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as patientDocumentStorage from '../src/common/utils/patient-document-storage.util';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+
+// Issue #158 (fix CI post-migración a B2): `patient-document-storage.util.ts`
+// hace requests reales a Backblaze B2, y el CI no tiene secrets de B2
+// configurados (a propósito, para mantener el e2e hermético sin red
+// externa, mismo criterio que otras integraciones -- ver
+// REMINDERS_ENABLED=false/GOOGLE_CALENDAR_SYNC_ENABLED=false en
+// .github/workflows/ci.yml). Se reemplaza el storage por un Map en memoria;
+// ver test/support/patient-document-storage.mock.ts.
+jest.mock('../src/common/utils/patient-document-storage.util', () => {
+  const mockModule = jest.requireActual<
+    typeof import('./support/patient-document-storage.mock')
+  >('./support/patient-document-storage.mock');
+  return mockModule.createPatientDocumentStorageMock();
+});
 
 /**
  * T8.1 (issue #58): cifrado de documentos clínicos en reposo con `crypto`
@@ -135,12 +148,8 @@ describe('Documents encryption at rest (e2e)', () => {
   afterAll(async () => {
     try {
       if (documentId) {
-        const doc = await prisma.patientDocument.findUnique({
-          where: { id: documentId },
-        });
-        if (doc) {
-          fs.rmSync(path.join(process.cwd(), doc.storagePath), { force: true });
-        }
+        // El objeto en B2 (mockeado en memoria para este proceso de test) no
+        // necesita limpieza explícita: muere con el proceso Jest.
         await prisma.patientDocument.deleteMany({ where: { patientId } });
       }
       if (patientId) {
@@ -180,11 +189,8 @@ describe('Documents encryption at rest (e2e)', () => {
         (res.body as Record<string, unknown>).storagePath as string,
       ).toMatch(/\.enc$/);
 
-      const raw = fs.readFileSync(
-        path.join(
-          process.cwd(),
-          (res.body as Record<string, unknown>).storagePath as string,
-        ),
+      const raw = await patientDocumentStorage.readPatientDocumentBuffer(
+        (res.body as Record<string, unknown>).storagePath as string,
       );
       expect(raw.includes(Buffer.from(PLAINTEXT_MARKER))).toBe(false);
       // IV (12) + authTag (16) + ciphertext (mismo largo que el original)

@@ -7,6 +7,17 @@ import * as speakeasy from 'speakeasy';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 
+// Issue #158 (fix CI post-migración a B2): ver
+// test/support/patient-document-storage.mock.ts -- reemplaza el S3Client
+// real por un Map en memoria para que POST /documents/upload no dependa de
+// red externa a Backblaze B2.
+jest.mock('../src/common/utils/patient-document-storage.util', () => {
+  const mockModule = jest.requireActual<
+    typeof import('./support/patient-document-storage.mock')
+  >('./support/patient-document-storage.mock');
+  return mockModule.createPatientDocumentStorageMock();
+});
+
 /**
  * T6.1 (issue #27): consentimiento granular por finalidad (Ley 21.719).
  * Verifica que cada finalidad (TREATMENT, TELEMEDICINE) se pueda
