@@ -24,7 +24,7 @@ function buildPatientWithConsultations() {
         sessionType: 'IN_PERSON',
         consultReason: 'Motivo de consulta',
         intervention: 'Intervención realizada',
-        agreements: null,
+        agreements: null as string | null,
         nextSessionDate: null,
       },
     ],
@@ -89,6 +89,31 @@ describe('ReportsService', () => {
 
     // %PDF- es la cabecera estándar de cualquier PDF válido — confirma que
     // pdfkit efectivamente generó un documento real, no solo un Buffer vacío.
+    expect(buffer.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(buffer.length).toBeGreaterThan(0);
+  });
+
+  it('genera el PDF sin errores cuando las notas clínicas traen HTML enriquecido (issue #159)', async () => {
+    const patient = buildPatientWithConsultations();
+    patient.consultations = [
+      {
+        sessionDate: new Date('2026-01-10T12:00:00'),
+        sessionType: 'IN_PERSON',
+        consultReason:
+          '<p>Motivo <strong>importante</strong> con <em>matices</em></p>',
+        intervention:
+          '<ul><li>Primera técnica</li><li>Segunda técnica</li></ul>',
+        agreements: '<p><u>Acuerdo</u> firmado</p>',
+        nextSessionDate: null,
+      },
+    ];
+    prisma.patient.findUnique.mockResolvedValue(patient);
+
+    const buffer = await service.generatePatientReport(
+      'patient-1',
+      'therapist-1',
+    );
+
     expect(buffer.subarray(0, 5).toString()).toBe('%PDF-');
     expect(buffer.length).toBeGreaterThan(0);
   });
