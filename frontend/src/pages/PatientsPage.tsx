@@ -280,9 +280,23 @@ export default function PatientsPage() {
 
       {selectedForConsent.size > 0 && (
         <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
+          <p className="text-sm font-medium text-amber-900 mb-1">
+            Declarar consentimiento retroactivo para {selectedForConsent.size} paciente(s)
+          </p>
+          <p className="text-sm text-amber-800 mb-1">
+            <span className="font-medium">¿Por qué aparece esto?</span> El sistema exige un consentimiento
+            informado vigente para poder registrar consultas. Estos pacientes ya estaban en tratamiento
+            antes de que ese control existiera, o fueron autoagendados por la web pública, así que no
+            tienen el registro digital — aunque el consentimiento sí exista en papel, en el expediente
+            físico.
+          </p>
           <p className="text-sm text-amber-800 mb-2">
-            Declarar consentimiento retroactivo para {selectedForConsent.size} paciente(s) —
-            úsalo cuando ya tenés el consentimiento en papel del expediente físico, previo a este cambio.
+            <span className="font-medium">¿Para qué sirve declararlo?</span> Esta acción no reemplaza el
+            consentimiento en papel: deja constancia en el sistema de que ya fue obtenido, para poder
+            seguir registrando consultas de estos pacientes sin quedar bloqueado. Declarar solo si el
+            paciente realmente firmó el consentimiento — el terapeuta queda como responsable de esa
+            declaración. Si el documento está digitalizado, debe subirse desde la ficha del paciente en
+            vez de declararlo aquí.
           </p>
           <div className="flex flex-col sm:flex-row gap-2">
             <select
