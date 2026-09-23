@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import PDFDocument from 'pdfkit';
+import { renderClinicalNoteToPdf } from './clinical-note-pdf.util';
 
 @Injectable()
 export class ReportsService {
@@ -176,26 +177,24 @@ export class ReportsService {
           doc
             .font('Helvetica-Bold')
             .text('Motivo de consulta:', { continued: false });
-          doc.font('Helvetica').text(c.consultReason, {
-            align: 'justify',
-            width: 500,
-          });
+          renderClinicalNoteToPdf(doc, c.consultReason, { width: 500 });
 
           doc.moveDown(0.3);
           doc
             .font('Helvetica-Bold')
             .text('Intervención:', { continued: false });
-          doc.font('Helvetica').text(c.intervention, {
-            align: 'justify',
-            width: 500,
-          });
+          renderClinicalNoteToPdf(doc, c.intervention, { width: 500 });
 
           doc.moveDown(0.3);
           doc.font('Helvetica-Bold').text('Acuerdos:', { continued: false });
-          doc.font('Helvetica').text(c.agreements ?? 'Ninguno', {
-            align: 'justify',
-            width: 500,
-          });
+          if (c.agreements) {
+            renderClinicalNoteToPdf(doc, c.agreements, { width: 500 });
+          } else {
+            doc.font('Helvetica').text('Ninguno', {
+              align: 'justify',
+              width: 500,
+            });
+          }
 
           doc.moveDown(0.3);
           doc.text(

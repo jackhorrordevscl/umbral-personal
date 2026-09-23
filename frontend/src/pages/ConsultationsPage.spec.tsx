@@ -92,11 +92,11 @@ describe('ConsultationsPage', () => {
     ) as HTMLInputElement
     await user.type(sessionDateInput, '2026-05-20')
     await user.type(
-      screen.getByLabelText(/motivo de consulta/i),
+      screen.getByRole('textbox', { name: /motivo de consulta/i }),
       'Motivo de la sesión',
     )
     await user.type(
-      screen.getByLabelText(/intervención realizada/i),
+      screen.getByRole('textbox', { name: /intervención realizada/i }),
       'Intervención realizada',
     )
 
@@ -107,8 +107,9 @@ describe('ConsultationsPage', () => {
         '/consultations',
         expect.objectContaining({
           patientId: 'patient-1',
-          consultReason: 'Motivo de la sesión',
-          intervention: 'Intervención realizada',
+          // El editor rich-text (issue #159) persiste HTML, no texto plano.
+          consultReason: '<p>Motivo de la sesión</p>',
+          intervention: '<p>Intervención realizada</p>',
           sessionType: 'IN_PERSON',
           sessionDate: expect.stringMatching(/^2026-05-20T09:00:00/) as unknown as string,
         }),
@@ -154,6 +155,37 @@ describe('ConsultationsPage', () => {
 
     expect(await screen.findByText('Motivo de la sesión')).toBeInTheDocument()
     expect(screen.getByText('Intervención realizada')).toBeInTheDocument()
+  })
+
+  // Issue #159: el backend ya sanitiza consultReason/intervention/agreements
+  // (whitelist p/br/strong/em/u/ul/ol/li), pero el frontend sanitiza de
+  // nuevo con DOMPurify antes de dangerouslySetInnerHTML -- defensa en
+  // profundidad ante HTML persistido que no venga limpio (dato histórico,
+  // acceso directo a la DB, bug futuro en el backend).
+  it('sanitiza el HTML de las notas clínicas antes de renderizarlas (defensa en profundidad)', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url.startsWith('/consultations/patient/'))
+        return Promise.resolve({
+          data: [
+            buildConsultation({
+              consultReason: '<p>Motivo <strong>en negrita</strong></p><script>window.__xss = true</script>',
+              intervention: '<img src=x onerror="window.__xss = true"><p>Intervención segura</p>',
+            }),
+          ],
+        })
+      return Promise.resolve({ data: [] })
+    })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByText('en negrita')).toBeInTheDocument()
+    expect(screen.getByText('Intervención segura')).toBeInTheDocument()
+    expect(document.querySelector('script')).not.toBeInTheDocument()
+    expect(document.querySelector('img')).not.toBeInTheDocument()
+    expect((window as unknown as { __xss?: boolean }).__xss).not.toBe(true)
   })
 
   it('con ?patientId y consultationId en la URL, preselecciona el paciente y abre el modal de Corregir sesión (deep link desde una notificación)', async () => {

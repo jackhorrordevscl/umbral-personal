@@ -23,6 +23,7 @@ import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { CorrectConsultationDto } from './dto/correct-consultation.dto';
 import { ConsultationRangeQueryDto } from './dto/consultation-range-query.dto';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
+import { sanitizeClinicalNote } from '../../common/utils/clinical-note-sanitizer.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 
 function parseDate(dateStr: string): Date {
@@ -144,9 +145,9 @@ export class ConsultationsService {
           patientId: dto.patientId,
           therapistId,
           sessionDate: parseDate(dto.sessionDate),
-          consultReason: dto.consultReason,
-          intervention: dto.intervention,
-          agreements: dto.agreements,
+          consultReason: sanitizeClinicalNote(dto.consultReason),
+          intervention: sanitizeClinicalNote(dto.intervention),
+          agreements: sanitizeClinicalNote(dto.agreements),
           nextSessionDate: dto.nextSessionDate
             ? parseDate(dto.nextSessionDate)
             : null,
@@ -395,9 +396,16 @@ export class ConsultationsService {
           sessionDate: dto.sessionDate
             ? parseDate(dto.sessionDate)
             : original.sessionDate,
-          consultReason: dto.consultReason ?? original.consultReason,
-          intervention: dto.intervention ?? original.intervention,
-          agreements: dto.agreements ?? original.agreements,
+          consultReason: dto.consultReason
+            ? sanitizeClinicalNote(dto.consultReason)
+            : original.consultReason,
+          intervention: dto.intervention
+            ? sanitizeClinicalNote(dto.intervention)
+            : original.intervention,
+          agreements:
+            dto.agreements !== undefined
+              ? sanitizeClinicalNote(dto.agreements)
+              : original.agreements,
           nextSessionDate: dto.nextSessionDate
             ? parseDate(dto.nextSessionDate)
             : original.nextSessionDate,
