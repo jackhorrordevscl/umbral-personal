@@ -201,12 +201,20 @@ describe('MfaService', () => {
   });
 
   describe('verifyMfa', () => {
-    it('lanza 401 si el usuario no existe o no tiene mfaSecret', async () => {
+    it('lanza 401 con el mismo mensaje que un TOTP inválido si el usuario no existe (anti-enumeración)', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
       await expect(
         service.verifyMfa({ userId: 'user-1', token: '123456' }),
-      ).rejects.toThrow('Usuario no válido');
+      ).rejects.toThrow('Código MFA inválido');
+    });
+
+    it('lanza 401 con el mismo mensaje que un TOTP inválido si el usuario no tiene mfaSecret', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser({ mfaSecret: null }));
+
+      await expect(
+        service.verifyMfa({ userId: 'user-1', token: '123456' }),
+      ).rejects.toThrow('Código MFA inválido');
     });
 
     it('lanza 401 si la cuenta está soft-deleted, aunque el TOTP sea válido (mfa/verify es standalone y recibe userId crudo)', async () => {
@@ -217,7 +225,7 @@ describe('MfaService', () => {
 
       await expect(
         service.verifyMfa({ userId: 'user-1', token: '123456' }),
-      ).rejects.toThrow('Usuario no válido');
+      ).rejects.toThrow('Código MFA inválido');
       // No debe llegar a emitir accessToken para una cuenta desactivada.
       expect(jwtService.sign).not.toHaveBeenCalled();
     });
