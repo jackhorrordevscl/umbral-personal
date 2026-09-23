@@ -60,7 +60,11 @@ export default function PatientsPage() {
   const [formError, setFormError] = useState("");
   const [stagedDocuments, setStagedDocuments] = useState<StagedDocument[]>([]);
 
-  const { data: patients = [], isError: patientsError } = usePatients();
+  const {
+    data: patients = [],
+    isLoading: patientsLoading,
+    isError: patientsError,
+  } = usePatients();
   const createMutation = useCreatePatient();
   const deleteMutation = useDeletePatient();
 
@@ -218,7 +222,9 @@ export default function PatientsPage() {
       <div className="flex items-center justify-between mb-6 md:mb-8">
         <div>
           <h2 className="font-display text-2xl md:text-3xl text-slate-900">Pacientes</h2>
-          <p className="text-slate-500 text-sm mt-1">{patients.length} pacientes registrados</p>
+          <p className="text-slate-500 text-sm mt-1">
+            {patientsLoading ? "Cargando..." : `${patients.length} pacientes registrados`}
+          </p>
         </div>
         <button onClick={() => setShowForm(!showForm)} className="btn-primary flex items-center gap-2">
           <UserPlus size={16} />
@@ -350,7 +356,13 @@ export default function PatientsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {filtered.length === 0 ? (
+            {patientsLoading ? (
+              <tr>
+                <td colSpan={6} className="text-center py-12 text-slate-500">
+                  Cargando pacientes...
+                </td>
+              </tr>
+            ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={6} className="text-center py-12 text-slate-500">
                   No se encontraron pacientes.
@@ -433,7 +445,11 @@ export default function PatientsPage() {
 
       {/* Cards móvil */}
       <div className="md:hidden space-y-3">
-        {filtered.length === 0 ? (
+        {patientsLoading ? (
+          <div className="card text-center py-8 text-slate-500 text-sm">
+            Cargando pacientes...
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="card text-center py-8 text-slate-500 text-sm">
             No se encontraron pacientes.
           </div>
