@@ -233,6 +233,29 @@ describe('MfaService', () => {
       ).rejects.toThrow('Código MFA inválido');
     });
 
+    it('lanza 401 sin emitir accessToken si mustChangePassword=true, aunque el TOTP sea válido', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET', mustChangePassword: true }),
+      );
+      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+
+      await expect(
+        service.verifyMfa({ userId: 'user-1', token: '123456' }),
+      ).rejects.toThrow('Debes cambiar tu contraseña antes de iniciar sesión');
+      expect(jwtService.sign).not.toHaveBeenCalled();
+    });
+
+    it('no revela mustChangePassword si el TOTP es inválido', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET', mustChangePassword: true }),
+      );
+      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(false);
+
+      await expect(
+        service.verifyMfa({ userId: 'user-1', token: '000000' }),
+      ).rejects.toThrow('Código MFA inválido');
+    });
+
     it('devuelve accessToken si el TOTP es válido', async () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ mfaSecret: 'BASE32SECRET' }),

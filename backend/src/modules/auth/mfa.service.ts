@@ -142,6 +142,17 @@ export class MfaService {
       throw new UnauthorizedException('Código MFA inválido');
     }
 
+    // Mismo criterio que login(): ningún accessToken se emite mientras la
+    // contraseña deba cambiarse. Se chequea recién con el TOTP válido para no
+    // revelar este estado a quien solo conoce un userId. Sin esto, una cuenta
+    // con MFA activo y cambio forzado pendiente podría saltarse el cambio
+    // logueando solo con el TOTP.
+    if (user.mustChangePassword) {
+      throw new UnauthorizedException(
+        'Debes cambiar tu contraseña antes de iniciar sesión',
+      );
+    }
+
     return this.generateToken(user);
   }
 
