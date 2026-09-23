@@ -25,7 +25,7 @@ function buildPatientWithConsultations() {
         consultReason: 'Motivo de consulta',
         intervention: 'Intervención realizada',
         agreements: null as string | null,
-        nextSessionDate: null,
+        nextSessionDate: null as Date | null,
       },
     ],
   };
@@ -91,6 +91,27 @@ describe('ReportsService', () => {
     // pdfkit efectivamente generó un documento real, no solo un Buffer vacío.
     expect(buffer.subarray(0, 5).toString()).toBe('%PDF-');
     expect(buffer.length).toBeGreaterThan(0);
+  });
+
+  it('formatea las fechas con zona horaria explícita: instantes en Chile, fecha de nacimiento en UTC (issue #185)', async () => {
+    const patient = buildPatientWithConsultations();
+    patient.consultations[0].nextSessionDate = new Date('2026-02-10T12:00:00Z');
+    prisma.patient.findUnique.mockResolvedValue(patient);
+    const spy = jest.spyOn(Date.prototype, 'toLocaleDateString');
+
+    try {
+      await service.generatePatientReport('patient-1', 'therapist-1');
+
+      const calls = spy.mock.calls.map(([, options]) => options);
+      // "Generado el", sessionDate y nextSessionDate -> Santiago; birthDate -> UTC.
+      expect(
+        calls.filter((o) => o?.timeZone === 'America/Santiago'),
+      ).toHaveLength(3);
+      expect(calls.filter((o) => o?.timeZone === 'UTC')).toHaveLength(1);
+      expect(calls.every((o) => o?.timeZone !== undefined)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('genera el PDF sin errores cuando las notas clínicas traen HTML enriquecido (issue #159)', async () => {

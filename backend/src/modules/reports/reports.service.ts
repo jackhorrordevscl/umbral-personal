@@ -3,6 +3,16 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import PDFDocument from 'pdfkit';
 import { renderClinicalNoteToPdf } from './clinical-note-pdf.util';
+import { CHILE_TIMEZONE } from '../../common/utils/chile-time.util';
+
+// Instants (session dates, generation time) render in Chile time: the server
+// may run in UTC, which would shift late-evening sessions to the next day.
+// birthDate is a calendar date stored as UTC midnight, so it is formatted in
+// UTC instead (Santiago would show the previous day).
+const formatChileDate = (date: Date): string =>
+  date.toLocaleDateString('es-CL', { timeZone: CHILE_TIMEZONE });
+const formatCalendarDate = (date: Date): string =>
+  date.toLocaleDateString('es-CL', { timeZone: 'UTC' });
 
 @Injectable()
 export class ReportsService {
@@ -88,11 +98,9 @@ export class ReportsService {
         .font('Helvetica')
         .text('Ficha Clínica del Paciente', { align: 'center' });
 
-      doc
-        .fontSize(10)
-        .text(`Generado el: ${new Date().toLocaleDateString('es-CL')}`, {
-          align: 'center',
-        });
+      doc.fontSize(10).text(`Generado el: ${formatChileDate(new Date())}`, {
+        align: 'center',
+      });
 
       doc.moveDown(2);
 
@@ -108,7 +116,7 @@ export class ReportsService {
       doc.text(`Nombre completo: ${patient.fullName}`);
       doc.text(`RUT: ${patient.rut}`);
       doc.text(
-        `Fecha de nacimiento: ${new Date(patient.birthDate).toLocaleDateString('es-CL')}`,
+        `Fecha de nacimiento: ${formatCalendarDate(new Date(patient.birthDate))}`,
       );
       doc.text(`Ocupación: ${patient.occupation ?? 'No registrada'}`);
       doc.text(`Teléfono: ${patient.phone ?? 'No registrado'}`);
@@ -162,7 +170,7 @@ export class ReportsService {
             .fontSize(11)
             .font('Helvetica-Bold')
             .text(
-              `Sesión ${index + 1}  —  ${new Date(c.sessionDate).toLocaleDateString('es-CL')}`,
+              `Sesión ${index + 1}  —  ${formatChileDate(new Date(c.sessionDate))}`,
             );
 
           doc.fillColor('#000000');
@@ -198,7 +206,7 @@ export class ReportsService {
 
           doc.moveDown(0.3);
           doc.text(
-            `Próxima sesión: ${c.nextSessionDate ? new Date(c.nextSessionDate).toLocaleDateString('es-CL') : 'No agendada'}`,
+            `Próxima sesión: ${c.nextSessionDate ? formatChileDate(new Date(c.nextSessionDate)) : 'No agendada'}`,
           );
 
           doc.moveDown(1);
