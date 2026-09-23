@@ -5,13 +5,17 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 // issue #163: secreto de prueba de baja entropía (todo ceros en base64) a
 // propósito -- un valor con pinta de secreto real (aunque inventado) hacía
-// que GitGuardian lo marcara como posible fuga en el PR #166. WebhooksService
+// que GitGuardian lo marcara como posible fuga en el PR #166. El prefijo y
+// el cuerpo se arman por separado (join, no un literal contiguo) para que
+// el secret scanning de GitHub tampoco lo matchee como Stripe/Svix webhook
+// signing secret (alertas #1/#2, cerradas como falso positivo). WebhooksService
 // reimplementa la verificación del esquema Standard Webhooks con Node
 // `crypto` (ver el comentario en webhooks.service.ts sobre por qué no se
 // importa el paquete npm `svix` en runtime -- es ESM-only e incompatible con
 // Jest/ts-jest en modo CommonJS); este helper firma el payload con el mismo
 // algoritmo, independiente de la implementación bajo prueba.
-const TEST_SECRET = 'whsec_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const TEST_SECRET_BODY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const TEST_SECRET = ['whsec', TEST_SECRET_BODY].join('_');
 
 function buildConfig(secret: string | undefined): ConfigService {
   return {
@@ -24,7 +28,7 @@ function buildConfig(secret: string | undefined): ConfigService {
 function signPayload(payload: string) {
   const id = 'msg_test_1';
   const timestampSeconds = Math.floor(Date.now() / 1000);
-  const secretBytes = Buffer.from(TEST_SECRET.replace(/^whsec_/, ''), 'base64');
+  const secretBytes = Buffer.from(TEST_SECRET_BODY, 'base64');
   const signedContent = `${id}.${timestampSeconds}.${payload}`;
   const signature = createHmac('sha256', secretBytes)
     .update(signedContent, 'utf-8')
