@@ -2,12 +2,22 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import * as fs from 'fs';
 import * as zlib from 'zlib';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+
+// Issue #158 (fix CI post-migración a B2): ver
+// test/support/patient-document-storage.mock.ts -- reemplaza el S3Client
+// real por un Map en memoria para que POST /documents/upload y
+// GET /documents/:id/download no dependan de red externa a Backblaze B2.
+jest.mock('../src/common/utils/patient-document-storage.util', () => {
+  const mockModule = jest.requireActual<
+    typeof import('./support/patient-document-storage.mock')
+  >('./support/patient-document-storage.mock');
+  return mockModule.createPatientDocumentStorageMock();
+});
 
 /**
  * T1.5 (issue #10), reescrito para el modelo de un solo rol (issue #7):
@@ -222,18 +232,9 @@ describe('RBAC ownership guard (e2e)', () => {
       // significa "sin filtro en ese campo", así que deleteMany() borraría
       // TODOS los pacientes/documentos/consultas de la base.
       if (patientId) {
-        // Limpieza de archivos físicos subidos durante la suite
-        const docs = await prisma.patientDocument.findMany({
-          where: { patientId },
-        });
-        for (const doc of docs) {
-          try {
-            fs.unlinkSync(doc.storagePath);
-          } catch {
-            // el archivo puede no existir (p.ej. intento no-dueño ya autolimpiado); se ignora
-          }
-        }
-
+        // Los objetos en B2 (mockeados en memoria para este proceso de test,
+        // issue #158) no necesitan limpieza explícita: mueren con el
+        // proceso Jest.
         // Borrado respetando FKs: documentos/consultas/consentimientos -> paciente.
         await prisma.patientDocument.deleteMany({ where: { patientId } });
         await prisma.consultationHistory.deleteMany({

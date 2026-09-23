@@ -121,3 +121,52 @@ Verificación (T7):
   ningún archivo de esos módulos.
 
 Commit: `2e6a722` — `fix(documents): migrar adjuntos de ficha clinica a Backblaze B2` (Closes #158, sin push).
+
+### Fix post-review: CI e2e roto por falta de secrets de B2 (2026-09-23)
+
+Qué se rompió: tras `2e6a722`, `documents.service.ts` hace requests reales a B2 vía `S3Client`
+en vez de leer/escribir disco local. `.github/workflows/ci.yml` no tiene ningún secret de B2
+configurado (a propósito — el resto del repo mantiene el e2e hermético sin red externa real, ver
+`REMINDERS_ENABLED=false`/`GOOGLE_CALENDAR_SYNC_ENABLED=false`). Esto rompió 3 suites e2e que
+levantan un Nest app real con supertest y ejercitan upload/download de documentos:
+`documents.e2e-spec.ts`, `rbac-ownership.e2e-spec.ts`, `patient-consent.e2e-spec.ts` (500 en vez
+de 201 al subir, 404 en vez de 200 al bajar).
+
+Por qué: el bug no está en `patient-document-storage.util.ts` ni en `documents.service.ts` —
+ambos funcionan correctamente contra B2 real. El problema es que el e2e nunca tuvo un test double
+para la integración externa, a diferencia de otros módulos (emails, calendario) que sí la
+desactivan explícitamente en CI.
+
+Cómo se resolvió: se creó `backend/test/support/patient-document-storage.mock.ts`, una factory
+`createPatientDocumentStorageMock()` que reemplaza el S3Client real por un `Map` en memoria
+(mismo patrón que el `jest.mock` + `jest.requireActual` de `documents.service.spec.ts`, pero
+aplicado a nivel e2e, con un store propio por proceso de test). Se agregó
+`jest.mock('../src/common/utils/patient-document-storage.util', () => { ... })` en los 3 specs
+afectados, usando `jest.requireActual` (no `require()` literal) para no chocar con la regla
+`@typescript-eslint/no-require-imports`. No se tocó `documents.service.ts` ni
+`patient-document-storage.util.ts`: no había bug real en ellos.
+
+`documents.e2e-spec.ts` también se actualizó porque leía directo de disco con `fs.readFileSync`
+para verificar el cifrado en reposo — ahora usa `patientDocumentStorage.readPatientDocumentBuffer`
+(el import normal resuelve al mock) para leer el buffer cifrado del store en memoria.
+`rbac-ownership.e2e-spec.ts` tenía un `fs.unlinkSync(doc.storagePath)` en el cleanup de
+`afterAll`, ya sin sentido con el store en memoria (se quitó, ya no hay archivo físico que
+limpiar).
+
+Verificación:
+- `npx jest --config ./test/jest-e2e.json --forceExit`: 20/21 suites PASS, 175/176 tests PASS.
+  La única suite que falla es `calendar-busy-overlay.e2e-spec.ts` (1 test), confirmado como falla
+  preexistente y no relacionada: se reprodujo idéntica corriendo la suite sola contra el código
+  base (antes de este fix, vía `git stash`) — parece un flake de fecha/hora, no algo introducido
+  acá.
+- `npx eslint "{src,apps,libs,test}/**/*.ts"`: sin errores.
+- `npx tsc --noEmit`: sin errores.
+- `npx jest src/modules/documents/documents.service.spec.ts` (unit): 10/10 PASS, sin regresión.
+
+Archivos tocados:
+- `backend/test/support/patient-document-storage.mock.ts` (nuevo)
+- `backend/test/documents.e2e-spec.ts`
+- `backend/test/rbac-ownership.e2e-spec.ts`
+- `backend/test/patient-consent.e2e-spec.ts`
+
+Commit: pendiente de crear en esta misma sesión (`fix(documents): ...`, Closes #158, sin push).
