@@ -120,4 +120,4 @@ Verificación (T7):
   (specs de integración que requieren Postgres) — no relacionado con este cambio, no se tocó
   ningún archivo de esos módulos.
 
-Commit: `9817a0a` — `fix(documents): migrar adjuntos de ficha clinica a Backblaze B2` (Closes #158, sin push).
+Commit: `2e6a722` — `fix(documents): migrar adjuntos de ficha clinica a Backblaze B2` (Closes #158, sin push).
