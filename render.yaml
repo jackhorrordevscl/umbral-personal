@@ -64,6 +64,10 @@ services:
         sync: false
       - key: B2_AVATARS_APPLICATION_KEY
         sync: false
+      # Issue #191: error tracking (Sentry). Opcional -- sin DSN el SDK queda
+      # desactivado. Se carga a mano en el dashboard (proyecto Node de Sentry).
+      - key: SENTRY_DSN
+        sync: false
       # Config no secreta, con el mismo valor en cada deploy: fija acá para
       # no tener que repetirla a mano en el dashboard.
       - key: NODE_ENV
