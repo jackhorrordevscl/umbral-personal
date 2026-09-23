@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
+import * as Sentry from '@sentry/node';
 
 // Sin esto, cualquier error que no sea un Prisma.PrismaClientKnownRequestError
 // ni una HttpException lanzada a propósito (ej. una excepción de pdfkit al
@@ -50,6 +51,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
         `${request.method ?? '?'} ${request.url ?? '?'} -> 500: ${message}`,
         stack,
       );
+      // Issue #191: no-op when Sentry was not initialised (no SENTRY_DSN).
+      Sentry.captureException(exception);
     }
 
     httpAdapter.reply(ctx.getResponse(), responseBody, status);
