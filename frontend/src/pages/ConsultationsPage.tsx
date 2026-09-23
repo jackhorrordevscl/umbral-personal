@@ -19,6 +19,7 @@ import type { Consultation, ConsultationHistory, Patient } from '../types/patien
 import { buildLocalISO, formatChileDateTime, formatChileDate } from '../utils/datetime';
 import { normalizeRut } from '../utils/rut';
 import { getApiErrorMessage } from '../utils/api-error';
+import { activateOnKey } from '../utils/activate-on-key';
 
 // Sugerencia de usuarios: el resumen de sesión que el terapeuta sube desde
 // el modal de nueva consulta (ConsultationForm) aparece acá, atado a esta
@@ -482,6 +483,9 @@ export default function ConsultationsPage() {
                 <div
                   className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center cursor-pointer hover:border-sage-300 transition-colors"
                   onClick={() => editFileInputRef.current?.click()}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => activateOnKey(() => editFileInputRef.current?.click())(e)}
                 >
                   {editSummaryFile ? (
                     <p className="text-sm text-sage-600 font-medium">{editSummaryFile.name}</p>

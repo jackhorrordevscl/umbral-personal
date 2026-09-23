@@ -9,6 +9,7 @@ import Modal from '../components/ui/Modal';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import { getApiErrorMessage } from '../utils/api-error';
 import { downloadBlob } from '../utils/download';
+import { activateOnKey } from '../utils/activate-on-key';
 
 const CATEGORIES = [
   { value: '', label: 'Todos' },
@@ -323,6 +324,9 @@ export default function SharedFilesPage() {
             <div
               className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center cursor-pointer hover:border-sage-300 transition-colors mb-4"
               onClick={() => fileInputRef.current?.click()}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => activateOnKey(() => fileInputRef.current?.click())(e)}
             >
               {form.file ? (
                 <p className="text-sm text-sage-600 font-medium">{form.file.name}</p>
