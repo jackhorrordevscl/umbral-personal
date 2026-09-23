@@ -1,5 +1,6 @@
 import ErrorBanner from '../ui/ErrorBanner';
 import FormField from '../ui/FormField';
+import RichTextEditor from '../ui/RichTextEditor';
 import { usePatients } from '../../hooks/usePatients';
 import { useCreateConsultation } from '../../hooks/useConsultations';
 import { useUploadPatientDocument } from '../../hooks/usePatientDocuments';
@@ -175,22 +176,22 @@ export default function ConsultationForm({
           </select>
         </FormField>
         <FormField id="consult-consultReason" label="Motivo de consulta" required className="md:col-span-2">
-          <textarea id="consult-consultReason" rows={2} className="input-field resize-none text-slate-800 placeholder-slate-400"
+          <RichTextEditor id="consult-consultReason" ariaLabel="Motivo de consulta"
             placeholder="Describe el motivo principal de la sesión..."
             value={form.consultReason}
-            onChange={e => setForm({ ...form, consultReason: e.target.value })} />
+            onChange={html => setForm({ ...form, consultReason: html })} />
         </FormField>
         <FormField id="consult-intervention" label="Intervención realizada / Registro de evolución clínica" required className="md:col-span-2">
-          <textarea id="consult-intervention" rows={3} className="input-field resize-none text-slate-800 placeholder-slate-400"
+          <RichTextEditor id="consult-intervention" ariaLabel="Intervención realizada / Registro de evolución clínica"
             placeholder="Describe las técnicas e intervenciones realizadas durante la sesión..."
             value={form.intervention}
-            onChange={e => setForm({ ...form, intervention: e.target.value })} />
+            onChange={html => setForm({ ...form, intervention: html })} />
         </FormField>
         <FormField id="consult-agreements" label="Tareas y acuerdos" className="md:col-span-2">
-          <textarea id="consult-agreements" rows={2} className="input-field resize-none text-slate-800 placeholder-slate-400"
+          <RichTextEditor id="consult-agreements" ariaLabel="Tareas y acuerdos"
             placeholder="Tareas asignadas, acuerdos terapéuticos, compromisos del paciente..."
             value={form.agreements}
-            onChange={e => setForm({ ...form, agreements: e.target.value })} />
+            onChange={html => setForm({ ...form, agreements: html })} />
         </FormField>
         <FormField id="consult-nextSessionDate" label="Próxima sesión — Fecha">
           <input id="consult-nextSessionDate" type="date" className="input-field" value={form.nextSessionDate}

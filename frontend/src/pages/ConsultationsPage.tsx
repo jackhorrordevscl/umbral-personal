@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle, Copy, Check, Send, FileText, Download, Upload } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import Modal from '../components/ui/Modal';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import FormField from '../components/ui/FormField';
+import RichTextEditor from '../components/ui/RichTextEditor';
 import ConsultationForm from '../components/consultations/ConsultationForm';
 import PaymentStatusBadge from '../components/payments/PaymentStatusBadge';
 import ReminderEmailStatusBadge from '../components/reminders/ReminderEmailStatusBadge';
@@ -136,15 +138,33 @@ const ALLOWED_SUMMARY_EXTENSIONS = ['.pdf', '.doc', '.docx'];
 // trunca a 3 líneas y se deja expandir/colapsar por tarjeta.
 const EXPANDABLE_TEXT_THRESHOLD = 180;
 
+// Issue #159: las notas clínicas se persisten como HTML enriquecido
+// (whitelist p/br/strong/em/u/ul/ol/li, sanitizado en el backend -- ver
+// clinical-note-sanitizer.util.ts). Se sanitiza de nuevo acá como defensa en
+// profundidad antes de inyectarlo con dangerouslySetInnerHTML: no hay que
+// confiar ciegamente en HTML ya persistido (podría venir de datos
+// históricos, de un bug futuro en el backend, o de acceso directo a la DB).
+function sanitizeClinicalNoteHtml(html: string): string {
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'ul', 'ol', 'li'],
+    ALLOWED_ATTR: [],
+  });
+}
+
 function ExpandableText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
-  const isLong = text.length > EXPANDABLE_TEXT_THRESHOLD;
+  // El largo se mide sobre el texto plano (sin tags) para que el umbral de
+  // "ver más" siga reflejando cuánto contenido real hay, no el HTML.
+  const plainLength = text.replace(/<[^>]+>/g, '').length;
+  const isLong = plainLength > EXPANDABLE_TEXT_THRESHOLD;
+  const safeHtml = sanitizeClinicalNoteHtml(text);
 
   return (
     <div>
-      <p className={`text-slate-800 whitespace-pre-wrap ${!expanded && isLong ? 'line-clamp-3' : ''}`}>
-        {text}
-      </p>
+      <div
+        className={`text-slate-800 [&_p]:m-0 [&_ul]:pl-5 [&_ol]:pl-5 [&_ul]:list-disc [&_ol]:list-decimal ${!expanded && isLong ? 'line-clamp-3' : ''}`}
+        dangerouslySetInnerHTML={{ __html: safeHtml }}
+      />
       {isLong && (
         <button
           type="button"
@@ -436,19 +456,19 @@ export default function ConsultationsPage() {
                 </select>
               </FormField>
               <FormField id="correct-consultReason" label="Motivo de consulta" className="md:col-span-2">
-                <textarea id="correct-consultReason" rows={2} className="input-field resize-none text-slate-800 placeholder-slate-400"
+                <RichTextEditor id="correct-consultReason" ariaLabel="Motivo de consulta"
                   value={editForm.consultReason}
-                  onChange={e => setEditForm({ ...editForm, consultReason: e.target.value })} />
+                  onChange={html => setEditForm({ ...editForm, consultReason: html })} />
               </FormField>
               <FormField id="correct-intervention" label="Intervención realizada" className="md:col-span-2">
-                <textarea id="correct-intervention" rows={3} className="input-field resize-none text-slate-800 placeholder-slate-400"
+                <RichTextEditor id="correct-intervention" ariaLabel="Intervención realizada"
                   value={editForm.intervention}
-                  onChange={e => setEditForm({ ...editForm, intervention: e.target.value })} />
+                  onChange={html => setEditForm({ ...editForm, intervention: html })} />
               </FormField>
               <FormField id="correct-agreements" label="Tareas y acuerdos" className="md:col-span-2">
-                <textarea id="correct-agreements" rows={2} className="input-field resize-none text-slate-800 placeholder-slate-400"
+                <RichTextEditor id="correct-agreements" ariaLabel="Tareas y acuerdos"
                   value={editForm.agreements}
-                  onChange={e => setEditForm({ ...editForm, agreements: e.target.value })} />
+                  onChange={html => setEditForm({ ...editForm, agreements: html })} />
               </FormField>
               <FormField id="correct-nextSessionDate" label="Próxima sesión — Fecha">
                 <input id="correct-nextSessionDate" type="date" className="input-field" value={editForm.nextSessionDate}
@@ -651,16 +671,25 @@ export default function ConsultationsPage() {
                       <div className="space-y-2 text-xs text-slate-600">
                         <div>
                           <p className="font-medium text-slate-500 uppercase tracking-wide mb-0.5">Motivo</p>
-                          <p>{h.snapshot.consultReason}</p>
+                          <div
+                            className="[&_p]:m-0 [&_ul]:pl-5 [&_ol]:pl-5 [&_ul]:list-disc [&_ol]:list-decimal"
+                            dangerouslySetInnerHTML={{ __html: sanitizeClinicalNoteHtml(h.snapshot.consultReason) }}
+                          />
                         </div>
                         <div>
                           <p className="font-medium text-slate-500 uppercase tracking-wide mb-0.5">Intervención</p>
-                          <p>{h.snapshot.intervention}</p>
+                          <div
+                            className="[&_p]:m-0 [&_ul]:pl-5 [&_ol]:pl-5 [&_ul]:list-disc [&_ol]:list-decimal"
+                            dangerouslySetInnerHTML={{ __html: sanitizeClinicalNoteHtml(h.snapshot.intervention) }}
+                          />
                         </div>
                         {h.snapshot.agreements && (
                           <div>
                             <p className="font-medium text-slate-500 uppercase tracking-wide mb-0.5">Acuerdos</p>
-                            <p>{h.snapshot.agreements}</p>
+                            <div
+                              className="[&_p]:m-0 [&_ul]:pl-5 [&_ol]:pl-5 [&_ul]:list-disc [&_ol]:list-decimal"
+                              dangerouslySetInnerHTML={{ __html: sanitizeClinicalNoteHtml(h.snapshot.agreements) }}
+                            />
                           </div>
                         )}
                       </div>

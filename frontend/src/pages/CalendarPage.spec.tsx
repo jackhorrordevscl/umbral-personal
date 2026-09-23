@@ -189,8 +189,8 @@ describe('CalendarPage', () => {
     await user.click(cell)
     await user.click(await screen.findByRole('button', { name: /agendar sesión/i }))
 
-    expect(await screen.findByLabelText(/motivo de consulta/i)).toBeInTheDocument()
-    expect(await screen.findByLabelText(/intervención realizada/i)).toBeInTheDocument()
+    expect(await screen.findByRole('textbox', { name: /motivo de consulta/i })).toBeInTheDocument()
+    expect(await screen.findByRole('textbox', { name: /intervención realizada/i })).toBeInTheDocument()
     const sessionDateInput = document.getElementById(
       'consult-sessionDate',
     ) as HTMLInputElement
