@@ -210,9 +210,7 @@ describe('MfaService', () => {
     });
 
     it('lanza 401 con el mismo mensaje que un TOTP inválido si el usuario no tiene mfaSecret', async () => {
-      prisma.user.findUnique.mockResolvedValue(
-        buildUser({ mfaSecret: null }),
-      );
+      prisma.user.findUnique.mockResolvedValue(buildUser({ mfaSecret: null }));
 
       await expect(
         service.verifyMfa({ userId: 'user-1', token: '123456' }),
