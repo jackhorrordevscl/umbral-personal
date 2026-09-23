@@ -199,12 +199,7 @@ describe('DocumentsService', () => {
 
     it('cifra el buffer con AES-256-GCM antes de subirlo a B2', async () => {
       const file = buildFile();
-      await service.uploadDocument(
-        'patient-1',
-        'therapist-1',
-        file,
-        'OTHER',
-      );
+      await service.uploadDocument('patient-1', 'therapist-1', file, 'OTHER');
 
       expect(encryption.encrypt).toHaveBeenCalledWith(file.buffer);
       expect(mockWritePatientDocumentBuffer).toHaveBeenCalledWith(
