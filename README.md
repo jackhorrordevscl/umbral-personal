@@ -133,6 +133,12 @@ PAYMENT_CREDENTIALS_ENCRYPTION_KEY="wgh8ZnZbpZMfvKifp5ufX9uFp+WoISHDRsDCRFkRP1U=
 PAYMENTS_ENABLED="false"
 ```
 
+> La foto de perfil (`POST/GET/DELETE /profile/avatar`) y los archivos
+> personales (`shared-files`) se guardan en Backblaze B2, no en disco local
+> (issue #170) — sin `B2_AVATARS_*`/`B2_SHARED_FILES_*` configuradas en tu
+> `.env` local, esas dos funciones fallan (ver Variables de Entorno). El
+> resto de la app funciona igual sin ellas.
+
 Ejecutar migraciones y seed inicial:
 
 ```bash
@@ -399,7 +405,12 @@ umbral-personal/
   /profile`, independiente del resto de los throttlers de `auth`
 - Foto de perfil: subir/reemplazar (`POST /profile/avatar`, JPG/PNG/WEBP/GIF
   hasta 5MB), verla (`GET /profile/avatar`) y eliminarla (`DELETE
-  /profile/avatar`)
+  /profile/avatar`) — almacenada en Backblaze B2, no en disco local (ver
+  Variables de Entorno, `B2_AVATARS_*`, issue #170)
+- Perfil público (issue #155): bio (hasta 500 caracteres) y especialidad
+  (hasta 120 caracteres), editables desde la sección "Perfil público" junto
+  al resto de los datos de cuenta (mismo `PATCH /profile`) — se muestran sin
+  autenticación en la auto-agenda pública (ver más abajo)
 
 ### Recordatorios y notificaciones (sdd/session-reminders)
 - Modelo genérico de notificaciones in-app (`GET /notifications`, contador
@@ -410,6 +421,14 @@ umbral-personal/
   un canal no bloquea ni duplica el otro
 - Cron de escaneo cada 5 minutos (`RemindersService`, desactivable con
   `REMINDERS_ENABLED=false` sin necesitar un deploy/revert)
+- Tracking de entrega y apertura del canal email (issue #163): `POST
+  /webhooks/resend` (público, sin JWT) recibe los eventos
+  `email.delivered`/`email.opened` de Resend, verifica la firma Svix contra
+  `RESEND_WEBHOOK_SECRET` y actualiza `ReminderDispatch.deliveredAt`/
+  `openedAt` por `resendMessageId`. Sin `RESEND_WEBHOOK_SECRET` configurada
+  responde `501`; firma inválida responde `401`. El estado más reciente por
+  sesión se muestra como badge (enviado/entregado/abierto/no enviado) en la
+  lista de consultas
 - Notificación al terapeuta cuando un paciente se autoagenda sin tener un
   monto de cobro (`defaultSessionAmount`) configurado, para que complete el
   monto a mano en vez de perder ese cargo en silencio
@@ -435,6 +454,13 @@ umbral-personal/
 - Desactivable por completo con `GOOGLE_CALENDAR_SYNC_ENABLED=false`; sin
   `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` el módulo se registra
   deshabilitado sin bloquear el arranque
+- **Limitación conocida, pendiente de terceros (issue #123):** la app OAuth
+  de Google sigue en modo "Testing" a la espera de la verificación de
+  Google, por lo que cada refresh token conectado expira a los ~7 días en
+  vez de durar indefinidamente. Mientras esa verificación no se complete,
+  una conexión existente puede desconectarse sola (ver el ítem anterior) con
+  más frecuencia de la esperada — no es un bug de Umbral, es una restricción
+  de la app OAuth mientras no esté verificada por Google
 
 ### Cobro en línea (sdd/online-payment-integration, sdd/payments-multigateway-redesign)
 - Cargo pendiente automático al crear una consulta, solo si el terapeuta
@@ -459,6 +485,20 @@ umbral-personal/
 - Portal público sin autenticación (`/book/:therapistId`) donde el paciente
   ve los horarios libres del terapeuta y reserva su propia sesión, sin que
   el terapeuta la agende a mano
+- Perfil público del terapeuta (issue #155) antes del calendario: nombre,
+  foto (cuadrada, con degradación graciosa a iniciales si no hay avatar o
+  falla el fetch), especialidad y bio — vía `GET
+  /public/therapists/:therapistId/profile` y `GET
+  /public/therapists/:therapistId/avatar`, ambos sin autenticación. El
+  avatar responde con `Cross-Origin-Resource-Policy: cross-origin` (issue
+  #168, necesario porque frontend y backend viven en dominios distintos en
+  producción) y `404` en vez de `500` si el archivo no existe en B2 (issue
+  #169)
+- Origen del paciente (issue #157/#165): si la reserva llega con `utm_source`
+  o `document.referrer`, Umbral lo guarda en el nuevo paciente
+  (`Patient.acquisitionSource`/`acquisitionReferrer`) y lo resume por canal
+  en el dashboard (`GET /patients/stats/acquisition`), sección "Origen de
+  pacientes"
 - El terapeuta configura su propio horario semanal recurrente y sus
   bloqueos (día completo, rango horario o rango de fechas) desde Perfil —
   sin acceso admin/dev — y define ahí mismo la duración de sus sesiones
@@ -574,6 +614,7 @@ DELETE /api/v1/profile/avatar                 🔒
 ```
 POST   /api/v1/patients                        🔒
 GET    /api/v1/patients                        🔒
+GET    /api/v1/patients/stats/acquisition      🔒 (desglose por canal de origen, issue #157/#165)
 GET    /api/v1/patients/:id/history            🔒
 GET    /api/v1/patients/:id                    🔒
 PATCH  /api/v1/patients/:id                    🔒
@@ -641,10 +682,13 @@ POST   /api/v1/availability/blockouts                                🔒
 DELETE /api/v1/availability/blockouts/:id                            🔒
 GET    /api/v1/public/therapists/:therapistId/availability              (pública, sin auth)
 POST   /api/v1/public/therapists/:therapistId/availability/book         (pública, sin auth)
+GET    /api/v1/public/therapists/:therapistId/profile                   (pública, sin auth, issue #155)
+GET    /api/v1/public/therapists/:therapistId/avatar                    (pública, sin auth, issue #155)
 ```
-Las dos últimas requieren `PUBLIC_SCHEDULING_ENABLED=true` (ver Variables
-de Entorno) y no llevan 🔒 porque son intencionalmente accesibles sin
-sesión — es el portal que usa el paciente para autoagendarse.
+Las de `availability` requieren `PUBLIC_SCHEDULING_ENABLED=true` (ver
+Variables de Entorno) y no llevan 🔒 porque son intencionalmente accesibles
+sin sesión — es el portal que usa el paciente para autoagendarse. `profile`
+y `avatar` (issue #155) no dependen de ese flag y quedan siempre públicas.
 
 ### Cobro en línea (sdd/online-payment-integration, sdd/payments-multigateway-redesign)
 ```
@@ -919,6 +963,9 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `SEED_ADMIN_PASSWORD` | Contraseña inicial del admin creado por el seed | Ver advertencia abajo — **nunca dejar el default en un entorno alcanzable** |
 | `RESEND_API_KEY` | API key de [Resend](https://resend.com) (free tier) para el email de verificación del signup propio (issue #5). Sin setear, `MailService` saltea el envío con un warning en logs — no bloquea signup en dev/test | Conseguir en el dashboard de Resend |
 | `MAIL_FROM` | Remitente del email de verificación | `Umbral - RCE <onboarding@resend.dev>` (default) |
+| `RESEND_WEBHOOK_SECRET` | Secreto del webhook de Resend (issue #163) para verificar la firma Svix de `POST /webhooks/resend` (tracking de entrega/apertura de recordatorios por email). Sin setear, esa ruta responde `501` sin intentar verificar nada — no bloquea el resto de la app | Conseguir en el dashboard de Resend, sección Webhooks |
+| `B2_AVATARS_ENDPOINT` / `B2_AVATARS_REGION` / `B2_AVATARS_BUCKET` / `B2_AVATARS_KEY_ID` / `B2_AVATARS_APPLICATION_KEY` | Credenciales de un bucket Backblaze B2 **privado**, dedicado solo a fotos de perfil (issue #170) — storage vía `@aws-sdk/client-s3` (S3-compatible), reemplaza el disco local que Render (free tier) no persiste entre deploys. Sin estas variables, subir/ver un avatar falla | Ver [Despliegue](#despliegue-issue-8), paso 2 |
+| `B2_SHARED_FILES_ENDPOINT` / `B2_SHARED_FILES_REGION` / `B2_SHARED_FILES_BUCKET` / `B2_SHARED_FILES_KEY_ID` / `B2_SHARED_FILES_APPLICATION_KEY` | Mismo patrón que `B2_AVATARS_*` (issue #170, parte pendiente), pero para la biblioteca personal de archivos (`shared-files`) — bucket B2 propio y separado del de avatares. Sin estas variables, subir/descargar un archivo personal falla | Ver [Despliegue](#despliegue-issue-8), paso 2 |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar el refresh token de Google Calendar en reposo — distinta de `DOCUMENT_ENCRYPTION_KEY` a propósito (sdd/google-calendar-integration) | Generar con `openssl rand -base64 32` |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Credenciales OAuth del proyecto de Google Cloud. Sin setear, el módulo de integración con Google Calendar se registra deshabilitado (mismo criterio que `MailService` sin `RESEND_API_KEY`) — no bloquea el arranque en dev/test/CI | Conseguir en Google Cloud Console |
 | `GOOGLE_REDIRECT_URI` | Redirect URI del handshake OAuth, registrada en Google Cloud Console | `http://localhost:3001/api/v1/calendar-integration/callback` |
