@@ -9,3 +9,9 @@ export function maskEmail(email: string): string {
   if (at <= 0 || at === email.length - 1) return '***';
   return `${email[0]}***@${email.slice(at + 1)}`;
 }
+
+// Para texto libre que puede contener emails (p. ej. el cuerpo de un error
+// de un gateway externo que ecoa el payload rechazado, issue #197).
+export function maskEmailsInText(text: string): string {
+  return text.replace(/[^\s"'<>,;:=&\\]+@[^\s"'<>,;:=&\\]+/g, maskEmail);
+}

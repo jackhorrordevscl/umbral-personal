@@ -1,4 +1,4 @@
-import { maskEmail } from './mask-email.util';
+import { maskEmail, maskEmailsInText } from './mask-email.util';
 
 describe('maskEmail', () => {
   it('mantiene el dominio y enmascara el local-part salvo el primer carácter', () => {
@@ -16,5 +16,17 @@ describe('maskEmail', () => {
   it('devuelve un placeholder fijo si el local-part o el dominio están vacíos', () => {
     expect(maskEmail('@gmail.com')).toBe('***');
     expect(maskEmail('juan@')).toBe('***');
+  });
+});
+
+describe('maskEmailsInText', () => {
+  it('enmascara cada email dentro de un texto libre', () => {
+    expect(
+      maskEmailsInText('{"error":"bad email paciente@example.com, x@y.cl"}'),
+    ).toBe('{"error":"bad email p***@example.com, x***@y.cl"}');
+  });
+
+  it('deja intacto un texto sin emails', () => {
+    expect(maskEmailsInText('{"code":400}')).toBe('{"code":400}');
   });
 });
