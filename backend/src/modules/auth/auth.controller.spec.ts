@@ -20,6 +20,45 @@ const THROTTLER_SKIP = 'THROTTLER:SKIP';
 // en payments.module.ts) son otro módulo satélite más registrando su propio
 // ThrottlerModule.forRootAsync -- mismo riesgo que public-scheduling, así que
 // se cubren en la misma lista en vez de un describe separado.
+describe('AuthController — logout routes (issue #192)', () => {
+  const user = {
+    id: 'u1',
+    email: 'e',
+    role: 'PROFESSIONAL',
+    name: 'n',
+    jti: 'j',
+  };
+  const req = { ip: '1.1.1.1', headers: { 'user-agent': 'ua' } } as never;
+
+  it('logout y logout-all delegan en AuthService con ip y user-agent', async () => {
+    const authService = {
+      logout: jest.fn().mockResolvedValue({ message: 'ok' }),
+      logoutAll: jest.fn().mockResolvedValue({ message: 'ok', revoked: 2 }),
+    };
+    const controller = new AuthController(
+      authService as unknown as AuthService,
+      {} as MfaService,
+    );
+
+    await controller.logout(user, req);
+    await controller.logoutAll(user, req);
+
+    expect(authService.logout).toHaveBeenCalledWith(user, '1.1.1.1', 'ua');
+    expect(authService.logoutAll).toHaveBeenCalledWith(user, '1.1.1.1', 'ua');
+  });
+
+  it('ambas rutas exigen JwtAuthGuard', () => {
+    const reflector = new Reflector();
+    for (const name of ['logout', 'logoutAll'] as const) {
+      const guards = reflector.get<unknown[]>(
+        '__guards__',
+        AuthController.prototype[name],
+      );
+      expect(guards).toHaveLength(1);
+    }
+  });
+});
+
 describe('AuthController — exhaustividad de @SkipThrottle (public-scheduling, payments)', () => {
   const reflector = new Reflector();
   const controller = new AuthController({} as AuthService, {} as MfaService);

@@ -353,6 +353,20 @@ export class AuthController {
     );
   }
 
+  // Issue #192: revocable sessions. Both routes are authenticated only (an
+  // already-revoked token gets 401 from JwtStrategy, so a repeat is harmless).
+  @UseGuards(JwtAuthGuard)
+  @Post('logout')
+  logout(@CurrentUser() user: RequestUser, @Req() req: Request) {
+    return this.authService.logout(user, req.ip, req.headers['user-agent']);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('logout-all')
+  logoutAll(@CurrentUser() user: RequestUser, @Req() req: Request) {
+    return this.authService.logoutAll(user, req.ip, req.headers['user-agent']);
+  }
+
   // Issue #124: signup público sin invitación, sin rol ADMIN (decisión
   // explícita). Solo requiere sesión (JwtAuthGuard) -- AuthService.
   // createInvitation es quien rechaza a cualquier email que no sea

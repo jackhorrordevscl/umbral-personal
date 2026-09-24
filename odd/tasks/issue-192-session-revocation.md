@@ -18,7 +18,7 @@ Let a user revoke a session (or all sessions) before the 8h JWT expires, closing
 ## Tasks
 - [x] T1 Prisma: `Session` model + migration (RLS) + `LOGOUT_ALL` AuditAction migration
 - [x] T2 Backend: create Session in `generateToken`, `jti` in payload, JwtStrategy check, tests (strategy, mfa.service)
-- [ ] T3 Backend: `POST /auth/logout` and `/auth/logout-all` + service + audit + tests (controller/service, e2e)
+- [x] T3 Backend: `POST /auth/logout` and `/auth/logout-all` + service + audit + tests (controller/service, e2e)
 - [ ] T4 Frontend: AuthContext/logout calls API, tests
 - [ ] T5 Docs: README, openspec session-invalidation spec, manual if applicable
 
