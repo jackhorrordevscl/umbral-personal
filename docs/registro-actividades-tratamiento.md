@@ -63,6 +63,15 @@ Chile, pero eso ya no es así:
   diferencia de Supabase, que sí lo tiene por necesidad operativa: no se
   puede consultar/actualizar una ficha clínica sin que la base la lea en
   claro).
+- Backblaze B2 no solo guarda el backup: también aloja, en buckets privados
+  y separados entre sí, los avatares, los archivos personales
+  (`shared-files`) y los documentos adjuntos de la ficha (fila 5, cifrados en
+  la aplicación antes de subir). Todos están en Estados Unidos. Solo la
+  región del bucket de avatares consta en el repositorio (`us-west-004`,
+  `render.yaml`); la de `shared-files` y `patient-documents` vive en las
+  variables `B2_*_REGION` de Render y queda pendiente de confirmar (issue
+  #177). Los documentos adjuntos son datos de salud, por lo que les aplica la
+  misma discusión de base habilitante que al backup.
 - El email transaccional (fila 4) se envía vía **Resend, hosteado en Estados
   Unidos** ("Company's primary processing operations take place in the
   United States") — pero a diferencia de las filas 1-9, acá el dato que
