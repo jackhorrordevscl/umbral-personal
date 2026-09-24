@@ -13,6 +13,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { AuditRead } from '../common/decorators/audit-read.decorator';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -43,6 +44,9 @@ export class SharedFilesController {
     return this.sharedFilesService.findOne(id, user.id);
   }
 
+  // Archivos de cualquier tipo (no siempre PDF): se mantiene VIEW y se marca
+  // como descarga.
+  @AuditRead({ detail: 'download' })
   @Get(':id/download')
   async download(
     @Param('id') id: string,

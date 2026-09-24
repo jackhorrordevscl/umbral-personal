@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Param,
+  Req,
   Res,
   UseGuards,
   UseInterceptors,
@@ -10,7 +11,8 @@ import {
   Body,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
+import { AuditRead } from '../../common/decorators/audit-read.decorator';
+import type { Request, Response } from 'express';
 import { DocumentsService } from './documents.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import {
@@ -85,16 +87,22 @@ export class DocumentsController {
     return this.documentsService.findByPatient(patientId, user.id);
   }
 
+  // Adjuntos de cualquier tipo (no siempre PDF): se mantiene VIEW y se marca
+  // como descarga.
+  @AuditRead({ detail: 'download' })
   @Get(':id/download')
   async download(
     @Param('id') id: string,
     @CurrentUser() user: RequestUser,
+    @Req() req: Request & { auditPatientId?: string },
     @Res() res: Response,
   ) {
     const { doc, buffer } = await this.documentsService.getDecryptedFile(
       id,
       user.id,
     );
+    // Registra el paciente en la auditoría (resourceId sigue siendo el documento).
+    req.auditPatientId = doc.patientId;
     res.set({
       'Content-Type': 'application/octet-stream',
       'Content-Disposition': `attachment; filename="${encodeURIComponent(doc.fileName)}"`,
