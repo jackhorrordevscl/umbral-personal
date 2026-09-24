@@ -44,6 +44,7 @@ describe('AuthService', () => {
       update: jest.Mock;
       updateMany: jest.Mock;
     };
+    session: { updateMany: jest.Mock };
     $transaction: jest.Mock;
   };
   let jwtService: { sign: jest.Mock; verify: jest.Mock };
@@ -61,6 +62,7 @@ describe('AuthService', () => {
         update: jest.fn(),
         create: jest.fn(),
       },
+      session: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       invitationCode: {
         findUnique: jest.fn(),
         create: jest.fn(),
@@ -689,6 +691,53 @@ describe('AuthService', () => {
         message:
           'Si el email está registrado, vas a recibir un enlace para restablecer tu contraseña.',
       });
+    });
+  });
+
+  describe('logout / logoutAll (issue #192)', () => {
+    const reqUser = {
+      id: 'user-1',
+      email: 'u@example.com',
+      role: 'PROFESSIONAL',
+      name: 'U',
+      jti: 'jti-1',
+    };
+
+    it('logout revoca solo la Session del jti actual y deja auditoría LOGOUT', async () => {
+      await service.logout(reqUser, '10.0.0.1', 'agent');
+
+      expect(prisma.session.updateMany).toHaveBeenCalledWith({
+        where: { jti: 'jti-1', userId: 'user-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) as unknown as Date },
+      });
+      expect(auditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-1',
+          action: 'LOGOUT',
+          resourceId: 'jti-1',
+          ipAddress: '10.0.0.1',
+          userAgent: 'agent',
+        }),
+      );
+    });
+
+    it('logoutAll revoca todas las Sessions activas del usuario y deja auditoría LOGOUT_ALL', async () => {
+      prisma.session.updateMany.mockResolvedValue({ count: 3 });
+
+      const result = await service.logoutAll(reqUser);
+
+      expect(prisma.session.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) as unknown as Date },
+      });
+      expect(auditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-1',
+          action: 'LOGOUT_ALL',
+          detail: 'Sesiones revocadas: 3',
+        }),
+      );
+      expect(result).toEqual({ message: 'Sesiones cerradas', revoked: 3 });
     });
   });
 

@@ -25,6 +25,7 @@ function buildUser(overrides: Partial<StrategyUser> = {}): StrategyUser {
 }
 
 const basePayload = {
+  jti: 'jti-1',
   sub: 'user-1',
   email: 'user@example.com',
   role: 'PROFESSIONAL',
@@ -39,11 +40,23 @@ const basePayload = {
  */
 describe('JwtStrategy', () => {
   let strategy: JwtStrategy;
-  let prisma: { user: { findUnique: jest.Mock } };
+  let prisma: {
+    user: { findUnique: jest.Mock };
+    session: { findUnique: jest.Mock };
+  };
   let configService: { get: jest.Mock };
 
   beforeEach(() => {
-    prisma = { user: { findUnique: jest.fn() } };
+    prisma = {
+      user: { findUnique: jest.fn() },
+      session: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: 'user-1',
+          revokedAt: null,
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      },
+    };
     configService = { get: jest.fn().mockReturnValue('test-jwt-secret') };
 
     strategy = new JwtStrategy(
@@ -103,6 +116,59 @@ describe('JwtStrategy', () => {
     });
   });
 
+  describe('sesión revocable (issue #192)', () => {
+    beforeEach(() => {
+      prisma.user.findUnique.mockResolvedValue(buildUser());
+    });
+
+    it('rechaza (401) un token sin jti (emitido antes del deploy)', async () => {
+      await expect(
+        strategy.validate({ sub: 'user-1', email: 'a@b.c', role: 'X', iat: 1 }),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(prisma.session.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('rechaza (401) si no existe la Session', async () => {
+      prisma.session.findUnique.mockResolvedValue(null);
+      await expect(
+        strategy.validate({ ...basePayload, iat: 1000 }),
+      ).rejects.toThrow('Sesión expirada o revocada');
+    });
+
+    it('rechaza (401) una Session revocada', async () => {
+      prisma.session.findUnique.mockResolvedValue({
+        userId: 'user-1',
+        revokedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      await expect(
+        strategy.validate({ ...basePayload, iat: 1000 }),
+      ).rejects.toThrow('Sesión expirada o revocada');
+    });
+
+    it('rechaza (401) una Session vencida', async () => {
+      prisma.session.findUnique.mockResolvedValue({
+        userId: 'user-1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() - 1000),
+      });
+      await expect(
+        strategy.validate({ ...basePayload, iat: 1000 }),
+      ).rejects.toThrow('Sesión expirada o revocada');
+    });
+
+    it('rechaza (401) una Session que pertenece a otro usuario', async () => {
+      prisma.session.findUnique.mockResolvedValue({
+        userId: 'user-2',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      await expect(
+        strategy.validate({ ...basePayload, iat: 1000 }),
+      ).rejects.toThrow('Sesión expirada o revocada');
+    });
+  });
+
   describe('passwordChangedAt NULL — sin invalidación', () => {
     it('acepta un token con iat arbitrariamente viejo si passwordChangedAt nunca se seteó', async () => {
       prisma.user.findUnique.mockResolvedValue(
@@ -116,6 +182,7 @@ describe('JwtStrategy', () => {
         email: 'user@example.com',
         role: 'PROFESSIONAL',
         name: 'Test User',
+        jti: 'jti-1',
       });
     });
   });

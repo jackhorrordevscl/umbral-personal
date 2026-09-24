@@ -22,6 +22,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     email: string;
     role: string;
     purpose?: string;
+    jti?: string;
     iat: number;
   }) {
     // Los JWT de corta duración emitidos para forzar el enrolamiento MFA
@@ -69,6 +70,25 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Usuario no autorizado');
     }
 
+    // Issue #192: session tokens must carry a `jti` backed by an active
+    // (not revoked, not expired) Session row. Tokens issued before this check
+    // existed have no jti and are rejected: users log in again once.
+    if (!payload.jti) {
+      throw new UnauthorizedException('Sesión inválida');
+    }
+    const session = await this.prisma.session.findUnique({
+      where: { jti: payload.jti },
+      select: { userId: true, revokedAt: true, expiresAt: true },
+    });
+    if (
+      !session ||
+      session.userId !== user.id ||
+      session.revokedAt ||
+      session.expiresAt.getTime() <= Date.now()
+    ) {
+      throw new UnauthorizedException('Sesión expirada o revocada');
+    }
+
     // Issue #76 (PR B): invalida cualquier token emitido ANTES del último
     // cambio de contraseña (PATCH /profile, resetPassword o el completion de
     // mustChangePassword -- ver AuthService/ProfileService). `iat` es un
@@ -92,6 +112,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       );
     }
 
-    return { id: user.id, email: user.email, role: user.role, name: user.name };
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+      jti: payload.jti,
+    };
   }
 }

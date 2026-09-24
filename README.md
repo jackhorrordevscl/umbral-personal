@@ -410,6 +410,12 @@ umbral-personal/
 - Cambiar la contraseña invalida la sesión en **todos** los dispositivos,
   no solo el actual (`passwordChangedAt` comparado contra el `iat` del
   JWT en cada request)
+- Sesiones revocables: cada JWT de sesión lleva un `jti` respaldado por una
+  fila de `Session`; `JwtStrategy` exige que esté activa (no revocada ni
+  vencida). `POST /auth/logout` revoca la sesión actual y `POST
+  /auth/logout-all` todas las del usuario (auditados como `LOGOUT` /
+  `LOGOUT_ALL`). Los tokens emitidos antes de este cambio no traen `jti` y se
+  rechazan: cada usuario vuelve a iniciar sesión una vez
 - Throttler propio (`profile-update`, keyed por `userId`) en `PATCH
   /profile`, independiente del resto de los throttlers de `auth`
 - Foto de perfil: subir/reemplazar (`POST /profile/avatar`, JPG/PNG/WEBP/GIF

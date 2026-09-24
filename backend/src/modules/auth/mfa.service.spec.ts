@@ -44,9 +44,10 @@ describe('MfaService', () => {
       createMany: jest.Mock;
       update: jest.Mock;
     };
+    session: { create: jest.Mock };
     $transaction: jest.Mock;
   };
-  let jwtService: { sign: jest.Mock; verify: jest.Mock };
+  let jwtService: { sign: jest.Mock; verify: jest.Mock; decode: jest.Mock };
   let auditService: { log: jest.Mock };
 
   beforeEach(() => {
@@ -63,11 +64,13 @@ describe('MfaService', () => {
       },
       // $transaction soporta la forma array (ops ya construidas de antemano,
       // se resuelve con Promise.all) -- única forma que usa MfaService.
+      session: { create: jest.fn().mockResolvedValue({}) },
       $transaction: jest.fn((arg: Promise<unknown>[]) => Promise.all(arg)),
     };
     jwtService = {
       sign: jest.fn().mockReturnValue('signed-token'),
       verify: jest.fn(),
+      decode: jest.fn().mockReturnValue({ exp: 2000000000 }),
     };
     auditService = {
       log: jest.fn().mockResolvedValue(undefined),
@@ -197,6 +200,7 @@ describe('MfaService', () => {
         ]) as unknown as string[],
       });
       expect(result.recoveryCodes).toHaveLength(10);
+      expect(prisma.session.create).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -262,6 +266,34 @@ describe('MfaService', () => {
       await expect(
         service.verifyMfa({ userId: 'user-1', token: '000000' }),
       ).rejects.toThrow('Código MFA inválido');
+    });
+
+    it('crea una Session con el jti firmado en el JWT, expiresAt del exp e ip/user-agent', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET' }),
+      );
+      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+
+      await service.verifyMfa(
+        { userId: 'user-1', token: '123456' },
+        '10.0.0.1',
+        'jest-agent',
+      );
+
+      const [payload] = jwtService.sign.mock.calls[0] as [
+        { jti: string; sub: string },
+      ];
+      expect(payload.sub).toBe('user-1');
+      expect(payload.jti).toEqual(expect.any(String));
+      expect(prisma.session.create).toHaveBeenCalledWith({
+        data: {
+          jti: payload.jti,
+          userId: 'user-1',
+          expiresAt: new Date(2000000000 * 1000),
+          ipAddress: '10.0.0.1',
+          userAgent: 'jest-agent',
+        },
+      });
     });
 
     it('devuelve accessToken si el TOTP es válido', async () => {

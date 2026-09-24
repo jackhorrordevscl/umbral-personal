@@ -525,6 +525,49 @@ export class AuthService {
   }
 
   /**
+   * Issue #192: revokes the session the request's JWT belongs to. Idempotent
+   * (only touches a still-active row); a token without jti never reaches here
+   * because JwtStrategy rejects it.
+   */
+  async logout(user: RequestUser, ipAddress?: string, userAgent?: string) {
+    // Never run updateMany with an undefined jti: Prisma would drop the filter
+    // and revoke every session of the user.
+    if (user.jti) {
+      await this.prisma.session.updateMany({
+        where: { jti: user.jti, userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    }
+    await this.auditService.log({
+      userId: user.id,
+      action: 'LOGOUT',
+      resource: 'Session',
+      resourceId: user.jti ?? user.id,
+      ipAddress,
+      userAgent,
+    });
+    return { message: 'Sesión cerrada' };
+  }
+
+  /** Issue #192: revokes every still-active session of the user. */
+  async logoutAll(user: RequestUser, ipAddress?: string, userAgent?: string) {
+    const { count } = await this.prisma.session.updateMany({
+      where: { userId: user.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    await this.auditService.log({
+      userId: user.id,
+      action: 'LOGOUT_ALL',
+      resource: 'User',
+      resourceId: user.id,
+      detail: `Sesiones revocadas: ${count}`,
+      ipAddress,
+      userAgent,
+    });
+    return { message: 'Sesiones cerradas', revoked: count };
+  }
+
+  /**
    * Issue #124: signup público sin invitación, sin rol ADMIN (decisión
    * explícita). Solo el email configurado en INVITE_CREATOR_EMAIL puede
    * generar invitaciones -- mecanismo temporal mientras el producto siga

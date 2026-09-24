@@ -82,8 +82,8 @@ export class AuthController {
     'payment-return': true,
   })
   @Post('mfa/verify')
-  verifyMfa(@Body() dto: VerifyMfaDto) {
-    return this.mfaService.verifyMfa(dto);
+  verifyMfa(@Body() dto: VerifyMfaDto, @Req() req: Request) {
+    return this.mfaService.verifyMfa(dto, req.ip, req.headers['user-agent']);
   }
 
   // Issue #5: signup propio, la única ruta no autenticada que crea una
@@ -351,6 +351,20 @@ export class AuthController {
       req.ip,
       req.headers['user-agent'],
     );
+  }
+
+  // Issue #192: revocable sessions. Both routes are authenticated only (an
+  // already-revoked token gets 401 from JwtStrategy, so a repeat is harmless).
+  @UseGuards(JwtAuthGuard)
+  @Post('logout')
+  logout(@CurrentUser() user: RequestUser, @Req() req: Request) {
+    return this.authService.logout(user, req.ip, req.headers['user-agent']);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('logout-all')
+  logoutAll(@CurrentUser() user: RequestUser, @Req() req: Request) {
+    return this.authService.logoutAll(user, req.ip, req.headers['user-agent']);
   }
 
   // Issue #124: signup público sin invitación, sin rol ADMIN (decisión

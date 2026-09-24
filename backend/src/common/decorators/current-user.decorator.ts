@@ -9,6 +9,8 @@ export interface RequestUser {
   email: string;
   role: string;
   name: string;
+  // Issue #192: id of the current session token (set by JwtStrategy).
+  jti?: string;
 }
 
 export const CurrentUser = createParamDecorator(

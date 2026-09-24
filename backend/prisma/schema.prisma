@@ -96,6 +96,7 @@ model User {
   patientConsentEvents  PatientConsent[]          @relation("PatientConsentEvents")
   mfaRecoveryCodes      MfaRecoveryCode[]
   notifications         Notification[]
+  sessions              Session[]
   calendarConnection    GoogleCalendarConnection?
   paymentAccount        PaymentAccount?
   // Issue #124: signup público sin invitación. Sin rol ADMIN (decisión
@@ -322,6 +323,7 @@ enum AuditAction {
   CALENDAR_DISCONNECTED
   PAYMENT_ACCOUNT_CONNECTED
   PAYMENT_ACCOUNT_DISCONNECTED
+  LOGOUT_ALL
 }
 
 // El nombre (modelo y @@map) viene de la versión institucional multi-
@@ -423,6 +425,22 @@ enum ConsentAction {
 // se agrega un miembro al enum, nunca una columna nueva. Sin FK a
 // Consultation a propósito -- `linkPath`/`metadata` cargan cualquier
 // referencia estructurada sin acoplar este modelo a un dominio puntual.
+// issue #192: revocable session. Each session JWT carries a `jti` pointing at
+// a row; logout / logout-all set revokedAt and JwtStrategy requires it active.
+model Session {
+  id        String    @id @default(uuid())
+  jti       String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+  ipAddress String?
+  userAgent String?
+
+  @@index([userId])
+}
+
 model Notification {
   id        String           @id @default(uuid())
   userId    String
