@@ -167,6 +167,31 @@ públicas que los proveedores pueden actualizar):
   Supabase/Backblaze/Resend), pese a que la entidad contratante esté
   domiciliada en Chile.
 
+## Criterio del gate de consentimiento (issue #176)
+
+El consentimiento informado (`PatientConsent`, purposes `TREATMENT` /
+`TELEMEDICINE`) se exige **antes de registrar datos clínicos**, no antes de
+crear la ficha administrativa del paciente. Criterio: la Ley 20.584 exige el
+consentimiento previo al inicio del tratamiento, y `recordConsent` necesita un
+`Patient` existente, por lo que exigirlo antes del alta sería circular.
+
+- **Dónde se aplica:** `ConsultationsService.create()` y `correct()` rechazan
+  con 403 si no hay consentimiento vigente; el chequeo corre dentro de la misma
+  transacción que la escritura. Son los únicos endpoints de escritura sobre
+  `Consultation` (`POST /consultations` y `PATCH /consultations/:id/correct`).
+- **Qué no se gatea:** el alta y la edición de datos de identidad/contacto del
+  `Patient`, y su historial de cambios (`PatientHistory`). No contienen notas
+  clínicas.
+- **Reserva pública:** `createFromPublicBooking()` crea una `Consultation` sin
+  consentimiento previo. Es un agendamiento, no un inicio de tratamiento: nace
+  con texto genérico (`Reserva pública en línea` / `Pendiente de definir por el
+  terapeuta`) y ningún dato clínico. La `Consultation` es la entidad de la que
+  dependen disponibilidad, Google Calendar, cobro y agenda, por lo que no se
+  separó del agendamiento. Los datos clínicos solo pueden ingresar mediante
+  `correct()`, que exige el consentimiento.
+
+Esto es orientación técnica, no validación legal.
+
 ## Pendientes conocidos
 
 - **Transferencia internacional de datos** — ver sección de arriba. Es el

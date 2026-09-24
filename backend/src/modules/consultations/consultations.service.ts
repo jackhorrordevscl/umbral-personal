@@ -523,6 +523,9 @@ export class ConsultationsService {
   // la práctica casi siempre resuelve null (ensureCharge todavía no llegó a
   // crear el Payment), y eso es intencional y no es un error: la respuesta
   // exitosa nunca depende de que este valor exista.
+  // Issue #176: sin chequeo de consentimiento a propósito. Es un agendamiento,
+  // no un inicio de tratamiento: nace con texto genérico y sin datos clínicos.
+  // Los datos clínicos solo entran por correct(), que sí exige consentimiento.
   async createFromPublicBooking(
     therapistId: string,
     patientId: string,

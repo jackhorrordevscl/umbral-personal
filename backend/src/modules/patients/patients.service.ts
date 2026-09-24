@@ -75,6 +75,10 @@ export class PatientsService {
     private paymentsService: PaymentsService,
   ) {}
 
+  // Issue #176: no exige consentimiento vigente a propósito. La Ley 20.584
+  // lo exige antes del tratamiento, no antes de la ficha administrativa, y
+  // recordConsent necesita un Patient existente. El gate vive en
+  // ConsultationsService.create()/correct(), donde entran los datos clínicos.
   async create(dto: CreatePatientDto, therapistId: string) {
     const rut = normalizeRut(dto.rut);
 
