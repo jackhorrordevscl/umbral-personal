@@ -20,14 +20,17 @@ Let a user revoke a session (or all sessions) before the 8h JWT expires, closing
 - [x] T2 Backend: create Session in `generateToken`, `jti` in payload, JwtStrategy check, tests (strategy, mfa.service)
 - [x] T3 Backend: `POST /auth/logout` and `/auth/logout-all` + service + audit + tests (controller/service, e2e)
 - [x] T4 Frontend: AuthContext/logout calls API, tests
-- [ ] T5 Docs: README, openspec session-invalidation spec, manual if applicable
+- [x] T5 Docs: README, openspec session-invalidation spec, manual if applicable
 
 ## Checks
 Backend: `npx prisma generate` then `npx jest` (+ lint/tsc). Frontend: vitest + lint + tsc.
 
 ## Progress / evidence
 - T1: 877eb02 (prisma validate + generate OK)
-- T2: see git log (auth jest 94 passed, tsc, eslint clean)
+- T2: 6b45d83 (auth jest passed, tsc, eslint clean)
+- T3: 86254a2 (jest 748 total, 14 failing = DB integration specs, same on base; e2e written but NOT run, no test DB configured)
+- T4: 3cf0e84 (vitest 186 passed, tsc, eslint clean)
+- T5: docs commit (README, openspec spec, manual)
 
 ## Route declaration
 Mapping delegated (4+ files); implementation delegated to one writer (2+ non-trivial files).

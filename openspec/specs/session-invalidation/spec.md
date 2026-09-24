@@ -69,3 +69,35 @@ Once `passwordChangedAt` is non-null, `JwtStrategy.validate()` MUST reject (`401
 - GIVEN a user has not yet completed a forced `mustChangePassword` flow
 - WHEN they present the special-purpose `password-change` token to a route protected by `JwtAuthGuard`
 - THEN it is rejected, independent of the `passwordChangedAt` check, because purpose-scoped tokens are never valid session tokens
+
+### Requirement: Revocable Sessions
+
+Every session token MUST carry a `jti` claim backed by a `Session` row (`jti` unique, `userId`, `expiresAt`, nullable `revokedAt`, optional `ipAddress`/`userAgent`) created when the token is issued. `JwtStrategy.validate()` MUST reject with `401` a session token that has no `jti`, whose `Session` does not exist or belongs to another user, is revoked, or is past `expiresAt`. Tokens issued before this requirement shipped carry no `jti` and are rejected once (users log in again).
+
+#### Scenario: Token without jti is rejected
+
+- GIVEN a session token signed without a `jti`
+- WHEN it is presented to a route protected by `JwtAuthGuard`
+- THEN it is rejected `401`
+
+#### Scenario: Revoked or expired session is rejected
+
+- GIVEN a valid token whose `Session` has `revokedAt` set or `expiresAt` in the past
+- WHEN it is presented
+- THEN it is rejected `401`
+
+### Requirement: Logout and Logout-All
+
+`POST /auth/logout` MUST revoke the `Session` of the token presented; `POST /auth/logout-all` MUST revoke every still-active `Session` of the authenticated user. Both MUST require `JwtAuthGuard` and write an audit entry (`LOGOUT` and `LOGOUT_ALL` respectively). The frontend `logout()` MUST remain synchronous: it fires the API call best-effort and clears local state regardless of the outcome.
+
+#### Scenario: Logout revokes only the current session
+
+- GIVEN a user with two active sessions
+- WHEN they call `POST /auth/logout` with the first token
+- THEN the first token is rejected `401` afterwards and the second remains valid
+
+#### Scenario: Logout-all revokes every session
+
+- GIVEN a user with two active sessions
+- WHEN they call `POST /auth/logout-all`
+- THEN both tokens are rejected `401` afterwards
