@@ -1,3 +1,6 @@
+# LOCAL DEVELOPMENT ONLY.
+# The credentials below are public example values. Do not reuse this file in
+# staging, shared or production environments; use managed secrets instead.
 services:
   postgres:
     image: postgres:16
@@ -8,7 +11,8 @@ services:
       POSTGRES_PASSWORD: umbral_local_dev
       POSTGRES_DB: umbral_db
     ports:
-      - "5432:5432"
+      # Bound to loopback so the database is not reachable from the network.
+      - "127.0.0.1:5432:5432"
     volumes:
       - umbral_postgres_data:/var/lib/postgresql/data
     healthcheck:
