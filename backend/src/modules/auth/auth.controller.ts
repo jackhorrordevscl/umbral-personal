@@ -82,8 +82,8 @@ export class AuthController {
     'payment-return': true,
   })
   @Post('mfa/verify')
-  verifyMfa(@Body() dto: VerifyMfaDto) {
-    return this.mfaService.verifyMfa(dto);
+  verifyMfa(@Body() dto: VerifyMfaDto, @Req() req: Request) {
+    return this.mfaService.verifyMfa(dto, req.ip, req.headers['user-agent']);
   }
 
   // Issue #5: signup propio, la única ruta no autenticada que crea una

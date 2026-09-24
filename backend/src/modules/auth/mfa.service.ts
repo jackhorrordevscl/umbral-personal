@@ -8,6 +8,7 @@ import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import * as QRCode from 'qrcode';
 import * as crypto from 'crypto';
+import { randomUUID } from 'crypto';
 import { getDummyPasswordHash } from './dummy-password-hash.util';
 
 // Purpose que llevan los JWT de corta duración emitidos para forzar el
@@ -72,7 +73,10 @@ export class MfaService {
     });
     if (!user) throw new UnauthorizedException('Usuario no válido');
 
-    return { ...this.generateToken(user), recoveryCodes };
+    return {
+      ...(await this.generateToken(user, ipAddress, userAgent)),
+      recoveryCodes,
+    };
   }
 
   /**
@@ -117,7 +121,7 @@ export class MfaService {
     }
   }
 
-  async verifyMfa(dto: VerifyMfaDto) {
+  async verifyMfa(dto: VerifyMfaDto, ipAddress?: string, userAgent?: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: dto.userId },
     });
@@ -156,7 +160,7 @@ export class MfaService {
       );
     }
 
-    return this.generateToken(user);
+    return this.generateToken(user, ipAddress, userAgent);
   }
 
   async generateMfaSecret(userId: string) {
@@ -403,21 +407,46 @@ export class MfaService {
     return raw.match(/.{1,4}/g)!.join('-');
   }
 
-  private generateToken(user: {
-    id: string;
-    email: string;
-    role: string;
-    name: string;
-  }) {
+  // Issue #192: every session token carries a `jti` backed by a Session row so
+  // it can be revoked (logout / logout-all) before the JWT expires.
+  private async generateToken(
+    user: {
+      id: string;
+      email: string;
+      role: string;
+      name: string;
+    },
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
+    const jti = randomUUID();
     const payload = {
+      jti,
       sub: user.id,
       email: user.email,
       role: user.role,
       name: user.name,
     };
 
+    const accessToken = this.jwtService.sign(payload);
+    const decoded = this.jwtService.decode<{ exp?: number }>(accessToken);
+    // JwtModule always sets exp (JWT_EXPIRES_IN); the fallback is defensive.
+    const expiresAt = new Date(
+      decoded?.exp ? decoded.exp * 1000 : Date.now() + 8 * 60 * 60 * 1000,
+    );
+
+    await this.prisma.session.create({
+      data: {
+        jti,
+        userId: user.id,
+        expiresAt,
+        ipAddress: ipAddress ?? null,
+        userAgent: userAgent ?? null,
+      },
+    });
+
     return {
-      accessToken: this.jwtService.sign(payload),
+      accessToken,
       user: {
         id: user.id,
         email: user.email,

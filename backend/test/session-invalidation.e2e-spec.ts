@@ -5,6 +5,7 @@ import { getOptionsToken } from '@nestjs/throttler';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import * as argon2 from 'argon2';
+import { randomUUID } from 'crypto';
 import speakeasy from 'speakeasy';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -95,14 +96,20 @@ describe('Session invalidation tras cambio de contraseña (e2e)', () => {
   // JwtStrategy (`undefined < N` es `false`). Sin `noTimestamp`, jsonwebtoken
   // usa `payload.iat` si ya viene seteado (`timestamp = payload.iat || Date.now()`),
   // así que alcanza con NO pasar esa opción.
-  function signSessionTokenWithIat(
+  // Issue #192: a session token is only valid with an active Session row for
+  // its `jti`, so hand-signed tokens must create one too.
+  async function signSessionTokenWithIat(
     sub: string,
     email: string,
     role: string,
     name: string,
     iat: number,
   ) {
-    return jwtService.sign({ sub, email, role, name, iat });
+    const jti = randomUUID();
+    await prisma.session.create({
+      data: { jti, userId: sub, expiresAt: new Date(Date.now() + 3_600_000) },
+    });
+    return jwtService.sign({ jti, sub, email, role, name, iat });
   }
 
   beforeAll(async () => {
@@ -209,7 +216,16 @@ describe('Session invalidation tras cambio de contraseña (e2e)', () => {
       // Segundo "dispositivo": otro accessToken válido para la misma cuenta,
       // emitido por un login normal (mismo secreto, mismo passwordChangedAt
       // todavía NULL en este punto).
+      const deviceBJti = randomUUID();
+      await prisma.session.create({
+        data: {
+          jti: deviceBJti,
+          userId: id,
+          expiresAt: new Date(Date.now() + 3_600_000),
+        },
+      });
       const deviceBToken = jwtService.sign({
+        jti: deviceBJti,
         sub: id,
         email,
         role: 'PROFESSIONAL',
@@ -259,7 +275,7 @@ describe('Session invalidation tras cambio de contraseña (e2e)', () => {
       // filtradas). El chequeo de JwtStrategy es genérico sobre iat vs.
       // passwordChangedAt, no depende de CÓMO se emitió el token.
       const oldIat = Math.floor((Date.now() - 60_000) / 1000);
-      const oldToken = signSessionTokenWithIat(
+      const oldToken = await signSessionTokenWithIat(
         user.id,
         email,
         'PROFESSIONAL',
