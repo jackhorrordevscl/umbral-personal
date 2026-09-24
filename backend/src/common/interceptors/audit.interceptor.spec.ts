@@ -221,7 +221,7 @@ describe('AuditInterceptor', () => {
     });
 
     it('el interceptor registra aunque el handler use @Res() y cierre la respuesta', async () => {
-      await request(app.getHttpServer())
+      await request(app.getHttpServer() as Parameters<typeof request>[0])
         .get('/files/doc-1/download')
         .expect(200);
       await new Promise((r) => setImmediate(r));
