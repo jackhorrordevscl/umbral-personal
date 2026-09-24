@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { AuthContext, type User } from './useAuth';
+import api from '../api/client';
 
 // Leído una sola vez, como inicializador perezoso de useState en vez de un
 // useEffect: evita el re-render en cascada de setState-en-efecto (issue
@@ -32,6 +33,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    // Issue #192: revoke the session server-side, best-effort. It stays
+    // synchronous for callers: the request is fired with the current token
+    // (explicit header, since storage is cleared right below) and any failure
+    // (offline, already-expired token) is ignored -- the local logout wins.
+    const currentToken = localStorage.getItem('token');
+    if (currentToken) {
+      api
+        .post('/auth/logout', null, {
+          headers: { Authorization: `Bearer ${currentToken}` },
+        })
+        .catch(() => {});
+    }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setAuth({ token: null, user: null });

@@ -3,6 +3,9 @@ import { renderHook, act } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { AuthProvider } from './AuthContext'
 import { useAuth, type User } from './useAuth'
+import api from '../api/client'
+
+vi.mock('../api/client', () => ({ default: { post: vi.fn() } }))
 
 const user: User = {
   id: 'u1',
@@ -18,6 +21,8 @@ const wrapper = ({ children }: { children: ReactNode }) => (
 describe('AuthProvider / useAuth', () => {
   beforeEach(() => {
     localStorage.clear()
+    vi.mocked(api.post).mockReset()
+    vi.mocked(api.post).mockResolvedValue({})
   })
 
   it('starts unauthenticated when storage is empty', () => {
@@ -83,6 +88,37 @@ describe('AuthProvider / useAuth', () => {
     expect(result.current.isAuthenticated).toBe(false)
     expect(localStorage.getItem('token')).toBeNull()
     expect(localStorage.getItem('user')).toBeNull()
+  })
+
+  it('logout revokes the session on the server with the current token', () => {
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    act(() => result.current.login('new-token', user))
+
+    act(() => result.current.logout())
+
+    expect(api.post).toHaveBeenCalledWith('/auth/logout', null, {
+      headers: { Authorization: 'Bearer new-token' },
+    })
+  })
+
+  it('logout still clears local state when the API call fails', async () => {
+    vi.mocked(api.post).mockRejectedValue(new Error('offline'))
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    act(() => result.current.login('new-token', user))
+
+    act(() => result.current.logout())
+    await Promise.resolve()
+
+    expect(result.current.isAuthenticated).toBe(false)
+    expect(localStorage.getItem('token')).toBeNull()
+  })
+
+  it('logout does not call the API when there is no session', () => {
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    act(() => result.current.logout())
+
+    expect(api.post).not.toHaveBeenCalled()
   })
 
   it('throws when used outside an AuthProvider', () => {
