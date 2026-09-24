@@ -1,4 +1,5 @@
 import { Controller, Get, Param, Res, UseGuards } from '@nestjs/common';
+import { AuditRead } from '../../common/decorators/audit-read.decorator';
 import type { Response } from 'express';
 import { ReportsService } from './reports.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -12,6 +13,7 @@ import {
 export class ReportsController {
   constructor(private reportsService: ReportsService) {}
 
+  @AuditRead({ action: 'EXPORT_PDF' })
   @Get('patient/:patientId')
   async generateReport(
     @Param('patientId') patientId: string,

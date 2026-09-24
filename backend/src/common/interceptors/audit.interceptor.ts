@@ -5,16 +5,24 @@ import {
   ExecutionContext,
   CallHandler,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { Observable, tap } from 'rxjs';
 import type { Request } from 'express';
 import { AuditAction } from '@prisma/client';
 import { AuditService } from '../../modules/audit/audit.service';
 import { getResourceFromUrl } from '../utils/audit-resource.util';
+import {
+  AUDIT_READ_KEY,
+  type AuditReadOptions,
+} from '../decorators/audit-read.decorator';
 import type { RequestUser } from '../decorators/current-user.decorator';
 
 interface AuditableRequest extends Request {
   user?: RequestUser;
   body: { patientId?: string } & Record<string, unknown>;
+  // Paciente al que pertenece el recurso leído; lo fija el handler cuando el
+  // patientId no viaja en la URL (p. ej. descarga de un documento por id).
+  auditPatientId?: string;
 }
 
 // params.id/patientId puede ser string[] en Express 5 (segmentos wildcard)
@@ -30,7 +38,10 @@ function firstIfArray(
 export class AuditInterceptor implements NestInterceptor {
   private readonly logger = new Logger(AuditInterceptor.name);
 
-  constructor(private auditService: AuditService) {}
+  constructor(
+    private auditService: AuditService,
+    private reflector: Reflector = new Reflector(),
+  ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest<AuditableRequest>();
@@ -52,7 +63,11 @@ export class AuditInterceptor implements NestInterceptor {
       DELETE: 'SOFT_DELETE',
     };
 
-    const action = actionMap[method] ?? 'VIEW';
+    const readOptions = this.reflector.get<AuditReadOptions | undefined>(
+      AUDIT_READ_KEY,
+      context.getHandler(),
+    );
+    const action = readOptions?.action ?? actionMap[method] ?? 'VIEW';
     const resource = getResourceFromUrl(url);
 
     return next.handle().pipe(
@@ -69,6 +84,13 @@ export class AuditInterceptor implements NestInterceptor {
           request.body?.patientId ??
           'N/A';
 
+        // El handler ya corrió: auditPatientId, si lo fijó, está disponible.
+        const detailParts = [`${method} ${url}`];
+        if (readOptions?.detail) detailParts.push(readOptions.detail);
+        if (request.auditPatientId) {
+          detailParts.push(`patientId=${request.auditPatientId}`);
+        }
+
         // Registra después de que la respuesta fue exitosa. Si falla, el
         // request principal no se ve afectado (fail-open: la atención al
         // paciente no depende de la disponibilidad del log), pero el fallo
@@ -79,7 +101,7 @@ export class AuditInterceptor implements NestInterceptor {
             action,
             resource,
             resourceId,
-            detail: `${method} ${url}`,
+            detail: detailParts.join(' '),
             ipAddress,
             userAgent,
           })
