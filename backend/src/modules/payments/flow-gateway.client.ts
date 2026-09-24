@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { maskEmailsInText } from '../../common/utils/mask-email.util';
 import { ConfigService } from '@nestjs/config';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { PaymentProvider } from '@prisma/client';
@@ -274,7 +275,9 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
       return (await response.json()) as T;
     }
 
-    const body = await response.text();
+    // Flow puede ecoar el payload rechazado (incluye el email del paciente);
+    // se enmascara una vez y se usa tanto en el log como en el error (#197).
+    const body = maskEmailsInText(await response.text());
     this.logger.error(
       `Flow devolvió ${response.status} (${method} ${path}): ${body}`,
     );

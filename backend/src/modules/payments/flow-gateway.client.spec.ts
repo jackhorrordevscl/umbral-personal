@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'crypto';
 import { inspect } from 'util';
@@ -116,6 +117,32 @@ describe('FlowPaymentGatewayClient', () => {
       ).rejects.toMatchObject({
         kind: 'rejected',
       } as Partial<PaymentGatewayError>);
+    });
+
+    it('no filtra el email del paciente en el log ni en el mensaje del error de Flow', async () => {
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      mockFetchOnce(
+        { ok: false, status: 400 },
+        { message: 'Invalid email paciente@example.com' },
+      );
+
+      const promise = client.createOrder(credentials, {
+        amount: 50000,
+        currency: 'CLP',
+        subject: 'Sesión clínica',
+        externalId: 'group-1',
+        payerEmail: 'paciente@example.com',
+        returnUrl: 'https://umbral.cl/payments',
+        confirmUrl: 'https://umbral.cl/payments/confirm',
+      });
+
+      await expect(promise).rejects.toThrow('p***@example.com');
+      await expect(promise).rejects.not.toThrow('paciente@example.com');
+      const logged = String(errorSpy.mock.calls[0][0]);
+      expect(logged).toContain('p***@example.com');
+      expect(logged).not.toContain('paciente@example.com');
     });
 
     it('clasifica un error de red como transient', async () => {
