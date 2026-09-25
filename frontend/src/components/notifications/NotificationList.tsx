@@ -1,4 +1,5 @@
 import { BellOff } from 'lucide-react';
+import EmptyState from '../ui/EmptyState';
 import type { Notification } from '../../types/notification';
 import { formatChileDateTime, toChileDayKey } from '../../utils/datetime';
 
@@ -35,10 +36,7 @@ export default function NotificationList({
 
   if (notifications.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 py-8 text-slate-500">
-        <BellOff size={22} />
-        <p className="text-sm">No tienes notificaciones.</p>
-      </div>
+      <EmptyState icon={<BellOff size={22} />} message="No tienes notificaciones." />
     );
   }
 
