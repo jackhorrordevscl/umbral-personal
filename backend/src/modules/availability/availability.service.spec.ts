@@ -473,6 +473,43 @@ describe('AvailabilityService (cache)', () => {
 
     expect(prisma.therapistAvailability.findMany).toHaveBeenCalledTimes(2);
   });
+
+  const cacheSize = (): number =>
+    (service as unknown as { cache: Map<string, unknown> }).cache.size;
+
+  it('purga las entradas expiradas al escribir una nueva', async () => {
+    for (let day = 1; day <= 3; day++) {
+      await service.computeSlots(
+        'therapist-1',
+        new Date(Date.UTC(2026, 5, day)),
+        new Date(Date.UTC(2026, 5, day + 7)),
+        now,
+      );
+    }
+    expect(cacheSize()).toBe(3);
+
+    await service.computeSlots(
+      'therapist-1',
+      new Date(Date.UTC(2026, 6, 1)),
+      new Date(Date.UTC(2026, 6, 8)),
+      new Date(now.getTime() + 6 * 60 * 1000),
+    );
+
+    expect(cacheSize()).toBe(1);
+  });
+
+  it('acota el tamaño del cache descartando las entradas más antiguas', async () => {
+    for (let i = 0; i < 520; i++) {
+      await service.computeSlots(
+        'therapist-1',
+        new Date(Date.UTC(2026, 5, 1) + i * 86_400_000),
+        new Date(Date.UTC(2026, 5, 8) + i * 86_400_000),
+        now,
+      );
+    }
+
+    expect(cacheSize()).toBe(500);
+  });
 });
 
 // sdd/patient-self-scheduling PR 2 (tasks.md 2.4): CRUD que respalda
