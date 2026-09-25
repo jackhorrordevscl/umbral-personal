@@ -15,7 +15,6 @@ export class CreatePatientDto {
   fullName: string;
 
   @IsString()
-  @MaxLength(12)
   rut: string;
 
   @IsDateString()
