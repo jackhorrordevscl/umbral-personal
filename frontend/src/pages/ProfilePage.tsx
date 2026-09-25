@@ -17,19 +17,23 @@ import BlockoutEditor from '../components/availability/BlockoutEditor';
 // InviteCard (SecurityPage.tsx).
 function PublicBookingLinkCard({ profile }: { profile: Profile | undefined }) {
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   if (!profile) return null;
 
   const bookingUrl = `${window.location.origin}/book/${profile.id}`;
 
   const handleCopy = async () => {
+    setCopyFailed(false);
     try {
       await navigator.clipboard.writeText(bookingUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Sin acceso al portapapeles: el link sigue visible en pantalla para
-      // copiarlo a mano.
+      // Sin acceso al portapapeles: se avisa al usuario; el link sigue
+      // visible en pantalla para copiarlo a mano.
+      setCopyFailed(true);
+      setTimeout(() => setCopyFailed(false), 2000);
     }
   };
 
@@ -60,7 +64,7 @@ function PublicBookingLinkCard({ profile }: { profile: Profile | undefined }) {
           className="btn-secondary flex items-center gap-1.5 whitespace-nowrap"
         >
           {copied ? <Check size={16} /> : <Copy size={16} />}
-          {copied ? 'Copiado' : 'Copiar'}
+          {copied ? 'Copiado' : copyFailed ? 'No se pudo copiar' : 'Copiar'}
         </button>
       </div>
     </div>
