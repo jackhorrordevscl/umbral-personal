@@ -219,6 +219,7 @@ describe('ConsultationsPage', () => {
                 status: 'PENDING',
                 linkDelivery: 'SENT',
                 paymentUrl: 'https://flow.cl/pay/token-1',
+                lastError: null,
                 amount: 30000,
               },
             }),
@@ -255,6 +256,7 @@ describe('ConsultationsPage', () => {
                 status: 'LATE',
                 linkDelivery: 'SENT',
                 paymentUrl: 'https://flow.cl/pay/token-1',
+                lastError: null,
                 amount: 30000,
               },
             }),
@@ -288,6 +290,7 @@ describe('ConsultationsPage', () => {
                 status: 'LATE',
                 linkDelivery: 'SENT',
                 paymentUrl: 'https://flow.cl/pay/token-1',
+                lastError: null,
                 amount: 30000,
               },
             }),
@@ -330,5 +333,112 @@ describe('ConsultationsPage', () => {
     expect(
       screen.queryByRole('button', { name: /reenviar link de pago/i }),
     ).not.toBeInTheDocument()
+  })
+
+  // Issue #271: cobro rechazado por la pasarela (paymentUrl null + lastError).
+  function mockPayment(payment: Record<string, unknown> | null) {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url.startsWith('/consultations/patient/'))
+        return Promise.resolve({
+          data: [
+            buildConsultation({
+              payment: payment && {
+                groupId: 'group-1',
+                status: 'PENDING',
+                linkDelivery: 'PENDING',
+                paymentUrl: null,
+                lastError: null,
+                amount: 100,
+                ...payment,
+              },
+            } as Partial<Consultation>),
+          ],
+        })
+      return Promise.resolve({ data: [] })
+    })
+  }
+
+  it('cobro sin link (PENDING): muestra "Cobro no generado" con el motivo y el botón de reintento', async () => {
+    mockPayment({ lastError: 'El monto mínimo es 350 CLP' })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(
+      await screen.findByText('Cobro no generado: El monto mínimo es 350 CLP'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /reintentar cobro/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /copiar link de pago/i })).not.toBeInTheDocument()
+  })
+
+  it('cobro sin link ni motivo (LATE): muestra "Cobro no generado" genérico', async () => {
+    mockPayment({ status: 'LATE' })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByText('Cobro no generado')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /reintentar cobro/i })).toBeInTheDocument()
+  })
+
+  it.each(['PAID', 'CANCELLED'])('no muestra cobro fallido ni reintento si el cargo está %s', async (status) => {
+    mockPayment({ status, lastError: 'algo' })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByText('Motivo de la sesión')).toBeInTheDocument()
+    expect(screen.queryByText(/cobro no generado/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /reintentar cobro/i })).not.toBeInTheDocument()
+  })
+
+  it('no muestra reintento si el cargo ya tiene paymentUrl', async () => {
+    mockPayment({ paymentUrl: 'https://flow.cl/pay/token-1', lastError: 'viejo' })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByRole('button', { name: /copiar link de pago/i })).toBeInTheDocument()
+    expect(screen.queryByText(/cobro no generado/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /reintentar cobro/i })).not.toBeInTheDocument()
+  })
+
+  it('reintentar cobro: llama a POST retry-charge y refresca la lista con el nuevo estado', async () => {
+    mockPayment({ lastError: 'El monto mínimo es 350 CLP' })
+    mockedApi.post.mockImplementation(() => {
+      mockPayment({ paymentUrl: 'https://flow.cl/pay/token-2' })
+      return Promise.resolve({ data: {} })
+    })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+    await user.click(await screen.findByRole('button', { name: /reintentar cobro/i }))
+
+    expect(mockedApi.post).toHaveBeenCalledWith('/payments/group-1/retry-charge')
+    expect(await screen.findByRole('button', { name: /copiar link de pago/i })).toBeInTheDocument()
+    expect(screen.queryByText(/cobro no generado/i)).not.toBeInTheDocument()
+  })
+
+  it('reintentar cobro que falla: muestra el mensaje de error', async () => {
+    mockPayment({ lastError: 'x' })
+    mockedApi.post.mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { message: 'No tienes una cuenta de pagos conectada' } },
+    })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+    await user.click(await screen.findByRole('button', { name: /reintentar cobro/i }))
+
+    expect(
+      await screen.findByText('No tienes una cuenta de pagos conectada'),
+    ).toBeInTheDocument()
   })
 })
