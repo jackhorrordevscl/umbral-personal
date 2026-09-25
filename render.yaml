@@ -64,6 +64,56 @@ services:
         sync: false
       - key: B2_AVATARS_APPLICATION_KEY
         sync: false
+      # Issue #208: claves AES-256-GCM propias (openssl rand -base64 32),
+      # exigidas siempre en producción por env.validation.ts -- sin ellas el
+      # arranque falla al recrear el servicio desde este archivo.
+      - key: GOOGLE_TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: PAYMENT_CREDENTIALS_ENCRYPTION_KEY
+        sync: false
+      # Google Calendar (OAuth) y flag del sync.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_CALENDAR_SYNC_ENABLED
+        sync: false
+      # Pagos (Flow) y autoagenda pública. Las credenciales de Flow van
+      # cifradas por cuenta en la DB, no en env. BACKEND_PUBLIC_URL es la URL
+      # pública del backend (confirmUrl de Flow).
+      - key: PAYMENTS_ENABLED
+        sync: false
+      - key: PUBLIC_SCHEDULING_ENABLED
+        sync: false
+      - key: BACKEND_PUBLIC_URL
+        sync: false
+      - key: INVITE_CREATOR_EMAIL
+        sync: false
+      - key: RESEND_WEBHOOK_SECRET
+        sync: false
+      # Buckets B2 adicionales (mismo criterio que B2_AVATARS_*).
+      - key: B2_SHARED_FILES_ENDPOINT
+        sync: false
+      - key: B2_SHARED_FILES_REGION
+        sync: false
+      - key: B2_SHARED_FILES_BUCKET
+        sync: false
+      - key: B2_SHARED_FILES_KEY_ID
+        sync: false
+      - key: B2_SHARED_FILES_APPLICATION_KEY
+        sync: false
+      - key: B2_PATIENT_DOCUMENTS_ENDPOINT
+        sync: false
+      - key: B2_PATIENT_DOCUMENTS_REGION
+        sync: false
+      - key: B2_PATIENT_DOCUMENTS_BUCKET
+        sync: false
+      - key: B2_PATIENT_DOCUMENTS_KEY_ID
+        sync: false
+      - key: B2_PATIENT_DOCUMENTS_APPLICATION_KEY
+        sync: false
       # Issue #191: error tracking (Sentry). Opcional -- sin DSN el SDK queda
       # desactivado. Se carga a mano en el dashboard (proyecto Node de Sentry).
       - key: SENTRY_DSN
