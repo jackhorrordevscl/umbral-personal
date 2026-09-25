@@ -898,15 +898,12 @@ del RAT, que es la fuente de verdad.
 | Proveedor | Qué recibe | Ubicación | DPA |
 |---|---|---|---|
 | Supabase | Base de datos primaria (fichas, consultas, auditoría) | São Paulo, Brasil | Se incorpora al aceptar los Términos de Servicio (cláusula 12.2) |
-| Backblaze B2 | Backups offsite cifrados con AES-256 antes de subir; avatares, archivos personales y documentos de ficha (buckets privados y separados) | Estados Unidos. Bucket de avatares: `us-west-004` (`render.yaml`) | Se incorpora al aceptar los Términos de Servicio, pero el DPA público está acotado a GDPR |
+| Backblaze B2 | Backups offsite cifrados con AES-256 antes de subir; avatares, archivos personales y documentos de ficha (buckets privados y separados) | Estados Unidos, región `us-west-004` en todos los buckets | Se incorpora al aceptar los Términos de Servicio, pero el DPA público está acotado a GDPR |
 | Resend | Nombre y email del profesional (verificación, recuperación de cuenta, recordatorios); si se activa el cobro, también el email del paciente con el link de pago | Estados Unidos | Se incorpora al aceptar los Términos de Servicio |
 | Google (opcional) | Metadata minimizada de sesiones, solo si el terapeuta conecta su calendario | Estados Unidos | Pendiente de confirmar si aplica a cuentas personales |
 | Flow (opcional) | Nombre y email del paciente, monto y fecha, si el terapeuta activa el cobro | AWS us-east-2 (Ohio, EE.UU.) | Sin DPA descargable; ver política de privacidad |
 
-Pendientes: confirmar la región exacta de los buckets `shared-files` y
-`patient-documents` (no figura en el repo, solo en las variables
-`B2_*_REGION` de Render) y la aplicabilidad legal de los DPA a Chile y la Ley
-21.719. Ver "Pendientes conocidos" en el RAT. Esto es orientación técnica, no
+Pendiente: la aplicabilidad legal de los DPA a Chile y la Ley 21.719. Ver "Pendientes conocidos" en el RAT. Esto es orientación técnica, no
 validación legal.
 
 ### Recuperación de cuenta (issue #50)
