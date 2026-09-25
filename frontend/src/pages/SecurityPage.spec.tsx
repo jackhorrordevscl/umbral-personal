@@ -194,6 +194,21 @@ describe('SecurityPage — historial de seguridad', () => {
     })
   })
 
+  it('muestra un aviso de error si falla la carga del historial de MFA', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/profile') return Promise.resolve({ data: baseProfile() })
+      if (url === '/profile/mfa-history') return Promise.reject(new Error('boom'))
+      if (url === '/calendar-integration/status')
+        return Promise.resolve({ data: baseCalendarStatus() })
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+    renderSecurityPage()
+
+    expect(
+      await screen.findByText(/No se pudo cargar el historial de seguridad/i),
+    ).toBeInTheDocument()
+  })
+
   it('clic en conectar llama a POST /authorize y redirige a la url devuelta', async () => {
     mockGets(baseProfile(), baseCalendarStatus({ status: 'PENDING' }))
     mockedApi.post.mockResolvedValueOnce({
