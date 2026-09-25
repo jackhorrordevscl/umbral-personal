@@ -11,7 +11,7 @@ const ENV_VAR_NAME = 'DOCUMENT_ENCRYPTION_KEY';
 // T8.1 (issue #58): cifrado de documentos en reposo con `crypto` nativo de
 // Node (AES-256-GCM), sin depender de ningún proveedor cloud (KMS, S3, etc.)
 // ni librería adicional -- mismo criterio que ya se usa para los backups
-// (openssl AES-256 con una clave local, ver backups/backup.sh). El archivo en
+// (openssl AES-256 con una clave local, ver .github/workflows/backup.yml). El archivo en
 // disco queda como [IV(12)][authTag(16)][ciphertext], así no hace falta una
 // columna nueva en PatientDocument para guardar el IV por separado.
 //

@@ -255,7 +255,7 @@ function AccountDataForm({ profile }: { profile: Profile | undefined }) {
           <div>
             <textarea
               aria-label="Bio"
-              placeholder="Cuéntales a tus pacientes un poco sobre vos"
+              placeholder="Cuéntales a tus pacientes un poco sobre ti"
               maxLength={500}
               rows={3}
               value={bioInput}
