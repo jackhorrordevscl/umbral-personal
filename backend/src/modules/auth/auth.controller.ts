@@ -14,6 +14,7 @@ import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { MfaRecoverDto } from './dto/mfa-recover.dto';
+import { MfaTokenDto } from './dto/mfa-token.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import {
   CurrentUser,
@@ -327,12 +328,12 @@ export class AuthController {
   @Post('mfa/enable')
   enableMfa(
     @CurrentUser() user: RequestUser,
-    @Body('token') token: string,
+    @Body() dto: MfaTokenDto,
     @Req() req: Request,
   ) {
     return this.mfaService.enableMfa(
       user.id,
-      token,
+      dto.token,
       req.ip,
       req.headers['user-agent'],
     );
@@ -342,12 +343,12 @@ export class AuthController {
   @Post('mfa/disable')
   disableMfa(
     @CurrentUser() user: RequestUser,
-    @Body('token') token: string,
+    @Body() dto: MfaTokenDto,
     @Req() req: Request,
   ) {
     return this.mfaService.disableMfa(
       user.id,
-      token,
+      dto.token,
       req.ip,
       req.headers['user-agent'],
     );
