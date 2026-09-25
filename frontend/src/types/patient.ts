@@ -84,6 +84,9 @@ export interface PaymentSummary {
   status: PaymentStatus;
   linkDelivery: PaymentLinkDelivery;
   paymentUrl: string | null;
+  // Motivo del último rechazo de la pasarela (ej. monto bajo el mínimo);
+  // null si el cobro no ha fallado.
+  lastError: string | null;
   amount: number;
 }
 

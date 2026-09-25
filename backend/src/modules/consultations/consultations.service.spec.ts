@@ -349,6 +349,31 @@ describe('ConsultationsService', () => {
       expect(result.reminderEmailStatus).toBeNull();
     });
 
+    // issue #271: sin paymentUrl la UI necesita el motivo del fallo.
+    it('expone payment.lastError para mostrar por qué no se generó el cobro', async () => {
+      prisma.consultation.findMany.mockResolvedValue([buildConsultation()]);
+      const groupId = (buildConsultation() as { groupId: string }).groupId;
+      prisma.payment.findMany.mockResolvedValue([
+        {
+          groupId,
+          status: 'PENDING',
+          linkDelivery: 'FAILED',
+          paymentUrl: null,
+          amount: 100,
+          lastError: 'El monto mínimo para cobrar con Flow es $350.',
+        },
+      ]);
+
+      const [result] = (await service.findByPatient(
+        'patient-1',
+        'therapist-1',
+      )) as { payment: { lastError: string | null } }[];
+
+      expect(result.payment.lastError).toBe(
+        'El monto mínimo para cobrar con Flow es $350.',
+      );
+    });
+
     it('agrega el estado del ReminderDispatch EMAIL más reciente cuando existe (issue #163)', async () => {
       prisma.consultation.findMany.mockResolvedValue([buildConsultation()]);
       prisma.reminderDispatch.findMany.mockResolvedValue([

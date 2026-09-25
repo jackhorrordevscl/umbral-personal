@@ -64,6 +64,46 @@ describe('FlowPaymentGatewayClient', () => {
     expect(client.provider).toBe(PaymentProvider.FLOW);
   });
 
+  it('minimumAmount es 350 CLP (código 1901 de Flow)', () => {
+    expect(client.minimumAmount).toBe(350);
+  });
+
+  describe('nivel de log de respuestas no exitosas', () => {
+    function arrangeLogSpies() {
+      return {
+        warn: jest.spyOn(Logger.prototype, 'warn').mockImplementation(),
+        error: jest.spyOn(Logger.prototype, 'error').mockImplementation(),
+      };
+    }
+
+    it.each([400, 404])(
+      'un %s (rechazo esperado) loguea warn, no error',
+      async (status) => {
+        const spies = arrangeLogSpies();
+        mockFetchOnce({ ok: false, status });
+
+        await expect(
+          client.getOrderStatus(credentials, 'token'),
+        ).rejects.toMatchObject({ kind: 'rejected' });
+
+        expect(spies.warn).toHaveBeenCalledTimes(1);
+        expect(spies.error).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([401, 403, 500])('un %s loguea error, no warn', async (status) => {
+      const spies = arrangeLogSpies();
+      mockFetchOnce({ ok: false, status });
+
+      await expect(
+        client.getOrderStatus(credentials, 'token'),
+      ).rejects.toBeInstanceOf(PaymentGatewayError);
+
+      expect(spies.error).toHaveBeenCalledTimes(1);
+      expect(spies.warn).not.toHaveBeenCalled();
+    });
+  });
+
   describe('createOrder', () => {
     it('firma la petición con las credenciales recibidas y construye la paymentUrl a partir de url + token', async () => {
       mockFetchOnce(
@@ -120,8 +160,8 @@ describe('FlowPaymentGatewayClient', () => {
     });
 
     it('no filtra el email del paciente en el log ni en el mensaje del error de Flow', async () => {
-      const errorSpy = jest
-        .spyOn(Logger.prototype, 'error')
+      const warnSpy = jest
+        .spyOn(Logger.prototype, 'warn')
         .mockImplementation(() => undefined);
       mockFetchOnce(
         { ok: false, status: 400 },
@@ -140,7 +180,7 @@ describe('FlowPaymentGatewayClient', () => {
 
       await expect(promise).rejects.toThrow('p***@example.com');
       await expect(promise).rejects.not.toThrow('paciente@example.com');
-      const logged = String(errorSpy.mock.calls[0][0]);
+      const logged = String(warnSpy.mock.calls[0][0]);
       expect(logged).toContain('p***@example.com');
       expect(logged).not.toContain('paciente@example.com');
     });

@@ -274,6 +274,7 @@ export class ConsultationsService {
         linkDelivery: string;
         paymentUrl: string | null;
         amount: number;
+        lastError: string | null;
       }
     >();
     if (groupIds.length === 0) return map;
@@ -286,6 +287,7 @@ export class ConsultationsService {
         linkDelivery: true,
         paymentUrl: true,
         amount: true,
+        lastError: true,
       },
     });
     for (const payment of payments) {
@@ -295,6 +297,7 @@ export class ConsultationsService {
         linkDelivery: payment.linkDelivery,
         paymentUrl: payment.paymentUrl,
         amount: payment.amount,
+        lastError: payment.lastError,
       });
     }
     return map;

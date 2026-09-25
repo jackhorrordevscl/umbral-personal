@@ -49,6 +49,11 @@ const DEFAULT_API_BASE_URL = 'https://sandbox.flow.cl/api';
 // valid, token (as expected) not found" -- never a real order.
 const VALIDATION_PROBE_TOKEN = 'umbral-credential-validation-probe';
 
+// Source: Flow's real production error on /payment/create, code 1901
+// "The minimum amount is 350 CLP". Not yet confirmed in Flow's docs whether
+// the minimum varies per account.
+const FLOW_MINIMUM_AMOUNT_CLP = 350;
+
 interface FlowPaymentCreateResponse {
   flowOrder: number;
   url: string;
@@ -65,6 +70,7 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
   private readonly logger = new Logger(FlowPaymentGatewayClient.name);
 
   readonly provider = PaymentProvider.FLOW;
+  readonly minimumAmount = FLOW_MINIMUM_AMOUNT_CLP;
 
   constructor(private config: ConfigService) {
     super();
@@ -278,9 +284,17 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     // Flow puede ecoar el payload rechazado (incluye el email del paciente);
     // se enmascara una vez y se usa tanto en el log como en el error (#197).
     const body = maskEmailsInText(await response.text());
-    this.logger.error(
-      `Flow devolvió ${response.status} (${method} ${path}): ${body}`,
-    );
+    // 400/404 are expected rejections (e.g. the credential-validation probe
+    // answers code 1700 on every successful check), so they log at warn;
+    // credential and server failures stay at error.
+    const isExpectedRejection =
+      response.status === 400 || response.status === 404;
+    const logLine = `Flow devolvió ${response.status} (${method} ${path}): ${body}`;
+    if (isExpectedRejection) {
+      this.logger.warn(logLine);
+    } else {
+      this.logger.error(logLine);
+    }
 
     if (response.status === 401 || response.status === 403) {
       throw new PaymentGatewayError(

@@ -103,6 +103,11 @@ export interface OrderInput {
 export abstract class PaymentGatewayClient {
   abstract readonly provider: PaymentProvider;
 
+  // Minimum amount (CLP) the gateway accepts for a charge. PaymentsService
+  // checks it BEFORE calling createOrder so a too-low amount fails with a
+  // clear message instead of an opaque gateway rejection.
+  abstract readonly minimumAmount: number;
+
   abstract validateCredentials(
     credentials: GatewayCredentials,
   ): Promise<CredentialValidation>;

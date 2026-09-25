@@ -27,6 +27,7 @@ describe('PaymentsController', () => {
     assertOwnership: jest.Mock;
     updateAmount: jest.Mock;
     resendPaymentLink: jest.Mock;
+    retryCharge: jest.Mock;
     confirm: jest.Mock;
     findByToken: jest.Mock;
     resolveReturnRedirectUrl: jest.Mock;
@@ -60,6 +61,7 @@ describe('PaymentsController', () => {
       resendPaymentLink: jest
         .fn()
         .mockResolvedValue({ id: 'payment-1', linkDelivery: 'SENT' }),
+      retryCharge: jest.fn().mockResolvedValue({ id: 'payment-1' }),
       confirm: jest.fn().mockResolvedValue(undefined),
       findByToken: jest.fn(),
       resolveReturnRedirectUrl: jest
@@ -309,6 +311,51 @@ describe('PaymentsController', () => {
       ).rejects.toThrow();
 
       expect(paymentsService.resendPaymentLink).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('retryCharge (POST /payments/:groupId/retry-charge)', () => {
+    it('verifica ownership del terapeuta ANTES de reintentar el cobro', async () => {
+      const callOrder: string[] = [];
+      paymentsService.assertOwnership.mockImplementation(() => {
+        callOrder.push('assertOwnership');
+        return Promise.resolve({ id: 'payment-1' });
+      });
+      paymentsService.retryCharge.mockImplementation(() => {
+        callOrder.push('retryCharge');
+        return Promise.resolve({ id: 'payment-1' });
+      });
+
+      await controller.retryCharge('group-1', {
+        id: 'therapist-1',
+        email: '',
+        role: '',
+        name: '',
+      });
+
+      expect(callOrder).toEqual(['assertOwnership', 'retryCharge']);
+      expect(paymentsService.assertOwnership).toHaveBeenCalledWith(
+        'group-1',
+        'therapist-1',
+      );
+      expect(paymentsService.retryCharge).toHaveBeenCalledWith('group-1');
+    });
+
+    it('propaga el 404 de assertOwnership sin llamar a retryCharge (tenancy)', async () => {
+      paymentsService.assertOwnership.mockRejectedValue(
+        new Error('No existe un cargo para esta sesión.'),
+      );
+
+      await expect(
+        controller.retryCharge('group-de-otro-terapeuta', {
+          id: 'therapist-2',
+          email: '',
+          role: '',
+          name: '',
+        }),
+      ).rejects.toThrow();
+
+      expect(paymentsService.retryCharge).not.toHaveBeenCalled();
     });
   });
 

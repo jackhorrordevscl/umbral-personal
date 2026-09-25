@@ -9,6 +9,7 @@ function buildPayment(overrides: Partial<PaymentSummary> = {}): PaymentSummary {
     status: 'PENDING',
     linkDelivery: 'SENT',
     paymentUrl: 'https://flow.cl/pay/token-1',
+    lastError: null,
     amount: 30000,
     ...overrides,
   }

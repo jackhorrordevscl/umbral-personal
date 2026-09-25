@@ -148,6 +148,18 @@ export class PaymentsController {
     return this.paymentsService.resendPaymentLink(groupId);
   }
 
+  // issue #271: re-attempts order creation for a charge that has no payment
+  // link yet. Same ownership gate / uniform 404 as resend-link.
+  @UseGuards(JwtAuthGuard)
+  @Post(':groupId/retry-charge')
+  async retryCharge(
+    @Param('groupId') groupId: string,
+    @CurrentUser() user: RequestUser,
+  ) {
+    await this.paymentsService.assertOwnership(groupId, user.id);
+    return this.paymentsService.retryCharge(groupId);
+  }
+
   // T5.6/T7.9/T7.10 + design.md "Webhook — after": no JwtAuthGuard on
   // purpose -- Flow makes a server-to-server POST with no Authorization
   // header at all. Flow signs callbacks with the *owning merchant's* own

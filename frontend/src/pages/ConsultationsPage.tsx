@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle, Copy, Check, Send, FileText, Download, Upload } from 'lucide-react';
+import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle, Copy, Check, Send, FileText, Download, Upload, RefreshCw } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import Modal from '../components/ui/Modal';
 import ErrorBanner from '../components/ui/ErrorBanner';
@@ -11,7 +11,7 @@ import PaymentStatusBadge from '../components/payments/PaymentStatusBadge';
 import ReminderEmailStatusBadge from '../components/reminders/ReminderEmailStatusBadge';
 import api from '../api/client';
 import { usePatients } from '../hooks/usePatients';
-import { useConsultations, useCorrectConsultation } from '../hooks/useConsultations';
+import { useConsultations, useCorrectConsultation, useRetryCharge } from '../hooks/useConsultations';
 import { usePatientDocuments, useUploadPatientDocument } from '../hooks/usePatientDocuments';
 import { downloadDocument } from '../api/documents';
 import { downloadBlob } from '../utils/download';
@@ -131,6 +131,32 @@ function ResendPaymentLinkButton({ groupId }: { groupId: string }) {
       {status === 'sent' ? <Check size={11} /> : <Send size={11} />}
       {label}
     </button>
+  );
+}
+
+// Issue #271: cobro rechazado por la pasarela (ej. monto bajo el mínimo):
+// sin paymentUrl no hay link que copiar/reenviar, así que se muestra el
+// motivo y se permite reintentar la creación de la orden. El éxito o el
+// nuevo rechazo se ve al refrescarse la lista (lastError actualizado).
+function RetryChargeButton({ groupId }: { groupId: string }) {
+  const retry = useRetryCharge();
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => retry.mutate(groupId)}
+        disabled={retry.isPending}
+        title={retry.isError ? getApiErrorMessage(retry.error, 'No se pudo reintentar el cobro.') : 'Reintentar la creación del cobro'}
+        className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors inline-flex items-center gap-1 disabled:opacity-50"
+      >
+        <RefreshCw size={11} />
+        {retry.isPending ? 'Reintentando...' : retry.isError ? 'Error al reintentar' : 'Reintentar cobro'}
+      </button>
+      {retry.isError && (
+        <ErrorBanner className="w-full" message={getApiErrorMessage(retry.error, 'No se pudo reintentar el cobro.')} />
+      )}
+    </>
   );
 }
 
@@ -605,6 +631,20 @@ export default function ConsultationsPage() {
                             <>
                               <CopyPaymentLinkButton paymentUrl={c.payment.paymentUrl} />
                               <ResendPaymentLinkButton groupId={c.payment.groupId} />
+                            </>
+                          )}
+                          {c.payment && !c.payment.paymentUrl &&
+                            (c.payment.status === 'PENDING' || c.payment.status === 'LATE') && (
+                            <>
+                              <span
+                                className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 max-w-full truncate"
+                                title={c.payment.lastError ?? undefined}
+                              >
+                                {c.payment.lastError
+                                  ? `Cobro no generado: ${c.payment.lastError}`
+                                  : 'Cobro no generado'}
+                              </span>
+                              <RetryChargeButton groupId={c.payment.groupId} />
                             </>
                           )}
                           {c.history.length > 0 && (
