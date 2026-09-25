@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { ShieldCheck, ShieldOff, QrCode, Calendar, UserPlus, Copy } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
-import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
 import RecoveryCodesReveal from '../components/RecoveryCodesReveal';
 import ErrorBanner from '../components/ui/ErrorBanner';
@@ -13,13 +12,12 @@ import {
   useDisconnectCalendar,
 } from '../hooks/useCalendarIntegration';
 import { useCreateInvitation } from '../hooks/useInvitations';
-
-interface MfaHistoryEntry {
-  action: string;
-  createdAt: string;
-  ipAddress: string | null;
-  userAgent: string | null;
-}
+import {
+  useMfaHistory,
+  useGenerateMfa,
+  useEnableMfa,
+  useDisableMfa,
+} from '../hooks/useMfa';
 
 // Compliance: TOTP no permite distinguir "dispositivos" reales (cualquier
 // app que escanee el mismo secreto es indistinguible para el backend) --
@@ -50,8 +48,21 @@ function MfaCard({
   const [secret, setSecret] = useState('');
   const [token, setToken] = useState('');
   const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  // Issue #202: loading/error salen de las mutaciones (isPending/error). El
+  // banner es único: muestra el error de la última acción, y cada acción
+  // resetea las otras antes de empezar (equivale al setError('') original).
+  const generateMutation = useGenerateMfa();
+  const enableMutation = useEnableMfa();
+  const disableMutation = useDisableMfa();
+  const loading =
+    generateMutation.isPending || enableMutation.isPending || disableMutation.isPending;
+  const error = generateMutation.isError
+    ? getApiErrorMessage(generateMutation.error, 'Error al generar el código QR')
+    : enableMutation.isError
+      ? getApiErrorMessage(enableMutation.error, 'Código inválido. Intenta de nuevo.')
+      : disableMutation.isError
+        ? getApiErrorMessage(disableMutation.error, 'Código inválido. Intenta de nuevo.')
+        : '';
   // El enrolamiento obligatorio pasa en LoginPage (login() fuerza MFA antes
   // de entregar sesión), así que para cuando se llega acá casi siempre ya
   // está activo -- sin consultar el estado real, esta pantalla arrancaba
@@ -66,53 +77,47 @@ function MfaCard({
   // a él, para no perderlos entre el resto del contenido de esa pantalla.
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
 
-  const handleGenerateQR = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await api.post('/auth/mfa/generate');
-      setQrCode(res.data.qrCode);
-      setSecret(res.data.secret);
-      setStep('scan');
-    } catch (err) {
-      setError(getApiErrorMessage(err, 'Error al generar el código QR'));
-    } finally {
-      setLoading(false);
-    }
+  const resetErrors = () => {
+    generateMutation.reset();
+    enableMutation.reset();
+    disableMutation.reset();
   };
 
-  const handleEnableMfa = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    try {
-      const res = await api.post('/auth/mfa/enable', { token });
-      setRecoveryCodes(res.data.recoveryCodes ?? null);
-      setMessage('MFA activado correctamente. Tu cuenta ahora requiere doble factor.');
-      setStep('done');
-      onMfaChanged();
-    } catch (err) {
-      setError(getApiErrorMessage(err, 'Código inválido. Intenta de nuevo.'));
-    } finally {
-      setLoading(false);
-    }
+  const handleGenerateQR = () => {
+    resetErrors();
+    generateMutation.mutate(undefined, {
+      onSuccess: (data) => {
+        setQrCode(data.qrCode);
+        setSecret(data.secret);
+        setStep('scan');
+      },
+    });
   };
 
-  const handleDisableMfa = async (e: React.FormEvent) => {
+  const handleEnableMfa = (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
-    try {
-      await api.post('/auth/mfa/disable', { token });
-      setMessage('MFA desactivado.');
-      setStep('idle');
-      setToken('');
-      onMfaChanged();
-    } catch (err) {
-      setError(getApiErrorMessage(err, 'Código inválido. Intenta de nuevo.'));
-    } finally {
-      setLoading(false);
-    }
+    resetErrors();
+    enableMutation.mutate(token, {
+      onSuccess: (data) => {
+        setRecoveryCodes(data.recoveryCodes ?? null);
+        setMessage('MFA activado correctamente. Tu cuenta ahora requiere doble factor.');
+        setStep('done');
+        onMfaChanged();
+      },
+    });
+  };
+
+  const handleDisableMfa = (e: React.FormEvent) => {
+    e.preventDefault();
+    resetErrors();
+    disableMutation.mutate(token, {
+      onSuccess: () => {
+        setMessage('MFA desactivado.');
+        setStep('idle');
+        setToken('');
+        onMfaChanged();
+      },
+    });
   };
 
   return (
@@ -239,19 +244,19 @@ function MfaCard({
 // en /signup. Mismo patrón de card+useMutation que el resto de la página.
 function InviteCard() {
   const createInvitationMutation = useCreateInvitation();
-  const [error, setError] = useState('');
+  const error = createInvitationMutation.isError
+    ? getApiErrorMessage(
+        createInvitationMutation.error,
+        'No se pudo generar el código de invitación.',
+      )
+    : '';
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
 
-  const handleGenerate = async () => {
-    setError('');
+  const handleGenerate = () => {
     setCopied(false);
     setCopyFailed(false);
-    try {
-      await createInvitationMutation.mutateAsync();
-    } catch (err) {
-      setError(getApiErrorMessage(err, 'No se pudo generar el código de invitación.'));
-    }
+    createInvitationMutation.mutate();
   };
 
   const handleCopy = async () => {
@@ -341,7 +346,19 @@ export default function SecurityPage() {
   const disconnectCalendarMutation = useDisconnectCalendar();
   const calendarLoading =
     connectCalendarMutation.isPending || disconnectCalendarMutation.isPending;
-  const [calendarError, setCalendarError] = useState('');
+  // Un solo banner para ambas acciones: cada una resetea la otra antes de
+  // empezar (equivale al setCalendarError('') original).
+  const calendarError = connectCalendarMutation.isError
+    ? getApiErrorMessage(
+        connectCalendarMutation.error,
+        'No se pudo iniciar la conexión con Google Calendar.',
+      )
+    : disconnectCalendarMutation.isError
+      ? getApiErrorMessage(
+          disconnectCalendarMutation.error,
+          'No se pudo desconectar Google Calendar.',
+        )
+      : '';
   // ?calendar=connected|error llega desde el 302 de
   // CalendarIntegrationController.callback (design.md "The OAuth callback
   // is unauthenticated") -- el banner es puramente de la URL de retorno, no
@@ -356,54 +373,25 @@ export default function SecurityPage() {
   // de MfaCard) para decidir el paso inicial del asistente de MFA.
   const { data: profile, isLoading: checkingStatus } = useProfile();
 
-  const [mfaHistory, setMfaHistory] = useState<MfaHistoryEntry[]>([]);
+  // El historial es informativo y no bloquea el resto de la pantalla, pero el
+  // fallo se avisa: en una pantalla de seguridad no puede desaparecer el
+  // historial en silencio.
+  const { data: mfaHistoryData, isError: mfaHistoryError, refetch: refetchMfaHistory } =
+    useMfaHistory();
+  const mfaHistory = mfaHistoryData ?? [];
 
-  const [mfaHistoryError, setMfaHistoryError] = useState(false);
-
-  const fetchMfaHistory = async () => {
-    try {
-      const res = await api.get('/profile/mfa-history');
-      setMfaHistory(res.data);
-      setMfaHistoryError(false);
-    } catch {
-      // No bloquea el resto de la pantalla (el historial es informativo),
-      // pero el fallo se avisa: en una pantalla de seguridad no puede
-      // desaparecer el historial en silencio.
-      setMfaHistoryError(true);
-    }
+  const handleConnectGoogle = () => {
+    disconnectCalendarMutation.reset();
+    connectCalendarMutation.mutate(undefined, {
+      onSuccess: ({ url }) => {
+        window.location.href = url;
+      },
+    });
   };
 
-  useEffect(() => {
-    // Closure local al efecto (mismo idioma que el `init`/`fetchCalendarStatus`
-    // originales de SettingsPage.tsx): la primera sentencia es un `await`,
-    // por lo que ningún setState corre sincrónicamente dentro del efecto.
-    const load = async () => {
-      await fetchMfaHistory();
-    };
-    void load();
-  }, []);
-
-  const handleConnectGoogle = async () => {
-    setCalendarError('');
-    try {
-      const { url } = await connectCalendarMutation.mutateAsync();
-      window.location.href = url;
-    } catch (err) {
-      setCalendarError(
-        getApiErrorMessage(err, 'No se pudo iniciar la conexión con Google Calendar.'),
-      );
-    }
-  };
-
-  const handleDisconnectGoogle = async () => {
-    setCalendarError('');
-    try {
-      await disconnectCalendarMutation.mutateAsync();
-    } catch (err) {
-      setCalendarError(
-        getApiErrorMessage(err, 'No se pudo desconectar Google Calendar.'),
-      );
-    }
+  const handleDisconnectGoogle = () => {
+    connectCalendarMutation.reset();
+    disconnectCalendarMutation.mutate();
   };
 
   return (
@@ -420,7 +408,7 @@ export default function SecurityPage() {
           <p className="text-sm text-slate-500">Verificando estado de MFA...</p>
         </div>
       ) : (
-        <MfaCard profile={profile} onMfaChanged={() => void fetchMfaHistory()} />
+        <MfaCard profile={profile} onMfaChanged={() => void refetchMfaHistory()} />
       )}
 
       {mfaHistoryError && (
