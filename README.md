@@ -39,12 +39,17 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 
 **Frontend**
 - React 19 + TypeScript
-- Tailwind CSS
+- Vite 7 (congelado en su major actual, ver
+  [ADR 0001](docs/decisiones/0001-congelar-majors-nestjs-vite-tailwind.md))
+- Tailwind CSS 3 (congelado, mismo ADR)
 - React Router v8
 - TanStack Query (React Query)
-- React Hook Form + Zod
+- React Hook Form + Zod 4
+- Tiptap 3 (editor de texto enriquecido de las notas clínicas)
 - Axios
 - Lucide React
+- Sentry (`@sentry/react`, captura de errores, opcional)
+- Vitest 4 (tests)
 
 **Backend**
 - NestJS 11 + TypeScript
@@ -55,6 +60,10 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 - Speakeasy (MFA/TOTP)
 - PDFKit (generación de reportes)
 - Helmet.js (seguridad HTTP)
+- `@nestjs/throttler` (rate limiting)
+- `sanitize-html` (sanitización de notas clínicas)
+- `@aws-sdk/client-s3` (storage S3-compatible sobre Backblaze B2)
+- Sentry (`@sentry/node`, captura de errores, opcional)
 
 ---
 
@@ -278,8 +287,7 @@ copia offsite de backups en **Backblaze B2** (ver
    una Application Key nueva restringida solo a ese bucket, Read+Write.
    Mismo criterio para `B2_SHARED_FILES_ENDPOINT`/`B2_SHARED_FILES_REGION`/
    `B2_SHARED_FILES_BUCKET`/`B2_SHARED_FILES_KEY_ID`/
-   `B2_SHARED_FILES_APPLICATION_KEY` (issue #170, parte pendiente de la
-   migración de avatares): storage de los archivos de la biblioteca privada
+   `B2_SHARED_FILES_APPLICATION_KEY` (issue #170, cerrado): storage de los archivos de la biblioteca privada
    de cada terapeuta (`shared-files`), en otro bucket B2 **propio**, también
    separado del de avatares y del de backups offsite — crear otra
    Application Key restringida solo a ese bucket, Read+Write. Ya está
@@ -314,10 +322,17 @@ umbral-personal/
 │   │   ├── schema.prisma         # Modelos de base de datos (un solo Role: PROFESSIONAL)
 │   │   └── migrations/           # Historial de migraciones
 │   ├── src/
+│   │   ├── instrument.ts         # Inicialización de Sentry (se importa antes que el resto de la app)
+│   │   ├── config/               # Validación de variables de entorno al arrancar (env.validation.ts)
 │   │   ├── common/
 │   │   │   ├── guards/           # JwtAuthGuard (sin guard de roles -- ownership por therapistId)
-│   │   │   ├── decorators/       # CurrentUser
-│   │   │   └── interceptors/     # Audit Interceptor
+│   │   │   ├── decorators/       # CurrentUser, AuditRead (auditoría de lecturas/descargas)
+│   │   │   ├── interceptors/     # Audit Interceptor
+│   │   │   ├── filters/          # Filtros de excepciones (AllExceptions, Prisma)
+│   │   │   ├── crypto/           # Primitivas AES-256-GCM compartidas
+│   │   │   ├── dto/              # DTOs compartidos (paginación)
+│   │   │   ├── validators/       # Validadores de class-validator propios
+│   │   │   └── utils/            # Storage B2, sanitizado de notas, hora de Chile, máscara de emails, etc.
 │   │   ├── modules/
 │   │   │   ├── auth/             # Signup, login, JWT, MFA obligatorio, recuperación de cuenta
 │   │   │   ├── patients/         # CRUD, consentimientos e historial de pacientes propios
@@ -331,6 +346,7 @@ umbral-personal/
 │   │   │   ├── payments/         # Cuenta Flow por terapeuta, cargos y webhook de confirmación (sdd/online-payment-integration)
 │   │   │   ├── public-scheduling/ # Portal público de auto-agenda sin autenticación (sdd/patient-self-scheduling)
 │   │   │   ├── mail/             # Envío de emails transaccionales (Resend)
+│   │   │   ├── webhooks/         # Webhook de Resend (tracking de entrega/apertura de emails)
 │   │   │   ├── reports/          # Generación de PDF
 │   │   │   └── audit/            # Bitácora inmutable (interceptor global)
 │   │   ├── shared-files/         # Biblioteca personal (plantillas, protocolos) -- privada por usuario
@@ -338,17 +354,30 @@ umbral-personal/
 │   └── .env.example
 ├── frontend/
 │   └── src/
-│       ├── api/                  # Cliente HTTP (Axios), notifications.ts
+│       ├── api/                  # Cliente HTTP (Axios) y módulos por recurso
+│       │                         # (availability, consultations, documents,
+│       │                         # notifications, patients, publicScheduling, reports)
 │       ├── context/              # AuthContext
-│       ├── components/           # Layout, Sidebar, RecoveryCodesReveal,
-│       │                         # notifications/ (NotificationBell, NotificationList)
-│       ├── hooks/                # usePatients, usePatientDocuments,
-│       │                         # usePatientHistory, useIdleTimeout
-│       ├── utils/                # api-error, datetime, download, rut
+│       ├── components/           # Layout, IdleWarningModal, RecoveryCodesReveal
+│       │                         # y subcarpetas por dominio: availability/,
+│       │                         # booking/, calendar/, consultations/,
+│       │                         # notifications/, patients/, payments/,
+│       │                         # reminders/, ui/ (Modal, ConfirmDialog,
+│       │                         # ErrorBanner, EmptyState, FormField,
+│       │                         # RichTextEditor)
+│       ├── hooks/                # Un hook de TanStack Query por dominio
+│       │                         # (usePatients, useConsultations,
+│       │                         # useAvailability, usePaymentAccount,
+│       │                         # useProfile, useMfa, etc.) + useIdleTimeout
+│       ├── utils/                # api-error, availability, datetime, download,
+│       │                         # error-tracking (Sentry), patient-search, rut, etc.
+│       ├── types/, test/         # Tipos compartidos y setup de Vitest
 │       └── pages/                # Login, Signup, VerifyEmail, ForgotPassword,
-│                                  # ResetPassword, MfaRecover, Dashboard, Patients,
-│                                  # Consultations, SettingsPage (MFA, datos de
-│                                  # cuenta, conexión Google Calendar), SharedFiles
+│                                  # ResetPassword, MfaRecover, ConfirmEmailChange,
+│                                  # Dashboard, Patients, Consultations, Calendar,
+│                                  # Payments, PaymentReturn, PublicBooking,
+│                                  # Profile (datos de cuenta), Security (MFA,
+│                                  # conexión Google Calendar), SharedFiles
 ├── docs/                         # Manual de uso, caso de testing, RAT
 └── README.md
 ```
@@ -610,6 +639,8 @@ POST /api/v1/auth/mfa/enable           🔒
 POST /api/v1/auth/mfa/disable          🔒
 POST /api/v1/auth/mfa/setup/begin      (setupToken)
 POST /api/v1/auth/mfa/setup/confirm    (setupToken)
+POST /api/v1/auth/logout               🔒
+POST /api/v1/auth/logout-all           🔒
 POST /api/v1/auth/mfa/recover          (email + password + recoveryCode, issue #50)
 POST /api/v1/auth/password/change      (passwordChangeToken)
 POST /api/v1/auth/password/forgot      (issue #50)
@@ -699,6 +730,7 @@ POST   /api/v1/availability/blockouts                                🔒
 DELETE /api/v1/availability/blockouts/:id                            🔒
 GET    /api/v1/public/therapists/:therapistId/availability              (pública, sin auth)
 POST   /api/v1/public/therapists/:therapistId/availability/book         (pública, sin auth)
+GET    /api/v1/public/therapists/:therapistId/availability/book/:groupId/checkout  (pública, sin auth, link de checkout de la reserva)
 GET    /api/v1/public/therapists/:therapistId/profile                   (pública, sin auth, issue #155)
 GET    /api/v1/public/therapists/:therapistId/avatar                    (pública, sin auth, issue #155)
 ```
@@ -718,6 +750,11 @@ POST   /api/v1/payments/:groupId/resend-link       🔒
 POST   /api/v1/payments/confirm                       (webhook de Flow, sin auth, firma verificada)
 GET    /api/v1/payments/return                        (redirect del paciente tras el checkout, sin auth)
 POST   /api/v1/payments/return                        (mismo caso, safety net de método HTTP)
+```
+
+### Webhooks
+```
+POST /api/v1/webhooks/resend    (webhook de Resend, sin JWT, firma Svix verificada; 501 sin RESEND_WEBHOOK_SECRET)
 ```
 
 > 🔒 Requiere token JWT en el header `Authorization: Bearer <token>`
@@ -759,8 +796,8 @@ Setup (una sola vez):
    Action de terceros), un atacante no puede borrar el historial de
    backups existente — el escenario de ransomware que el offsite
    debería mitigar (issue #58). Para restaurar o listar backups desde tu
-   propia máquina, generá una segunda key aparte con `readFiles` +
-   `listFiles` (sin `writeFiles`) y usala solo local, nunca en un secret
+   propia máquina, genera una segunda key aparte con `readFiles` +
+   `listFiles` (sin `writeFiles`) y úsala solo local, nunca en un secret
    de CI.
 3. Instalar [`rclone`](https://rclone.org) en cualquier máquina (puede ser
    tu laptop, no hace falta que sea el servidor) y correr `rclone config`
@@ -1002,7 +1039,7 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `RESEND_WEBHOOK_SECRET` | Secreto del webhook de Resend (issue #163) para verificar la firma Svix de `POST /webhooks/resend` (tracking de entrega/apertura de recordatorios por email). Sin setear, esa ruta responde `501` sin intentar verificar nada — no bloquea el resto de la app | Conseguir en el dashboard de Resend, sección Webhooks |
 | `SENTRY_DSN` (backend) / `VITE_SENTRY_DSN` (frontend) | DSN de un proyecto Sentry (issue #191) para capturar errores 500 y excepciones no controladas. Opcional: sin DSN el SDK queda desactivado. No se envían bodies, cookies ni headers de las requests | Proyecto Node (backend) y proyecto React (frontend) en sentry.io |
 | `B2_AVATARS_ENDPOINT` / `B2_AVATARS_REGION` / `B2_AVATARS_BUCKET` / `B2_AVATARS_KEY_ID` / `B2_AVATARS_APPLICATION_KEY` | Credenciales de un bucket Backblaze B2 **privado**, dedicado solo a fotos de perfil (issue #170) — storage vía `@aws-sdk/client-s3` (S3-compatible), reemplaza el disco local que Render (free tier) no persiste entre deploys. Sin estas variables, subir/ver un avatar falla | Ver [Despliegue](#despliegue-issue-8), paso 2 |
-| `B2_SHARED_FILES_ENDPOINT` / `B2_SHARED_FILES_REGION` / `B2_SHARED_FILES_BUCKET` / `B2_SHARED_FILES_KEY_ID` / `B2_SHARED_FILES_APPLICATION_KEY` | Mismo patrón que `B2_AVATARS_*` (issue #170, parte pendiente), pero para la biblioteca personal de archivos (`shared-files`) — bucket B2 propio y separado del de avatares. Sin estas variables, subir/descargar un archivo personal falla | Ver [Despliegue](#despliegue-issue-8), paso 2 |
+| `B2_SHARED_FILES_ENDPOINT` / `B2_SHARED_FILES_REGION` / `B2_SHARED_FILES_BUCKET` / `B2_SHARED_FILES_KEY_ID` / `B2_SHARED_FILES_APPLICATION_KEY` | Mismo patrón que `B2_AVATARS_*` (issue #170), pero para la biblioteca personal de archivos (`shared-files`) — bucket B2 propio y separado del de avatares. Sin estas variables, subir/descargar un archivo personal falla | Ver [Despliegue](#despliegue-issue-8), paso 2 |
 | `B2_PATIENT_DOCUMENTS_ENDPOINT` / `B2_PATIENT_DOCUMENTS_REGION` / `B2_PATIENT_DOCUMENTS_BUCKET` / `B2_PATIENT_DOCUMENTS_KEY_ID` / `B2_PATIENT_DOCUMENTS_APPLICATION_KEY` | Mismo patrón que `B2_AVATARS_*`/`B2_SHARED_FILES_*` (issue #158), pero para los documentos de ficha clínica (`documents`: exámenes, certificados, consentimientos) — bucket B2 propio, separado de los anteriores. El contenido sigue cifrado en reposo con `DOCUMENT_ENCRYPTION_KEY` (AES-256-GCM) antes de subirse. Sin estas variables, subir/descargar un documento clínico falla | Ver [Despliegue](#despliegue-issue-8), paso 2 |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar el refresh token de Google Calendar en reposo — distinta de `DOCUMENT_ENCRYPTION_KEY` a propósito (sdd/google-calendar-integration) | Generar con `openssl rand -base64 32` |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Credenciales OAuth del proyecto de Google Cloud. Sin setear, el módulo de integración con Google Calendar se registra deshabilitado (mismo criterio que `MailService` sin `RESEND_API_KEY`) — no bloquea el arranque en dev/test/CI | Conseguir en Google Cloud Console |
@@ -1013,6 +1050,10 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `PAYMENTS_ENABLED` | Si es `false`, desactiva por completo la creación de cargos, el checkout, los emails de pago y el cron de vencimiento sin necesitar un deploy/revert | `false` en CI/e2e |
 | `INVITE_CREATOR_EMAIL` | Issue #124: único email autorizado a generar códigos de invitación (`POST /auth/invitations`), requeridos para completar `POST /auth/signup`. Mecanismo temporal sin rol ADMIN (decisión explícita) — sin setear, nadie puede generar invitaciones y el signup público queda efectivamente cerrado | `terapeuta@ejemplo.cl` |
 | `PUBLIC_SCHEDULING_ENABLED` | Habilita el portal público de auto-agenda (sdd/patient-self-scheduling): tanto la lectura de disponibilidad como la reserva. **Sin default** — sin setear, ambos endpoints públicos se registran deshabilitados (a diferencia de `PAYMENTS_ENABLED`/`GOOGLE_CALENDAR_SYNC_ENABLED`, acá "ausente" es deshabilitado, no habilitado, por ser superficie pública nueva) | `true` |
+| `FLOW_API_BASE_URL` | Base URL de la API de Flow que usa el cliente de pagos. Opcional | `https://sandbox.flow.cl/api` (default; en producción apuntar a la API productiva de Flow) |
+| `LAN_DEV_URL` | Origen adicional permitido por CORS para probar el frontend desde otro dispositivo de la red local. Opcional; si se define, debe ser una URL válida (se valida al arrancar) | `http://192.168.1.10:5173` |
+| `VITE_API_URL` (frontend) | URL base del backend (incluye `/api/v1`) que usa el frontend. Variable de build de Vite; en Vercel se define en el proyecto. Sin definir, en desarrollo cae a `http://localhost:3001/api/v1`; en un build de producción es un error de configuración | `http://localhost:3001/api/v1` |
+| `*_THROTTLE_LIMIT` / `*_THROTTLE_TTL_MS` (throttlers de auth, perfil y pagos) | Límite (peticiones) y ventana (ms) de cada throttler nombrado. Prefijos: `LOGIN_`, `SIGNUP_`, `MFA_` (verificación en login), `MFA_SETUP_`, `MFA_RECOVER_`, `PASSWORD_CHANGE_`, `PASSWORD_RESET_`, `VERIFY_EMAIL_`, `RESEND_VERIFICATION_`, `EMAIL_CHANGE_CONFIRM_`, `PROFILE_UPDATE_`, `PAYMENT_CONFIRM_`, `PAYMENT_RETURN_`. Un valor que no sea un entero positivo se ignora con un warning en el arranque | Límite por defecto `5` peticiones, salvo `EMAIL_CHANGE_CONFIRM_` (`10`), `PAYMENT_CONFIRM_` (`30`) y `PAYMENT_RETURN_` (`20`); ventana por defecto `60000` ms, salvo `PROFILE_UPDATE_` (`900000` ms). En `NODE_ENV=test` el límite por defecto es `1000` |
 | `PUBLIC_AVAILABILITY_THROTTLE_LIMIT` / `PUBLIC_AVAILABILITY_THROTTLE_TTL_MS` | Límite del throttler `public-availability` (lectura de horarios libres, sin auth) | `20` req / `60000` ms (default) |
 | `PUBLIC_BOOKING_THROTTLE_LIMIT` / `PUBLIC_BOOKING_THROTTLE_TTL_MS` | Límite del throttler `public-booking` (crea `Patient` + `Consultation`, mismo presupuesto conservador que login/signup) | `5` req / `60000` ms (default) |
 | `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` | Habilita el overlay de bloqueos de Google Calendar sobre `computeSlots()` (sdd/public-booking-payment-calendar): el cron `CalendarBusyService` deja de sincronizar `CalendarBusyBlock` y el cálculo de horarios libres deja de consultarlo. Opt-in (`=== 'true'`, no el `!== 'false'` de `GOOGLE_CALENDAR_SYNC_ENABLED`/`PAYMENTS_ENABLED`) — sin setear, `computeSlots()` es byte-idéntico al comportamiento anterior a este cambio. Independiente de `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED`: cada flag lee su propia env var, ninguno depende del estado del otro | `true` |

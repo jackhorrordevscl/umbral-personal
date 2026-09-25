@@ -47,8 +47,9 @@ tags) sigue referenciando esos archivos.
 - Precedente para issue #57 (tercera copia local, regla 3-2-1): el destino
   de esa copia se gitignoreó desde el diseño inicial, no como parche
   posterior.
-- Si `backup.sh` se retoma (issue #61, abierto), tiene que escribir a una
-  ruta gitignoreada desde el primer commit que lo reintroduzca.
+- Si un script de backup local como `backup.sh` (retirado en el issue #61,
+  cerrado) se reintroduce, tiene que escribir a una ruta gitignoreada desde
+  el primer commit que lo reintroduzca.
 
 ---
 
