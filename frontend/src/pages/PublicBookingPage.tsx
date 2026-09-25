@@ -74,6 +74,8 @@ function TherapistProfileHeader({ therapistId }: { therapistId: string }) {
         <img
           src={getPublicTherapistAvatarUrl(therapistId)}
           alt={profile.name}
+          width={112}
+          height={112}
           className="w-28 h-28 rounded-lg object-cover flex-shrink-0"
         />
       ) : (

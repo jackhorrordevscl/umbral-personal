@@ -158,7 +158,7 @@ function MfaCard({
           </p>
           {qrCode && (
             <div className="flex justify-center">
-              <img src={qrCode} alt="QR MFA" className="w-48 h-48 rounded-lg border border-slate-200" />
+              <img src={qrCode} alt="QR MFA" width={192} height={192} className="w-48 h-48 rounded-lg border border-slate-200" />
             </div>
           )}
           <p className="text-xs text-slate-500 text-center">
