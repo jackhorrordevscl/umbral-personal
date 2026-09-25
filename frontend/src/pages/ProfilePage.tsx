@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useQueryClient } from '@tanstack/react-query';
 import { Copy, Check, CalendarDays } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
 import ErrorBanner from '../components/ui/ErrorBanner';
-import { useProfile, type Profile } from '../hooks/useProfile';
+import {
+  useProfile,
+  useUpdateProfile,
+  useUploadAvatar,
+  useDeleteAvatar,
+  type Profile,
+} from '../hooks/useProfile';
 import WeeklyScheduleEditor from '../components/availability/WeeklyScheduleEditor';
 import BlockoutEditor from '../components/availability/BlockoutEditor';
 
@@ -100,9 +105,14 @@ function AccountDataForm({ profile }: { profile: Profile | undefined }) {
   );
   const [nameInput, setNameInput] = useState(profile?.name ?? '');
 
-  const [nameSaving, setNameSaving] = useState(false);
-  const [nameError, setNameError] = useState('');
-  const [nameMessage, setNameMessage] = useState('');
+  // Issue #202: saving/error de cada formulario salen de su propia mutación
+  // (isPending/error), no de useState hecho a mano.
+  const nameMutation = useUpdateProfile();
+  const nameSaving = nameMutation.isPending;
+  const nameError = nameMutation.isError
+    ? getApiErrorMessage(nameMutation.error, 'No se pudo actualizar el nombre.')
+    : '';
+  const nameMessage = nameMutation.isSuccess ? 'Nombre actualizado correctamente.' : '';
 
   // issue #155: bio/specialty se muestran en la autoagenda pública
   // (PublicBookingPage.tsx) -- mismo patrón de estado/guardado que
@@ -110,86 +120,75 @@ function AccountDataForm({ profile }: { profile: Profile | undefined }) {
   // "guardado" conceptual que el nombre de la cuenta.
   const [bioInput, setBioInput] = useState(profile?.bio ?? '');
   const [specialtyInput, setSpecialtyInput] = useState(profile?.specialty ?? '');
-  const [profileSaving, setProfileSaving] = useState(false);
-  const [profileError, setProfileError] = useState('');
-  const [profileMessage, setProfileMessage] = useState('');
+  const profileMutation = useUpdateProfile();
+  const profileSaving = profileMutation.isPending;
+  const profileError = profileMutation.isError
+    ? getApiErrorMessage(profileMutation.error, 'No se pudo actualizar el perfil público.')
+    : '';
+  const profileMessage = profileMutation.isSuccess
+    ? 'Perfil público actualizado correctamente.'
+    : '';
 
   const [emailInput, setEmailInput] = useState('');
   const [emailCurrentPassword, setEmailCurrentPassword] = useState('');
-  const [emailSaving, setEmailSaving] = useState(false);
-  const [emailError, setEmailError] = useState('');
+  const emailMutation = useUpdateProfile();
+  const emailSaving = emailMutation.isPending;
+  const emailError = emailMutation.isError
+    ? getApiErrorMessage(emailMutation.error, 'No se pudo solicitar el cambio de email.')
+    : '';
 
   const [newPassword, setNewPassword] = useState('');
   const [passwordCurrentPassword, setPasswordCurrentPassword] = useState('');
-  const [passwordSaving, setPasswordSaving] = useState(false);
-  const [passwordError, setPasswordError] = useState('');
+  const passwordMutation = useUpdateProfile();
+  const passwordSaving = passwordMutation.isPending;
+  const passwordError = passwordMutation.isError
+    ? getApiErrorMessage(passwordMutation.error, 'No se pudo actualizar la contraseña.')
+    : '';
 
   // Issue #76 (PR B, follow-up): update de solo `name` -- ProfileService no
   // exige currentPassword para este caso, así que nunca se manda bundleado
   // con email/password (esos van en su propio PATCH, cada uno con su propia
   // currentPassword).
-  const handleUpdateName = async (e: React.FormEvent) => {
+  const handleUpdateName = (e: React.FormEvent) => {
     e.preventDefault();
-    setNameSaving(true);
-    setNameError('');
-    setNameMessage('');
-    try {
-      const res = await api.patch('/profile', { name: nameInput });
-      setAccountName(res.data.name);
-      setNameMessage('Nombre actualizado correctamente.');
-    } catch (err) {
-      setNameError(getApiErrorMessage(err, 'No se pudo actualizar el nombre.'));
-    } finally {
-      setNameSaving(false);
-    }
+    nameMutation.mutate(
+      { name: nameInput },
+      { onSuccess: (data) => setAccountName(data.name ?? '') },
+    );
   };
 
   // Bio/specialty se guardan juntos (mismo endpoint, ambos opcionales) --
   // ProfileService.updateProfile acepta '' para vaciar el campo (comentario
   // en profile.service.ts), así que un textarea/input vacío es un valor
   // válido, no "no cambiar nada".
-  const handleUpdatePublicProfile = async (e: React.FormEvent) => {
+  const handleUpdatePublicProfile = (e: React.FormEvent) => {
     e.preventDefault();
-    setProfileSaving(true);
-    setProfileError('');
-    setProfileMessage('');
-    try {
-      const res = await api.patch('/profile', {
-        bio: bioInput,
-        specialty: specialtyInput,
-      });
-      setAccountBio(res.data.bio ?? '');
-      setAccountSpecialty(res.data.specialty ?? '');
-      setProfileMessage('Perfil público actualizado correctamente.');
-    } catch (err) {
-      setProfileError(getApiErrorMessage(err, 'No se pudo actualizar el perfil público.'));
-    } finally {
-      setProfileSaving(false);
-    }
+    profileMutation.mutate(
+      { bio: bioInput, specialty: specialtyInput },
+      {
+        onSuccess: (data) => {
+          setAccountBio(data.bio ?? '');
+          setAccountSpecialty(data.specialty ?? '');
+        },
+      },
+    );
   };
 
   // El cambio de email queda diferido en el backend (pendingEmail) hasta que
   // se confirme desde la casilla nueva -- la respuesta ya trae el
   // pendingEmail recién seteado, sin necesidad de un GET adicional.
-  const handleUpdateEmail = async (e: React.FormEvent) => {
+  const handleUpdateEmail = (e: React.FormEvent) => {
     e.preventDefault();
-    setEmailSaving(true);
-    setEmailError('');
-    try {
-      const res = await api.patch('/profile', {
-        email: emailInput,
-        currentPassword: emailCurrentPassword,
-      });
-      setPendingEmail(res.data.pendingEmail ?? emailInput);
-      setEmailInput('');
-      setEmailCurrentPassword('');
-    } catch (err) {
-      setEmailError(
-        getApiErrorMessage(err, 'No se pudo solicitar el cambio de email.'),
-      );
-    } finally {
-      setEmailSaving(false);
-    }
+    emailMutation.mutate(
+      { email: emailInput, currentPassword: emailCurrentPassword },
+      {
+        onSuccess: (data) => {
+          setPendingEmail(data.pendingEmail ?? emailInput);
+          setEmailInput('');
+          setEmailCurrentPassword('');
+        },
+      },
+    );
   };
 
   // Issue #76 (PR B): un cambio de password exitoso NO entrega un token de
@@ -198,29 +197,22 @@ function AccountDataForm({ profile }: { profile: Profile | undefined }) {
   // sesión y redirigir de inmediato, antes de que cualquier otra llamada
   // caiga en el interceptor 401 genérico de api/client.ts (que redirige sin
   // mensaje).
-  const handleUpdatePassword = async (e: React.FormEvent) => {
+  const handleUpdatePassword = (e: React.FormEvent) => {
     e.preventDefault();
-    setPasswordSaving(true);
-    setPasswordError('');
-    try {
-      await api.patch('/profile', {
-        password: newPassword,
-        currentPassword: passwordCurrentPassword,
-      });
-      logout();
-      navigate('/login', {
-        state: {
-          message:
-            'Tu contraseña fue actualizada. Por tu seguridad, inicia sesión de nuevo.',
+    passwordMutation.mutate(
+      { password: newPassword, currentPassword: passwordCurrentPassword },
+      {
+        onSuccess: () => {
+          logout();
+          navigate('/login', {
+            state: {
+              message:
+                'Tu contraseña fue actualizada. Por tu seguridad, inicia sesión de nuevo.',
+            },
+          });
         },
-      });
-    } catch (err) {
-      setPasswordError(
-        getApiErrorMessage(err, 'No se pudo actualizar la contraseña.'),
-      );
-    } finally {
-      setPasswordSaving(false);
-    }
+      },
+    );
   };
 
   return (
@@ -437,54 +429,35 @@ function AvatarPreview({ avatarUpdatedAt }: { avatarUpdatedAt: string | null }) 
 }
 
 function AvatarCard({ profile }: { profile: Profile | undefined }) {
-  const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState('');
+  const uploadMutation = useUploadAvatar();
+  const deleteMutation = useDeleteAvatar();
+  const uploading = uploadMutation.isPending;
+  const deleting = deleteMutation.isPending;
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  const handleUpload = async () => {
+  // Subir y quitar comparten el mismo banner: se muestra el error de la
+  // última acción, y cada acción limpia el de la otra antes de empezar.
+  const error = uploadMutation.isError
+    ? getApiErrorMessage(uploadMutation.error, 'No se pudo subir la foto de perfil.')
+    : deleteMutation.isError
+      ? getApiErrorMessage(deleteMutation.error, 'No se pudo quitar la foto de perfil.')
+      : '';
+
+  const handleUpload = () => {
     if (!selectedFile) return;
-    setUploading(true);
-    setError('');
-    try {
-      // Mismo patrón que uploadPatientDocument en api/documents.ts: el
-      // cliente axios de api/client.ts trae `Content-Type: application/json`
-      // como default, así que hay que pisarlo a mano en cada upload -- sin
-      // este override, axios manda el FormData con Content-Type: application/
-      // json (sin boundary), y @UploadedFile() del backend nunca ve el
-      // archivo (file llega undefined).
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      const res = await api.post('/profile/avatar', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      queryClient.setQueryData<Profile | undefined>(['profile'], (prev) =>
-        prev ? { ...prev, avatarUpdatedAt: res.data.avatarUpdatedAt } : prev,
-      );
-      setSelectedFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    } catch (e) {
-      setError(getApiErrorMessage(e, 'No se pudo subir la foto de perfil.'));
-    } finally {
-      setUploading(false);
-    }
+    deleteMutation.reset();
+    uploadMutation.mutate(selectedFile, {
+      onSuccess: () => {
+        setSelectedFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      },
+    });
   };
 
-  const handleDelete = async () => {
-    setDeleting(true);
-    setError('');
-    try {
-      await api.delete('/profile/avatar');
-      queryClient.setQueryData<Profile | undefined>(['profile'], (prev) =>
-        prev ? { ...prev, avatarUpdatedAt: null } : prev,
-      );
-    } catch (e) {
-      setError(getApiErrorMessage(e, 'No se pudo quitar la foto de perfil.'));
-    } finally {
-      setDeleting(false);
-    }
+  const handleDelete = () => {
+    uploadMutation.reset();
+    deleteMutation.mutate();
   };
 
   return (
