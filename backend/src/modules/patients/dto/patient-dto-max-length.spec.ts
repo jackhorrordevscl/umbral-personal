@@ -112,3 +112,27 @@ describe('formato de rut en CreatePatientDto', () => {
     expect(errors.map((e) => e.property)).toContain('rut');
   });
 });
+
+// Issue #214: patientIds sin cota permitía un loop secuencial arbitrariamente
+// largo en bulkDeclareConsent.
+describe('BulkDeclareConsentDto patientIds', () => {
+  const build = (count: number) =>
+    plainToInstance(BulkDeclareConsentDto, {
+      patientIds: Array.from(
+        { length: count },
+        (_, i) => `3fa85f64-5717-4562-b3fc-${String(i).padStart(12, '0')}`,
+      ),
+      purpose: 'TREATMENT',
+      evidence: 'Consentimiento en papel del expediente físico',
+    });
+
+  it('acepta hasta 500 pacientes', async () => {
+    expect(await validate(build(500))).toHaveLength(0);
+  });
+
+  it('rechaza más de 500 pacientes', async () => {
+    const errors = await validate(build(501));
+
+    expect(errors.map((e) => e.property)).toContain('patientIds');
+  });
+});
