@@ -331,7 +331,16 @@ export class PatientsService {
 
   // T6.1 (issue #27): registra un evento de otorgamiento/revocación para una
   // finalidad puntual.
-  async recordConsent(id: string, dto: RecordConsentDto, userId: string) {
+  //
+  // `documentId` solo lo fijan callers internos del servidor (DocumentsService,
+  // issue #270); RecordConsentDto no lo acepta, así un cliente no puede
+  // atribuir un evento a un documento arbitrario.
+  async recordConsent(
+    id: string,
+    dto: RecordConsentDto,
+    userId: string,
+    documentId?: string,
+  ) {
     await this.assertAccess(id, userId);
 
     return this.prisma.patientConsent.create({
@@ -341,6 +350,7 @@ export class PatientsService {
         action: dto.action,
         recordedById: userId,
         evidence: dto.evidence,
+        documentId: documentId ?? null,
       },
     });
   }

@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
@@ -120,6 +120,7 @@ describe('DocumentsService', () => {
           evidence: expect.stringContaining('consentimiento.pdf') as unknown,
         }),
         'therapist-1',
+        'doc-1',
       );
     });
 
@@ -135,6 +136,7 @@ describe('DocumentsService', () => {
         'patient-1',
         expect.objectContaining({ purpose: 'TELEMEDICINE', action: 'GRANT' }),
         'therapist-1',
+        'doc-1',
       );
     });
 
@@ -263,6 +265,148 @@ describe('DocumentsService', () => {
       await expect(
         service.getDecryptedFile('doc-1', 'therapist-1'),
       ).rejects.toThrow('credenciales inválidas');
+    });
+  });
+
+  describe('voidDocument', () => {
+    const dto = { reason: 'Archivo equivocado' };
+    let tx: {
+      patientDocument: {
+        updateMany: jest.Mock;
+        findUniqueOrThrow: jest.Mock;
+        findFirst: jest.Mock;
+      };
+      patientConsent: { findFirst: jest.Mock; create: jest.Mock };
+    };
+    const consentDoc = {
+      id: 'doc-1',
+      patientId: 'patient-1',
+      type: 'INFORMED_CONSENT',
+      fileName: 'consentimiento.pdf',
+      voidReason: dto.reason,
+      voidedAt: new Date(),
+    };
+
+    beforeEach(() => {
+      tx = {
+        patientDocument: {
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          findUniqueOrThrow: jest.fn().mockResolvedValue(consentDoc),
+          findFirst: jest.fn().mockResolvedValue(null),
+        },
+        patientConsent: {
+          findFirst: jest.fn(),
+          create: jest.fn().mockResolvedValue({ id: 'consent-2' }),
+        },
+      };
+      (prisma as unknown as Record<string, unknown>).$transaction = jest.fn(
+        (fn: (t: typeof tx) => unknown) => fn(tx),
+      );
+      prisma.patientDocument.findUnique.mockResolvedValue({
+        ...consentDoc,
+        voidedAt: null,
+      });
+    });
+
+    it('404 si el documento no existe', async () => {
+      prisma.patientDocument.findUnique.mockResolvedValue(null);
+      await expect(
+        service.voidDocument('doc-1', dto, 'therapist-1'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('propaga el 404 uniforme de assertAccess y no escribe nada', async () => {
+      patientsService.assertAccess.mockRejectedValue(new NotFoundException());
+      await expect(
+        service.voidDocument('doc-1', dto, 'therapist-1'),
+      ).rejects.toThrow(NotFoundException);
+      expect(tx.patientDocument.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('409 si el documento ya estaba anulado', async () => {
+      tx.patientDocument.updateMany.mockResolvedValue({ count: 0 });
+      await expect(
+        service.voidDocument('doc-1', dto, 'therapist-1'),
+      ).rejects.toThrow(ConflictException);
+      expect(tx.patientConsent.create).not.toHaveBeenCalled();
+    });
+
+    it('marca voidedAt/voidedById/voidReason', async () => {
+      await service.voidDocument('doc-1', dto, 'therapist-1');
+      expect(tx.patientDocument.updateMany).toHaveBeenCalledWith({
+        where: { id: 'doc-1', voidedAt: null },
+        data: {
+          voidedAt: expect.any(Date) as unknown,
+          voidedById: 'therapist-1',
+          voidReason: dto.reason,
+        },
+      });
+    });
+
+    it('tipo sin propósito de consentimiento: no toca el ledger', async () => {
+      tx.patientDocument.findUniqueOrThrow.mockResolvedValue({
+        ...consentDoc,
+        type: 'OTHER',
+      });
+      await service.voidDocument('doc-1', dto, 'therapist-1');
+      expect(tx.patientConsent.findFirst).not.toHaveBeenCalled();
+      expect(tx.patientConsent.create).not.toHaveBeenCalled();
+    });
+
+    it('queda otro documento vigente del mismo propósito: no escribe REVOKE', async () => {
+      tx.patientDocument.findFirst.mockResolvedValue({ id: 'doc-2' });
+      await service.voidDocument('doc-1', dto, 'therapist-1');
+      expect(tx.patientConsent.create).not.toHaveBeenCalled();
+    });
+
+    it('era el único y el último evento es un GRANT de un documento anulado: agrega REVOKE con motivo', async () => {
+      tx.patientConsent.findFirst.mockResolvedValue({
+        action: 'GRANT',
+        documentId: 'doc-1',
+        document: { voidedAt: new Date() },
+      });
+      await service.voidDocument('doc-1', dto, 'therapist-1');
+      expect(tx.patientConsent.create).toHaveBeenCalledWith({
+        data: {
+          patientId: 'patient-1',
+          purpose: 'TREATMENT',
+          action: 'REVOKE',
+          recordedById: 'therapist-1',
+          documentId: 'doc-1',
+          evidence:
+            'Documento anulado: consentimiento.pdf (id doc-1). Motivo: Archivo equivocado',
+        },
+      });
+    });
+
+    it('el último evento es un GRANT manual (sin documento): no escribe REVOKE', async () => {
+      tx.patientConsent.findFirst.mockResolvedValue({
+        action: 'GRANT',
+        documentId: null,
+        document: null,
+      });
+      await service.voidDocument('doc-1', dto, 'therapist-1');
+      expect(tx.patientConsent.create).not.toHaveBeenCalled();
+    });
+
+    it('el último evento ya es un REVOKE: no escribe otro', async () => {
+      tx.patientConsent.findFirst.mockResolvedValue({
+        action: 'REVOKE',
+        documentId: 'doc-1',
+        document: { voidedAt: new Date() },
+      });
+      await service.voidDocument('doc-1', dto, 'therapist-1');
+      expect(tx.patientConsent.create).not.toHaveBeenCalled();
+    });
+
+    it('el último GRANT depende de un documento aún vigente: no escribe REVOKE', async () => {
+      tx.patientConsent.findFirst.mockResolvedValue({
+        action: 'GRANT',
+        documentId: 'doc-9',
+        document: { voidedAt: null },
+      });
+      await service.voidDocument('doc-1', dto, 'therapist-1');
+      expect(tx.patientConsent.create).not.toHaveBeenCalled();
     });
   });
 });

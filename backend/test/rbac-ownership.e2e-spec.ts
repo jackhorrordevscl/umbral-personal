@@ -238,13 +238,13 @@ describe('RBAC ownership guard (e2e)', () => {
         // Los objetos en B2 (mockeados en memoria para este proceso de test,
         // issue #158) no necesitan limpieza explícita: mueren con el
         // proceso Jest.
-        // Borrado respetando FKs: documentos/consultas/consentimientos -> paciente.
-        await prisma.patientDocument.deleteMany({ where: { patientId } });
+        // Borrado respetando FKs: consultas/consentimientos/documentos -> paciente (el ledger referencia al documento).
         await prisma.consultationHistory.deleteMany({
           where: { consultation: { patientId } },
         });
         await prisma.consultation.deleteMany({ where: { patientId } });
         await prisma.patientConsent.deleteMany({ where: { patientId } });
+        await prisma.patientDocument.deleteMany({ where: { patientId } });
         await prisma.patient.deleteMany({ where: { id: patientId } });
       }
 

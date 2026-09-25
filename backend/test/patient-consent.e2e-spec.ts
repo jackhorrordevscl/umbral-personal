@@ -164,10 +164,11 @@ describe('Patient consent ledger (e2e)', () => {
         await prisma.consultation.deleteMany({
           where: { patientId: { in: extraPatientIds } },
         });
-        await prisma.patientDocument.deleteMany({
+        await prisma.patientConsent.deleteMany({
           where: { patientId: { in: extraPatientIds } },
         });
-        await prisma.patientConsent.deleteMany({
+        // El ledger referencia al documento (FK RESTRICT): va después.
+        await prisma.patientDocument.deleteMany({
           where: { patientId: { in: extraPatientIds } },
         });
         await prisma.patient.deleteMany({

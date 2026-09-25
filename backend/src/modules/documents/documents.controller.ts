@@ -20,6 +20,7 @@ import {
   type RequestUser,
 } from '../../common/decorators/current-user.decorator';
 import { UploadDocumentDto } from './dto/upload-document.dto';
+import { VoidDocumentDto } from './dto/void-document.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('documents')
@@ -85,6 +86,19 @@ export class DocumentsController {
     @CurrentUser() user: RequestUser,
   ) {
     return this.documentsService.findByPatient(patientId, user.id);
+  }
+
+  // Issue #270: anulación con motivo obligatorio. El interceptor de auditoría
+  // mapearía POST a CREATE; AuditRead lo registra como DOCUMENT_VOID (el motivo
+  // no viaja al detalle de auditoría, queda solo en el documento).
+  @AuditRead({ action: 'DOCUMENT_VOID' })
+  @Post(':id/void')
+  voidDocument(
+    @Param('id') id: string,
+    @Body() dto: VoidDocumentDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.documentsService.voidDocument(id, dto, user.id);
   }
 
   // Adjuntos de cualquier tipo (no siempre PDF): se mantiene VIEW y se marca
