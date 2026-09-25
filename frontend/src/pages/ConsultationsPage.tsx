@@ -62,16 +62,20 @@ function SessionAttachment({ groupId, documents }: { groupId: string; documents:
 // otro canal (WhatsApp, SMS, etc).
 function CopyPaymentLinkButton({ paymentUrl }: { paymentUrl: string }) {
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   const handleCopy = async () => {
+    setCopyFailed(false);
     try {
       await navigator.clipboard.writeText(paymentUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // Sin acceso al portapapeles (permiso denegado, contexto no seguro):
-      // no hay nada más que ofrecer acá, el link sigue disponible copiando
-      // manualmente desde el atributo title del botón.
+      // se avisa al usuario; el link sigue disponible copiando manualmente
+      // desde el atributo title del botón.
+      setCopyFailed(true);
+      setTimeout(() => setCopyFailed(false), 2000);
     }
   };
 
@@ -83,7 +87,7 @@ function CopyPaymentLinkButton({ paymentUrl }: { paymentUrl: string }) {
       className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors inline-flex items-center gap-1"
     >
       {copied ? <Check size={11} /> : <Copy size={11} />}
-      {copied ? 'Copiado' : 'Copiar link de pago'}
+      {copied ? 'Copiado' : copyFailed ? 'No se pudo copiar' : 'Copiar link de pago'}
     </button>
   );
 }

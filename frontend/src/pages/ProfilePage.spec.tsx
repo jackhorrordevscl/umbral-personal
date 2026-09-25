@@ -135,6 +135,24 @@ describe('ProfilePage — account-settings Req: Profile Section Scope', () => {
     )
   })
 
+  // Issue #215: antes el catch estaba vacío y el usuario no se enteraba si el
+  // navegador denegaba el permiso de portapapeles.
+  it('avisa al usuario cuando el navegador deniega copiar al portapapeles', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'))
+    Object.assign(navigator, { clipboard: { writeText } })
+
+    renderProfilePage()
+
+    await userEvent.click(await screen.findByRole('button', { name: /copiar/i }))
+
+    expect(
+      await screen.findByRole('button', { name: /no se pudo copiar/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /copiado/i }),
+    ).not.toBeInTheDocument()
+  })
+
   it('no muestra ningún control de MFA', async () => {
     renderProfilePage()
 

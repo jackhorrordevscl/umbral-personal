@@ -241,10 +241,12 @@ function InviteCard() {
   const createInvitationMutation = useCreateInvitation();
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   const handleGenerate = async () => {
     setError('');
     setCopied(false);
+    setCopyFailed(false);
     try {
       await createInvitationMutation.mutateAsync();
     } catch (err) {
@@ -254,12 +256,14 @@ function InviteCard() {
 
   const handleCopy = async () => {
     if (!createInvitationMutation.data) return;
+    setCopyFailed(false);
     try {
       await navigator.clipboard.writeText(createInvitationMutation.data.code);
       setCopied(true);
     } catch {
-      // Si el portapapeles no está disponible, el código sigue visible en
-      // pantalla para copiarlo a mano.
+      // Si el portapapeles no está disponible, se avisa al usuario; el código
+      // sigue visible en pantalla para copiarlo a mano.
+      setCopyFailed(true);
     }
   };
 
@@ -291,7 +295,7 @@ function InviteCard() {
               className="btn-secondary flex items-center gap-2 shrink-0"
             >
               <Copy size={14} />
-              {copied ? 'Copiado' : 'Copiar'}
+              {copied ? 'Copiado' : copyFailed ? 'No se pudo copiar' : 'Copiar'}
             </button>
           </div>
           <p className="text-xs text-slate-500">
