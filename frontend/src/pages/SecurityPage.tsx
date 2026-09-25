@@ -358,13 +358,18 @@ export default function SecurityPage() {
 
   const [mfaHistory, setMfaHistory] = useState<MfaHistoryEntry[]>([]);
 
+  const [mfaHistoryError, setMfaHistoryError] = useState(false);
+
   const fetchMfaHistory = async () => {
     try {
       const res = await api.get('/profile/mfa-history');
       setMfaHistory(res.data);
+      setMfaHistoryError(false);
     } catch {
-      // No bloquea el resto de la pantalla: el historial es informativo,
-      // no una condición para poder enrolar/desenrolar MFA.
+      // No bloquea el resto de la pantalla (el historial es informativo),
+      // pero el fallo se avisa: en una pantalla de seguridad no puede
+      // desaparecer el historial en silencio.
+      setMfaHistoryError(true);
     }
   };
 
@@ -416,6 +421,13 @@ export default function SecurityPage() {
         </div>
       ) : (
         <MfaCard profile={profile} onMfaChanged={() => void fetchMfaHistory()} />
+      )}
+
+      {mfaHistoryError && (
+        <ErrorBanner
+          message="No se pudo cargar el historial de seguridad. Intenta recargar la página."
+          className="max-w-lg mt-6"
+        />
       )}
 
       {mfaHistory.length > 0 && (
