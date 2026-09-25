@@ -7,6 +7,7 @@ import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { uniqueTestRut } from './support/unique-rut';
 
 // Issue #158 (fix CI post-migración a B2): ver
 // test/support/patient-document-storage.mock.ts -- reemplaza el S3Client
@@ -103,6 +104,7 @@ describe('RBAC ownership guard (e2e)', () => {
   let therapistBId: string;
 
   let patientId: string;
+  let patientRut: string;
   let consultationId: string;
   let ownerDocumentId: string;
 
@@ -186,12 +188,13 @@ describe('RBAC ownership guard (e2e)', () => {
     therapistBToken = therapistB.token;
 
     // Con el token de A: crear un paciente y una consulta para ese paciente
+    patientRut = uniqueTestRut();
     const patientCreate = await request(app.getHttpServer())
       .post('/api/v1/patients')
       .set('Authorization', `Bearer ${therapistAToken}`)
       .send({
         fullName: 'RBAC Test Patient',
-        rut: `RBAC${runId}`,
+        rut: patientRut,
         birthDate: '1990-01-01',
       })
       .expect(201);
@@ -472,7 +475,7 @@ describe('RBAC ownership guard (e2e)', () => {
       // (comparte consultationId con este fixture) -- el reporte debe
       // reflejar la versión vigente, no la original.
       expect(text).toContain(normalizeForPdfSearch('RBAC Test Patient'));
-      expect(text).toContain(normalizeForPdfSearch(`RBAC${runId}`));
+      expect(text).toContain(normalizeForPdfSearch(patientRut));
       expect(text).toContain(
         normalizeForPdfSearch('Motivo corregido por el dueño'),
       );

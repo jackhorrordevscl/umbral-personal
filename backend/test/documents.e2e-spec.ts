@@ -7,6 +7,7 @@ import * as speakeasy from 'speakeasy';
 import * as patientDocumentStorage from '../src/common/utils/patient-document-storage.util';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { uniqueTestRut } from './support/unique-rut';
 
 // Issue #158 (fix CI post-migración a B2): `patient-document-storage.util.ts`
 // hace requests reales a Backblaze B2, y el CI no tiene secrets de B2
@@ -138,7 +139,7 @@ describe('Documents encryption at rest (e2e)', () => {
       .set('Authorization', `Bearer ${therapistAToken}`)
       .send({
         fullName: 'Documents Test Patient',
-        rut: `DOCS${runId}`,
+        rut: uniqueTestRut(),
         birthDate: '1990-01-01',
       })
       .expect(201);

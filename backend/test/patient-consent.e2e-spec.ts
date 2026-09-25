@@ -6,6 +6,7 @@ import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { uniqueTestRut } from './support/unique-rut';
 
 // Issue #158 (fix CI post-migración a B2): ver
 // test/support/patient-document-storage.mock.ts -- reemplaza el S3Client
@@ -138,7 +139,7 @@ describe('Patient consent ledger (e2e)', () => {
       .set('Authorization', `Bearer ${therapistAToken}`)
       .send({
         fullName: 'Consent Test Patient',
-        rut: `CONSENT${runId}`,
+        rut: uniqueTestRut(),
         birthDate: '1990-01-01',
       })
       .expect(201);
@@ -371,7 +372,7 @@ describe('Patient consent ledger (e2e)', () => {
         .set('Authorization', `Bearer ${therapistAToken}`)
         .send({
           fullName: 'Guardrail Test Patient',
-          rut: `GUARDRAIL${runId}`,
+          rut: uniqueTestRut(),
           birthDate: '1990-01-01',
         })
         .expect(201);
@@ -444,7 +445,7 @@ describe('Patient consent ledger (e2e)', () => {
         .set('Authorization', `Bearer ${therapistAToken}`)
         .send({
           fullName: 'Upload Consent Test Patient',
-          rut: `UPLOADCONSENT${runId}`,
+          rut: uniqueTestRut(),
           birthDate: '1990-01-01',
         })
         .expect(201);
@@ -510,7 +511,7 @@ describe('Patient consent ledger (e2e)', () => {
         .set('Authorization', `Bearer ${therapistAToken}`)
         .send({
           fullName: 'Bulk Patient A1',
-          rut: `BULKA1${runId}`,
+          rut: uniqueTestRut(),
           birthDate: '1990-01-01',
         })
         .expect(201);
@@ -521,7 +522,7 @@ describe('Patient consent ledger (e2e)', () => {
         .set('Authorization', `Bearer ${therapistAToken}`)
         .send({
           fullName: 'Bulk Patient A2',
-          rut: `BULKA2${runId}`,
+          rut: uniqueTestRut(),
           birthDate: '1990-01-01',
         })
         .expect(201);
@@ -532,7 +533,7 @@ describe('Patient consent ledger (e2e)', () => {
         .set('Authorization', `Bearer ${therapistBToken}`)
         .send({
           fullName: 'Bulk Patient B (ajeno)',
-          rut: `BULKB${runId}`,
+          rut: uniqueTestRut(),
           birthDate: '1990-01-01',
         })
         .expect(201);

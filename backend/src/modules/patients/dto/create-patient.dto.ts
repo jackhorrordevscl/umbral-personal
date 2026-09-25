@@ -7,7 +7,12 @@ import {
   MaxLength,
   Min,
   ValidateIf,
+  Matches,
 } from 'class-validator';
+
+// Issue #196: solo valida la forma (con o sin puntos, guion obligatorio, igual
+// que lo que persiste normalizeRut), no el dígito verificador.
+const RUT_FORMAT = /^(\d{1,2}(\.\d{3}){2}|\d{7,8})-[\dkK]$/;
 
 export class CreatePatientDto {
   @IsString()
@@ -15,6 +20,9 @@ export class CreatePatientDto {
   fullName: string;
 
   @IsString()
+  @Matches(RUT_FORMAT, {
+    message: 'El RUT debe tener formato chileno, ej: 12345678-9 o 12.345.678-9',
+  })
   rut: string;
 
   @IsDateString()

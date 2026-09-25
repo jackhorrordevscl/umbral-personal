@@ -9,6 +9,7 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PaymentGatewayClient } from '../src/modules/payments/payment-gateway.client';
 import { PaymentCredentialCryptoService } from '../src/modules/payments/payment-credential-crypto.service';
+import { uniqueTestRut } from './support/unique-rut';
 
 /**
  * sdd/online-payment-integration PR 2 (T7.7-7.10, design.md "Testing
@@ -209,7 +210,7 @@ describe('Payments (e2e)', () => {
       .set('Authorization', `Bearer ${therapistAToken}`)
       .send({
         fullName: 'Paciente E2E Pagos',
-        rut: `e2e-payments-a-${runId}`,
+        rut: uniqueTestRut(),
         birthDate: '1990-01-01',
         defaultSessionAmount: 30000,
       })
@@ -396,7 +397,7 @@ describe('Payments (e2e)', () => {
         .set('Authorization', `Bearer ${therapistCToken}`)
         .send({
           fullName: 'Paciente E2E Reconexión',
-          rut: `e2e-payments-c-${runId}`,
+          rut: uniqueTestRut(),
           birthDate: '1990-01-01',
           defaultSessionAmount: 25000,
         })
