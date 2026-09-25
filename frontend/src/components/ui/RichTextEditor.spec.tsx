@@ -37,6 +37,24 @@ describe('RichTextEditor', () => {
     expect(screen.getByRole('button', { name: 'Negrita' })).toHaveAttribute('aria-pressed', 'true')
   })
 
+  it('emite <u> al aplicar subrayado y marca el botón como activo', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+
+    render(<RichTextEditor value="" onChange={onChange} ariaLabel="Motivo de consulta" />)
+
+    const textbox = await screen.findByRole('textbox', { name: 'Motivo de consulta' })
+    await user.click(textbox)
+    await user.click(screen.getByRole('button', { name: 'Subrayado' }))
+    await user.type(textbox, 'Hola')
+
+    expect(screen.getByRole('button', { name: 'Subrayado' })).toHaveAttribute('aria-pressed', 'true')
+    await waitFor(() => {
+      const lastCallHtml = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
+      expect(lastCallHtml).toContain('<u>Hola</u>')
+    })
+  })
+
   it('resincroniza el contenido cuando cambia value desde afuera', async () => {
     const onChange = vi.fn()
     const { rerender } = render(
