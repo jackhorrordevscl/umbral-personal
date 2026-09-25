@@ -1,5 +1,5 @@
 import api from './client';
-import type { ConsentPurpose, Patient, PatientHistoryEntry } from '../types/patient';
+import type { ConsentPurpose, ConsentStatus, Patient, PatientHistoryEntry } from '../types/patient';
 
 export interface CreatePatientPayload {
   fullName: string;
@@ -63,6 +63,10 @@ export function recordPatientConsent(
   evidence: string,
 ) {
   return api.post(`/patients/${id}/consents`, { purpose, action, evidence });
+}
+
+export function getPatientConsentStatus(id: string) {
+  return api.get<ConsentStatus>(`/patients/${id}/consents/status`).then((r) => r.data);
 }
 
 // Issue #131 (T5): declaración retroactiva en bloque para pacientes que ya

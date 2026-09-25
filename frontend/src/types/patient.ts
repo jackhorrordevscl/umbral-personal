@@ -51,6 +51,11 @@ export interface PatientDocument {
   // consulta, atado a Consultation.groupId (ver migración
   // add_consultation_summary_document).
   consultationGroupId?: string | null;
+  // Issue #270: anulación con motivo (sin borrado físico). Un documento
+  // anulado sigue listado y descargable por custodia.
+  voidedAt?: string | null;
+  voidedById?: string | null;
+  voidReason?: string | null;
 }
 
 export interface ConsultationHistory {

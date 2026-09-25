@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import {
   AlertCircle,
+  Ban,
   ChevronRight,
   Download,
   Eye,
@@ -20,14 +21,17 @@ import {
   type ConsentPurpose,
   type ConsentStatus,
   type Patient,
+  type PatientDocument,
 } from "../../types/patient";
 import { useUpdatePatient } from "../../hooks/usePatients";
 import {
   usePatientDocuments,
   useUploadPatientDocument,
+  useVoidPatientDocument,
 } from "../../hooks/usePatientDocuments";
 import { usePatientHistory } from "../../hooks/usePatientHistory";
 import { downloadDocument } from "../../api/documents";
+import { getPatientConsentStatus } from "../../api/patients";
 import { downloadPatientReport } from "../../api/reports";
 import { downloadBlob } from "../../utils/download";
 import { getApiErrorMessage } from "../../utils/api-error";
@@ -40,6 +44,9 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   TELEMED_AGREEMENT: "Acuerdo telemedicina",
   OTHER: "Otro",
 };
+
+const VOID_REASON_MIN = 5;
+const VOID_REASON_MAX = 500;
 
 const displayRut = (rut: string) =>
   rut.replace(/\./g, "").replace(/(\d{1,3})(\d{3})(\d{3})([\dkK])$/, "$1.$2.$3-$4");
@@ -68,6 +75,10 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
   const [modalTab, setModalTab] = useState<ModalTab>(initialTab);
   const [docError, setDocError] = useState("");
   const [docType, setDocType] = useState("INFORMED_CONSENT");
+  // Issue #270: documento cuya anulación se está confirmando (null = modal cerrado).
+  const [voidTarget, setVoidTarget] = useState<PatientDocument | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [voidError, setVoidError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [editForm, setEditForm] = useState<Partial<Patient>>({
@@ -90,6 +101,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
 
   const documentsQuery = usePatientDocuments(selected.id);
   const uploadDocument = useUploadPatientDocument(selected.id);
+  const voidDocument = useVoidPatientDocument(selected.id);
   const historyQuery = usePatientHistory(selected.id, modalTab === "history");
   const updateMutation = useUpdatePatient();
 
@@ -191,10 +203,51 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
     }
   };
 
+  const openVoid = (doc: PatientDocument) => {
+    setVoidTarget(doc);
+    setVoidReason("");
+    setVoidError("");
+  };
+
+  const closeVoid = () => {
+    if (voidDocument.isPending) return;
+    setVoidTarget(null);
+  };
+
+  const handleConfirmVoid = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!voidTarget) return;
+    const reason = voidReason.trim();
+    if (reason.length < VOID_REASON_MIN || reason.length > VOID_REASON_MAX) {
+      setVoidError(
+        `El motivo debe tener entre ${VOID_REASON_MIN} y ${VOID_REASON_MAX} caracteres`,
+      );
+      return;
+    }
+    setVoidError("");
+    voidDocument.mutate(
+      { id: voidTarget.id, reason },
+      {
+        onSuccess: () => {
+          setVoidTarget(null);
+          // Anular puede haber revocado el consentimiento vigente: se relee
+          // el estado para que la ficha abierta no muestre uno desactualizado.
+          getPatientConsentStatus(selected.id)
+            .then((consents) => setSelected((prev) => ({ ...prev, consents })))
+            .catch(() => undefined);
+        },
+        onError: (err) => {
+          setVoidError(getApiErrorMessage(err, "No se pudo anular el documento"));
+        },
+      },
+    );
+  };
+
   const documents = documentsQuery.data ?? [];
   const history = historyQuery.data ?? [];
 
   return (
+    <>
     <Modal
       onClose={onClose}
       labelledBy="patient-modal-title"
@@ -319,31 +372,64 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                   <p className="text-xs text-slate-500 mb-3">Sin documentos subidos.</p>
                 ) : (
                   <div className="space-y-2 mb-3">
-                    {documents.map((doc) => (
-                      <div
-                        key={doc.id}
-                        className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <FileText size={14} className="text-slate-400 shrink-0" />
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium text-slate-700 truncate">
-                              {doc.fileName}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              {DOCUMENT_TYPE_LABELS[doc.type] ?? doc.type}
-                            </p>
+                    {documents.map((doc) => {
+                      const isVoided = !!doc.voidedAt;
+                      return (
+                        <div
+                          key={doc.id}
+                          className={`flex items-center justify-between rounded-lg px-3 py-2 ${
+                            isVoided ? "bg-slate-100 opacity-70" : "bg-slate-50"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText size={14} className="text-slate-400 shrink-0" />
+                            <div className="min-w-0">
+                              <p
+                                className={`text-xs font-medium truncate ${
+                                  isVoided ? "text-slate-500 line-through" : "text-slate-700"
+                                }`}
+                              >
+                                {doc.fileName}
+                              </p>
+                              <p className="text-xs text-slate-500">
+                                {DOCUMENT_TYPE_LABELS[doc.type] ?? doc.type}
+                                {isVoided && (
+                                  <span className="ml-2 inline-block rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                                    Anulado
+                                  </span>
+                                )}
+                              </p>
+                              {isVoided && (
+                                <p className="text-xs text-slate-500">
+                                  Anulado el{" "}
+                                  {new Date(doc.voidedAt as string).toLocaleDateString("es-CL")}.
+                                  Motivo: {doc.voidReason}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center shrink-0">
+                            {!isVoided && (
+                              <button
+                                onClick={() => openVoid(doc)}
+                                className="p-1.5 hover:bg-red-50 rounded-lg text-red-500"
+                                aria-label={`Anular ${doc.fileName}`}
+                                title="Anular"
+                              >
+                                <Ban size={13} />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDownloadDoc(doc.id, doc.fileName)}
+                              className="p-1.5 hover:bg-sage-50 rounded-lg text-sage-600"
+                              aria-label={`Descargar ${doc.fileName}`}
+                            >
+                              <Download size={13} />
+                            </button>
                           </div>
                         </div>
-                        <button
-                          onClick={() => handleDownloadDoc(doc.id, doc.fileName)}
-                          className="p-1.5 hover:bg-sage-50 rounded-lg text-sage-600 shrink-0"
-                          aria-label={`Descargar ${doc.fileName}`}
-                        >
-                          <Download size={13} />
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
                 <div className="flex gap-2">
@@ -608,5 +694,52 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
           )}
         </div>
     </Modal>
+    {voidTarget && (
+      <Modal onClose={closeVoid} labelledBy="void-document-title" className="max-w-md p-6">
+        <form onSubmit={handleConfirmVoid} className="space-y-4">
+          <h3 id="void-document-title" className="font-display text-xl text-slate-900">
+            Anular documento
+          </h3>
+          <p className="text-sm text-slate-600">
+            El documento <span className="font-medium">{voidTarget.fileName}</span> quedará
+            marcado como anulado. No se elimina: se conserva por obligación de custodia de la
+            ficha clínica. Si es el único consentimiento vigente de su tipo, el consentimiento
+            registrado también se revocará.
+          </p>
+          <div>
+            <label htmlFor="void-reason" className="block text-xs font-medium text-slate-700 mb-1">
+              Motivo de la anulación <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              id="void-reason"
+              className="input-field resize-none"
+              rows={3}
+              maxLength={VOID_REASON_MAX}
+              placeholder="Ej: Archivo subido a la ficha equivocada"
+              value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)}
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Mínimo {VOID_REASON_MIN} caracteres. Queda registrado junto al documento.
+            </p>
+          </div>
+          {voidError && <ErrorBanner icon message={voidError} />}
+          <div className="flex gap-3 justify-end">
+            <button
+              type="button"
+              onClick={closeVoid}
+              disabled={voidDocument.isPending}
+              className="btn-secondary"
+            >
+              Cancelar
+            </button>
+            <button type="submit" disabled={voidDocument.isPending} className="btn-primary">
+              {voidDocument.isPending ? "Anulando..." : "Anular documento"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+    )}
+    </>
   );
 }
