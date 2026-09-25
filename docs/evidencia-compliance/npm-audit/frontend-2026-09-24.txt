@@ -1,0 +1,135 @@
+# npm audit report
+
+@tiptap/core  <=3.30.3
+Severity: moderate
+Tiptap: mergeAttributes() turns an own __proto__ key into inherited executable DOM attributes - https://github.com/advisories/GHSA-cp6q-959q-f8rh
+fix available via `npm audit fix --force`
+Will install @tiptap/react@3.31.3, which is a breaking change
+node_modules/@tiptap/core
+  @tiptap/extension-blockquote  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-blockquote
+    @tiptap/starter-kit  <=3.0.0-next.8 || 3.30.0 - 3.30.3
+    Depends on vulnerable versions of @tiptap/core
+    Depends on vulnerable versions of @tiptap/extension-blockquote
+    Depends on vulnerable versions of @tiptap/extension-bold
+    Depends on vulnerable versions of @tiptap/extension-bullet-list
+    Depends on vulnerable versions of @tiptap/extension-code
+    Depends on vulnerable versions of @tiptap/extension-code-block
+    Depends on vulnerable versions of @tiptap/extension-document
+    Depends on vulnerable versions of @tiptap/extension-dropcursor
+    Depends on vulnerable versions of @tiptap/extension-gapcursor
+    Depends on vulnerable versions of @tiptap/extension-hard-break
+    Depends on vulnerable versions of @tiptap/extension-heading
+    Depends on vulnerable versions of @tiptap/extension-history
+    Depends on vulnerable versions of @tiptap/extension-horizontal-rule
+    Depends on vulnerable versions of @tiptap/extension-italic
+    Depends on vulnerable versions of @tiptap/extension-list-item
+    Depends on vulnerable versions of @tiptap/extension-ordered-list
+    Depends on vulnerable versions of @tiptap/extension-paragraph
+    Depends on vulnerable versions of @tiptap/extension-strike
+    Depends on vulnerable versions of @tiptap/extension-text
+    Depends on vulnerable versions of @tiptap/extension-text-style
+    node_modules/@tiptap/starter-kit
+  @tiptap/extension-bold  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-bold
+  @tiptap/extension-bubble-menu  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-bubble-menu
+    @tiptap/react  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+    Depends on vulnerable versions of @tiptap/core
+    Depends on vulnerable versions of @tiptap/extension-bubble-menu
+    Depends on vulnerable versions of @tiptap/extension-floating-menu
+    node_modules/@tiptap/react
+  @tiptap/extension-bullet-list  <=2.27.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-bullet-list
+  @tiptap/extension-code  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-code
+  @tiptap/extension-code-block  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-code-block
+  @tiptap/extension-document  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-document
+  @tiptap/extension-dropcursor  <=2.27.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-dropcursor
+  @tiptap/extension-floating-menu  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-floating-menu
+  @tiptap/extension-gapcursor  <=2.27.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-gapcursor
+  @tiptap/extension-hard-break  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-hard-break
+  @tiptap/extension-heading  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-heading
+  @tiptap/extension-history  <=2.27.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-history
+  @tiptap/extension-horizontal-rule  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-horizontal-rule
+  @tiptap/extension-italic  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-italic
+  @tiptap/extension-list-item  <=2.27.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-list-item
+  @tiptap/extension-ordered-list  <=2.27.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-ordered-list
+  @tiptap/extension-paragraph  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-paragraph
+  @tiptap/extension-strike  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-strike
+  @tiptap/extension-text  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-text
+  @tiptap/extension-text-style  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-text-style
+  @tiptap/extension-underline  <=3.0.0-next.8 || 3.22.4 - 3.30.3
+  Depends on vulnerable versions of @tiptap/core
+  node_modules/@tiptap/extension-underline
+
+@vitest/mocker  2.1.0 - 4.1.10
+Severity: moderate
+Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock - https://github.com/advisories/GHSA-82fw-gwwq-j7x9
+fix available via `npm audit fix`
+node_modules/@vitest/mocker
+  vitest  2.1.0-beta.1 - 4.1.10
+  Depends on vulnerable versions of @vitest/coverage-v8
+  Depends on vulnerable versions of @vitest/mocker
+  node_modules/vitest
+    @vitest/coverage-v8  2.1.0-beta.1 - 4.1.10
+    Depends on vulnerable versions of vitest
+    node_modules/@vitest/coverage-v8
+
+js-yaml  4.0.0 - 4.3.1
+Severity: high
+js-yaml: maxTotalMergeKeys does not limit CPU use for empty merge sources - https://github.com/advisories/GHSA-2883-xcg3-v3hh
+fix available via `npm audit fix`
+node_modules/js-yaml
+
+nanoid  <3.3.18
+Severity: high
+nanoid: custom generators can loop indefinitely when size is zero - https://github.com/advisories/GHSA-2v37-7h3g-55p8
+fix available via `npm audit fix`
+node_modules/nanoid
+
+
+30 vulnerabilities (28 moderate, 2 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
