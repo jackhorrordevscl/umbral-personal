@@ -1,7 +1,19 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { ConsentAction, ConsentPurpose, DocumentType } from '@prisma/client';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  ConsentAction,
+  ConsentPurpose,
+  DocumentType,
+  Prisma,
+  type PatientDocument,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
+import { VoidDocumentDto } from './dto/void-document.dto';
 import { DocumentEncryptionService } from './document-encryption.service';
 import { assertFileContentMatchesMimetype } from '../../common/utils/file-signature.util';
 import { randomUUID } from 'crypto';
@@ -95,6 +107,7 @@ export class DocumentsService {
             evidence: `Documento subido: ${file.originalname} (id ${doc.id})`,
           },
           userId,
+          doc.id,
         );
       } catch (err) {
         // No revertimos el documento ya subido -- si esto falla, el
@@ -159,5 +172,98 @@ export class DocumentsService {
     await this.patientsService.assertAccess(doc.patientId, userId);
 
     return doc;
+  }
+
+  // Issue #270: anulación con motivo obligatorio, sin borrado físico (custodia
+  // de 15 años, Ley 20.584). El objeto cifrado en B2 no se toca y la descarga
+  // sigue permitida. Todo ocurre en una transacción: la marca de anulación y
+  // el eventual REVOKE del ledger se confirman juntos o no se confirma nada.
+  async voidDocument(id: string, dto: VoidDocumentDto, userId: string) {
+    const existing = await this.prisma.patientDocument.findUnique({
+      where: { id },
+    });
+    if (!existing) throw new NotFoundException('Documento no encontrado');
+
+    // Mismo 404 uniforme que el resto del módulo si el documento es ajeno.
+    await this.patientsService.assertAccess(existing.patientId, userId);
+
+    const voided = await this.prisma.$transaction(async (tx) => {
+      // Condición en el WHERE: dos anulaciones concurrentes no pueden pasar
+      // ambas; la segunda ve count 0 y recibe 409.
+      const { count } = await tx.patientDocument.updateMany({
+        where: { id, voidedAt: null },
+        data: {
+          voidedAt: new Date(),
+          voidedById: userId,
+          voidReason: dto.reason,
+        },
+      });
+      if (count === 0) {
+        throw new ConflictException('El documento ya está anulado.');
+      }
+
+      const doc = await tx.patientDocument.findUniqueOrThrow({
+        where: { id },
+      });
+      const purpose = CONSENT_DOCUMENT_PURPOSE[doc.type];
+      if (purpose) {
+        await this.revokeConsentIfOrphaned(tx, doc, purpose, userId);
+      }
+      return doc;
+    });
+
+    this.logger.log(
+      `Documento anulado: id=${id} patientId=${voided.patientId} userId=${userId}`,
+    );
+    return voided;
+  }
+
+  // Agrega un REVOKE solo cuando el consentimiento vigente depende de un
+  // documento anulado y no queda otro documento vigente del mismo propósito.
+  // Un GRANT manual/en bloque (documentId null) o un REVOKE previo no se tocan.
+  private async revokeConsentIfOrphaned(
+    tx: Prisma.TransactionClient,
+    doc: PatientDocument,
+    purpose: ConsentPurpose,
+    userId: string,
+  ) {
+    const typesForPurpose = (
+      Object.keys(CONSENT_DOCUMENT_PURPOSE) as DocumentType[]
+    ).filter((t) => CONSENT_DOCUMENT_PURPOSE[t] === purpose);
+
+    const otherActive = await tx.patientDocument.findFirst({
+      where: {
+        patientId: doc.patientId,
+        type: { in: typesForPurpose },
+        voidedAt: null,
+        id: { not: doc.id },
+      },
+      select: { id: true },
+    });
+    if (otherActive) return;
+
+    const latest = await tx.patientConsent.findFirst({
+      where: { patientId: doc.patientId, purpose },
+      orderBy: { recordedAt: 'desc' },
+      include: { document: { select: { voidedAt: true } } },
+    });
+    if (
+      !latest ||
+      latest.action !== ConsentAction.GRANT ||
+      !latest.document?.voidedAt
+    ) {
+      return;
+    }
+
+    await tx.patientConsent.create({
+      data: {
+        patientId: doc.patientId,
+        purpose,
+        action: ConsentAction.REVOKE,
+        recordedById: userId,
+        documentId: doc.id,
+        evidence: `Documento anulado: ${doc.fileName} (id ${doc.id}). Motivo: ${doc.voidReason}`,
+      },
+    });
   }
 }

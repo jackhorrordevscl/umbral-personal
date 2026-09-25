@@ -204,19 +204,26 @@ model Patient {
 }
 
 model PatientDocument {
-  id          String       @id @default(uuid())
-  patientId   String
-  patient     Patient      @relation(fields: [patientId], references: [id])
-  type        DocumentType
-  fileName    String
-  storagePath String
-  uploadedAt  DateTime     @default(now())
-  uploadedBy  String
+  id                  String           @id @default(uuid())
+  patientId           String
+  patient             Patient          @relation(fields: [patientId], references: [id])
+  type                DocumentType
+  fileName            String
+  storagePath         String
+  uploadedAt          DateTime         @default(now())
+  uploadedBy          String
   // Vínculo opcional a la consulta de origen (ej. resumen de sesión subido
   // por el terapeuta). Keyed on groupId, no id, mismo patrón que
   // Payment.groupId/ReminderDispatch.groupId: sobrevive a correct() (una
   // corrección de la consulta no debe desvincular el documento ya subido).
   consultationGroupId String?
+  // Issue #270: anulación con motivo obligatorio (sin borrado físico, mismo
+  // criterio que Consultation.deletedAt). El objeto cifrado en B2 no se toca.
+  voidedAt            DateTime?
+  voidedById          String?
+  voidReason          String?
+  // Eventos del ledger de consentimiento que dependen de este documento.
+  consentEvents       PatientConsent[]
 
   @@index([patientId])
   @@index([consultationGroupId])
@@ -302,6 +309,7 @@ enum AuditAction {
   SOFT_DELETE
   EXPORT_PDF
   DOCUMENT_UPLOAD
+  DOCUMENT_VOID
   MFA_ENABLED
   MFA_FAILED
   UNAUTHORIZED_ATTEMPT
@@ -396,17 +404,22 @@ model ConsultationHistory {
 // última fila (por recordedAt) por (patientId, purpose) — ver
 // PatientsService.getCurrentConsentStatus.
 model PatientConsent {
-  id           String         @id @default(uuid())
+  id           String           @id @default(uuid())
   patientId    String
-  patient      Patient        @relation(fields: [patientId], references: [id])
+  patient      Patient          @relation(fields: [patientId], references: [id])
   purpose      ConsentPurpose
   action       ConsentAction
   recordedById String
-  recordedBy   User           @relation("PatientConsentEvents", fields: [recordedById], references: [id])
-  recordedAt   DateTime       @default(now())
+  recordedBy   User             @relation("PatientConsentEvents", fields: [recordedById], references: [id])
+  recordedAt   DateTime         @default(now())
   evidence     String
+  // Issue #270: documento que originó el evento (GRANT automático al subir,
+  // REVOKE automático al anular). Null para registros manuales o en bloque.
+  documentId   String?
+  document     PatientDocument? @relation(fields: [documentId], references: [id], onDelete: Restrict)
 
   @@index([patientId, purpose])
+  @@index([documentId])
 }
 
 enum ConsentPurpose {
@@ -493,18 +506,18 @@ enum NotificationType {
 // Consultation.reminderSent (columna muerta desde el schema original,
 // siempre false, eliminada en esta misma migración).
 model ReminderDispatch {
-  id             String                 @id @default(uuid())
-  groupId        String
-  sessionDate    DateTime
-  offsetKind     ReminderOffset
-  channel        ReminderChannel
-  consultationId String
-  consultation   Consultation           @relation(fields: [consultationId], references: [id])
-  therapistId    String
-  status         ReminderDispatchStatus @default(PENDING)
-  error          String?
-  sentAt         DateTime?
-  createdAt      DateTime               @default(now())
+  id              String                 @id @default(uuid())
+  groupId         String
+  sessionDate     DateTime
+  offsetKind      ReminderOffset
+  channel         ReminderChannel
+  consultationId  String
+  consultation    Consultation           @relation(fields: [consultationId], references: [id])
+  therapistId     String
+  status          ReminderDispatchStatus @default(PENDING)
+  error           String?
+  sentAt          DateTime?
+  createdAt       DateTime               @default(now())
   // issue #163: id devuelto por Resend al enviar (channel EMAIL), para
   // correlacionar el webhook de entrega/apertura con este dispatch --
   // channel IN_APP nunca lo setea (queda null). deliveredAt/openedAt solo se
