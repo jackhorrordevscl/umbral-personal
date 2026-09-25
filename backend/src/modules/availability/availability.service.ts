@@ -29,6 +29,7 @@ const MAX_HORIZON_MS = 60 * 24 * 60 * 60 * 1000;
 // design.md Decision 6 "Cache": Map en proceso, ~5 min de TTL por
 // terapeuta+rango, versión incrementada en cada escritura de reglas/reservas.
 const SLOT_CACHE_TTL_MS = 5 * 60 * 1000;
+const SLOT_CACHE_MAX_ENTRIES = 500;
 
 export interface AvailableSlot {
   start: string; // instante ISO (UTC)
@@ -390,11 +391,25 @@ export class AvailabilityService {
       occupiedConsultations,
     });
 
-    this.cache.set(key, {
-      slots,
-      expiresAt: now.getTime() + SLOT_CACHE_TTL_MS,
-    });
+    this.storeInCache(key, slots, now);
     return slots;
+  }
+
+  // La clave incluye from/to, que varían con cada vista de calendario: sin
+  // purga, las entradas expiradas nunca se liberarían. Al escribir se
+  // eliminan las expiradas y, si aún así se excede el tope, las más antiguas
+  // (Map conserva el orden de inserción).
+  private storeInCache(key: string, slots: AvailableSlot[], now: Date): void {
+    const nowMs = now.getTime();
+    for (const [entryKey, entry] of this.cache) {
+      if (entry.expiresAt <= nowMs) this.cache.delete(entryKey);
+    }
+    this.cache.delete(key);
+    for (const oldestKey of this.cache.keys()) {
+      if (this.cache.size < SLOT_CACHE_MAX_ENTRIES) break;
+      this.cache.delete(oldestKey);
+    }
+    this.cache.set(key, { slots, expiresAt: nowMs + SLOT_CACHE_TTL_MS });
   }
 
   // tasks.md 2.4: respalda GET /availability/schedule -- la grilla semanal
