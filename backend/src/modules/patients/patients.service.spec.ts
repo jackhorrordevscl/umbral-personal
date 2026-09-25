@@ -1,5 +1,5 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { Patient } from '@prisma/client';
+import { Patient, Prisma } from '@prisma/client';
 import { PatientsService } from './patients.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -614,6 +614,32 @@ describe('PatientsService', () => {
         service.resolveForPublicBooking('therapist-1', dto as never),
       ).rejects.toThrow(ConflictException);
       expect(prisma.patient.create).not.toHaveBeenCalled();
+    });
+
+    it('carrera de RUT: P2002 en el create -> mismo 409 uniforme (issue #199)', async () => {
+      prisma.patient.findMany.mockResolvedValue([]);
+      prisma.patient.findUnique.mockResolvedValue(null);
+      prisma.patient.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+
+      await expect(
+        service.resolveForPublicBooking('therapist-1', dto as never),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('un error del create que no es P2002 se propaga sin traducir', async () => {
+      prisma.patient.findMany.mockResolvedValue([]);
+      prisma.patient.findUnique.mockResolvedValue(null);
+      const boom = new Error('conexión perdida');
+      prisma.patient.create.mockRejectedValue(boom);
+
+      await expect(
+        service.resolveForPublicBooking('therapist-1', dto as never),
+      ).rejects.toBe(boom);
     });
 
     it('email ambiguo (más de un match bajo el mismo terapeuta) -> mismo 409 uniforme', async () => {
