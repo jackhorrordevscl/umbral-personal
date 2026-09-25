@@ -30,6 +30,8 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 - [`docs/incident-log.md`](docs/incident-log.md) — bitácora de incidentes de
   seguridad reales: qué pasó, impacto, causa raíz, remediación y
   verificación.
+- [`docs/decisiones/`](docs/decisiones/) — decisiones de arquitectura (ADR),
+  p. ej. por qué NestJS, Vite y Tailwind están congelados en su major actual.
 
 ---
 
