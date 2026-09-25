@@ -6,6 +6,7 @@ import * as argon2 from 'argon2';
 import speakeasy from 'speakeasy';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { uniqueTestRut } from './support/unique-rut';
 
 /**
  * T7.2 (issue #31): cobertura e2e de los flujos críticos exigidos por el
@@ -195,7 +196,7 @@ describe('Critical flows (e2e)', () => {
         .post('/api/v1/patients')
         .send({
           fullName: 'Paciente Sin Auth',
-          rut: `NOAUTH${runId}`,
+          rut: uniqueTestRut(),
           birthDate: '1990-01-01',
         })
         .expect(401);
@@ -209,7 +210,7 @@ describe('Critical flows (e2e)', () => {
         .set('Authorization', `Bearer ${therapistToken}`)
         .send({
           fullName: 'Paciente Flujo Crítico',
-          rut: `CRIT${runId}`,
+          rut: uniqueTestRut(),
           birthDate: '1990-01-01',
         })
         .expect(201);
@@ -231,7 +232,7 @@ describe('Critical flows (e2e)', () => {
         .post('/api/v1/patients')
         .set('Authorization', `Bearer ${therapistToken}`)
         .send({
-          rut: `NOFULLNAME${runId}`,
+          rut: uniqueTestRut(),
           birthDate: '1990-01-01',
         })
         .expect(400);
@@ -243,7 +244,7 @@ describe('Critical flows (e2e)', () => {
         .set('Authorization', `Bearer ${therapistToken}`)
         .send({
           fullName: 'Paciente Fecha Inválida',
-          rut: `BADDATE${runId}`,
+          rut: uniqueTestRut(),
           birthDate: 'no-es-una-fecha',
         })
         .expect(400);
@@ -255,7 +256,7 @@ describe('Critical flows (e2e)', () => {
         .set('Authorization', `Bearer ${therapistToken}`)
         .send({
           fullName: 'Paciente Campo Extra',
-          rut: `EXTRA${runId}`,
+          rut: uniqueTestRut(),
           birthDate: '1990-01-01',
           campoNoDeclarado: 'no debería aceptarse',
         })

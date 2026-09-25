@@ -7,6 +7,7 @@ import * as speakeasy from 'speakeasy';
 import { AuditAction } from '@prisma/client';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { uniqueTestRut } from './support/unique-rut';
 
 /**
  * #72 (punto 5): AuditInterceptor (global, AuditService.log()) hasta ahora
@@ -115,7 +116,7 @@ describe('AuditLog — escritura real end-to-end (e2e)', () => {
     const patient = await prisma.patient.create({
       data: {
         fullName: 'Audit Log Test Patient',
-        rut: `AUDITLOG${runId}`,
+        rut: uniqueTestRut(),
         birthDate: new Date('1990-01-01'),
         therapistId: userId,
       },

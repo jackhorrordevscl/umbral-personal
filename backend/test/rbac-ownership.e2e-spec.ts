@@ -7,6 +7,7 @@ import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { uniqueTestRut } from './support/unique-rut';
 
 // Issue #158 (fix CI post-migración a B2): ver
 // test/support/patient-document-storage.mock.ts -- reemplaza el S3Client
@@ -191,7 +192,7 @@ describe('RBAC ownership guard (e2e)', () => {
       .set('Authorization', `Bearer ${therapistAToken}`)
       .send({
         fullName: 'RBAC Test Patient',
-        rut: `RBAC${runId}`,
+        rut: uniqueTestRut(),
         birthDate: '1990-01-01',
       })
       .expect(201);

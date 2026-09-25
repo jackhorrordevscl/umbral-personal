@@ -82,3 +82,33 @@ describe('límites de longitud en DTOs de patients', () => {
     expect(errors.map((e) => e.property)).toContain('evidence');
   });
 });
+
+// Issue #196: formato de RUT chileno en CreatePatientDto.
+describe('formato de rut en CreatePatientDto', () => {
+  const base = { fullName: 'Ana Pérez', birthDate: '1990-01-01' };
+
+  it.each(['12345678-9', '12.345.678-9', '1234567-K', '9.876.543-k'])(
+    'acepta %s',
+    async (rut) => {
+      const dto = plainToInstance(CreatePatientDto, { ...base, rut });
+
+      expect(await validate(dto)).toHaveLength(0);
+    },
+  );
+
+  it.each([
+    '',
+    '123456789',
+    'CRIT1234567',
+    '12.34.5678-9',
+    '12345678-99',
+    '12345678-',
+    ' 12345678-9',
+  ])('rechaza "%s"', async (rut) => {
+    const dto = plainToInstance(CreatePatientDto, { ...base, rut });
+
+    const errors = await validate(dto);
+
+    expect(errors.map((e) => e.property)).toContain('rut');
+  });
+});
