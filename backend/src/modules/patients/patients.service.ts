@@ -463,27 +463,43 @@ export class PatientsService {
       throw new ConflictException('No fue posible procesar la reserva.');
     }
 
-    const patient = await this.prisma.patient.create({
-      data: {
-        fullName: dto.fullName,
-        rut,
-        birthDate: new Date(dto.birthDate),
-        occupation: dto.occupation,
-        address: dto.address,
-        phone: dto.phone,
-        email: normalizedEmail,
-        emergencyContactName: dto.emergencyContactName,
-        emergencyContactPhone: dto.emergencyContactPhone,
-        treatingPsychiatrist: dto.treatingPsychiatrist,
-        treatingDoctor: dto.treatingDoctor,
-        therapistId,
-        // issue #157: solo se setean acá (creación autoagendada) -- pacientes
-        // creados por el terapeuta en la ficha completa quedan null.
-        acquisitionSource: resolveAcquisitionSource(origin),
-        acquisitionReferrer: origin?.referrer ?? null,
-      },
-    });
-    return { patient, isNew: true };
+    // issue #199: el findUnique de arriba y este create no son atómicos, así
+    // que dos reservas simultáneas del mismo paciente nuevo (doble click,
+    // doble pestaña, reintento de red) pueden pasar ambas el chequeo. La
+    // unicidad de Patient.rut es el guard real: la perdedora recibe P2002 y
+    // se traduce al mismo 409 uniforme, nunca a un 500.
+    try {
+      const patient = await this.prisma.patient.create({
+        data: {
+          fullName: dto.fullName,
+          rut,
+          birthDate: new Date(dto.birthDate),
+          occupation: dto.occupation,
+          address: dto.address,
+          phone: dto.phone,
+          email: normalizedEmail,
+          emergencyContactName: dto.emergencyContactName,
+          emergencyContactPhone: dto.emergencyContactPhone,
+          treatingPsychiatrist: dto.treatingPsychiatrist,
+          treatingDoctor: dto.treatingDoctor,
+          therapistId,
+          // issue #157: solo se setean acá (creación autoagendada) --
+          // pacientes creados por el terapeuta en la ficha completa quedan
+          // null.
+          acquisitionSource: resolveAcquisitionSource(origin),
+          acquisitionReferrer: origin?.referrer ?? null,
+        },
+      });
+      return { patient, isNew: true };
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException('No fue posible procesar la reserva.');
+      }
+      throw err;
+    }
   }
 
   // issue #157: agregación en backend (mismo criterio que getStats en
