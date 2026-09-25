@@ -1,6 +1,5 @@
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Underline from "@tiptap/extension-underline";
 import { Bold, Italic, Underline as UnderlineIcon, List } from "lucide-react";
 import { useEffect } from "react";
 
@@ -47,10 +46,15 @@ export default function RichTextEditor({
         codeBlock: false,
         horizontalRule: false,
         strike: false,
+        // Tiptap 3: el StarterKit ya incluye Underline (y Link/ListKeymap).
+        // Link queda fuera: el backend no permite <a> en la whitelist.
+        link: false,
       }),
-      Underline,
     ],
     content: value,
+    // Tiptap 3 no re-renderiza por transacción por defecto; el toolbar
+    // depende de editor.isActive()/isEmpty durante el render.
+    shouldRerenderOnTransaction: true,
     editorProps: {
       attributes: {
         class: "input-field min-h-[4.5rem] text-slate-800 [&_p]:m-0 [&_ul]:pl-5 [&_ol]:pl-5 [&_ul]:list-disc [&_ol]:list-decimal",
@@ -76,7 +80,7 @@ export default function RichTextEditor({
     if (!editor) return;
     const current = editor.isEmpty ? "" : editor.getHTML();
     if (current !== value) {
-      editor.commands.setContent(value ?? "", false);
+      editor.commands.setContent(value ?? "", { emitUpdate: false });
     }
   }, [value, editor]);
 
