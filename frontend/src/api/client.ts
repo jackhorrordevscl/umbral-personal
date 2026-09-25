@@ -31,6 +31,16 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+let onUnauthorized: (() => void) | null = null;
+
+/** Registra (o quita, con null) el handler de sesión expirada. Devuelve el cleanup. */
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  onUnauthorized = handler;
+  return () => {
+    if (onUnauthorized === handler) onUnauthorized = null;
+  };
+}
+
 // Si el token de sesión expiró (401 en una llamada normal), redirige al login.
 // Excepción: los 401 del propio flujo de auth (login, mfa/verify, cambio de
 // contraseña, etc.) son errores esperados que cada pantalla maneja con su
@@ -44,7 +54,13 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !isAuthRequest) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
+      if (onUnauthorized) {
+        // Issue #203: la app registra un handler que actualiza AuthContext y
+        // navega dentro de la SPA, sin recargar la página completa.
+        onUnauthorized();
+      } else {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   },

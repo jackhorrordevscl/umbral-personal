@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { AxiosError, type InternalAxiosRequestConfig } from 'axios'
-import api from './client'
+import api, { setUnauthorizedHandler } from './client'
 
 const originalAdapter = api.defaults.adapter
 const originalLocation = window.location
@@ -65,6 +65,21 @@ describe('api client', () => {
     expect(localStorage.getItem('token')).toBeNull()
     expect(localStorage.getItem('user')).toBeNull()
     expect(window.location.href).toBe('/login')
+  })
+
+  it('calls the registered handler instead of reloading the page on a 401', async () => {
+    failWith(401)
+    let calls = 0
+    const cleanup = setUnauthorizedHandler(() => {
+      calls += 1
+    })
+
+    await expect(api.get('/patients')).rejects.toBeInstanceOf(AxiosError)
+    cleanup()
+
+    expect(calls).toBe(1)
+    expect(localStorage.getItem('token')).toBeNull()
+    expect(window.location.href).toBe('/dashboard')
   })
 
   it('does not redirect on a 401 from an /auth/ endpoint', async () => {

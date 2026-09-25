@@ -1,4 +1,4 @@
-import { useState, useCallback, lazy, Suspense } from "react";
+import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -9,6 +9,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "./context/AuthContext";
 import { useAuth } from "./context/useAuth";
+import { setUnauthorizedHandler } from "./api/client";
 import { useIdleTimeout } from "./hooks/useIdleTimeout";
 import IdleWarningModal from "./components/IdleWarningModal";
 import Layout from "./components/Layout";
@@ -59,6 +60,24 @@ const queryClient = new QueryClient({
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" />;
+}
+
+// Issue #203: un 401 en una llamada normal cierra la sesión vía AuthContext y
+// navega con el router, en vez de recargar la página con window.location.
+function SessionExpiredHandler() {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(
+    () =>
+      setUnauthorizedHandler(() => {
+        logout();
+        navigate("/login");
+      }),
+    [logout, navigate],
+  );
+
+  return null;
 }
 
 function IdleManager() {
@@ -155,6 +174,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <BrowserRouter>
+          <SessionExpiredHandler />
           <IdleManager />
           <AppRoutes />
         </BrowserRouter>
