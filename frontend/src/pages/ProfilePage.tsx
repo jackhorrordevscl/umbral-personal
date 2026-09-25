@@ -423,6 +423,8 @@ function AvatarPreview({ avatarUpdatedAt }: { avatarUpdatedAt: string | null }) 
     <img
       src={objectUrl}
       alt="Foto de perfil"
+      width={80}
+      height={80}
       className="w-20 h-20 rounded-full object-cover"
     />
   );
