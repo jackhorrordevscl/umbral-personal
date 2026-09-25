@@ -48,7 +48,7 @@
     "reflect-metadata": "^0.2.2",
     "resend": "^6.18.1",
     "rxjs": "^7.8.1",
-    "sanitize-html": "^2.13.0",
+    "sanitize-html": "^2.17.7",
     "speakeasy": "^2.0.0"
   },
   "devDependencies": {
@@ -93,8 +93,19 @@
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
+      "^.+\\.ts$": "ts-jest",
+      "^.+\\.m?js$": [
+        "ts-jest",
+        {
+          "tsconfig": {
+            "allowJs": true
+          }
+        }
+      ]
     },
+    "transformIgnorePatterns": [
+      "/node_modules/(?!(htmlparser2|domhandler|domutils|dom-serializer|domelementtype|entities)/)"
+    ],
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],

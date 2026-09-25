@@ -4,7 +4,11 @@
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
   "transform": {
-    "^.+\\.(t|j)s$": "ts-jest"
+    "^.+\\.ts$": "ts-jest",
+    "^.+\\.m?js$": ["ts-jest", { "tsconfig": { "allowJs": true } }]
   },
+  "transformIgnorePatterns": [
+    "/node_modules/(?!(htmlparser2|domhandler|domutils|dom-serializer|domelementtype|entities)/)"
+  ],
   "maxWorkers": 1
 }
