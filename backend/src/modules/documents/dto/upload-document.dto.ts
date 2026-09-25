@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsUUID } from 'class-validator';
 import { DocumentType } from '@prisma/client';
 
 // Issue #72 (punto 3): patientId/type llegaban del multipart via
@@ -6,7 +6,7 @@ import { DocumentType } from '@prisma/client';
 // DocumentsService que anulaba el chequeo de enum -- un valor inválido caía
 // al 500 genérico en vez de un 400 limpio.
 export class UploadDocumentDto {
-  @IsString()
+  @IsUUID('4')
   patientId: string;
 
   @IsEnum(DocumentType)
@@ -16,6 +16,6 @@ export class UploadDocumentDto {
   // nueva consulta, atado a esa consulta puntual (Consultation.groupId, no
   // id -- sobrevive a correct()).
   @IsOptional()
-  @IsString()
+  @IsUUID('4')
   consultationGroupId?: string;
 }

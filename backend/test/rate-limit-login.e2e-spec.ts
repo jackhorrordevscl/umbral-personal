@@ -120,7 +120,7 @@ describe('Rate limiting en POST /auth/mfa/verify (e2e)', () => {
   const TEST_TTL_MS = 60000;
 
   const runId = Date.now();
-  const UNKNOWN_USER_ID = `00000000-0000-4000-8000-${String(runId).padStart(12, '0')}`;
+  const UNKNOWN_USER_ID = `00000000-0000-4000-8000-${String(runId).slice(-12).padStart(12, '0')}`;
   const WRONG_TOKEN = '000000';
 
   beforeAll(async () => {
