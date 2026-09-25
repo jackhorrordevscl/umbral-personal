@@ -11,6 +11,8 @@ import {
 // here -- this suite only exercises provider -> instance lookup, not any
 // gateway-specific behavior (that's flow-gateway.client.spec.ts's job).
 class StubGatewayClient extends PaymentGatewayClient {
+  readonly minimumAmount = 1;
+
   constructor(readonly provider: PaymentProvider) {
     super();
   }

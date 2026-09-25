@@ -271,6 +271,22 @@ export class PaymentsService {
   // blob) means the amount override still lands, but no new order/link is
   // issued.
   async updateAmount(groupId: string, amount: number): Promise<Payment> {
+    // Fail fast (before persisting anything) so the therapist sees why the
+    // amount can't be charged, instead of a silently failed order later.
+    const owner = await this.prisma.payment.findUnique({
+      where: { groupId },
+      select: { therapistId: true },
+    });
+    const gatewayContext = owner
+      ? await this.paymentAccountService.resolveGatewayContext(
+          owner.therapistId,
+        )
+      : null;
+    if (gatewayContext) {
+      const belowMinimum = this.minimumAmountError(gatewayContext, amount);
+      if (belowMinimum) throw new BadRequestException(belowMinimum);
+    }
+
     const result = await this.prisma.payment.updateMany({
       where: { groupId, status: 'PENDING' },
       data: { amount },
@@ -306,6 +322,54 @@ export class PaymentsService {
       if (patient) {
         await this.deliverPaymentLink(payment.id, patient, order, amount);
       }
+    }
+
+    return this.prisma.payment.findUniqueOrThrow({ where: { groupId } });
+  }
+
+  // issue #271: a charge whose order was never issued (gateway rejection,
+  // amount below the minimum at the time) has no paymentUrl, so the UI has
+  // nothing to copy/resend. This re-runs issueOrder + deliverPaymentLink with
+  // the stored amount. A failed attempt still resolves with the fresh row
+  // (lastError updated) instead of throwing.
+  async retryCharge(groupId: string): Promise<Payment> {
+    const payment = await this.prisma.payment.findUniqueOrThrow({
+      where: { groupId },
+    });
+    if (payment.status !== 'PENDING' && payment.status !== 'LATE') {
+      throw new BadRequestException(
+        'Solo se puede reintentar el cobro de un cargo pendiente.',
+      );
+    }
+    if (payment.paymentUrl) {
+      throw new BadRequestException('El cobro ya tiene un link de pago.');
+    }
+
+    const context = await this.paymentAccountService.resolveGatewayContext(
+      payment.therapistId,
+    );
+    if (!context) {
+      throw new BadRequestException(
+        'No hay una cuenta de pagos conectada para generar el cobro.',
+      );
+    }
+
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: payment.patientId },
+    });
+    const payerEmail = await this.resolvePayerEmail(
+      patient?.email ?? null,
+      payment.therapistId,
+    );
+    const order = await this.issueOrder({
+      paymentId: payment.id,
+      context,
+      amount: payment.amount,
+      groupId,
+      payerEmail,
+    });
+    if (patient) {
+      await this.deliverPaymentLink(payment.id, patient, order, payment.amount);
     }
 
     return this.prisma.payment.findUniqueOrThrow({ where: { groupId } });
@@ -611,6 +675,19 @@ export class PaymentsService {
     const backendUrl =
       this.config.get<string>('BACKEND_PUBLIC_URL') ?? DEFAULT_BACKEND_URL;
 
+    // The gateway would reject an amount below its minimum anyway (Flow:
+    // code 1901); skip the call and persist a clear, actionable reason.
+    const belowMinimum = this.minimumAmountError(context, amount);
+    if (belowMinimum) {
+      this.logger.warn(
+        `Cobro no emitido (paymentId=${paymentId}, groupId=${groupId}): ${belowMinimum}`,
+      );
+      await this.prisma.payment
+        .update({ where: { id: paymentId }, data: { lastError: belowMinimum } })
+        .catch(() => undefined);
+      return null;
+    }
+
     try {
       const order = await this.gatewayRegistry
         .get(context.provider)
@@ -654,6 +731,19 @@ export class PaymentsService {
         .catch(() => undefined);
       return null;
     }
+  }
+
+  // Returns a user-facing message when `amount` is below the gateway's
+  // minimum chargeable amount, or null when it is acceptable.
+  private minimumAmountError(
+    context: GatewayContext,
+    amount: number,
+  ): string | null {
+    const gateway = this.gatewayRegistry.get(context.provider);
+    if (amount >= gateway.minimumAmount) return null;
+    const label =
+      context.provider.charAt(0) + context.provider.slice(1).toLowerCase();
+    return `El monto mínimo para cobrar con ${label} es $${gateway.minimumAmount.toLocaleString('es-CL')}.`;
   }
 
   // design.md Decision 2: resolves through the run-scoped memo cache

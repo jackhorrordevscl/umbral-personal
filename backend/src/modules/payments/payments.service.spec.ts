@@ -92,6 +92,7 @@ describe('PaymentsService', () => {
   };
   let paymentAccountService: { resolveGatewayContext: jest.Mock };
   let gatewayAdapter: {
+    minimumAmount: number;
     createOrder: jest.Mock;
     getOrderStatus: jest.Mock;
     voidOrder: jest.Mock;
@@ -135,6 +136,7 @@ describe('PaymentsService', () => {
     };
     paymentAccountService = { resolveGatewayContext: jest.fn() };
     gatewayAdapter = {
+      minimumAmount: 350,
       createOrder: jest.fn().mockResolvedValue({
         token: 'order-token',
         paymentUrl: 'https://flow.cl/pay/order-token',
@@ -531,6 +533,28 @@ describe('PaymentsService', () => {
       });
     });
 
+    // issue #271: Flow rechaza montos < 350 con el código 1901.
+    it('con monto bajo el mínimo de la pasarela no llama a createOrder, persiste lastError y se resuelve', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(
+        buildConsultation({}, { defaultSessionAmount: 100 }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      prisma.payment.findUnique.mockResolvedValue(null);
+      prisma.payment.create.mockResolvedValue(buildPayment({ amount: 100 }));
+
+      await expect(service.ensureCharge('group-1')).resolves.toBeUndefined();
+
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: {
+          lastError: expect.stringContaining('monto mínimo') as unknown,
+        },
+      });
+    });
+
     it('no hace nada si la consulta no existe o el paciente fue eliminado', async () => {
       prisma.consultation.findFirst.mockResolvedValue(null);
 
@@ -580,6 +604,40 @@ describe('PaymentsService', () => {
       expect(result.amount).toBe(45000);
     });
 
+    it('rechaza con 400 un monto bajo el mínimo de la pasarela sin persistirlo', async () => {
+      prisma.payment.findUnique.mockResolvedValue({
+        therapistId: 'therapist-1',
+      });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+
+      await expect(service.updateAmount('group-1', 200)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+    });
+
+    it('acepta un monto exactamente igual al mínimo', async () => {
+      prisma.payment.findUnique.mockResolvedValue({
+        therapistId: 'therapist-1',
+      });
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment({ amount: 350 }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      prisma.patient.findUnique.mockResolvedValue(buildConsultation().patient);
+
+      await service.updateAmount('group-1', 350);
+
+      expect(prisma.payment.updateMany).toHaveBeenCalled();
+      expect(gatewayAdapter.createOrder).toHaveBeenCalled();
+    });
+
     it('lanza NotFoundException si no hay un cargo PENDING para ese groupId', async () => {
       prisma.payment.updateMany.mockResolvedValue({ count: 0 });
 
@@ -626,6 +684,86 @@ describe('PaymentsService', () => {
 
       expect(prisma.patient.findUnique).not.toHaveBeenCalled();
       expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('retryCharge', () => {
+    function arrangeRetry(paymentOverrides: Record<string, unknown> = {}) {
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment(paymentOverrides),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      prisma.patient.findUnique.mockResolvedValue(buildConsultation().patient);
+    }
+
+    it('emite la orden con el monto guardado, entrega el link y devuelve el cargo actualizado', async () => {
+      arrangeRetry({ amount: 30000 });
+
+      const result = await service.retryCharge('group-1');
+
+      expect(gatewayAdapter.createOrder).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          amount: 30000,
+          externalId: 'group-1',
+          payerEmail: 'paciente@example.com',
+        }) as unknown,
+      );
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: expect.objectContaining({
+          paymentUrl: 'https://flow.cl/pay/order-token',
+          lastError: null,
+        }) as unknown,
+      });
+      expect(mailService.sendPaymentLinkEmail).toHaveBeenCalled();
+      expect(result.id).toBe('payment-1');
+    });
+
+    it.each(['PAID', 'CANCELLED'])(
+      'rechaza un cargo %s sin llamar a la pasarela',
+      async (status) => {
+        arrangeRetry({ status });
+
+        await expect(service.retryCharge('group-1')).rejects.toThrow(
+          BadRequestException,
+        );
+        expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+      },
+    );
+
+    it('rechaza un cargo que ya tiene paymentUrl', async () => {
+      arrangeRetry({ paymentUrl: 'https://flow.cl/pay/existing' });
+
+      await expect(service.retryCharge('group-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+    });
+
+    it('rechaza si no hay cuenta de pagos conectada', async () => {
+      arrangeRetry();
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(null);
+
+      await expect(service.retryCharge('group-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+    });
+
+    it('si la pasarela vuelve a fallar, devuelve el cargo con lastError en vez de lanzar', async () => {
+      arrangeRetry();
+      gatewayAdapter.createOrder.mockRejectedValue(new Error('Flow caído'));
+
+      const result = await service.retryCharge('group-1');
+
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: { lastError: 'Flow caído' },
+      });
+      expect(result.id).toBe('payment-1');
     });
   });
 

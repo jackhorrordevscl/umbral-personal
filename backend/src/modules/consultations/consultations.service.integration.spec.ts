@@ -600,6 +600,7 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
 // algo real con qué fallar.
 class RejectingFlowGatewayClient extends PaymentGatewayClient {
   readonly provider = PaymentProvider.FLOW;
+  readonly minimumAmount = 350;
 
   validateCredentials(): Promise<CredentialValidation> {
     throw new PaymentGatewayError(
