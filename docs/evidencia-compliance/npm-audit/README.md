@@ -18,6 +18,6 @@ Los snapshots y las cifras de la línea base de arriba no se modifican. Después
 - #253: `sanitize-html` actualizado a 2.17.7.
 - #254: migración a Tiptap 3.
 - #256: `vitest` actualizado a 4.1.11.
-- #257: actualización de `js-yaml` y `nanoid`.
+- #257: `js-yaml` (transitiva) pasó del rango afectado 4.0.0 - 4.3.1 a 4.3.2, y `nanoid` (transitiva) del rango afectado <3.3.18 a 3.3.19. Ambas versiones se verificaron en `package-lock.json` de backend y frontend.
 
 `esbuild` quedó fijado en 0.28.1 (#230).

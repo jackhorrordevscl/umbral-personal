@@ -291,7 +291,7 @@ copia offsite de backups en **Backblaze B2** (ver
    de cada terapeuta (`shared-files`), en otro bucket B2 **propio**, también
    separado del de avatares y del de backups offsite — crear otra
    Application Key restringida solo a ese bucket, Read+Write. Ya está
-   cargada en el `.env` local; falta cargarla en Render.
+   cargada en el `.env` local y en las variables de entorno de Render.
    Mismo criterio para `B2_PATIENT_DOCUMENTS_ENDPOINT`/
    `B2_PATIENT_DOCUMENTS_REGION`/`B2_PATIENT_DOCUMENTS_BUCKET`/
    `B2_PATIENT_DOCUMENTS_KEY_ID`/`B2_PATIENT_DOCUMENTS_APPLICATION_KEY`
