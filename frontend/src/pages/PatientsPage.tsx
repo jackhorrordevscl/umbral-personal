@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { UserPlus, Search, Download, Trash2, Eye, Pencil, AlertCircle } from "lucide-react";
 import { normalizeRut, formatRut, validateRut } from "../utils/rut";
+import { filterPatients } from "../utils/patient-search";
 import { getApiErrorMessage } from "../utils/api-error";
 import { downloadPatientReport } from "../api/reports";
 import { downloadBlob } from "../utils/download";
@@ -211,11 +212,7 @@ export default function PatientsPage() {
     }
   };
 
-  const filtered = patients.filter(
-    (p: Patient) =>
-      p.fullName.toLowerCase().includes(search.toLowerCase()) ||
-      normalizeRut(p.rut).includes(normalizeRut(search)),
-  );
+  const filtered = useMemo(() => filterPatients(patients, search), [patients, search]);
 
   return (
     <div className="p-4 md:p-8">

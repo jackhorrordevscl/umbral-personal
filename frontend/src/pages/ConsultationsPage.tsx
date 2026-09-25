@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { ClipboardPlus, Search, X, ChevronDown, ChevronUp, Pencil, AlertCircle, Copy, Check, Send, FileText, Download, Upload } from 'lucide-react';
 import DOMPurify from 'dompurify';
@@ -17,7 +17,7 @@ import { downloadDocument } from '../api/documents';
 import { downloadBlob } from '../utils/download';
 import type { Consultation, ConsultationHistory, Patient } from '../types/patient';
 import { buildLocalISO, formatChileDateTime, formatChileDate } from '../utils/datetime';
-import { normalizeRut } from '../utils/rut';
+import { filterPatients } from '../utils/patient-search';
 import { getApiErrorMessage } from '../utils/api-error';
 import { activateOnKey } from '../utils/activate-on-key';
 import { ALLOWED_SUMMARY_EXTENSIONS } from '../utils/consultation-summary';
@@ -158,7 +158,7 @@ function ExpandableText({ text }: { text: string }) {
   // "ver más" siga reflejando cuánto contenido real hay, no el HTML.
   const plainLength = text.replace(/<[^>]+>/g, '').length;
   const isLong = plainLength > EXPANDABLE_TEXT_THRESHOLD;
-  const safeHtml = sanitizeClinicalNoteHtml(text);
+  const safeHtml = useMemo(() => sanitizeClinicalNoteHtml(text), [text]);
 
   return (
     <div>
@@ -348,10 +348,7 @@ export default function ConsultationsPage() {
     });
   };
 
-  const filteredPatients = patients.filter((p: Patient) =>
-    p.fullName.toLowerCase().includes(search.toLowerCase()) ||
-    normalizeRut(p.rut).includes(normalizeRut(search))
-  );
+  const filteredPatients = useMemo(() => filterPatients(patients, search), [patients, search]);
 
   const selectedPatient = patients.find((p: Patient) => p.id === selectedPatientId);
 
