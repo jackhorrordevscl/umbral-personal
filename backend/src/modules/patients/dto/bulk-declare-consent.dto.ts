@@ -1,4 +1,5 @@
 import {
+  ArrayMaxSize,
   ArrayNotEmpty,
   IsArray,
   IsEnum,
@@ -16,6 +17,9 @@ import { ConsentPurpose } from '@prisma/client';
 export class BulkDeclareConsentDto {
   @IsArray()
   @ArrayNotEmpty({ message: 'Debe indicar al menos un paciente' })
+  @ArrayMaxSize(500, {
+    message: 'No se pueden declarar más de 500 pacientes por solicitud',
+  })
   @IsUUID('4', { each: true, message: 'Id de paciente inválido' })
   patientIds: string[];
 
