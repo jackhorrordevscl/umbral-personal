@@ -8,6 +8,7 @@ import type { Patient } from '../../types/patient';
 import { buildLocalISO } from '../../utils/datetime';
 import { getApiErrorMessage } from '../../utils/api-error';
 import { activateOnKey } from '../../utils/activate-on-key';
+import { ALLOWED_SUMMARY_EXTENSIONS } from '../../utils/consultation-summary';
 import { useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
 
@@ -16,7 +17,6 @@ import { Upload } from 'lucide-react';
 // en los campos de texto. Se sube atado a esta consulta (consultationGroupId,
 // ver migración add_consultation_summary_document) reusando el módulo de
 // documentos existente (cifrado + validación real de contenido).
-const ALLOWED_SUMMARY_EXTENSIONS = ['.pdf', '.doc', '.docx'];
 
 interface ConsultationFormProps {
   /** Fecha de sesión precargada (ej. desde el día seleccionado en el calendario). */

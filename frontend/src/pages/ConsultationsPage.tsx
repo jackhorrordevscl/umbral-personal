@@ -20,6 +20,7 @@ import { buildLocalISO, formatChileDateTime, formatChileDate } from '../utils/da
 import { normalizeRut } from '../utils/rut';
 import { getApiErrorMessage } from '../utils/api-error';
 import { activateOnKey } from '../utils/activate-on-key';
+import { ALLOWED_SUMMARY_EXTENSIONS } from '../utils/consultation-summary';
 
 // Sugerencia de usuarios: el resumen de sesión que el terapeuta sube desde
 // el modal de nueva consulta (ConsultationForm) aparece acá, atado a esta
@@ -132,11 +133,6 @@ function ResendPaymentLinkButton({ groupId }: { groupId: string }) {
     </button>
   );
 }
-
-// Mismo listado que ConsultationForm.ALLOWED_SUMMARY_EXTENSIONS -- duplicado
-// acá (no exportado) porque exportar una constante desde un archivo de
-// componente rompe react-refresh/only-export-components.
-const ALLOWED_SUMMARY_EXTENSIONS = ['.pdf', '.doc', '.docx'];
 
 // Motivo/intervención/acuerdos a veces se extienden varios párrafos y hacían
 // insufrible el scroll de cada tarjeta de sesión (feedback de usuarios); se
