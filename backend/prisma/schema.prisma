@@ -645,7 +645,7 @@ model Payment {
   currency         String              @default("CLP")
   status           PaymentStatus       @default(PENDING)
   dueDate          DateTime
-  gatewayToken     String?
+  gatewayToken     String?             @unique
   gatewayPaymentId String?
   paymentUrl       String?
   linkDelivery     PaymentLinkDelivery @default(PENDING)
