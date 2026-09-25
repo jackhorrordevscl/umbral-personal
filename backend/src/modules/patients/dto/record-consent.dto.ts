@@ -1,4 +1,10 @@
-import { IsEnum, IsString, IsNotEmpty, MinLength } from 'class-validator';
+import {
+  IsEnum,
+  IsString,
+  IsNotEmpty,
+  MinLength,
+  MaxLength,
+} from 'class-validator';
 import { ConsentPurpose, ConsentAction } from '@prisma/client';
 
 export class RecordConsentDto {
@@ -11,5 +17,6 @@ export class RecordConsentDto {
   @IsString()
   @IsNotEmpty({ message: 'Debe indicar la evidencia del consentimiento' })
   @MinLength(10, { message: 'La evidencia debe tener al menos 10 caracteres' })
+  @MaxLength(1000)
   evidence: string;
 }

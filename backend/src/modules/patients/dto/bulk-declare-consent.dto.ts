@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsString,
   IsUUID,
+  MaxLength,
   MinLength,
 } from 'class-validator';
 import { ConsentPurpose } from '@prisma/client';
@@ -24,5 +25,6 @@ export class BulkDeclareConsentDto {
   @IsString()
   @IsNotEmpty({ message: 'Debe indicar la evidencia del consentimiento' })
   @MinLength(10, { message: 'La evidencia debe tener al menos 10 caracteres' })
+  @MaxLength(1000)
   evidence: string;
 }
