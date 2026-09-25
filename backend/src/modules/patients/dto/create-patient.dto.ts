@@ -4,15 +4,18 @@ import {
   IsEmail,
   IsOptional,
   IsDateString,
+  MaxLength,
   Min,
   ValidateIf,
 } from 'class-validator';
 
 export class CreatePatientDto {
   @IsString()
+  @MaxLength(200)
   fullName: string;
 
   @IsString()
+  @MaxLength(12)
   rut: string;
 
   @IsDateString()
@@ -20,14 +23,17 @@ export class CreatePatientDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   occupation?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(300)
   address?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(30)
   phone?: string;
 
   // @IsOptional() por sí solo solo exime undefined/null, no "" -- el
@@ -37,22 +43,27 @@ export class CreatePatientDto {
   @IsOptional()
   @ValidateIf((o: CreatePatientDto) => o.email !== '')
   @IsEmail()
+  @MaxLength(254)
   email?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   emergencyContactName?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(30)
   emergencyContactPhone?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   treatingPsychiatrist?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   treatingDoctor?: string;
 
   // sdd/online-payment-integration PR 1: monto de sesión por defecto que
