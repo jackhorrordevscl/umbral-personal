@@ -6,6 +6,7 @@ import { usePatients } from "../hooks/usePatients";
 import { getConsultationStats } from "../api/consultations";
 import { getAcquisitionStats } from "../api/patients";
 import { activateOnKey } from "../utils/activate-on-key";
+import EmptyState from "../components/ui/EmptyState";
 
 const ACQUISITION_COLORS = [
   "bg-sage-500",
@@ -158,9 +159,7 @@ export default function DashboardPage() {
               </button>
             </div>
             {patients.length === 0 ? (
-              <p className="text-slate-500 text-sm text-center py-8">
-                No hay pacientes registrados aún.
-              </p>
+              <EmptyState message="No hay pacientes registrados aún." />
             ) : (
               <div className="divide-y divide-slate-100">
                 {patients.slice(0, 5).map((p) => (

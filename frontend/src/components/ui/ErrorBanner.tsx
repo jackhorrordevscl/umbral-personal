@@ -1,4 +1,4 @@
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, X } from "lucide-react";
 
 interface ErrorBannerProps {
   message: string;
@@ -7,6 +7,8 @@ interface ErrorBannerProps {
   icon?: boolean;
   /** Clases extra (margen) para preservar el espaciado de cada lugar donde se usa. */
   className?: string;
+  /** Si se pasa, muestra un botón para cerrar el banner. */
+  onDismiss?: () => void;
 }
 
 const VARIANT_STYLES = {
@@ -32,6 +34,7 @@ export default function ErrorBanner({
   variant = "error",
   icon = false,
   className = "",
+  onDismiss,
 }: ErrorBannerProps) {
   const styles = VARIANT_STYLES[variant];
 
@@ -41,6 +44,16 @@ export default function ErrorBanner({
     >
       {icon && <AlertCircle size={14} className={`${styles.icon} shrink-0`} />}
       <p className={`${styles.text} text-sm`}>{message}</p>
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Cerrar aviso"
+          className={`ml-auto ${styles.icon}`}
+        >
+          <X size={16} />
+        </button>
+      )}
     </div>
   );
 }

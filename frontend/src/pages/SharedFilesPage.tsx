@@ -7,6 +7,8 @@ import {
 import api from '../api/client';
 import Modal from '../components/ui/Modal';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import EmptyState from '../components/ui/EmptyState';
+import ErrorBanner from '../components/ui/ErrorBanner';
 import { getApiErrorMessage } from '../utils/api-error';
 import { downloadBlob } from '../utils/download';
 import { activateOnKey } from '../utils/activate-on-key';
@@ -205,12 +207,11 @@ export default function SharedFilesPage() {
       </div>
 
       {displayError && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-lg flex justify-between items-center">
-          <p className="text-red-600 text-sm">{displayError}</p>
-          {error && (
-            <button onClick={() => setError('')}><X className="w-4 h-4 text-red-400" /></button>
-          )}
-        </div>
+        <ErrorBanner
+          className="mb-4"
+          message={displayError}
+          onDismiss={error ? () => setError('') : undefined}
+        />
       )}
 
       <div className="flex flex-wrap gap-3 mb-6">
@@ -244,10 +245,11 @@ export default function SharedFilesPage() {
       {isLoading ? (
         <div className="text-center py-16 text-slate-500">Cargando archivos...</div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-16 text-slate-500">
-          <File className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p>No hay archivos en esta categoría</p>
-        </div>
+        <EmptyState
+          className="py-16"
+          icon={<File className="w-12 h-12 opacity-30" />}
+          message="No hay archivos en esta categoría"
+        />
       ) : (
         <div className="grid gap-3">
           {filtered.map(file => (

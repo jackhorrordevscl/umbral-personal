@@ -15,6 +15,8 @@ import * as documentsApi from "../api/documents";
 import PatientForm, { type PatientFormValues, type StagedDocument } from "../components/patients/PatientForm";
 import PatientModal from "../components/patients/PatientModal";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
+import EmptyState from "../components/ui/EmptyState";
+import ErrorBanner from "../components/ui/ErrorBanner";
 import {
   EMPTY_CONSENTS,
   CONSENT_PURPOSE_LABELS,
@@ -231,12 +233,11 @@ export default function PatientsPage() {
       </div>
 
       {(listError || patientsError) && (
-        <div className="mb-4 flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          <AlertCircle size={14} className="text-red-500 shrink-0" />
-          <p className="text-red-600 text-sm">
-            {listError || "No se pudo cargar la lista de pacientes. Reintenta más tarde."}
-          </p>
-        </div>
+        <ErrorBanner
+          icon
+          className="mb-4"
+          message={listError || "No se pudo cargar la lista de pacientes. Reintenta más tarde."}
+        />
       )}
 
       {showForm && (
@@ -361,8 +362,8 @@ export default function PatientsPage() {
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center py-12 text-slate-500">
-                  No se encontraron pacientes.
+                <td colSpan={6}>
+                  <EmptyState message="No se encontraron pacientes." className="py-12" />
                 </td>
               </tr>
             ) : (
@@ -447,8 +448,8 @@ export default function PatientsPage() {
             Cargando pacientes...
           </div>
         ) : filtered.length === 0 ? (
-          <div className="card text-center py-8 text-slate-500 text-sm">
-            No se encontraron pacientes.
+          <div className="card">
+            <EmptyState message="No se encontraron pacientes." />
           </div>
         ) : (
           filtered.map((p: Patient) => (
