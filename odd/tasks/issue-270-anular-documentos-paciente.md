@@ -41,15 +41,31 @@ No estricto (escribir tests junto a cada unidad). Runners: Jest (backend `npm ru
 (frontend `npm run test`).
 
 ## Tareas
-- [ ] T1: Schema + migración + DTO + service + controller + auditoría + tests (backend)
-- [ ] T2: Frontend (api, hook, tipos, modal de anulación) + tests
-- [ ] T3: Docs (registro de actividades de tratamiento + README)
+- [x] T1: Schema + migración + DTO + service + controller + auditoría + tests (backend), commit `7ea6929`
+- [x] T2: Frontend (api, hook, tipos, modal de anulación) + tests, commit `8c388e6`
+- [x] T3: Docs (registro de actividades de tratamiento + README)
 
 ## Evidencia / commits
-Pendiente.
+- `7ea6929` feat(documents): anular documentos de paciente con motivo obligatorio
+- `8c388e6` feat(patients): anular documentos legales desde la ficha
+- T3 en el commit de docs que sigue (sin push, sin PR).
+
+Observaciones:
+- `PatientConsent` no tiene trigger append-only; ADD COLUMN, índice y FK (RESTRICT) aplicaron con
+  `prisma migrate deploy` sobre la DB local (migración `20260925120000_add_document_void`).
+- La FK obliga a borrar consentimientos antes que documentos en la limpieza de specs e2e; se
+  ajustó el orden en `patient-consent.e2e-spec.ts` y `rbac-ownership.e2e-spec.ts`.
+- `DOCUMENT_UPLOAD` no se emite hoy (el upload se audita como CREATE); la anulación usa
+  `@AuditRead({ action: 'DOCUMENT_VOID' })`.
+- Pendiente de criterio legal: si la anulación con motivo satisface el derecho de rectificación.
 
 ## Checks
-Pendiente.
+- Backend: `tsc --noEmit` OK; `jest` 68 suites / 803 tests OK (integration specs con DB local);
+  e2e de patient-consent, rbac-ownership y documents 43/43 OK (cubre 2 docs -> sin REVOKE, ambos ->
+  REVOKE, GRANT manual -> sin REVOKE, 409, 400, 404, auditoría DOCUMENT_VOID); eslint y prettier OK;
+  `prisma validate` OK.
+- Frontend: `npm run test` 40 archivos / 208 tests OK; `npm run lint` OK; `npm run build` OK.
+- No verificado: click-through real en navegador.
 
 ## Próximo paso
-Implementar T1.
+Revisión y PR (decisión del usuario).

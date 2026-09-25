@@ -427,6 +427,11 @@ umbral-personal/
 ### Documentos y Archivos
 - Documentos clínicos por paciente (consentimiento informado, informes,
   otros), PDF/imágenes hasta 10MB
+- Anulación de documentos subidos por error, con motivo obligatorio: el
+  documento no se elimina (custodia de 15 años), queda marcado como anulado y
+  sigue descargable. Si sustentaba el consentimiento vigente y no queda otro
+  documento del mismo tipo, se registra un `REVOKE` en el ledger de
+  consentimientos
 - Biblioteca personal de archivos (plantillas, protocolos, formularios) —
   privada por cuenta, no se comparte entre profesionales ni está ligada a
   pacientes
