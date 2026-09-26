@@ -5,12 +5,14 @@ import {
   Delete,
   Get,
   HttpCode,
+  Logger,
   Param,
   Patch,
   Post,
   Query,
   Res,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ThrottlerGuard, SkipThrottle } from '@nestjs/throttler';
@@ -26,6 +28,7 @@ import { ValidateCredentialsDto } from './dto/validate-credentials.dto';
 import { ConnectAccountDto } from './dto/connect-account.dto';
 import { UpdatePaymentAmountDto } from './dto/update-payment-amount.dto';
 import { ConfirmPaymentDto } from './dto/confirm-payment.dto';
+import { ConfirmValidationLoggingInterceptor } from './confirm-validation-logging.interceptor';
 
 const CONFIRM_SIGNATURE_ERROR = 'Firma de confirmación inválida.';
 
@@ -80,6 +83,8 @@ const PAYMENT_RETURN_SKIP = {
 // individually).
 @Controller('payments')
 export class PaymentsController {
+  private readonly logger = new Logger(PaymentsController.name);
+
   constructor(
     private paymentsService: PaymentsService,
     private paymentAccountService: PaymentAccountService,
@@ -167,12 +172,19 @@ export class PaymentsController {
   // 'payment-return', la otra ruta pública de este módulo): ThrottlerModule
   // es @Global(), mismo criterio que public-scheduling.controller.ts.
   @UseGuards(ThrottlerGuard)
+  @UseInterceptors(ConfirmValidationLoggingInterceptor)
   @SkipThrottle(PAYMENT_CONFIRM_SKIP)
   @Post('confirm')
   @HttpCode(200)
   async confirm(@Body() dto: ConfirmPaymentDto) {
     const payment = await this.paymentsService.findByToken(dto.token);
     if (!payment) {
+      // Las tres ramas devuelven el mismo 400 uniforme al llamador (a
+      // propósito), pero el operador necesita distinguirlas en el log.
+      // Nunca se registra el token ni la firma.
+      this.logger.warn(
+        'Confirmación de Flow rechazada: no existe un cobro con ese token.',
+      );
       throw new BadRequestException(CONFIRM_SIGNATURE_ERROR);
     }
 
@@ -180,6 +192,9 @@ export class PaymentsController {
       payment.therapistId,
     );
     if (!context) {
+      this.logger.warn(
+        `Confirmación de Flow rechazada: la cuenta de pagos del cobro no está disponible (paymentId=${payment.id}).`,
+      );
       throw new BadRequestException(CONFIRM_SIGNATURE_ERROR);
     }
 
@@ -190,6 +205,9 @@ export class PaymentsController {
         s: dto.s,
       });
     if (!isValid) {
+      this.logger.warn(
+        `Confirmación de Flow rechazada: firma inválida (paymentId=${payment.id}).`,
+      );
       throw new BadRequestException(CONFIRM_SIGNATURE_ERROR);
     }
 
