@@ -166,6 +166,29 @@ describe('LoginPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('con una sesión activa restaurada de localStorage redirige al dashboard en vez de mostrar el login', () => {
+    localStorage.setItem('token', 'token-previo')
+    localStorage.setItem(
+      'user',
+      JSON.stringify({ id: 'u1', email: 'user@umbral.cl', role: 'PROFESSIONAL', name: 'Test User' }),
+    )
+
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/dashboard" element={<p>Panel</p>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText('Panel')).toBeInTheDocument()
+    expect(screen.queryByText('Te damos la bienvenida')).not.toBeInTheDocument()
+    localStorage.clear()
+  })
+
   it('requiresPasswordChange pide la nueva contraseña antes de continuar', async () => {
     mockedApi.post.mockResolvedValueOnce({
       data: {
