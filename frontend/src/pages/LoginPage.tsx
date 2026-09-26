@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router';
+import { Navigate, useNavigate, useLocation, Link } from 'react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -23,7 +23,7 @@ const EMAIL_NOT_VERIFIED_MESSAGE =
   'Debes verificar tu email antes de iniciar sesión';
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   // Issue #76 (PR B, follow-up): tras un cambio de contraseña exitoso en
@@ -205,6 +205,12 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  // Con una sesión activa (token restaurado de localStorage) el login no
+  // tiene sentido y dejaba activo el aviso de inactividad sobre esta página.
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   if (recoveryCodes && pendingAuth) {
     return (

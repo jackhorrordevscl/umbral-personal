@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, lazy, Suspense } from "react";
+import { useEffect, lazy, Suspense } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -10,8 +10,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "./context/AuthContext";
 import { useAuth } from "./context/useAuth";
 import { setUnauthorizedHandler } from "./api/client";
-import { useIdleTimeout } from "./hooks/useIdleTimeout";
-import IdleWarningModal from "./components/IdleWarningModal";
+import IdleManager from "./components/IdleManager";
 import Layout from "./components/Layout";
 
 // Issue #43: code-splitting por ruta -- sin esto, las 9 páginas (incluidas
@@ -78,38 +77,6 @@ function SessionExpiredHandler() {
   );
 
   return null;
-}
-
-function IdleManager() {
-  const { isAuthenticated, logout } = useAuth();
-  const navigate = useNavigate();
-  const [showWarning, setShowWarning] = useState(false);
-
-  const handleWarn = useCallback(() => {
-    if (isAuthenticated) setShowWarning(true);
-  }, [isAuthenticated]);
-
-  const handleLogout = useCallback(() => {
-    setShowWarning(false);
-    logout();
-    navigate("/login");
-  }, [logout, navigate]);
-
-  const { extend } = useIdleTimeout({
-    onWarn: handleWarn,
-  });
-
-  const handleExtend = useCallback(() => {
-    if (!isAuthenticated) return;
-    setShowWarning(false);
-    extend();
-  }, [extend, isAuthenticated]);
-
-  if (!isAuthenticated) return null;
-
-  return showWarning ? (
-    <IdleWarningModal onExtend={handleExtend} onLogout={handleLogout} />
-  ) : null;
 }
 
 function AppRoutes() {
