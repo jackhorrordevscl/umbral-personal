@@ -43,7 +43,7 @@ function PublicBookingLinkCard({ profile }: { profile: Profile | undefined }) {
   };
 
   return (
-    <div className="card max-w-lg mb-6">
+    <div className="card mb-6 break-inside-avoid">
       <div className="flex items-center gap-3 mb-4">
         <div className="bg-sage-50 p-3 rounded-lg">
           <CalendarDays size={22} className="text-sage-600" />
@@ -82,68 +82,27 @@ function PublicBookingLinkCard({ profile }: { profile: Profile | undefined }) {
 // Google Calendar viven en SecurityPage (account-settings Req: Profile
 // Section Scope).
 //
-// AccountDataForm solo se monta cuando `profile` ya llegó (ver
-// ProfilePage abajo) -- así el estado local (nameInput/accountEmail/etc.)
+// Cada sección de "datos de la cuenta" es su propia card (antes era un solo
+// AccountDataForm con 4 sub-formularios separados por <hr>): cada una ya
+// tenía su propio guardado independiente (issue #202, mutación propia por
+// sección), así que separarlas visualmente refuerza que son acciones
+// independientes y además deja que el layout de columnas (ver ProfilePage
+// abajo) balancee mejor la altura entre columnas. Todas se montan solo
+// cuando `profile` ya llegó (ver ProfilePage abajo) -- así el estado local
 // se inicializa una sola vez con datos reales via lazy initializer, sin
 // useEffect+setState sincrónico (evita cascading renders, regla
 // react-hooks/set-state-in-effect).
-function AccountDataForm({ profile }: { profile: Profile | undefined }) {
-  const { logout } = useAuth();
-  const navigate = useNavigate();
 
-  // Issue #76 (PR B, follow-up): nombre y email quedan "confirmados" (lo que
-  // hay en la DB); pendingEmail refleja un cambio de email diferido en curso
-  // (ver EmailChangeService/ConfirmEmailChangePage). Si `profile` llegó en
-  // error (isLoading ya en false, data undefined), se arranca igual con
-  // campos vacíos -- mismo comportamiento que el fetch original.
+function NameCard({ profile }: { profile: Profile | undefined }) {
   const [accountName, setAccountName] = useState(profile?.name ?? '');
-  const [accountBio, setAccountBio] = useState(profile?.bio ?? '');
-  const [accountSpecialty, setAccountSpecialty] = useState(profile?.specialty ?? '');
-  const [accountEmail] = useState(profile?.email ?? '');
-  const [pendingEmail, setPendingEmail] = useState<string | null>(
-    profile?.pendingEmail ?? null,
-  );
   const [nameInput, setNameInput] = useState(profile?.name ?? '');
 
-  // Issue #202: saving/error de cada formulario salen de su propia mutación
-  // (isPending/error), no de useState hecho a mano.
   const nameMutation = useUpdateProfile();
   const nameSaving = nameMutation.isPending;
   const nameError = nameMutation.isError
     ? getApiErrorMessage(nameMutation.error, 'No se pudo actualizar el nombre.')
     : '';
   const nameMessage = nameMutation.isSuccess ? 'Nombre actualizado correctamente.' : '';
-
-  // issue #155: bio/specialty se muestran en la autoagenda pública
-  // (PublicBookingPage.tsx) -- mismo patrón de estado/guardado que
-  // nameInput arriba, pero en su propio form porque no comparten el mismo
-  // "guardado" conceptual que el nombre de la cuenta.
-  const [bioInput, setBioInput] = useState(profile?.bio ?? '');
-  const [specialtyInput, setSpecialtyInput] = useState(profile?.specialty ?? '');
-  const profileMutation = useUpdateProfile();
-  const profileSaving = profileMutation.isPending;
-  const profileError = profileMutation.isError
-    ? getApiErrorMessage(profileMutation.error, 'No se pudo actualizar el perfil público.')
-    : '';
-  const profileMessage = profileMutation.isSuccess
-    ? 'Perfil público actualizado correctamente.'
-    : '';
-
-  const [emailInput, setEmailInput] = useState('');
-  const [emailCurrentPassword, setEmailCurrentPassword] = useState('');
-  const emailMutation = useUpdateProfile();
-  const emailSaving = emailMutation.isPending;
-  const emailError = emailMutation.isError
-    ? getApiErrorMessage(emailMutation.error, 'No se pudo solicitar el cambio de email.')
-    : '';
-
-  const [newPassword, setNewPassword] = useState('');
-  const [passwordCurrentPassword, setPasswordCurrentPassword] = useState('');
-  const passwordMutation = useUpdateProfile();
-  const passwordSaving = passwordMutation.isPending;
-  const passwordError = passwordMutation.isError
-    ? getApiErrorMessage(passwordMutation.error, 'No se pudo actualizar la contraseña.')
-    : '';
 
   // Issue #76 (PR B, follow-up): update de solo `name` -- ProfileService no
   // exige currentPassword para este caso, así que nunca se manda bundleado
@@ -156,6 +115,51 @@ function AccountDataForm({ profile }: { profile: Profile | undefined }) {
       { onSuccess: (data) => setAccountName(data.name ?? '') },
     );
   };
+
+  return (
+    <div className="card mb-6 break-inside-avoid">
+      <div className="mb-6">
+        <h3 className="font-medium text-slate-800">Nombre</h3>
+        <p className="text-xs text-slate-500">Cómo te vas a identificar dentro de Umbral</p>
+      </div>
+      <form onSubmit={handleUpdateName} className="space-y-3">
+        <input
+          type="text"
+          aria-label="Nombre"
+          value={nameInput}
+          onChange={e => setNameInput(e.target.value)}
+          className="input-field"
+        />
+        {nameMessage && <ErrorBanner message={nameMessage} variant="success" />}
+        {nameError && <ErrorBanner message={nameError} />}
+        <button
+          type="submit"
+          disabled={nameSaving || !nameInput.trim() || nameInput === accountName}
+          className="btn-primary disabled:opacity-50"
+        >
+          {nameSaving ? 'Guardando...' : 'Guardar nombre'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// issue #155: bio/specialty se muestran en la autoagenda pública
+// (PublicBookingPage.tsx).
+function PublicProfileCard({ profile }: { profile: Profile | undefined }) {
+  const [accountBio, setAccountBio] = useState(profile?.bio ?? '');
+  const [accountSpecialty, setAccountSpecialty] = useState(profile?.specialty ?? '');
+  const [bioInput, setBioInput] = useState(profile?.bio ?? '');
+  const [specialtyInput, setSpecialtyInput] = useState(profile?.specialty ?? '');
+
+  const profileMutation = useUpdateProfile();
+  const profileSaving = profileMutation.isPending;
+  const profileError = profileMutation.isError
+    ? getApiErrorMessage(profileMutation.error, 'No se pudo actualizar el perfil público.')
+    : '';
+  const profileMessage = profileMutation.isSuccess
+    ? 'Perfil público actualizado correctamente.'
+    : '';
 
   // Bio/specialty se guardan juntos (mismo endpoint, ambos opcionales) --
   // ProfileService.updateProfile acepta '' para vaciar el campo (comentario
@@ -174,6 +178,71 @@ function AccountDataForm({ profile }: { profile: Profile | undefined }) {
     );
   };
 
+  return (
+    <div className="card mb-6 break-inside-avoid">
+      <div className="mb-6">
+        <h3 className="font-medium text-slate-800">Perfil público</h3>
+        <p className="text-xs text-slate-500">
+          Visible en tu autoagenda pública, para que tus pacientes te conozcan antes de reservar
+        </p>
+      </div>
+      <form onSubmit={handleUpdatePublicProfile} className="space-y-3">
+        <div>
+          <input
+            type="text"
+            aria-label="Especialidad"
+            placeholder="Especialidad (ej. Psicología clínica)"
+            maxLength={120}
+            value={specialtyInput}
+            onChange={(e) => setSpecialtyInput(e.target.value)}
+            className="input-field"
+          />
+        </div>
+        <div>
+          <textarea
+            aria-label="Bio"
+            placeholder="Cuéntales a tus pacientes un poco sobre ti"
+            maxLength={500}
+            rows={3}
+            value={bioInput}
+            onChange={(e) => setBioInput(e.target.value)}
+            className="input-field resize-none"
+          />
+          <p className="text-xs text-slate-400 mt-1 text-right">
+            {bioInput.length}/500
+          </p>
+        </div>
+        {profileMessage && <ErrorBanner message={profileMessage} variant="success" />}
+        {profileError && <ErrorBanner message={profileError} />}
+        <button
+          type="submit"
+          disabled={
+            profileSaving ||
+            (bioInput === accountBio && specialtyInput === accountSpecialty)
+          }
+          className="btn-primary disabled:opacity-50"
+        >
+          {profileSaving ? 'Guardando...' : 'Guardar perfil público'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function EmailCard({ profile }: { profile: Profile | undefined }) {
+  const [accountEmail] = useState(profile?.email ?? '');
+  const [pendingEmail, setPendingEmail] = useState<string | null>(
+    profile?.pendingEmail ?? null,
+  );
+  const [emailInput, setEmailInput] = useState('');
+  const [emailCurrentPassword, setEmailCurrentPassword] = useState('');
+
+  const emailMutation = useUpdateProfile();
+  const emailSaving = emailMutation.isPending;
+  const emailError = emailMutation.isError
+    ? getApiErrorMessage(emailMutation.error, 'No se pudo solicitar el cambio de email.')
+    : '';
+
   // El cambio de email queda diferido en el backend (pendingEmail) hasta que
   // se confirme desde la casilla nueva -- la respuesta ya trae el
   // pendingEmail recién seteado, sin necesidad de un GET adicional.
@@ -190,6 +259,62 @@ function AccountDataForm({ profile }: { profile: Profile | undefined }) {
       },
     );
   };
+
+  return (
+    <div className="card mb-6 break-inside-avoid">
+      <div className="mb-6">
+        <h3 className="font-medium text-slate-800">Email</h3>
+        <p className="text-xs text-slate-500">Tu dirección de acceso actual</p>
+      </div>
+      <p className="text-sm text-slate-600 mb-4">{accountEmail}</p>
+      {pendingEmail && (
+        <ErrorBanner
+          variant="success"
+          className="mb-4"
+          message={`Tienes un cambio de email pendiente a ${pendingEmail} — revisa esa casilla para confirmarlo.`}
+        />
+      )}
+      <form onSubmit={handleUpdateEmail} className="space-y-3">
+        <input
+          type="email"
+          aria-label="Nuevo email"
+          placeholder="nuevo@email.com"
+          value={emailInput}
+          onChange={e => setEmailInput(e.target.value)}
+          className="input-field"
+        />
+        <input
+          type="password"
+          aria-label="Contraseña actual para cambiar email"
+          placeholder="Contraseña actual"
+          value={emailCurrentPassword}
+          onChange={e => setEmailCurrentPassword(e.target.value)}
+          className="input-field"
+        />
+        {emailError && <ErrorBanner message={emailError} />}
+        <button
+          type="submit"
+          disabled={emailSaving || !emailInput || !emailCurrentPassword}
+          className="btn-primary disabled:opacity-50"
+        >
+          {emailSaving ? 'Enviando...' : 'Cambiar email'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function PasswordCard() {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordCurrentPassword, setPasswordCurrentPassword] = useState('');
+
+  const passwordMutation = useUpdateProfile();
+  const passwordSaving = passwordMutation.isPending;
+  const passwordError = passwordMutation.isError
+    ? getApiErrorMessage(passwordMutation.error, 'No se pudo actualizar la contraseña.')
+    : '';
 
   // Issue #76 (PR B): un cambio de password exitoso NO entrega un token de
   // reemplazo -- el token actual queda inválido en el próximo request
@@ -216,142 +341,40 @@ function AccountDataForm({ profile }: { profile: Profile | undefined }) {
   };
 
   return (
-    <div className="space-y-8">
-      {/* Nombre */}
-      <form onSubmit={handleUpdateName} className="space-y-3">
+    <div className="card mb-6 break-inside-avoid">
+      <div className="mb-6">
+        <h3 className="font-medium text-slate-800">Contraseña</h3>
+        <p className="text-xs text-slate-500">Cerrarás sesión al cambiarla, por seguridad</p>
+      </div>
+      <form onSubmit={handleUpdatePassword} className="space-y-3">
         <input
-          type="text"
-          aria-label="Nombre"
-          value={nameInput}
-          onChange={e => setNameInput(e.target.value)}
+          type="password"
+          aria-label="Nueva contraseña"
+          placeholder="Nueva contraseña"
+          minLength={8}
+          value={newPassword}
+          onChange={e => setNewPassword(e.target.value)}
           className="input-field"
         />
-        {nameMessage && <ErrorBanner message={nameMessage} variant="success" />}
-        {nameError && <ErrorBanner message={nameError} />}
+        <input
+          type="password"
+          aria-label="Contraseña actual para cambiar contraseña"
+          placeholder="Contraseña actual"
+          value={passwordCurrentPassword}
+          onChange={e => setPasswordCurrentPassword(e.target.value)}
+          className="input-field"
+        />
+        {passwordError && <ErrorBanner message={passwordError} />}
         <button
           type="submit"
-          disabled={nameSaving || !nameInput.trim() || nameInput === accountName}
+          disabled={
+            passwordSaving || newPassword.length < 8 || !passwordCurrentPassword
+          }
           className="btn-primary disabled:opacity-50"
         >
-          {nameSaving ? 'Guardando...' : 'Guardar nombre'}
+          {passwordSaving ? 'Actualizando...' : 'Cambiar contraseña'}
         </button>
       </form>
-
-      {/* Perfil público (issue #155): visible en la autoagenda pública */}
-      <div className="border-t border-slate-100 pt-6">
-        <p className="text-sm font-medium text-slate-700 mb-3">Perfil público</p>
-        <form onSubmit={handleUpdatePublicProfile} className="space-y-3">
-          <div>
-            <input
-              type="text"
-              aria-label="Especialidad"
-              placeholder="Especialidad (ej. Psicología clínica)"
-              maxLength={120}
-              value={specialtyInput}
-              onChange={(e) => setSpecialtyInput(e.target.value)}
-              className="input-field"
-            />
-          </div>
-          <div>
-            <textarea
-              aria-label="Bio"
-              placeholder="Cuéntales a tus pacientes un poco sobre ti"
-              maxLength={500}
-              rows={3}
-              value={bioInput}
-              onChange={(e) => setBioInput(e.target.value)}
-              className="input-field resize-none"
-            />
-            <p className="text-xs text-slate-400 mt-1 text-right">
-              {bioInput.length}/500
-            </p>
-          </div>
-          {profileMessage && <ErrorBanner message={profileMessage} variant="success" />}
-          {profileError && <ErrorBanner message={profileError} />}
-          <button
-            type="submit"
-            disabled={
-              profileSaving ||
-              (bioInput === accountBio && specialtyInput === accountSpecialty)
-            }
-            className="btn-primary disabled:opacity-50"
-          >
-            {profileSaving ? 'Guardando...' : 'Guardar perfil público'}
-          </button>
-        </form>
-      </div>
-
-      {/* Email */}
-      <div className="border-t border-slate-100 pt-6 space-y-3">
-        <p className="text-sm font-medium text-slate-700">Email</p>
-        <p className="text-sm text-slate-600">{accountEmail}</p>
-        {pendingEmail && (
-          <ErrorBanner
-            variant="success"
-            message={`Tienes un cambio de email pendiente a ${pendingEmail} — revisa esa casilla para confirmarlo.`}
-          />
-        )}
-        <form onSubmit={handleUpdateEmail} className="space-y-3">
-          <input
-            type="email"
-            aria-label="Nuevo email"
-            placeholder="nuevo@email.com"
-            value={emailInput}
-            onChange={e => setEmailInput(e.target.value)}
-            className="input-field"
-          />
-          <input
-            type="password"
-            aria-label="Contraseña actual para cambiar email"
-            placeholder="Contraseña actual"
-            value={emailCurrentPassword}
-            onChange={e => setEmailCurrentPassword(e.target.value)}
-            className="input-field"
-          />
-          {emailError && <ErrorBanner message={emailError} />}
-          <button
-            type="submit"
-            disabled={emailSaving || !emailInput || !emailCurrentPassword}
-            className="btn-primary disabled:opacity-50"
-          >
-            {emailSaving ? 'Enviando...' : 'Cambiar email'}
-          </button>
-        </form>
-      </div>
-
-      {/* Contraseña */}
-      <div className="border-t border-slate-100 pt-6 space-y-3">
-        <p className="text-sm font-medium text-slate-700">Contraseña</p>
-        <form onSubmit={handleUpdatePassword} className="space-y-3">
-          <input
-            type="password"
-            aria-label="Nueva contraseña"
-            placeholder="Nueva contraseña"
-            minLength={8}
-            value={newPassword}
-            onChange={e => setNewPassword(e.target.value)}
-            className="input-field"
-          />
-          <input
-            type="password"
-            aria-label="Contraseña actual para cambiar contraseña"
-            placeholder="Contraseña actual"
-            value={passwordCurrentPassword}
-            onChange={e => setPasswordCurrentPassword(e.target.value)}
-            className="input-field"
-          />
-          {passwordError && <ErrorBanner message={passwordError} />}
-          <button
-            type="submit"
-            disabled={
-              passwordSaving || newPassword.length < 8 || !passwordCurrentPassword
-            }
-            className="btn-primary disabled:opacity-50"
-          >
-            {passwordSaving ? 'Actualizando...' : 'Cambiar contraseña'}
-          </button>
-        </form>
-      </div>
     </div>
   );
 }
@@ -463,7 +486,7 @@ function AvatarCard({ profile }: { profile: Profile | undefined }) {
   };
 
   return (
-    <div className="card max-w-lg mb-6">
+    <div className="card mb-6 break-inside-avoid">
       <div className="mb-6">
         <h3 className="font-medium text-slate-800">Foto de perfil</h3>
         <p className="text-xs text-slate-500">
@@ -522,31 +545,41 @@ export default function ProfilePage() {
         </p>
       </div>
 
-      <AvatarCard profile={profile} />
-
-      <div className="card max-w-lg mb-6">
-        <div className="mb-6">
-          <h3 className="font-medium text-slate-800">Datos de la cuenta</h3>
-          <p className="text-xs text-slate-500">
-            Actualiza tu nombre, tu email o tu contraseña
-          </p>
-        </div>
+      {/* Masonry de 2 columnas (antes cada card fijaba su propio
+          max-w-lg/max-w-2xl sin mx-auto: quedaban pegadas a la izquierda,
+          junto al navbar, desperdiciando el resto del viewport). Con
+          columns-2 el navegador va acomodando cada card en la columna con
+          más espacio libre, en vez de un split manual izquierda/derecha --
+          por eso el orden de lectura es "de arriba hacia abajo por columna",
+          no izquierda-a-derecha (cada card usa break-inside-avoid para no
+          partirse entre columnas). El orden de abajo es el orden lógico de
+          lectura si todo fuera una sola columna: identidad primero, agenda
+          pública después. */}
+      <div className="max-w-6xl columns-1 lg:columns-2 gap-6">
+        <AvatarCard profile={profile} />
 
         {checkingStatus ? (
-          <p className="text-sm text-slate-500">Cargando datos de la cuenta...</p>
+          <div className="card mb-6 break-inside-avoid">
+            <p className="text-sm text-slate-500">Cargando datos de la cuenta...</p>
+          </div>
         ) : (
-          <AccountDataForm profile={profile} />
+          <>
+            <NameCard profile={profile} />
+            <PublicProfileCard profile={profile} />
+            <EmailCard profile={profile} />
+            <PasswordCard />
+          </>
         )}
+
+        <PublicBookingLinkCard profile={profile} />
+
+        {/* sdd/patient-self-scheduling PR 4 (tasks.md 4.3, therapist-availability
+            spec): editor de horario semanal + bloqueos, autocontenidos (cada
+            uno fetchea/muta su propio recurso vía useAvailability.ts) --
+            mismo criterio que AvatarCard/NameCard arriba, sin props. */}
+        <WeeklyScheduleEditor />
+        <BlockoutEditor />
       </div>
-
-      <PublicBookingLinkCard profile={profile} />
-
-      {/* sdd/patient-self-scheduling PR 4 (tasks.md 4.3, therapist-availability
-          spec): editor de horario semanal + bloqueos, autocontenidos (cada
-          uno fetchea/muta su propio recurso vía useAvailability.ts) --
-          mismo criterio que AvatarCard/AccountDataForm arriba, sin props. */}
-      <WeeklyScheduleEditor />
-      <BlockoutEditor />
     </div>
   );
 }

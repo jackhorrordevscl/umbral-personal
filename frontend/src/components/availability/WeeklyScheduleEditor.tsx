@@ -105,7 +105,7 @@ export default function WeeklyScheduleEditor() {
   };
 
   return (
-    <div className="card max-w-2xl mb-6">
+    <div className="card mb-6 break-inside-avoid">
       <div className="mb-6">
         <h3 className="font-medium text-slate-800">Horario semanal</h3>
         <p className="text-xs text-slate-500">
