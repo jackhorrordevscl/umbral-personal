@@ -39,7 +39,7 @@ describe('PaymentsController', () => {
     disconnect: jest.Mock;
     resolveGatewayContext: jest.Mock;
   };
-  let gatewayAdapter: { verifyCallbackSignature: jest.Mock };
+  let gatewayAdapter: { getOrderStatus: jest.Mock };
   let gatewayRegistry: { get: jest.Mock };
 
   function buildContext(
@@ -75,7 +75,7 @@ describe('PaymentsController', () => {
       disconnect: jest.fn(),
       resolveGatewayContext: jest.fn(),
     };
-    gatewayAdapter = { verifyCallbackSignature: jest.fn() };
+    gatewayAdapter = { getOrderStatus: jest.fn() };
     gatewayRegistry = { get: jest.fn().mockReturnValue(gatewayAdapter) };
 
     controller = new PaymentsController(
@@ -95,25 +95,22 @@ describe('PaymentsController', () => {
 
     // sdd/payments-multigateway-redesign task 3.7 + spec "Checkout is
     // unavailable if the owning account is no longer connected": an
-    // unknown token is rejected with the SAME uniform 400 as an invalid
-    // signature, but strictly BEFORE any context resolution or decryption
-    // is even attempted -- the read-only findByToken lookup precedes
-    // everything else, and nothing downstream of it ever runs.
-    it('con token desconocido rechaza con 400 sin resolver contexto, sin decidir firma y sin mutar nada', async () => {
+    // unknown token is rejected with the SAME uniform 400 as any other
+    // rejection branch, but strictly BEFORE any context resolution or
+    // gateway call is even attempted -- the read-only findByToken lookup
+    // precedes everything else, and nothing downstream of it ever runs.
+    it('con token desconocido rechaza con 400 sin resolver contexto, sin consultar el gateway y sin mutar nada', async () => {
       paymentsService.findByToken.mockResolvedValue(null);
 
       await expect(
-        controller.confirm({
-          token: 'token-desconocido',
-          s: 'cualquier-firma',
-        }),
+        controller.confirm({ token: 'token-desconocido' }),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(
         paymentAccountService.resolveGatewayContext,
       ).not.toHaveBeenCalled();
       expect(gatewayRegistry.get).not.toHaveBeenCalled();
-      expect(gatewayAdapter.verifyCallbackSignature).not.toHaveBeenCalled();
+      expect(gatewayAdapter.getOrderStatus).not.toHaveBeenCalled();
       expect(paymentsService.confirm).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining('no existe un cobro con ese token'),
@@ -127,8 +124,8 @@ describe('PaymentsController', () => {
     // connected": a known token whose owning account is no longer
     // CONNECTED (resolveGatewayContext -> null covers
     // RECONNECT_REQUIRED/DISCONNECTED) also rejects with the same uniform
-    // 400, with no signature to even check against and no mutation.
-    it('con cuenta dueña ya no conectada (contexto null) rechaza con 400 sin verificar firma ni mutar nada', async () => {
+    // 400, with no gateway call to even attempt and no mutation.
+    it('con cuenta dueña ya no conectada (contexto null) rechaza con 400 sin consultar el gateway ni mutar nada', async () => {
       paymentsService.findByToken.mockResolvedValue({
         id: 'payment-1',
         therapistId: 'therapist-1',
@@ -136,76 +133,100 @@ describe('PaymentsController', () => {
       paymentAccountService.resolveGatewayContext.mockResolvedValue(null);
 
       await expect(
-        controller.confirm({ token: 'flow-token', s: 'firma-cualquiera' }),
+        controller.confirm({ token: 'flow-token' }),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(gatewayRegistry.get).not.toHaveBeenCalled();
-      expect(gatewayAdapter.verifyCallbackSignature).not.toHaveBeenCalled();
+      expect(gatewayAdapter.getOrderStatus).not.toHaveBeenCalled();
       expect(paymentsService.confirm).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining('cuenta de pagos del cobro no está disponible'),
       );
     });
 
-    it('con firma inválida (credenciales resueltas) rechaza con 400 y nunca llama a paymentsService.confirm', async () => {
+    // Flow's real confirmation POST carries no signature (confirmed against
+    // two real calls, 2026-09 sandbox and production) -- trust comes from
+    // re-querying getOrderStatus with the owning therapist's own
+    // credentials. A gateway error (invalid credentials, network) must
+    // reject the same uniform way, never leak to the caller, and never
+    // reach paymentsService.confirm.
+    it('cuando getOrderStatus falla rechaza con 400 y nunca llama a paymentsService.confirm', async () => {
       paymentsService.findByToken.mockResolvedValue({
         id: 'payment-1',
         therapistId: 'therapist-1',
       });
-      paymentAccountService.resolveGatewayContext.mockResolvedValue(
-        buildContext(),
+      const context = buildContext();
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(context);
+      gatewayAdapter.getOrderStatus.mockRejectedValue(
+        new Error('Flow devolvió 401 -- apiKey/firma inválida'),
       );
-      gatewayAdapter.verifyCallbackSignature.mockReturnValue(false);
 
       await expect(
-        controller.confirm({ token: 'flow-token', s: 'firma-falsificada' }),
+        controller.confirm({ token: 'flow-token' }),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(paymentsService.confirm).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('firma inválida (paymentId=payment-1)'),
-      );
-      expect(String((warn.mock.calls as unknown[][])[0][0])).not.toContain(
-        'firma-falsificada',
+        expect.stringContaining(
+          'no se pudo verificar el estado en el gateway (paymentId=payment-1)',
+        ),
       );
     });
 
-    it('con firma válida llama a paymentsService.confirm con el token', async () => {
+    it('cuando getOrderStatus devuelve un status distinto de PAID rechaza con 400 y nunca llama a paymentsService.confirm', async () => {
       paymentsService.findByToken.mockResolvedValue({
         id: 'payment-1',
         therapistId: 'therapist-1',
       });
       const context = buildContext();
       paymentAccountService.resolveGatewayContext.mockResolvedValue(context);
-      gatewayAdapter.verifyCallbackSignature.mockReturnValue(true);
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'REJECTED' });
 
-      const result = await controller.confirm({
-        token: 'flow-token',
-        s: 'firma-valida',
+      await expect(
+        controller.confirm({ token: 'flow-token' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(paymentsService.confirm).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'el gateway no reporta el cobro como pagado (paymentId=payment-1, status=REJECTED)',
+        ),
+      );
+    });
+
+    it('cuando getOrderStatus devuelve PAID llama a paymentsService.confirm con el token', async () => {
+      paymentsService.findByToken.mockResolvedValue({
+        id: 'payment-1',
+        therapistId: 'therapist-1',
       });
+      const context = buildContext();
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(context);
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PAID' });
+
+      const result = await controller.confirm({ token: 'flow-token' });
 
       expect(gatewayRegistry.get).toHaveBeenCalledWith(context.provider);
+      expect(gatewayAdapter.getOrderStatus).toHaveBeenCalledWith(
+        context.credentials,
+        'flow-token',
+      );
       expect(paymentsService.confirm).toHaveBeenCalledWith('flow-token');
       expect(result).toEqual({ received: true });
     });
 
-    it('verifica la firma con las credenciales de la cuenta dueña, sobre exactamente { token, s }', async () => {
+    it('consulta getOrderStatus con las credenciales de la cuenta dueña, resueltas por therapistId', async () => {
       paymentsService.findByToken.mockResolvedValue({
         id: 'payment-1',
         therapistId: 'therapist-1',
       });
       const context = buildContext();
       paymentAccountService.resolveGatewayContext.mockResolvedValue(context);
-      gatewayAdapter.verifyCallbackSignature.mockReturnValue(true);
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PAID' });
 
-      await controller.confirm({ token: 'flow-token', s: 'firma-valida' });
+      await controller.confirm({ token: 'flow-token' });
 
       expect(paymentAccountService.resolveGatewayContext).toHaveBeenCalledWith(
         'therapist-1',
-      );
-      expect(gatewayAdapter.verifyCallbackSignature).toHaveBeenCalledWith(
-        context.credentials,
-        { token: 'flow-token', s: 'firma-valida' },
       );
     });
   });

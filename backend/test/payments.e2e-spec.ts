@@ -4,7 +4,6 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
-import { createHmac } from 'crypto';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PaymentGatewayClient } from '../src/modules/payments/payment-gateway.client';
@@ -23,10 +22,15 @@ import { uniqueTestRut } from './support/unique-rut';
  *      otro) -- terapeuta B nunca ve ni puede mutar la cuenta o el cargo de
  *      terapeuta A, siempre con el mismo 404 uniforme.
  *   2. POST /payments/confirm es la ÚNICA ruta pública del módulo (sin
- *      JwtAuthGuard) -- un body forjado, sin firma, con token desconocido,
- *      o con campos extra jamás debe mutar un Payment, y el lookup
- *      read-only (findByToken) siempre precede a cualquier resolución de
- *      credenciales o verificación de firma (design.md "Webhook — after").
+ *      JwtAuthGuard) -- un body forjado, con token desconocido, con campos
+ *      extra, o cuyo getOrderStatus real no reporta PAID jamás debe mutar
+ *      un Payment, y el lookup read-only (findByToken) siempre precede a
+ *      cualquier resolución de credenciales o consulta al gateway
+ *      (design.md "Webhook — after"). Confirmado contra Flow real (sandbox
+ *      y producción, 2026-09): el POST de confirmación de Flow solo trae
+ *      `token`, nunca una firma -- por eso el módulo confía en re-consultar
+ *      getOrderStatus con las credenciales propias en vez de validar una
+ *      firma inbound que Flow nunca envía.
  *   3. Gating por conexión de la cuenta (RECONNECT_REQUIRED) y
  *      desconexión self-service (spec "Self-Service Disconnection").
  *
@@ -39,9 +43,7 @@ import { uniqueTestRut } from './support/unique-rut';
  * PaymentCredentialCryptoService resuelta por Nest (así resolveGatewayContext
  * descifra un blob v2 genuino). PaymentGatewayClient.createOrder/
  * getOrderStatus se stubean con jest.spyOn sobre la instancia real resuelta
- * por Nest -- solo la llamada de red se reemplaza; verifyCallbackSignature
- * corre SIN mockear, firmando con el secretKey de fixture (conocido por el
- * test, nunca por variable de entorno).
+ * por Nest -- solo la llamada de red se reemplaza.
  */
 describe('Payments (e2e)', () => {
   let app: INestApplication<App>;
@@ -52,9 +54,7 @@ describe('Payments (e2e)', () => {
   const runId = Date.now();
   const TEST_PASSWORD = 'TestPass123!';
   // Fixture credentials (well-formed per PaymentAccountService's
-  // CREDENTIAL_FORMAT gate: 16-128 chars, [A-Za-z0-9_-]) -- known to the
-  // test so `sign()` can compute a genuine callback signature the same way
-  // FlowPaymentGatewayClient.verifyCallbackSignature would.
+  // CREDENTIAL_FORMAT gate: 16-128 chars, [A-Za-z0-9_-]).
   const THERAPIST_A_API_KEY = 'e2eTestApiKeyTherapistA';
   const THERAPIST_A_SECRET_KEY = 'e2eTestSecretKeyTherapistA';
 
@@ -64,14 +64,6 @@ describe('Payments (e2e)', () => {
   let therapistBId: string;
   let patientAId: string;
   let groupIdA: string;
-
-  function sign(params: Record<string, string>): string {
-    const sortedKeys = Object.keys(params).sort();
-    const toSign = sortedKeys.map((k) => `${k}${params[k]}`).join('');
-    return createHmac('sha256', THERAPIST_A_SECRET_KEY)
-      .update(toSign)
-      .digest('hex');
-  }
 
   async function createProfessionalAndLogin(
     email: string,
@@ -463,14 +455,23 @@ describe('Payments (e2e)', () => {
   });
 
   describe('POST /payments/confirm (público) — un body forjado nunca muta un Payment', () => {
-    it('firma inválida se rechaza con 400 y el Payment no cambia', async () => {
+    // Flow's real confirmation POST carries only `token` (confirmed against
+    // two real calls, 2026-09 sandbox and production) -- trust comes from
+    // re-querying getOrderStatus with the owning account's own credentials,
+    // never from anything in the inbound body. A gateway response that
+    // doesn't report PAID must reject the same uniform way, with zero
+    // mutation.
+    it('cuando getOrderStatus no reporta PAID se rechaza con 400 y el Payment no cambia', async () => {
       const before = await prisma.payment.findUnique({
         where: { groupId: groupIdA },
+      });
+      jest.spyOn(gateway, 'getOrderStatus').mockResolvedValue({
+        status: 'REJECTED',
       });
 
       await request(app.getHttpServer())
         .post('/api/v1/payments/confirm')
-        .send({ token: before?.gatewayToken, s: 'firma-completamente-falsa' })
+        .send({ token: before?.gatewayToken })
         .expect(400);
 
       const after = await prisma.payment.findUnique({
@@ -478,14 +479,16 @@ describe('Payments (e2e)', () => {
       });
       expect(after?.status).toBe(before?.status);
       expect(after?.paidAt).toBeNull();
+
+      jest.restoreAllMocks();
     });
 
     // sdd/payments-multigateway-redesign task 3.7 + spec "Checkout is
     // unavailable if the owning account is no longer connected": a token
     // that matches no Payment row rejects with the same uniform 400 --
     // this proves the read-only lookup (findByToken) runs and fails BEFORE
-    // any credential resolution, decryption, or signature check, with zero
-    // mutation anywhere in the module.
+    // any credential resolution or gateway call, with zero mutation
+    // anywhere in the module.
     it('token desconocido se rechaza con 400 sin mutar ningún Payment', async () => {
       const beforeA = await prisma.payment.findUnique({
         where: { groupId: groupIdA },
@@ -493,10 +496,7 @@ describe('Payments (e2e)', () => {
 
       await request(app.getHttpServer())
         .post('/api/v1/payments/confirm')
-        .send({
-          token: 'token-que-no-existe-en-ningun-payment',
-          s: 'x'.repeat(64),
-        })
+        .send({ token: 'token-que-no-existe-en-ningun-payment' })
         .expect(400);
 
       const afterA = await prisma.payment.findUnique({
@@ -506,28 +506,15 @@ describe('Payments (e2e)', () => {
       expect(afterA?.paidAt).toBeNull();
     });
 
-    it('sin el campo s (whitelist/forbidNonWhitelisted) se rechaza con 400 antes de cualquier lógica de negocio', async () => {
-      const before = await prisma.payment.findUnique({
-        where: { groupId: groupIdA },
-      });
-
-      await request(app.getHttpServer())
-        .post('/api/v1/payments/confirm')
-        .send({ token: before?.gatewayToken })
-        .expect(400);
-    });
-
     it('un campo extra no declarado se rechaza con 400 (forbidNonWhitelisted)', async () => {
       const before = await prisma.payment.findUnique({
         where: { groupId: groupIdA },
       });
-      const s = sign({ token: before!.gatewayToken! });
 
       await request(app.getHttpServer())
         .post('/api/v1/payments/confirm')
         .send({
           token: before?.gatewayToken,
-          s,
           extra: 'campo-inyectado-por-un-atacante',
         })
         .expect(400);
@@ -538,7 +525,7 @@ describe('Payments (e2e)', () => {
       expect(after?.status).toBe(before?.status);
     });
 
-    it('una firma válida (firmada con el secretKey real de la cuenta dueña) re-consulta getOrderStatus (stubeado) y confirma el pago', async () => {
+    it('una confirmación real de Flow (solo token, sin firma) re-consulta getOrderStatus (stubeado) y confirma el pago', async () => {
       const before = await prisma.payment.findUnique({
         where: { groupId: groupIdA },
       });
@@ -546,11 +533,10 @@ describe('Payments (e2e)', () => {
         status: 'PAID',
         gatewayPaymentId: 'flow-payment-e2e',
       });
-      const s = sign({ token: before!.gatewayToken! });
 
       await request(app.getHttpServer())
         .post('/api/v1/payments/confirm')
-        .send({ token: before?.gatewayToken, s })
+        .send({ token: before?.gatewayToken })
         .expect(200);
 
       const after = await prisma.payment.findUnique({
@@ -567,17 +553,22 @@ describe('Payments (e2e)', () => {
         where: { groupId: groupIdA },
       });
       expect(before?.status).toBe('PAID');
-      const s = sign({ token: before!.gatewayToken! });
+      jest.spyOn(gateway, 'getOrderStatus').mockResolvedValue({
+        status: 'PAID',
+        gatewayPaymentId: 'flow-payment-e2e',
+      });
 
       await request(app.getHttpServer())
         .post('/api/v1/payments/confirm')
-        .send({ token: before?.gatewayToken, s })
+        .send({ token: before?.gatewayToken })
         .expect(200);
 
       const after = await prisma.payment.findUnique({
         where: { groupId: groupIdA },
       });
       expect(after?.paidAt?.getTime()).toBe(before?.paidAt?.getTime());
+
+      jest.restoreAllMocks();
     });
   });
 

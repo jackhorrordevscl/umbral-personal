@@ -132,9 +132,4 @@ export abstract class PaymentGatewayClient {
     credentials: GatewayCredentials,
     token: string,
   ): Promise<void>;
-
-  abstract verifyCallbackSignature(
-    credentials: GatewayCredentials,
-    params: Record<string, string>,
-  ): boolean;
 }
