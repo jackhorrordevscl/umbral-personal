@@ -145,6 +145,10 @@ export default function DashboardPage() {
             ))}
           </div>
 
+          {/* Pacientes recientes + Origen de pacientes, lado a lado en pantallas
+              grandes (antes apiladas full-width, desperdiciando la mitad del
+              viewport en desktop). */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
           {/* Pacientes recientes */}
           <div className="card p-4 md:p-6">
             <div className="flex items-center justify-between mb-4">
@@ -195,7 +199,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Origen de pacientes */}
-      <div className="card p-4 md:p-6 mt-6 md:mt-8">
+      <div className="card p-4 md:p-6">
         <h3 className="font-display text-lg md:text-xl text-slate-900">
           Origen de pacientes
         </h3>
@@ -243,6 +247,7 @@ export default function DashboardPage() {
             })}
           </ul>
         )}
+      </div>
       </div>
     </div>
   );
