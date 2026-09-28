@@ -121,7 +121,7 @@ function MfaCard({
   };
 
   return (
-    <div className="card max-w-lg">
+    <div className="card mb-6 break-inside-avoid">
       <div className="flex items-center gap-3 mb-6">
         <div className="bg-sage-50 p-3 rounded-lg">
           <ShieldCheck size={22} className="text-sage-600" />
@@ -273,7 +273,7 @@ function InviteCard() {
   };
 
   return (
-    <div className="card max-w-lg mt-6">
+    <div className="card mb-6 break-inside-avoid">
       <div className="flex items-center gap-3 mb-6">
         <div className="bg-sage-50 p-3 rounded-lg">
           <UserPlus size={22} className="text-sage-600" />
@@ -403,107 +403,115 @@ export default function SecurityPage() {
         </p>
       </div>
 
-      {checkingStatus ? (
-        <div className="card max-w-lg">
-          <p className="text-sm text-slate-500">Verificando estado de MFA...</p>
-        </div>
-      ) : (
-        <MfaCard profile={profile} onMfaChanged={() => void refetchMfaHistory()} />
-      )}
-
-      {mfaHistoryError && (
-        <ErrorBanner
-          message="No se pudo cargar el historial de seguridad. Intenta recargar la página."
-          className="max-w-lg mt-6"
-        />
-      )}
-
-      {mfaHistory.length > 0 && (
-        <div className="card max-w-lg mt-6">
-          <h3 className="font-medium text-slate-800 mb-1">Historial de seguridad</h3>
-          <p className="text-xs text-slate-500 mb-4">
-            Cuándo y desde qué dispositivo se activó o desactivó el MFA de esta cuenta.
-          </p>
-          <ul className="space-y-3">
-            {mfaHistory.map((entry, index) => (
-              <li key={index} className="text-xs border-b border-slate-100 pb-3 last:border-0 last:pb-0">
-                <p className="text-slate-700 font-medium">
-                  {MFA_HISTORY_LABELS[entry.action] ?? entry.action}
-                </p>
-                <p className="text-slate-500 mt-0.5">
-                  {new Date(entry.createdAt).toLocaleString('es-CL')}
-                  {entry.ipAddress ? ` · ${entry.ipAddress}` : ''}
-                </p>
-                {entry.userAgent && (
-                  <p className="text-slate-500 mt-0.5 break-all">{entry.userAgent}</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {profile?.canInvite && <InviteCard />}
-
-      <div className="card max-w-lg mt-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="bg-sage-50 p-3 rounded-lg">
-            <Calendar size={22} className="text-sage-600" />
-          </div>
-          <div>
-            <h3 className="font-medium text-slate-800">Google Calendar</h3>
-            <p className="text-xs text-slate-500">
-              Refleja tus sesiones agendadas en tu Google Calendar personal
-            </p>
-          </div>
-        </div>
-
-        {calendarReturn === 'connected' && (
-          <ErrorBanner
-            variant="success"
-            className="mb-4"
-            message="Tu cuenta de Google Calendar quedó conectada."
-          />
-        )}
-        {calendarReturn === 'error' && (
-          <ErrorBanner
-            className="mb-4"
-            message="No se pudo conectar tu cuenta de Google Calendar. Intenta nuevamente."
-          />
-        )}
-        {calendarError && <ErrorBanner message={calendarError} className="mb-4" />}
-
-        {calendarStatus?.status === 'CONNECTED' ? (
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 text-emerald-600">
-              <ShieldCheck size={18} />
-              <p className="text-sm font-medium">Conectado</p>
-            </div>
-            <button
-              type="button"
-              onClick={handleDisconnectGoogle}
-              disabled={calendarLoading}
-              className="btn-secondary disabled:opacity-50"
-            >
-              {calendarLoading ? 'Desconectando...' : 'Desconectar'}
-            </button>
+      {/* Masonry de 2 columnas, mismo patrón que ProfilePage: cada card usaba
+          su propio max-w-lg sin mx-auto y quedaba pegada al navbar,
+          desperdiciando el resto del viewport en pantallas grandes. Con
+          columns-2 el navegador acomoda cada card en la columna con más
+          espacio libre (por eso break-inside-avoid en cada una, para que no
+          se corten entre columnas). */}
+      <div className="max-w-6xl columns-1 lg:columns-2 gap-6">
+        {checkingStatus ? (
+          <div className="card mb-6 break-inside-avoid">
+            <p className="text-sm text-slate-500">Verificando estado de MFA...</p>
           </div>
         ) : (
-          <div className="space-y-4">
-            <p className="text-sm text-slate-600">
-              Conecta tu cuenta de Google para ver tus sesiones de Umbral
-              directamente en tu Google Calendar.
+          <MfaCard profile={profile} onMfaChanged={() => void refetchMfaHistory()} />
+        )}
+
+        {mfaHistoryError && (
+          <ErrorBanner
+            message="No se pudo cargar el historial de seguridad. Intenta recargar la página."
+            className="mb-6 break-inside-avoid"
+          />
+        )}
+
+        {mfaHistory.length > 0 && (
+          <div className="card mb-6 break-inside-avoid">
+            <h3 className="font-medium text-slate-800 mb-1">Historial de seguridad</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Cuándo y desde qué dispositivo se activó o desactivó el MFA de esta cuenta.
             </p>
-            <button
-              type="button"
-              onClick={handleConnectGoogle}
-              disabled={calendarLoading}
-              className="btn-primary disabled:opacity-50"
-            >
-              {calendarLoading ? 'Conectando...' : 'Conectar con Google Calendar'}
-            </button>
+            <ul className="space-y-3">
+              {mfaHistory.map((entry, index) => (
+                <li key={index} className="text-xs border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                  <p className="text-slate-700 font-medium">
+                    {MFA_HISTORY_LABELS[entry.action] ?? entry.action}
+                  </p>
+                  <p className="text-slate-500 mt-0.5">
+                    {new Date(entry.createdAt).toLocaleString('es-CL')}
+                    {entry.ipAddress ? ` · ${entry.ipAddress}` : ''}
+                  </p>
+                  {entry.userAgent && (
+                    <p className="text-slate-500 mt-0.5 break-all">{entry.userAgent}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
+
+        {profile?.canInvite && <InviteCard />}
+
+        <div className="card mb-6 break-inside-avoid">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="bg-sage-50 p-3 rounded-lg">
+              <Calendar size={22} className="text-sage-600" />
+            </div>
+            <div>
+              <h3 className="font-medium text-slate-800">Google Calendar</h3>
+              <p className="text-xs text-slate-500">
+                Refleja tus sesiones agendadas en tu Google Calendar personal
+              </p>
+            </div>
+          </div>
+
+          {calendarReturn === 'connected' && (
+            <ErrorBanner
+              variant="success"
+              className="mb-4"
+              message="Tu cuenta de Google Calendar quedó conectada."
+            />
+          )}
+          {calendarReturn === 'error' && (
+            <ErrorBanner
+              className="mb-4"
+              message="No se pudo conectar tu cuenta de Google Calendar. Intenta nuevamente."
+            />
+          )}
+          {calendarError && <ErrorBanner message={calendarError} className="mb-4" />}
+
+          {calendarStatus?.status === 'CONNECTED' ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-emerald-600">
+                <ShieldCheck size={18} />
+                <p className="text-sm font-medium">Conectado</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleDisconnectGoogle}
+                disabled={calendarLoading}
+                className="btn-secondary disabled:opacity-50"
+              >
+                {calendarLoading ? 'Desconectando...' : 'Desconectar'}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Conecta tu cuenta de Google para ver tus sesiones de Umbral
+                directamente en tu Google Calendar.
+              </p>
+              <button
+                type="button"
+                onClick={handleConnectGoogle}
+                disabled={calendarLoading}
+                className="btn-primary disabled:opacity-50"
+              >
+                {calendarLoading ? 'Conectando...' : 'Conectar con Google Calendar'}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -343,7 +343,7 @@ export default function PaymentsPage() {
         </p>
       </div>
 
-      <div className="card max-w-lg">
+      <div className="card max-w-lg mx-auto">
         <div className="flex items-center gap-3 mb-6">
           <div className="bg-sage-50 p-3 rounded-lg">
             <CreditCard size={22} className="text-sage-600" />
