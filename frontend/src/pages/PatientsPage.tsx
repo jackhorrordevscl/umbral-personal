@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { List, type RowComponentProps } from "react-window";
 import { UserPlus, Search, Download, Trash2, Eye, Pencil, AlertCircle } from "lucide-react";
 import { normalizeRut, formatRut, validateRut } from "../utils/rut";
 import { filterPatients } from "../utils/patient-search";
@@ -49,6 +50,193 @@ const displayRut = (rut: string) => formatRut(rut.replace(/\./g, ""));
 // telemedicina (igual de válido) aparecía como "Sin consentimiento". El
 // consentimiento de cualquiera de las dos finalidades habilita la ficha.
 const hasAnyConsent = (p: Patient) => Boolean(p.consents?.TREATMENT || p.consents?.TELEMEDICINE);
+
+// Issue #206: con años de datos acumulados, `filtered.map(...)` montaba
+// cientos de <tr>/cards a la vez. react-window (List) solo monta las filas
+// visibles -- el buscador sigue filtrando el array completo en memoria
+// (sin cambios), esto solo cambia CÓMO se pintan los resultados.
+//
+// La tabla desktop no puede virtualizarse como <table> real: react-window
+// posiciona cada fila con `position: absolute`, y un <tr> fuera del flujo
+// normal de la tabla pierde la sincronización de anchos de columna con el
+// resto de las filas (bug conocido, no es específico de esta librería). En
+// vez de eso, tabla y filas comparten el mismo `grid-template-columns`
+// inline (una sola fuente de verdad) con roles ARIA de tabla.
+const PATIENT_TABLE_COLUMNS = "minmax(200px,2fr) 130px minmax(140px,1fr) 150px 110px 150px";
+const PATIENT_TABLE_ROW_HEIGHT = 76;
+// Altura pensada para la variante más alta de card (con el checkbox de
+// consentimiento retroactivo); las cards sin esa línea quedan con un poco
+// de espacio de sobra en vez de recortarse -- se prefiere eso a un
+// VariableSizeList por la complejidad extra que no se justifica acá.
+const PATIENT_CARD_ROW_HEIGHT = 208;
+const PATIENT_LIST_HEIGHT = 560;
+
+interface PatientRowSharedProps {
+  items: Patient[];
+  selectedForConsent: Set<string>;
+  onToggleConsent: (id: string) => void;
+  onView: (p: Patient) => void;
+  onEdit: (p: Patient) => void;
+  onDownload: (p: Patient) => void;
+  onDelete: (p: Patient) => void;
+}
+
+function PatientTableRow({
+  index,
+  style,
+  items,
+  selectedForConsent,
+  onToggleConsent,
+  onView,
+  onEdit,
+  onDownload,
+  onDelete,
+}: RowComponentProps<PatientRowSharedProps>) {
+  const p = items[index];
+  return (
+    <div
+      role="row"
+      style={{ ...style, gridTemplateColumns: PATIENT_TABLE_COLUMNS }}
+      className="grid items-center gap-4 px-6 border-b border-slate-50 hover:bg-cream-50 transition-colors"
+    >
+      <div role="cell">
+        <p className="font-medium text-slate-800">{p.fullName}</p>
+        <p className="text-xs text-slate-500">{p.email}</p>
+      </div>
+      <div role="cell" className="text-slate-600 font-mono text-xs">
+        {displayRut(p.rut)}
+      </div>
+      <div role="cell" className="text-slate-600">
+        {p.phone}
+      </div>
+      <div role="cell">
+        <span
+          className={`text-xs px-2 py-1 rounded-full ${
+            hasAnyConsent(p) ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+          }`}
+        >
+          {hasAnyConsent(p) ? "Consentimiento ✓" : "Sin consentimiento"}
+        </span>
+      </div>
+      <div role="cell">
+        {!hasAnyConsent(p) && (
+          <input
+            type="checkbox"
+            checked={selectedForConsent.has(p.id)}
+            onChange={() => onToggleConsent(p.id)}
+            aria-label={`Declarar consentimiento retroactivo de ${p.fullName}`}
+          />
+        )}
+      </div>
+      <div role="cell" className="flex items-center gap-2">
+        <button
+          onClick={() => onView(p)}
+          className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"
+          title="Ver detalle"
+          aria-label={`Ver detalle de ${p.fullName}`}
+        >
+          <Eye size={15} />
+        </button>
+        <button
+          onClick={() => onEdit(p)}
+          className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-400 transition-colors"
+          title="Editar"
+          aria-label={`Editar a ${p.fullName}`}
+        >
+          <Pencil size={15} />
+        </button>
+        <button
+          onClick={() => onDownload(p)}
+          className="p-1.5 hover:bg-sage-50 rounded-lg text-sage-600 transition-colors"
+          title="Descargar PDF"
+          aria-label={`Descargar ficha PDF de ${p.fullName}`}
+        >
+          <Download size={15} />
+        </button>
+        <button
+          onClick={() => onDelete(p)}
+          className="p-1.5 hover:bg-red-50 rounded-lg text-red-400 transition-colors"
+          title="Eliminar"
+          aria-label={`Eliminar a ${p.fullName}`}
+        >
+          <Trash2 size={15} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PatientCardRow({
+  index,
+  style,
+  items,
+  selectedForConsent,
+  onToggleConsent,
+  onView,
+  onEdit,
+  onDownload,
+  onDelete,
+}: RowComponentProps<PatientRowSharedProps>) {
+  const p = items[index];
+  return (
+    <div style={style} className="pb-3">
+      <div className="card p-4">
+        <div className="flex items-start justify-between mb-2">
+          <div>
+            <p className="font-medium text-slate-800">{p.fullName}</p>
+            <p className="text-xs text-slate-500 font-mono">{displayRut(p.rut)}</p>
+          </div>
+          <span
+            className={`text-xs px-2 py-1 rounded-full shrink-0 ${
+              hasAnyConsent(p) ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+            }`}
+          >
+            {hasAnyConsent(p) ? "✓" : "Pendiente"}
+          </span>
+        </div>
+        <p className="text-xs text-slate-500 mb-3">
+          {p.phone} · {p.email}
+        </p>
+        {!hasAnyConsent(p) && (
+          <label className="flex items-center gap-2 text-xs text-slate-500 mb-3">
+            <input
+              type="checkbox"
+              checked={selectedForConsent.has(p.id)}
+              onChange={() => onToggleConsent(p.id)}
+            />
+            Declarar consentimiento retroactivo
+          </label>
+        )}
+        <div className="flex gap-2">
+          <button
+            onClick={() => onView(p)}
+            className="btn-secondary text-xs py-1 flex items-center gap-1"
+          >
+            <Eye size={13} /> Ver
+          </button>
+          <button
+            onClick={() => onEdit(p)}
+            className="btn-secondary text-xs py-1 flex items-center gap-1 text-blue-500"
+          >
+            <Pencil size={13} /> Editar
+          </button>
+          <button
+            onClick={() => onDownload(p)}
+            className="btn-primary text-xs py-1 flex items-center gap-1"
+          >
+            <Download size={13} /> PDF
+          </button>
+          <button
+            onClick={() => onDelete(p)}
+            className="text-xs py-1 px-2 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 flex items-center gap-1"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function PatientsPage() {
   const [search, setSearch] = useState("");
@@ -216,6 +404,21 @@ export default function PatientsPage() {
 
   const filtered = useMemo(() => filterPatients(patients, search), [patients, search]);
 
+  const patientRowKey = useCallback(
+    (index: number, data: PatientRowSharedProps) => data.items[index].id,
+    [],
+  );
+
+  const sharedRowProps: PatientRowSharedProps = {
+    items: filtered,
+    selectedForConsent,
+    onToggleConsent: toggleConsentSelection,
+    onView: (p) => setModalIntent({ patient: p, tab: "detail" }),
+    onEdit: (p) => setModalIntent({ patient: p, tab: "edit" }),
+    onDownload: handleDownloadReport,
+    onDelete: setPatientToDelete,
+  };
+
   return (
     <div className="p-4 md:p-8">
       <div className="flex items-center justify-between mb-6 md:mb-8">
@@ -341,108 +544,39 @@ export default function PatientsPage() {
       )}
 
       {/* Tabla desktop */}
-      <div className="hidden md:block card p-0 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 border-b border-slate-100">
-            <tr>
-              <th className="text-left px-6 py-3 text-xs font-medium text-slate-500">Paciente</th>
-              <th className="text-left px-6 py-3 text-xs font-medium text-slate-500">RUT</th>
-              <th className="text-left px-6 py-3 text-xs font-medium text-slate-500">Contacto</th>
-              <th className="text-left px-6 py-3 text-xs font-medium text-slate-500">Estado</th>
-              <th className="text-left px-6 py-3 text-xs font-medium text-slate-500">Retroactivo</th>
-              <th className="text-left px-6 py-3 text-xs font-medium text-slate-500">Acciones</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {patientsLoading ? (
-              <tr>
-                <td colSpan={6} className="text-center py-12 text-slate-500">
-                  Cargando pacientes...
-                </td>
-              </tr>
-            ) : filtered.length === 0 ? (
-              <tr>
-                <td colSpan={6}>
-                  <EmptyState message="No se encontraron pacientes." className="py-12" />
-                </td>
-              </tr>
-            ) : (
-              filtered.map((p: Patient) => (
-                <tr key={p.id} className="hover:bg-cream-50 transition-colors">
-                  <td className="px-6 py-4">
-                    <p className="font-medium text-slate-800">{p.fullName}</p>
-                    <p className="text-xs text-slate-500">{p.email}</p>
-                  </td>
-                  <td className="px-6 py-4 text-slate-600 font-mono text-xs">
-                    {displayRut(p.rut)}
-                  </td>
-                  <td className="px-6 py-4 text-slate-600">{p.phone}</td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`text-xs px-2 py-1 rounded-full ${
-                        hasAnyConsent(p)
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-amber-50 text-amber-700"
-                      }`}
-                    >
-                      {hasAnyConsent(p) ? "Consentimiento ✓" : "Sin consentimiento"}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    {!hasAnyConsent(p) && (
-                      <input
-                        type="checkbox"
-                        checked={selectedForConsent.has(p.id)}
-                        onChange={() => toggleConsentSelection(p.id)}
-                        aria-label={`Declarar consentimiento retroactivo de ${p.fullName}`}
-                      />
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setModalIntent({ patient: p, tab: "detail" })}
-                        className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"
-                        title="Ver detalle"
-                        aria-label={`Ver detalle de ${p.fullName}`}
-                      >
-                        <Eye size={15} />
-                      </button>
-                      <button
-                        onClick={() => setModalIntent({ patient: p, tab: "edit" })}
-                        className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-400 transition-colors"
-                        title="Editar"
-                        aria-label={`Editar a ${p.fullName}`}
-                      >
-                        <Pencil size={15} />
-                      </button>
-                      <button
-                        onClick={() => handleDownloadReport(p)}
-                        className="p-1.5 hover:bg-sage-50 rounded-lg text-sage-600 transition-colors"
-                        title="Descargar PDF"
-                        aria-label={`Descargar ficha PDF de ${p.fullName}`}
-                      >
-                        <Download size={15} />
-                      </button>
-                      <button
-                        onClick={() => setPatientToDelete(p)}
-                        className="p-1.5 hover:bg-red-50 rounded-lg text-red-400 transition-colors"
-                        title="Eliminar"
-                        aria-label={`Eliminar a ${p.fullName}`}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      <div className="hidden md:block card p-0 overflow-hidden" role="table" aria-label="Pacientes">
+        <div
+          role="row"
+          style={{ gridTemplateColumns: PATIENT_TABLE_COLUMNS }}
+          className="grid gap-4 bg-slate-50 border-b border-slate-100 px-6"
+        >
+          <div role="columnheader" className="py-3 text-xs font-medium text-slate-500">Paciente</div>
+          <div role="columnheader" className="py-3 text-xs font-medium text-slate-500">RUT</div>
+          <div role="columnheader" className="py-3 text-xs font-medium text-slate-500">Contacto</div>
+          <div role="columnheader" className="py-3 text-xs font-medium text-slate-500">Estado</div>
+          <div role="columnheader" className="py-3 text-xs font-medium text-slate-500">Retroactivo</div>
+          <div role="columnheader" className="py-3 text-xs font-medium text-slate-500">Acciones</div>
+        </div>
+        {patientsLoading ? (
+          <div className="text-center py-12 text-slate-500">Cargando pacientes...</div>
+        ) : filtered.length === 0 ? (
+          <EmptyState message="No se encontraron pacientes." className="py-12" />
+        ) : (
+          <List
+            role="rowgroup"
+            rowComponent={PatientTableRow}
+            rowCount={filtered.length}
+            rowHeight={PATIENT_TABLE_ROW_HEIGHT}
+            rowProps={sharedRowProps}
+            rowKey={patientRowKey}
+            overscanCount={6}
+            style={{ height: PATIENT_LIST_HEIGHT }}
+          />
+        )}
       </div>
 
       {/* Cards móvil */}
-      <div className="md:hidden space-y-3">
+      <div className="md:hidden">
         {patientsLoading ? (
           <div className="card text-center py-8 text-slate-500 text-sm">
             Cargando pacientes...
@@ -452,64 +586,15 @@ export default function PatientsPage() {
             <EmptyState message="No se encontraron pacientes." />
           </div>
         ) : (
-          filtered.map((p: Patient) => (
-            <div key={p.id} className="card p-4">
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <p className="font-medium text-slate-800">{p.fullName}</p>
-                  <p className="text-xs text-slate-500 font-mono">{displayRut(p.rut)}</p>
-                </div>
-                <span
-                  className={`text-xs px-2 py-1 rounded-full shrink-0 ${
-                    hasAnyConsent(p)
-                      ? "bg-emerald-50 text-emerald-700"
-                      : "bg-amber-50 text-amber-700"
-                  }`}
-                >
-                  {hasAnyConsent(p) ? "✓" : "Pendiente"}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mb-3">
-                {p.phone} · {p.email}
-              </p>
-              {!hasAnyConsent(p) && (
-                <label className="flex items-center gap-2 text-xs text-slate-500 mb-3">
-                  <input
-                    type="checkbox"
-                    checked={selectedForConsent.has(p.id)}
-                    onChange={() => toggleConsentSelection(p.id)}
-                  />
-                  Declarar consentimiento retroactivo
-                </label>
-              )}
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setModalIntent({ patient: p, tab: "detail" })}
-                  className="btn-secondary text-xs py-1 flex items-center gap-1"
-                >
-                  <Eye size={13} /> Ver
-                </button>
-                <button
-                  onClick={() => setModalIntent({ patient: p, tab: "edit" })}
-                  className="btn-secondary text-xs py-1 flex items-center gap-1 text-blue-500"
-                >
-                  <Pencil size={13} /> Editar
-                </button>
-                <button
-                  onClick={() => handleDownloadReport(p)}
-                  className="btn-primary text-xs py-1 flex items-center gap-1"
-                >
-                  <Download size={13} /> PDF
-                </button>
-                <button
-                  onClick={() => setPatientToDelete(p)}
-                  className="text-xs py-1 px-2 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 flex items-center gap-1"
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
-            </div>
-          ))
+          <List
+            rowComponent={PatientCardRow}
+            rowCount={filtered.length}
+            rowHeight={PATIENT_CARD_ROW_HEIGHT}
+            rowProps={sharedRowProps}
+            rowKey={patientRowKey}
+            overscanCount={4}
+            style={{ height: PATIENT_LIST_HEIGHT }}
+          />
         )}
       </div>
 
