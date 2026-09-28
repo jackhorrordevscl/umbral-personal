@@ -96,7 +96,6 @@ describe('PaymentsService', () => {
     createOrder: jest.Mock;
     getOrderStatus: jest.Mock;
     voidOrder: jest.Mock;
-    verifyCallbackSignature: jest.Mock;
   };
   let gatewayRegistry: { get: jest.Mock };
   let config: { get: jest.Mock };
@@ -143,7 +142,6 @@ describe('PaymentsService', () => {
       }),
       getOrderStatus: jest.fn(),
       voidOrder: jest.fn().mockResolvedValue(undefined),
-      verifyCallbackSignature: jest.fn(),
     };
     gatewayRegistry = { get: jest.fn().mockReturnValue(gatewayAdapter) };
     mailService = {

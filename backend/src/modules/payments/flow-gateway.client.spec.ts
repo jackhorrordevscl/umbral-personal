@@ -35,8 +35,8 @@ function mockFetchOnce(
 
 // Firma de referencia calculada de la misma forma que sign() debería
 // calcularla (orden alfabético de claves, concatenación key+value, HMAC-SHA256
-// hex con el secretKey) -- así los tests de verifyCallbackSignature no
-// dependen de invocar al propio cliente para generar el fixture.
+// hex con el secretKey) -- así el test de validateCredentials no depende de
+// invocar al propio cliente para generar el fixture.
 function referenceSign(
   params: Record<string, string>,
   secretKey: string,
@@ -345,59 +345,6 @@ describe('FlowPaymentGatewayClient', () => {
       );
 
       expect(first.keyFingerprint).not.toEqual(second.keyFingerprint);
-    });
-  });
-
-  describe('verifyCallbackSignature', () => {
-    it('acepta una firma válida calculada con el secretKey de las credenciales recibidas', () => {
-      const params = { token: 'flow-token-abc' };
-      const s = referenceSign(params, 'test-secret-key');
-
-      expect(
-        client.verifyCallbackSignature(credentials, { ...params, s }),
-      ).toBe(true);
-    });
-
-    it('rechaza un parámetro alterado tras firmar (tampered)', () => {
-      const params = { token: 'flow-token-abc' };
-      const s = referenceSign(params, 'test-secret-key');
-
-      expect(
-        client.verifyCallbackSignature(credentials, {
-          token: 'flow-token-TAMPERED',
-          s,
-        }),
-      ).toBe(false);
-    });
-
-    it('rechaza cuando falta el parámetro s', () => {
-      expect(
-        client.verifyCallbackSignature(credentials, {
-          token: 'flow-token-abc',
-        } as Record<string, string>),
-      ).toBe(false);
-    });
-
-    it('rechaza una firma calculada con credenciales distintas (wrong key)', () => {
-      const params = { token: 'flow-token-abc' };
-      const s = referenceSign(params, 'una-clave-que-no-es-la-configurada');
-
-      expect(
-        client.verifyCallbackSignature(credentials, { ...params, s }),
-      ).toBe(false);
-    });
-
-    it('rechaza cuando se agrega un parámetro extra no incluido en la firma original', () => {
-      const params = { token: 'flow-token-abc' };
-      const s = referenceSign(params, 'test-secret-key');
-
-      expect(
-        client.verifyCallbackSignature(credentials, {
-          token: 'flow-token-abc',
-          extra: 'campo-inyectado-por-un-atacante',
-          s,
-        }),
-      ).toBe(false);
     });
   });
 });

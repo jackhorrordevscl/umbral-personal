@@ -29,8 +29,9 @@ import { ConnectAccountDto } from './dto/connect-account.dto';
 import { UpdatePaymentAmountDto } from './dto/update-payment-amount.dto';
 import { ConfirmPaymentDto } from './dto/confirm-payment.dto';
 import { ConfirmValidationLoggingInterceptor } from './confirm-validation-logging.interceptor';
+import type { GatewayOrderStatus } from './payment-gateway.client';
 
-const CONFIRM_SIGNATURE_ERROR = 'Firma de confirmación inválida.';
+const CONFIRM_REJECTED_ERROR = 'Confirmación de pago rechazada.';
 
 // Issue #133: throttlers ajenos que POST /confirm y GET|POST /return deben
 // saltear -- los de AuthModule/ProfileModule más el otro nombre propio de
@@ -167,16 +168,19 @@ export class PaymentsController {
 
   // T5.6/T7.9/T7.10 + design.md "Webhook — after": no JwtAuthGuard on
   // purpose -- Flow makes a server-to-server POST with no Authorization
-  // header at all. Flow signs callbacks with the *owning merchant's* own
-  // secret (there is no global secret anymore), so the credentials must be
-  // resolved from the payment's owning therapist BEFORE the signature can
-  // even be checked. That lookup is read-only (findByToken never mutates)
-  // and precedes decryption: an unknown token or a disconnected/reconnect-
-  // required owning account both fail with the same uniform 400 as an
-  // invalid signature, without ever calling
-  // paymentsService.confirm (the only path to a Prisma write) --
-  // design.md's preserved invariant: "no state is mutated and no mail is
-  // sent before the signature verifies".
+  // header at all, and (confirmed against two real Flow calls, 2026-09
+  // sandbox and production) carries ONLY `token` -- Flow never signs this
+  // callback, so there is no inbound signature to check. Trust instead
+  // comes from re-querying getOrderStatus with the OWNING therapist's own
+  // credentials -- a request WE sign, over HTTPS to Flow's real domain
+  // (design.md "The confirmation callback is a signal, never a source of
+  // truth"). Credentials must still be resolved from the payment's owning
+  // therapist before that call can even be made: an unknown token, a
+  // disconnected/reconnect-required owning account, or a getOrderStatus
+  // result other than PAID all fail with the same uniform 400, without ever
+  // calling paymentsService.confirm (the only path to a Prisma write) --
+  // preserving the invariant "no state is mutated and no mail is sent
+  // before the payment is verified as PAID at the gateway".
   // Issue #133: sin JwtAuthGuard (es un webhook), pero eso no la eximía de
   // rate limiting -- throttler propio ('payment-confirm', ver
   // buildPaymentsThrottlerOptions en payments.module.ts). @SkipThrottle
@@ -197,7 +201,7 @@ export class PaymentsController {
       this.logger.warn(
         'Confirmación de Flow rechazada: no existe un cobro con ese token.',
       );
-      throw new BadRequestException(CONFIRM_SIGNATURE_ERROR);
+      throw new BadRequestException(CONFIRM_REJECTED_ERROR);
     }
 
     const context = await this.paymentAccountService.resolveGatewayContext(
@@ -207,20 +211,25 @@ export class PaymentsController {
       this.logger.warn(
         `Confirmación de Flow rechazada: la cuenta de pagos del cobro no está disponible (paymentId=${payment.id}).`,
       );
-      throw new BadRequestException(CONFIRM_SIGNATURE_ERROR);
+      throw new BadRequestException(CONFIRM_REJECTED_ERROR);
     }
 
-    const isValid = this.gatewayRegistry
-      .get(context.provider)
-      .verifyCallbackSignature(context.credentials, {
-        token: dto.token,
-        s: dto.s,
-      });
-    if (!isValid) {
+    let orderStatus: { status: GatewayOrderStatus };
+    try {
+      orderStatus = await this.gatewayRegistry
+        .get(context.provider)
+        .getOrderStatus(context.credentials, dto.token);
+    } catch (err) {
       this.logger.warn(
-        `Confirmación de Flow rechazada: firma inválida (paymentId=${payment.id}).`,
+        `Confirmación de Flow rechazada: no se pudo verificar el estado en el gateway (paymentId=${payment.id}): ${err instanceof Error ? err.message : String(err)}`,
       );
-      throw new BadRequestException(CONFIRM_SIGNATURE_ERROR);
+      throw new BadRequestException(CONFIRM_REJECTED_ERROR);
+    }
+    if (orderStatus.status !== 'PAID') {
+      this.logger.warn(
+        `Confirmación de Flow rechazada: el gateway no reporta el cobro como pagado (paymentId=${payment.id}, status=${orderStatus.status}).`,
+      );
+      throw new BadRequestException(CONFIRM_REJECTED_ERROR);
     }
 
     await this.paymentsService.confirm(dto.token);

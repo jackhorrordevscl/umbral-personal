@@ -590,12 +590,15 @@ export class PaymentsService {
 
   // T5.7 + design.md "The confirmation callback is a signal, never a source
   // of truth": this method NEVER receives nor trusts the status carried by
-  // the public POST -- payments.controller.ts already validated the
-  // signature (resolving the owning therapist's own credentials, then
-  // calling registry.get(provider).verifyCallbackSignature) BEFORE calling
-  // here, but confirm() still re-queries getOrderStatus with the stored
-  // token as the single source of truth, resolving the gateway context
-  // itself rather than trusting a value passed in. The
+  // the public POST -- payments.controller.ts already re-queried
+  // getOrderStatus itself (resolving the owning therapist's own
+  // credentials) and rejected with 400 before calling here, but confirm()
+  // still re-queries getOrderStatus independently with the stored token as
+  // the single source of truth, resolving the gateway context itself
+  // rather than trusting a value passed in -- this second call is
+  // deliberately redundant with the controller's, since this method must
+  // stay safe to call on its own (e.g. from a future retry path) without
+  // depending on the controller having verified anything first. The
   // updateMany(status in CANCELLABLE_STATUSES) gate is the same idempotency
   // guarantee as cancelUnpaid: a charge already PAID or CANCELLED is left
   // out of the where (spec.md "Replayed webhook is a no-op" / "CANCELLED
@@ -603,8 +606,8 @@ export class PaymentsService {
   // avoid spending a network call on a replay. If the owning account lost
   // its connection between order-issuance and this re-query (context is
   // null), the charge is left exactly as it was -- there is no credential
-  // left to ask Flow with, and the controller already rejected an
-  // unverifiable signature before ever reaching this point in that case.
+  // left to ask Flow with, and the controller already rejected the
+  // confirmation before ever reaching this point in that case.
   async confirm(token: string): Promise<void> {
     const payment = await this.prisma.payment.findFirst({
       where: { gatewayToken: token },

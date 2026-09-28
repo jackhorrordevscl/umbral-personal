@@ -631,10 +631,6 @@ class RejectingFlowGatewayClient extends PaymentGatewayClient {
       'No implementado en el stub de test.',
     );
   }
-
-  verifyCallbackSignature(): boolean {
-    return false;
-  }
 }
 
 // sdd/online-payment-integration PR 1 (T3.5/T3.7/T3.9), actualizado por

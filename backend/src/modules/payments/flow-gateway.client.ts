@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { maskEmailsInText } from '../../common/utils/mask-email.util';
 import { ConfigService } from '@nestjs/config';
-import { createHash, createHmac, timingSafeEqual } from 'crypto';
+import { createHash, createHmac } from 'crypto';
 import { PaymentProvider } from '@prisma/client';
 import {
   CredentialValidation,
@@ -173,36 +173,6 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     params.s = this.sign(params, credentials.secretKey);
 
     await this.request<unknown>('POST', '/payment/cancel', params);
-  }
-
-  // design.md "The confirmation callback is a signal, never a source of
-  // truth": this function NEVER decides the payment's status -- it only
-  // validates that the POST really came from Flow, signed with the owning
-  // therapist's secretKey (resolved by the caller before this is invoked),
-  // before the controller re-queries getOrderStatus. Returns false (never
-  // throws) on any invalid condition -- the caller decides whether to reject
-  // with 400.
-  verifyCallbackSignature(
-    credentials: GatewayCredentials,
-    params: Record<string, string>,
-  ): boolean {
-    const { s, ...rest } = params;
-    if (!s) return false;
-
-    const expected = this.sign(rest, credentials.secretKey);
-
-    // Buffer.from(str, 'hex') truncates at the first non-hex character
-    // instead of throwing -- if `s` comes with non-hex garbage or a
-    // different length than expected, the length check rejects before
-    // reaching timingSafeEqual (which throws RangeError on buffers of
-    // different lengths).
-    const expectedBuf = Buffer.from(expected, 'hex');
-    const receivedBuf = Buffer.from(s, 'hex');
-    if (expectedBuf.length !== receivedBuf.length || expectedBuf.length === 0) {
-      return false;
-    }
-
-    return timingSafeEqual(expectedBuf, receivedBuf);
   }
 
   // Flow's standard signing convention (replicated from its official
