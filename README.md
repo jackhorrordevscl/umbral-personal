@@ -279,6 +279,18 @@ copia offsite de backups en **Backblaze B2** (ver
    (nunca el default del README), `RESEND_API_KEY`/`MAIL_FROM` (issue #5) y
    `FRONTEND_URL` (se completa después del paso 3, se puede editar y
    redeployar). `JWT_SECRET` se autogenera vía `generateValue: true`.
+   También cargar `RESEND_WEBHOOK_SECRET` (issue #163): se genera al crear
+   el webhook en el dashboard de Resend (sección Webhooks), apuntando a
+   `<URL pública del backend>/api/v1/webhooks/resend` — el prefijo
+   `/api/v1` es obligatorio, sin él la ruta da 404. El panel de Resend no
+   tiene botón "Send test event"; para probarlo hay que disparar un envío
+   real (por ejemplo, reenviar el email de verificación) y confirmar que
+   el evento `email.delivered` llega con `200`. Con `MAIL_FROM` en el
+   default `onboarding@resend.dev` (dominio sandbox), Resend restringe el
+   envío únicamente al email con el que te registraste en la cuenta, en
+   cualquier ambiente — para enviar a cualquier destinatario (pacientes
+   incluidos) hay que verificar un dominio propio en el dashboard de
+   Resend (SPF/DKIM) y actualizar `MAIL_FROM` a ese dominio.
    También cargar `B2_AVATARS_ENDPOINT`/`B2_AVATARS_REGION`/
    `B2_AVATARS_BUCKET`/`B2_AVATARS_KEY_ID`/`B2_AVATARS_APPLICATION_KEY`
    (issue #170): storage de avatares en un bucket B2 **privado y separado**
