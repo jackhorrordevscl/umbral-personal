@@ -347,7 +347,6 @@ describe('FlowPaymentGatewayClient', () => {
       expect(first.keyFingerprint).not.toEqual(second.keyFingerprint);
     });
   });
-
 });
 
 // design.md "Secret-Handling Invariants" + spec.md "Encrypted Credential
