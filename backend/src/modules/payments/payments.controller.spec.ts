@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, Logger } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PaymentProvider } from '@prisma/client';
 import { PaymentsController } from './payments.controller';
@@ -86,6 +86,13 @@ describe('PaymentsController', () => {
   });
 
   describe('confirm', () => {
+    let warn: jest.SpyInstance;
+
+    beforeEach(() => {
+      warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    });
+    afterEach(() => warn.mockRestore());
+
     // sdd/payments-multigateway-redesign task 3.7 + spec "Checkout is
     // unavailable if the owning account is no longer connected": an
     // unknown token is rejected with the SAME uniform 400 as an invalid
@@ -108,6 +115,12 @@ describe('PaymentsController', () => {
       expect(gatewayRegistry.get).not.toHaveBeenCalled();
       expect(gatewayAdapter.verifyCallbackSignature).not.toHaveBeenCalled();
       expect(paymentsService.confirm).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('no existe un cobro con ese token'),
+      );
+      expect(String((warn.mock.calls as unknown[][])[0][0])).not.toContain(
+        'token-desconocido',
+      );
     });
 
     // spec "Checkout is unavailable if the owning account is no longer
@@ -129,6 +142,9 @@ describe('PaymentsController', () => {
       expect(gatewayRegistry.get).not.toHaveBeenCalled();
       expect(gatewayAdapter.verifyCallbackSignature).not.toHaveBeenCalled();
       expect(paymentsService.confirm).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('cuenta de pagos del cobro no está disponible'),
+      );
     });
 
     it('con firma inválida (credenciales resueltas) rechaza con 400 y nunca llama a paymentsService.confirm', async () => {
@@ -146,6 +162,12 @@ describe('PaymentsController', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(paymentsService.confirm).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('firma inválida (paymentId=payment-1)'),
+      );
+      expect(String((warn.mock.calls as unknown[][])[0][0])).not.toContain(
+        'firma-falsificada',
+      );
     });
 
     it('con firma válida llama a paymentsService.confirm con el token', async () => {
