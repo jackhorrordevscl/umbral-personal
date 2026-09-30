@@ -53,28 +53,28 @@ export function getPublicScheduleTracker(req: {
 
 // Issue #299: el bucket por email de arriba se abre de nuevo con cada email
 // distinto, así que por sí solo no acota nada -- quien cambie el email en cada
-// request nunca lo agota. Estos dos límites NO dependen del body:
-//  - por ip:therapistId (todas las variantes de email de un mismo origen),
-//  - tope diario por terapeuta (independiente de la IP, frena un ataque
-//    distribuido o con rotación de IPs).
-// Se aplican solo a POST (la reserva, que crea Patient + Consultation), y se
-// implementan sobre el mismo storage del ThrottlerGuard en vez de registrar
-// throttlers nombrados nuevos: ThrottlerModule es @Global() y cada nombre nuevo
-// obligaría a listarlo en @SkipThrottle de todas las rutas ajenas (ver
+// request nunca lo agota. Este límite NO depende del body: acota por
+// ip:therapistId (todas las variantes de email de un mismo origen). Se aplica
+// solo a POST (la reserva, que crea Patient + Consultation), y se implementa
+// sobre el mismo storage del ThrottlerGuard en vez de registrar throttlers
+// nombrados nuevos: ThrottlerModule es @Global() y cada nombre nuevo obligaría
+// a listarlo en @SkipThrottle de todas las rutas ajenas (ver
 // FOREIGN_THROTTLER_NAMES).
-const DAY_MS = 24 * 60 * 60 * 1000;
-
+//
+// El tope diario por terapeuta NO vive acá: cuenta solo reservas exitosas, así
+// que se consulta en base de datos (PublicSchedulingService.book) en vez de
+// contar hits de storage, que también sumarían los intentos fallidos.
 export const PUBLIC_BOOKING_IP_BUCKET = 'public-booking-ip-therapist';
-export const PUBLIC_BOOKING_DAILY_BUCKET = 'public-booking-therapist-daily';
 
 export interface PublicBookingExtraLimits {
   ipTherapistLimit: number;
   ipTherapistTtlMs: number;
-  dailyTherapistLimit: number;
-  dailyTherapistTtlMs: number;
 }
 
-function parsePositiveInt(raw: string | undefined, fallback: number): number {
+export function parsePositiveInt(
+  raw: string | undefined,
+  fallback: number,
+): number {
   if (raw === undefined) return fallback;
   const parsed = Number(raw);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -92,14 +92,6 @@ export function buildPublicBookingExtraLimits(
     ipTherapistTtlMs: parsePositiveInt(
       config.get<string>('PUBLIC_BOOKING_IP_THROTTLE_TTL_MS'),
       60 * 60 * 1000,
-    ),
-    dailyTherapistLimit: parsePositiveInt(
-      config.get<string>('PUBLIC_BOOKING_DAILY_LIMIT'),
-      isTest ? 10000 : 100,
-    ),
-    dailyTherapistTtlMs: parsePositiveInt(
-      config.get<string>('PUBLIC_BOOKING_DAILY_TTL_MS'),
-      DAY_MS,
     ),
   };
 }
@@ -142,12 +134,7 @@ export class PublicScheduleThrottlerGuard extends ThrottlerGuard {
     const therapistId = Array.isArray(rawTherapistId)
       ? rawTherapistId[0]
       : (rawTherapistId ?? 'unknown');
-    const {
-      ipTherapistLimit,
-      ipTherapistTtlMs,
-      dailyTherapistLimit,
-      dailyTherapistTtlMs,
-    } = this.extraLimits;
+    const { ipTherapistLimit, ipTherapistTtlMs } = this.extraLimits;
 
     const ipRecord = await this.storageService.increment(
       `${PUBLIC_BOOKING_IP_BUCKET}:${req.ip}:${therapistId}`,
@@ -159,20 +146,6 @@ export class PublicScheduleThrottlerGuard extends ThrottlerGuard {
     if (ipRecord.isBlocked) {
       this.logger.warn(
         `Límite por ip:therapistId excedido en la reserva pública (therapistId=${therapistId})`,
-      );
-      throw new ThrottlerException();
-    }
-
-    const dailyRecord = await this.storageService.increment(
-      `${PUBLIC_BOOKING_DAILY_BUCKET}:${therapistId}`,
-      dailyTherapistTtlMs,
-      dailyTherapistLimit,
-      dailyTherapistTtlMs,
-      PUBLIC_BOOKING_DAILY_BUCKET,
-    );
-    if (dailyRecord.isBlocked) {
-      this.logger.warn(
-        `Tope diario de reservas públicas excedido (therapistId=${therapistId})`,
       );
       throw new ThrottlerException();
     }

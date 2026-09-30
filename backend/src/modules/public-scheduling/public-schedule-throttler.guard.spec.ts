@@ -10,7 +10,6 @@ import {
 import {
   buildPublicBookingExtraLimits,
   getPublicScheduleTracker,
-  PUBLIC_BOOKING_DAILY_BUCKET,
   PUBLIC_BOOKING_IP_BUCKET,
   PublicScheduleThrottlerGuard,
 } from './public-schedule-throttler.guard';
@@ -171,21 +170,12 @@ describe('PublicScheduleThrottlerGuard (límites extra, issue #299)', () => {
     ).resolves.toBe(true);
   });
 
-  it('aplica el tope diario por terapeuta usando su propio bucket', async () => {
+  it('usa su propio bucket por ip:therapistId y no aplica ningún tope diario en storage', async () => {
     const storage = buildStorage();
-    const guard = buildGuard({ PUBLIC_BOOKING_DAILY_LIMIT: '1' }, storage);
+    const guard = buildGuard({}, storage);
 
     await expect(guard.canActivate(buildContext('POST'))).resolves.toBe(true);
-    await expect(guard.canActivate(buildContext('POST'))).rejects.toThrow(
-      ThrottlerException,
-    );
-    expect(storage.increment).toHaveBeenCalledWith(
-      `${PUBLIC_BOOKING_DAILY_BUCKET}:therapist-1`,
-      86400000,
-      1,
-      86400000,
-      PUBLIC_BOOKING_DAILY_BUCKET,
-    );
+    expect(storage.increment).toHaveBeenCalledTimes(1);
     expect(storage.increment).toHaveBeenCalledWith(
       `${PUBLIC_BOOKING_IP_BUCKET}:10.0.0.5:therapist-1`,
       3600000,
@@ -229,25 +219,22 @@ describe('buildPublicBookingExtraLimits', () => {
     expect(buildPublicBookingExtraLimits(cfg({}))).toEqual({
       ipTherapistLimit: 10,
       ipTherapistTtlMs: 3600000,
-      dailyTherapistLimit: 100,
-      dailyTherapistTtlMs: 86400000,
     });
   });
 
   it('sube los límites por defecto en NODE_ENV=test', () => {
     const limits = buildPublicBookingExtraLimits(cfg({ NODE_ENV: 'test' }));
     expect(limits.ipTherapistLimit).toBe(1000);
-    expect(limits.dailyTherapistLimit).toBe(10000);
   });
 
   it('ignora valores no numéricos o no positivos y cae al default', () => {
     const limits = buildPublicBookingExtraLimits(
       cfg({
         PUBLIC_BOOKING_IP_THROTTLE_LIMIT: 'abc',
-        PUBLIC_BOOKING_DAILY_LIMIT: '0',
+        PUBLIC_BOOKING_IP_THROTTLE_TTL_MS: '0',
       }),
     );
     expect(limits.ipTherapistLimit).toBe(10);
-    expect(limits.dailyTherapistLimit).toBe(100);
+    expect(limits.ipTherapistTtlMs).toBe(3600000);
   });
 });

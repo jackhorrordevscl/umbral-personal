@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NotificationType, PaymentAccountStatus } from '@prisma/client';
+import { ThrottlerException } from '@nestjs/throttler';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   AvailabilityService,
@@ -19,6 +20,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { DEFAULT_SESSION_MINUTES } from '../calendar-integration/calendar-integration.constants';
 import { PublicAvailabilityQueryDto } from './dto/public-availability-query.dto';
 import { BookPublicSlotDto } from './dto/book-public-slot.dto';
+import { parsePositiveInt } from './public-schedule-throttler.guard';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.6): mismo tope que
 // consultations.service.ts findByRange (62 días, con margen para el grid
@@ -50,6 +52,8 @@ export class PublicSchedulingService {
   private readonly logger = new Logger(PublicSchedulingService.name);
   private readonly enabled: boolean;
   private readonly checkoutInlineEnabled: boolean;
+  private readonly dailyBookingLimit: number;
+  private readonly dailyBookingWindowMs: number;
 
   constructor(
     private readonly config: ConfigService,
@@ -68,6 +72,18 @@ export class PublicSchedulingService {
     this.checkoutInlineEnabled =
       this.config.get<string>('PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED') ===
       'true';
+    // Issue #299: tope de reservas públicas EXITOSAS por terapeuta en la
+    // ventana (24h por defecto). Mismas variables de entorno que antes, cuando
+    // el tope vivía en el throttler y contaba también los intentos fallidos.
+    const isTest = this.config.get<string>('NODE_ENV') === 'test';
+    this.dailyBookingLimit = parsePositiveInt(
+      this.config.get<string>('PUBLIC_BOOKING_DAILY_LIMIT'),
+      isTest ? 10000 : 100,
+    );
+    this.dailyBookingWindowMs = parsePositiveInt(
+      this.config.get<string>('PUBLIC_BOOKING_DAILY_TTL_MS'),
+      24 * 60 * 60 * 1000,
+    );
   }
 
   // Mismo criterio que CalendarOauthService.assertEnabled: 503, no 404 --
@@ -114,6 +130,25 @@ export class PublicSchedulingService {
     }
     const sessionDurationMinutes =
       therapist.sessionDurationMinutes ?? DEFAULT_SESSION_MINUTES;
+
+    // Issue #299: tope diario por terapeuta. BookedSlot solo lo crea
+    // createFromPublicBooking (una fila por reserva pública confirmada), así
+    // que contarlo cuenta únicamente reservas exitosas: los intentos fallidos
+    // no crean nada tras la transacción atómica y no consumen el tope. Se
+    // rechaza antes de calcular disponibilidad o escribir, sin crear nada ni
+    // notificar.
+    const recentBookings = await this.prisma.bookedSlot.count({
+      where: {
+        therapistId,
+        createdAt: { gte: new Date(Date.now() - this.dailyBookingWindowMs) },
+      },
+    });
+    if (recentBookings >= this.dailyBookingLimit) {
+      this.logger.warn(
+        `Tope diario de reservas públicas excedido (therapistId=${therapistId})`,
+      );
+      throw new ThrottlerException();
+    }
 
     const slotStart = new Date(dto.slotStart);
     const slotEnd = new Date(
