@@ -109,9 +109,9 @@ describe('Rate limiting en POST /auth/login (e2e)', () => {
 /**
  * T4.2 (issue #20, hallazgo de code review): POST /auth/mfa/verify también
  * responde 429 al superar el límite. Esta ruta es el segundo paso del login
- * (se llama sin JWT, con userId + código TOTP), por eso no puede llevar
+ * (se llama sin JWT, con mfaToken + código TOTP), por eso no puede llevar
  * JwtAuthGuard — antes de este fix no tenía ningún guard, y permitía fuerza
- * bruta ilimitada sobre el TOTP de 6 dígitos de cualquier userId conocido.
+ * bruta ilimitada sobre el TOTP de 6 dígitos de cualquier cuenta.
  */
 describe('Rate limiting en POST /auth/mfa/verify (e2e)', () => {
   let app: INestApplication<App>;
@@ -119,8 +119,6 @@ describe('Rate limiting en POST /auth/mfa/verify (e2e)', () => {
   const TEST_LIMIT = 3;
   const TEST_TTL_MS = 60000;
 
-  const runId = Date.now();
-  const UNKNOWN_USER_ID = `00000000-0000-4000-8000-${String(runId).slice(-12).padStart(12, '0')}`;
   const WRONG_TOKEN = '000000';
 
   beforeAll(async () => {
@@ -131,11 +129,11 @@ describe('Rate limiting en POST /auth/mfa/verify (e2e)', () => {
     await app.close();
   });
 
-  it(`permite hasta ${TEST_LIMIT} intentos con userId/token inválidos (401)`, async () => {
+  it(`permite hasta ${TEST_LIMIT} intentos con mfaToken/token inválidos (401)`, async () => {
     for (let i = 0; i < TEST_LIMIT; i++) {
       await request(app.getHttpServer())
         .post('/api/v1/auth/mfa/verify')
-        .send({ userId: UNKNOWN_USER_ID, token: WRONG_TOKEN })
+        .send({ mfaToken: 'bogus', token: WRONG_TOKEN })
         .expect(401);
     }
   });
@@ -143,7 +141,7 @@ describe('Rate limiting en POST /auth/mfa/verify (e2e)', () => {
   it(`el intento número ${TEST_LIMIT + 1} contra la ruta responde 429`, async () => {
     await request(app.getHttpServer())
       .post('/api/v1/auth/mfa/verify')
-      .send({ userId: UNKNOWN_USER_ID, token: WRONG_TOKEN })
+      .send({ mfaToken: 'bogus', token: WRONG_TOKEN })
       .expect(429);
   });
 });

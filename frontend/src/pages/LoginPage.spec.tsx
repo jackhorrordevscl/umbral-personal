@@ -78,7 +78,7 @@ describe('LoginPage', () => {
 
   it('requiresMfa muestra el formulario de verificación MFA', async () => {
     mockedApi.post.mockResolvedValueOnce({
-      data: { requiresMfa: true, userId: 'u1' },
+      data: { requiresMfa: true, mfaToken: 'mfa-challenge-token' },
     })
 
     renderLoginPage()
@@ -92,7 +92,7 @@ describe('LoginPage', () => {
 
   it('completa el flujo de verificación MFA y navega al dashboard', async () => {
     mockedApi.post.mockResolvedValueOnce({
-      data: { requiresMfa: true, userId: 'u1' },
+      data: { requiresMfa: true, mfaToken: 'mfa-challenge-token' },
     })
     mockedApi.post.mockResolvedValueOnce({
       data: {
@@ -115,7 +115,7 @@ describe('LoginPage', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/dashboard')
     })
     expect(mockedApi.post).toHaveBeenLastCalledWith('/auth/mfa/verify', {
-      userId: 'u1',
+      mfaToken: 'mfa-challenge-token',
       token: '123456',
     })
     expect(localStorage.getItem('token')).toBe('token-mfa')

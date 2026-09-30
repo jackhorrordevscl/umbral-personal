@@ -125,14 +125,17 @@ describe('Critical flows (e2e)', () => {
   });
 
   describe('POST /auth/login', () => {
-    it('login exitoso con MFA ya enrolado responde requiresMfa con userId, sin accessToken directo', async () => {
+    it('login exitoso con MFA ya enrolado responde requiresMfa con mfaToken (sin userId), sin accessToken directo', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
         .send({ email: therapistEmail, password: TEST_PASSWORD })
         .expect(201);
 
       expect((res.body as Record<string, unknown>).requiresMfa).toBe(true);
-      expect((res.body as Record<string, unknown>).userId).toBe(therapistId);
+      expect(typeof (res.body as Record<string, unknown>).mfaToken).toBe(
+        'string',
+      );
+      expect((res.body as Record<string, unknown>).userId).toBeUndefined();
       expect(
         (res.body as Record<string, unknown>).accessToken as string,
       ).toBeUndefined();
@@ -145,18 +148,35 @@ describe('Critical flows (e2e)', () => {
         .expect(201);
 
       const user = await prisma.user.findUnique({ where: { id: therapistId } });
+      // The enrollment in beforeAll already consumed the current TOTP step
+      // (replay protection, issue #302), so use the next step. It is within
+      // the server's window of 1.
       const totp = speakeasy.totp({
         secret: user!.mfaSecret!,
         encoding: 'base32',
+        time: Math.floor(Date.now() / 1000) + 30,
       });
 
       const verifyRes = await request(app.getHttpServer())
         .post('/api/v1/auth/mfa/verify')
         .send({
-          userId: (loginRes.body as Record<string, unknown>).userId,
+          mfaToken: (loginRes.body as Record<string, unknown>).mfaToken,
           token: totp,
         })
         .expect(201);
+
+      // Replaying the same TOTP step with a fresh mfaToken is rejected.
+      const replayLogin = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: therapistEmail, password: TEST_PASSWORD })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/mfa/verify')
+        .send({
+          mfaToken: (replayLogin.body as Record<string, unknown>).mfaToken,
+          token: totp,
+        })
+        .expect(401);
 
       expect(
         (verifyRes.body as Record<string, unknown>).accessToken as string,
@@ -170,6 +190,20 @@ describe('Critical flows (e2e)', () => {
 
       therapistToken = (verifyRes.body as Record<string, unknown>)
         .accessToken as string;
+    });
+
+    it('mfa/verify rechaza un userId crudo sin mfaToken (no se salta el paso de contraseña)', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/mfa/verify')
+        .send({ userId: therapistId, token: '123456' })
+        .expect(400);
+    });
+
+    it('mfa/verify rechaza con 401 un JWT que no es mfa-verify', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/mfa/verify')
+        .send({ mfaToken: 'not-a-jwt', token: '123456' })
+        .expect(401);
     });
 
     it('rechaza con 401 una contraseña incorrecta', () => {

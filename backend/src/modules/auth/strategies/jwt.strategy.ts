@@ -40,6 +40,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // acceder a cualquier ruta protegida por JwtAuthGuard.
     if (
       payload.purpose === 'mfa-setup' ||
+      payload.purpose === 'mfa-verify' ||
       payload.purpose === 'password-change' ||
       payload.purpose === 'email-verify' ||
       payload.purpose === 'password-reset' ||
