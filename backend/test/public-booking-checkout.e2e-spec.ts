@@ -4,6 +4,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { uniqueTestRut } from './support/unique-rut';
 import {
   chileDayKeyFromInstant,
   chileWallTimeToInstant,
@@ -134,7 +135,7 @@ describe('Public booking checkout (e2e)', () => {
         slotStart: slotStart.toISOString(),
         patient: {
           fullName: 'Paciente Checkout E2E',
-          rut: `${runId}-1`,
+          rut: uniqueTestRut(),
           birthDate: '1990-01-01',
           email: `paciente-checkout.${runId}@ejemplo.cl`,
         },
@@ -145,11 +146,19 @@ describe('Public booking checkout (e2e)', () => {
       checkout: { status: 'NOT_APPLICABLE' },
     });
 
-    const body = response.body as { groupId: string; patientId: string };
+    // Issue #299: la respuesta publica no expone datos del paciente.
+    const body = response.body as Record<string, unknown>;
+    expect(body).not.toHaveProperty('patientId');
+    expect(body).not.toHaveProperty('patientRut');
+    expect(body).not.toHaveProperty('therapistId');
     expect(typeof body.groupId).toBe('string');
 
-    groupId = body.groupId;
-    patientId = body.patientId;
+    groupId = body.groupId as string;
+    const consultation = await prisma.consultation.findFirstOrThrow({
+      where: { groupId },
+      select: { patientId: true },
+    });
+    patientId = consultation.patientId;
   });
 
   it('GET .../book/:groupId/checkout responde sin exigir Authorization (no 401) y, sin ningún Payment emitido todavía, expone solo { paymentUrl: null }', async () => {

@@ -34,6 +34,12 @@ function parseDate(dateStr: string): Date {
   return new Date(year, month - 1, day, 12, 0, 0);
 }
 
+// Issue #299: respuesta mínima de una reserva pública anónima.
+export interface PublicBookingConfirmation {
+  id: string;
+  sessionDate: Date;
+}
+
 const THERAPIST_SELECT = { therapist: { select: { name: true, email: true } } };
 
 // design.md "Range query params are ISO instants with explicit offset,
@@ -516,16 +522,10 @@ export class ConsultationsService {
   // fire-and-forget que una creada por el terapeuta (calendar-sync spec.md
   // "Publicly booked consultation pushes a new event", tasks.md 3.9).
   //
-  // sdd/public-booking-payment-calendar PR 4 (tasks.md 4.3, payments
-  // spec.md "Checkout URL Exposure to the Booking Response", design.md
-  // Decision 5): emitPaymentCharge() sigue sin esperarse -- ensureCharge()
-  // es y sigue siendo fire-and-forget, un fallo o demora de Flow/Google
-  // jamás puede bloquear ni revertir esta reserva. checkoutUrl viene de una
-  // llamada DISTINTA (findCheckoutForBooking, una lectura indexada por
-  // groupId), nunca de esperar la promise de ensureCharge() -- por eso en
-  // la práctica casi siempre resuelve null (ensureCharge todavía no llegó a
-  // crear el Payment), y eso es intencional y no es un error: la respuesta
-  // exitosa nunca depende de que este valor exista.
+  // emitPaymentCharge() sigue sin esperarse (fire-and-forget): un fallo o demora
+  // de Flow/Google jamás puede bloquear ni revertir esta reserva. Issue #299: la
+  // respuesta ya no incluye checkoutUrl -- el frontend lo obtiene por polling
+  // (GET .../book/:groupId/checkout).
   // Issue #176: sin chequeo de consentimiento a propósito. Es un agendamiento,
   // no un inicio de tratamiento: nace con texto genérico y sin datos clínicos.
   // Los datos clínicos solo entran por correct(), que sí exige consentimiento.
@@ -535,49 +535,54 @@ export class ConsultationsService {
     patientRut: string,
     slotStart: Date,
     sessionDurationMinutes: number,
-  ): Promise<Consultation & { checkoutUrl: string | null }> {
+    client?: Prisma.TransactionClient,
+  ): Promise<PublicBookingConfirmation> {
     const slotEnd = new Date(
       slotStart.getTime() + sessionDurationMinutes * 60000,
     );
     const id = randomUUID();
 
+    const write = async (tx: Prisma.TransactionClient) => {
+      const conflicting = await tx.consultation.findFirst({
+        where: {
+          therapistId,
+          correctedBy: null,
+          deletedAt: null,
+          sessionDate: { gte: slotStart, lt: slotEnd },
+        },
+        select: { id: true },
+      });
+      if (conflicting) {
+        throw new ConflictException(
+          'El horario seleccionado ya no está disponible.',
+        );
+      }
+
+      await tx.bookedSlot.create({
+        data: { therapistId, groupId: id, slotStart },
+      });
+
+      return tx.consultation.create({
+        data: {
+          id,
+          groupId: id,
+          patientId,
+          therapistId,
+          sessionDate: slotStart,
+          consultReason: 'Reserva pública en línea',
+          intervention: 'Pendiente de definir por el terapeuta',
+          sessionType: 'IN_PERSON',
+          scheduledAt: slotStart,
+          patientRut,
+        },
+      });
+    };
+
     let consultation: Consultation;
     try {
-      consultation = await this.prisma.$transaction(async (tx) => {
-        const conflicting = await tx.consultation.findFirst({
-          where: {
-            therapistId,
-            correctedBy: null,
-            deletedAt: null,
-            sessionDate: { gte: slotStart, lt: slotEnd },
-          },
-          select: { id: true },
-        });
-        if (conflicting) {
-          throw new ConflictException(
-            'El horario seleccionado ya no está disponible.',
-          );
-        }
-
-        await tx.bookedSlot.create({
-          data: { therapistId, groupId: id, slotStart },
-        });
-
-        return tx.consultation.create({
-          data: {
-            id,
-            groupId: id,
-            patientId,
-            therapistId,
-            sessionDate: slotStart,
-            consultReason: 'Reserva pública en línea',
-            intervention: 'Pendiente de definir por el terapeuta',
-            sessionType: 'IN_PERSON',
-            scheduledAt: slotStart,
-            patientRut,
-          },
-        });
-      });
+      consultation = client
+        ? await write(client)
+        : await this.prisma.$transaction(write);
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -590,16 +595,28 @@ export class ConsultationsService {
       throw err;
     }
 
-    this.logger.log(
-      `Consulta creada vía reserva pública: id=${consultation.id} therapistId=${therapistId}`,
-    );
-    this.emitCalendarSync(consultation.groupId);
-    this.emitPaymentCharge(consultation.groupId);
+    // Issue #299: con `client` el llamador es dueño de la transacción y debe
+    // invocar afterPublicBookingCommit() recién tras el commit -- emitir el
+    // sync/cobro antes dejaría que corran sobre una fila que todavía no es
+    // visible (o que después se revierte).
+    if (!client) {
+      this.afterPublicBookingCommit(consultation.id, therapistId);
+    }
 
-    const checkout = await this.paymentsService.findCheckoutForBooking(
-      consultation.groupId,
+    // Issue #299: la respuesta llega a un llamador anónimo -- solo id y
+    // sessionDate, nunca la fila completa (patientId, patientRut, therapistId).
+    return { id: consultation.id, sessionDate: consultation.sessionDate };
+  }
+
+  // Efectos posteriores al commit de una reserva pública (log + sync a Google
+  // Calendar + cobro fire-and-forget). Público para que
+  // PublicSchedulingService lo invoque tras su propia transacción.
+  afterPublicBookingCommit(groupId: string, therapistId: string): void {
+    this.logger.log(
+      `Consulta creada vía reserva pública: id=${groupId} therapistId=${therapistId}`,
     );
-    return { ...consultation, checkoutUrl: checkout.paymentUrl };
+    this.emitCalendarSync(groupId);
+    this.emitPaymentCharge(groupId);
   }
 
   // design.md "Sync badge resolved in the same response, via in-memory map":

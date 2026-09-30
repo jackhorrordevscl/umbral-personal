@@ -144,12 +144,33 @@ export class PublicSchedulingService {
       );
     }
 
-    const { patient, isNew } =
-      await this.patientsService.resolveForPublicBooking(
-        therapistId,
-        dto.patient,
-        dto.origin,
-      );
+    // Issue #299: paciente (si es nuevo) + consulta en UNA transacción -- si el
+    // slot ya no está libre (409) no queda un paciente huérfano. La
+    // notificación y los efectos post-reserva corren recién tras el commit.
+    const { patient, isNew, consultation } = await this.prisma.$transaction(
+      async (tx) => {
+        const resolved = await this.patientsService.resolveForPublicBooking(
+          therapistId,
+          dto.patient,
+          dto.origin,
+          tx,
+        );
+        const created = await this.consultationsService.createFromPublicBooking(
+          therapistId,
+          resolved.patient.id,
+          resolved.patient.rut,
+          slotStart,
+          sessionDurationMinutes,
+          tx,
+        );
+        return { ...resolved, consultation: created };
+      },
+    );
+
+    this.consultationsService.afterPublicBookingCommit(
+      consultation.id,
+      therapistId,
+    );
 
     // issue #139: un paciente NUEVO autocreado acá nunca tiene
     // defaultSessionAmount (ver resolveForPublicBooking), así que
@@ -174,24 +195,24 @@ export class PublicSchedulingService {
         });
     }
 
-    const consultation =
-      await this.consultationsService.createFromPublicBooking(
-        therapistId,
-        patient.id,
-        patient.rut,
-        slotStart,
-        sessionDurationMinutes,
-      );
+    // Issue #299: respuesta pública mínima. groupId === id en la primera
+    // versión de una consulta y el frontend lo necesita para pollear el
+    // checkout; no es un dato personal.
+    const confirmation = {
+      id: consultation.id,
+      groupId: consultation.id,
+      sessionDate: consultation.sessionDate,
+    };
 
     if (!this.checkoutInlineEnabled) {
-      return consultation;
+      return confirmation;
     }
 
     const checkout = await this.resolveCheckoutHint(
       therapistId,
       patient.defaultSessionAmount,
     );
-    return { ...consultation, checkout };
+    return { ...confirmation, checkout };
   }
 
   // sdd/public-booking-payment-calendar PR 5 (tasks.md 5.1, spec.md
