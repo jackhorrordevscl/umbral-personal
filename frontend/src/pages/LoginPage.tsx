@@ -39,8 +39,10 @@ export default function LoginPage() {
   const [resendLoading, setResendLoading] = useState(false);
   const [resendMessage, setResendMessage] = useState('');
   const [mfaRequired, setMfaRequired] = useState(false);
-  const [userId, setUserId] = useState('');
-  const [mfaToken, setMfaToken] = useState('');
+  // Signed short-lived token from the password step (issue #302); the TOTP
+  // typed by the user is kept separately in mfaCode.
+  const [mfaChallengeToken, setMfaChallengeToken] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
   const [mfaSetupRequired, setMfaSetupRequired] = useState(false);
   const [setupToken, setSetupToken] = useState('');
   const [setupQrCode, setSetupQrCode] = useState('');
@@ -67,7 +69,7 @@ export default function LoginPage() {
   // en el backend) — es la misma decisión post-credenciales en los dos casos.
   const handleLoginResult = (data: {
     requiresMfa?: boolean;
-    userId?: string;
+    mfaToken?: string;
     requiresMfaSetup?: boolean;
     setupToken?: string;
     accessToken?: string;
@@ -75,7 +77,7 @@ export default function LoginPage() {
   }) => {
     if (data.requiresMfa) {
       setMfaRequired(true);
-      setUserId(data.userId ?? '');
+      setMfaChallengeToken(data.mfaToken ?? '');
     } else if (data.requiresMfaSetup) {
       // Cuenta sin MFA configurado (obligatorio para todas): el backend no
       // entrega accessToken, solo un setupToken de corta duración. Se
@@ -164,7 +166,10 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.post('/auth/mfa/verify', { userId, token: mfaToken });
+      const res = await api.post('/auth/mfa/verify', {
+        mfaToken: mfaChallengeToken,
+        token: mfaCode,
+      });
       login(res.data.accessToken, res.data.user);
       navigate('/dashboard');
     } catch (error) {
@@ -313,14 +318,14 @@ export default function LoginPage() {
               aria-label="Código de verificación MFA de 6 dígitos"
               maxLength={6}
               placeholder="000000"
-              value={mfaToken}
-              onChange={e => setMfaToken(e.target.value)}
+              value={mfaCode}
+              onChange={e => setMfaCode(e.target.value)}
               className="input-field text-center text-2xl tracking-widest mb-4"
             />
             {error && <ErrorBanner message={error} className="mb-4" />}
             <button
               type="submit"
-              disabled={loading || mfaToken.length !== 6}
+              disabled={loading || mfaCode.length !== 6}
               className="btn-primary w-full py-3 text-base disabled:opacity-50"
             >
               {loading ? 'Verificando...' : 'Verificar'}
