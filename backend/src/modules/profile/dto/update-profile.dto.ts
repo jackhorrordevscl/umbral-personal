@@ -1,3 +1,4 @@
+import { PersonName } from '../../../common/validators/person-name.decorator';
 import {
   IsEmail,
   IsString,
@@ -12,7 +13,8 @@ export class UpdateProfileDto {
   email?: string;
 
   @IsOptional()
-  @IsString()
+  @PersonName(200)
+  @MinLength(1)
   name?: string;
 
   // Issue #155: perfil público mostrado en la autoagenda (PublicBookingPage)

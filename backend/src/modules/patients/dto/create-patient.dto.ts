@@ -10,13 +10,14 @@ import {
   Matches,
 } from 'class-validator';
 
+import { PersonName } from '../../../common/validators/person-name.decorator';
+
 // Issue #196: solo valida la forma (con o sin puntos, guion obligatorio, igual
 // que lo que persiste normalizeRut), no el dígito verificador.
 export const RUT_FORMAT = /^(\d{1,2}(\.\d{3}){2}|\d{7,8})-[\dkK]$/;
 
 export class CreatePatientDto {
-  @IsString()
-  @MaxLength(200)
+  @PersonName(200)
   fullName: string;
 
   @IsString()

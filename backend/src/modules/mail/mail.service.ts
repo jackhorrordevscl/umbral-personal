@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
+import { escapeHtml } from '../../common/utils/escape-html.util';
 import { maskEmail } from '../../common/utils/mask-email.util';
 
 @Injectable()
@@ -38,9 +39,9 @@ export class MailService {
       to,
       subject: 'Verifica tu cuenta en Umbral - RCE',
       html: `
-        <p>Hola ${name},</p>
+        <p>Hola ${escapeHtml(name)},</p>
         <p>Crea tu cuenta en Umbral - RCE haciendo clic en el siguiente enlace:</p>
-        <p><a href="${verifyUrl}">${verifyUrl}</a></p>
+        <p><a href="${escapeHtml(verifyUrl)}">${escapeHtml(verifyUrl)}</a></p>
         <p>Si no creaste esta cuenta, puedes ignorar este email.</p>
       `,
     });
@@ -73,9 +74,9 @@ export class MailService {
       to,
       subject: 'Restablece tu contraseña en Umbral - RCE',
       html: `
-        <p>Hola ${name},</p>
+        <p>Hola ${escapeHtml(name)},</p>
         <p>Restablece tu contraseña haciendo clic en el siguiente enlace (válido por 30 minutos):</p>
-        <p><a href="${resetUrl}">${resetUrl}</a></p>
+        <p><a href="${escapeHtml(resetUrl)}">${escapeHtml(resetUrl)}</a></p>
         <p>Si no solicitaste este cambio, puedes ignorar este email; tu contraseña actual sigue siendo válida.</p>
       `,
     });
@@ -108,9 +109,9 @@ export class MailService {
       to,
       subject: 'Confirma tu nuevo email en Umbral - RCE',
       html: `
-        <p>Hola ${name},</p>
+        <p>Hola ${escapeHtml(name)},</p>
         <p>Confirma tu nueva dirección de email en Umbral - RCE haciendo clic en el siguiente enlace (válido por 24 horas):</p>
-        <p><a href="${confirmUrl}">${confirmUrl}</a></p>
+        <p><a href="${escapeHtml(confirmUrl)}">${escapeHtml(confirmUrl)}</a></p>
         <p>Si no solicitaste este cambio, puedes ignorar este email; tu dirección actual sigue siendo válida.</p>
       `,
     });
@@ -144,8 +145,8 @@ export class MailService {
       to,
       subject: 'Se solicitó un cambio de email en tu cuenta de Umbral - RCE',
       html: `
-        <p>Hola ${name},</p>
-        <p>Se solicitó cambiar el email de tu cuenta a <strong>${newEmail}</strong>. El cambio no se aplica hasta que se confirme desde esa nueva dirección.</p>
+        <p>Hola ${escapeHtml(name)},</p>
+        <p>Se solicitó cambiar el email de tu cuenta a <strong>${escapeHtml(newEmail)}</strong>. El cambio no se aplica hasta que se confirme desde esa nueva dirección.</p>
         <p>Si no solicitaste este cambio, contacta a soporte lo antes posible.</p>
       `,
     });
@@ -199,8 +200,8 @@ export class MailService {
       to,
       subject: `Recordatorio de sesión en ${offsetLabel}`,
       html: `
-        <p>Hola ${therapistName},</p>
-        <p>Tu sesión con <strong>${patientFullName}</strong> está programada para ${formattedWhen} (en ${offsetLabel}).</p>
+        <p>Hola ${escapeHtml(therapistName)},</p>
+        <p>Tu sesión con <strong>${escapeHtml(patientFullName)}</strong> está programada para ${escapeHtml(formattedWhen)} (en ${escapeHtml(offsetLabel)}).</p>
       `,
     });
 
@@ -247,9 +248,9 @@ export class MailService {
       to,
       subject: 'Link de pago de tu sesión en Umbral - RCE',
       html: `
-        <p>Hola ${patientName},</p>
-        <p>Tu sesión tiene un cobro pendiente de ${formattedAmount}. Puedes pagarlo haciendo clic en el siguiente enlace:</p>
-        <p><a href="${paymentUrl}">${paymentUrl}</a></p>
+        <p>Hola ${escapeHtml(patientName)},</p>
+        <p>Tu sesión tiene un cobro pendiente de ${escapeHtml(formattedAmount)}. Puedes pagarlo haciendo clic en el siguiente enlace:</p>
+        <p><a href="${escapeHtml(paymentUrl)}">${escapeHtml(paymentUrl)}</a></p>
       `,
     });
 
@@ -299,8 +300,8 @@ export class MailService {
       to,
       subject: 'Tu cobro en Umbral - RCE está vencido',
       html: `
-        <p>Hola ${patientName},</p>
-        <p>El cobro de ${formattedAmount} correspondiente a tu sesión del ${formattedDueDate} sigue pendiente de pago.</p>
+        <p>Hola ${escapeHtml(patientName)},</p>
+        <p>El cobro de ${escapeHtml(formattedAmount)} correspondiente a tu sesión del ${escapeHtml(formattedDueDate)} sigue pendiente de pago.</p>
       `,
     });
 

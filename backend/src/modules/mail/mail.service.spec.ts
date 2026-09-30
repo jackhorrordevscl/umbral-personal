@@ -228,3 +228,104 @@ describe('MailService.sendLatePaymentEmail', () => {
     ).resolves.toBeUndefined();
   });
 });
+
+// Issue #300: los nombres y emails controlados por el usuario se
+// interpolaban sin escapar en el HTML de los emails.
+describe('MailService: escape de HTML en templates (issue #300)', () => {
+  const HOSTILE = [
+    '<img src=x onerror=alert(1)>',
+    '"><script>alert(1)</script>',
+    '&amp;',
+  ];
+  const URL = 'https://app.example.com/verify?token=a&next=b';
+
+  beforeEach(() => {
+    sendMock.mockReset();
+    sendMock.mockResolvedValue({ data: { id: 'email-1' }, error: null });
+  });
+
+  const build = () =>
+    new MailService(buildConfig({ RESEND_API_KEY: 'test-key' }));
+  const sentHtml = () => sendMock.mock.calls[0][0].html;
+
+  const senders: Array<
+    [string, (s: MailService, v: string) => Promise<unknown>]
+  > = [
+    [
+      'sendVerificationEmail',
+      (s, v) => s.sendVerificationEmail('a@b.cl', v, URL),
+    ],
+    [
+      'sendPasswordResetEmail',
+      (s, v) => s.sendPasswordResetEmail('a@b.cl', v, URL),
+    ],
+    [
+      'sendEmailChangeVerificationEmail',
+      (s, v) => s.sendEmailChangeVerificationEmail('a@b.cl', v, URL),
+    ],
+    [
+      'sendEmailChangeNoticeEmail (name)',
+      (s, v) => s.sendEmailChangeNoticeEmail('a@b.cl', v, 'n@b.cl'),
+    ],
+    [
+      'sendEmailChangeNoticeEmail (newEmail)',
+      (s, v) => s.sendEmailChangeNoticeEmail('a@b.cl', 'Ana', v),
+    ],
+    [
+      'sendSessionReminderEmail (therapist)',
+      (s, v) =>
+        s.sendSessionReminderEmail('a@b.cl', v, 'Juan', new Date(), '2 horas'),
+    ],
+    [
+      'sendSessionReminderEmail (patient)',
+      (s, v) =>
+        s.sendSessionReminderEmail('a@b.cl', 'Dra.', v, new Date(), '2 horas'),
+    ],
+    [
+      'sendPaymentLinkEmail',
+      (s, v) => s.sendPaymentLinkEmail('a@b.cl', v, 'https://flow.cl/p', 1000),
+    ],
+    [
+      'sendLatePaymentEmail',
+      (s, v) => s.sendLatePaymentEmail('a@b.cl', v, 1000, new Date()),
+    ],
+  ];
+
+  describe.each(senders)('%s', (_label, send) => {
+    it.each(HOSTILE)('escapa el valor hostil %s', async (hostile) => {
+      await send(build(), hostile);
+
+      const html = sentHtml();
+      expect(html).not.toContain('<img');
+      expect(html).not.toContain('<script');
+      expect(html).toContain(
+        hostile
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;'),
+      );
+    });
+
+    it('conserva nombres legítimos con tildes y apostrofes', async () => {
+      await send(build(), "José Núñez O'Brien");
+
+      const html = sentHtml();
+      expect(html).toContain('José Núñez O&#39;Brien');
+    });
+  });
+
+  it('escapa las URLs (href y texto) sin romper el atributo', async () => {
+    await build().sendVerificationEmail(
+      'a@b.cl',
+      'Ana',
+      'https://x.cl/?a=1&b="><script>',
+    );
+
+    const html = sentHtml();
+    expect(html).not.toContain('<script');
+    expect(html).toContain(
+      'href="https://x.cl/?a=1&amp;b=&quot;&gt;&lt;script&gt;"',
+    );
+  });
+});
