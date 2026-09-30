@@ -35,7 +35,7 @@ const KNOWN_EXAMPLE_PAYMENT_KEY_HASHES = new Set([
 // Issue #302 (part 2): mismo criterio, para MFA_SECRET_ENCRYPTION_KEY (clave
 // AES-256-GCM propia que cifra User.mfaSecret, no compartida con las demás).
 const KNOWN_EXAMPLE_MFA_SECRET_KEY_HASHES = new Set([
-  '4dfdc8114b33d2644e1157dcc73f26d1f75cf2766be7f40db2710b2630a67996', // README.md / install.sh
+  '118b329aca3fd5e6ac5476289d3a7f25ff146af8e684e77b5393a2877bda528b', // README.md / install.sh / ci.yml
 ]);
 
 const MIN_JWT_SECRET_LENGTH = 32;

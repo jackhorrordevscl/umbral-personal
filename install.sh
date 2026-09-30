@@ -101,7 +101,7 @@ DOCUMENT_ENCRYPTION_KEY="+rPRh0H2ayZ4yAIjhOWbvOghetuNtScBP8g2VgNuBik="
 GOOGLE_TOKEN_ENCRYPTION_KEY="vihs9JiRKVRGjurFGk+YqxhpvD7zanIZJgbHGeSOMi4="
 # Issue #302: clave AES-256-GCM propia para cifrar User.mfaSecret en reposo --
 # genera la tuya con: openssl rand -base64 32
-MFA_SECRET_ENCRYPTION_KEY="eavDeSzpA4lgArMXue/a+govyIRpcxYkhweEvcOr/gg="
+MFA_SECRET_ENCRYPTION_KEY="MoDh8f3G8V0hR0m5wq8V0hR0m5wq8V0hR0m5wq8V0i8="
 # Opcionales: sin GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET, la integración con
 # Google Calendar se registra deshabilitada (no bloquea el arranque).
 GOOGLE_CLIENT_ID=""

@@ -140,7 +140,7 @@ GOOGLE_TOKEN_ENCRYPTION_KEY="vihs9JiRKVRGjurFGk+YqxhpvD7zanIZJgbHGeSOMi4="
 PAYMENT_CREDENTIALS_ENCRYPTION_KEY="wgh8ZnZbpZMfvKifp5ufX9uFp+WoISHDRsDCRFkRP1U="
 # Issue #302: clave AES-256-GCM propia (distinta de las anteriores) para cifrar
 # User.mfaSecret en reposo -- genera la tuya con: openssl rand -base64 32
-MFA_SECRET_ENCRYPTION_KEY="eavDeSzpA4lgArMXue/a+govyIRpcxYkhweEvcOr/gg="
+MFA_SECRET_ENCRYPTION_KEY="MoDh8f3G8V0hR0m5wq8V0hR0m5wq8V0hR0m5wq8V0i8="
 # Desactiva por completo la creación de cargos, el checkout, los emails de
 # pago y el cron de vencimiento sin necesitar un deploy/revert (default:
 # habilitado si está ausente)
