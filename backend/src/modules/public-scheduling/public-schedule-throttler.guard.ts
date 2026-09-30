@@ -1,5 +1,16 @@
-import { Injectable } from '@nestjs/common';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { ExecutionContext, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
+import {
+  InjectThrottlerOptions,
+  InjectThrottlerStorage,
+  ThrottlerException,
+  ThrottlerGuard,
+} from '@nestjs/throttler';
+import type {
+  ThrottlerModuleOptions,
+  ThrottlerStorage,
+} from '@nestjs/throttler';
 import { createHash } from 'crypto';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.2, design.md Decision 7 "Rate
@@ -40,13 +51,132 @@ export function getPublicScheduleTracker(req: {
   return `${req.ip}:${therapistId}`;
 }
 
+// Issue #299: el bucket por email de arriba se abre de nuevo con cada email
+// distinto, así que por sí solo no acota nada -- quien cambie el email en cada
+// request nunca lo agota. Estos dos límites NO dependen del body:
+//  - por ip:therapistId (todas las variantes de email de un mismo origen),
+//  - tope diario por terapeuta (independiente de la IP, frena un ataque
+//    distribuido o con rotación de IPs).
+// Se aplican solo a POST (la reserva, que crea Patient + Consultation), y se
+// implementan sobre el mismo storage del ThrottlerGuard en vez de registrar
+// throttlers nombrados nuevos: ThrottlerModule es @Global() y cada nombre nuevo
+// obligaría a listarlo en @SkipThrottle de todas las rutas ajenas (ver
+// FOREIGN_THROTTLER_NAMES).
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export const PUBLIC_BOOKING_IP_BUCKET = 'public-booking-ip-therapist';
+export const PUBLIC_BOOKING_DAILY_BUCKET = 'public-booking-therapist-daily';
+
+export interface PublicBookingExtraLimits {
+  ipTherapistLimit: number;
+  ipTherapistTtlMs: number;
+  dailyTherapistLimit: number;
+  dailyTherapistTtlMs: number;
+}
+
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function buildPublicBookingExtraLimits(
+  config: Pick<ConfigService, 'get'>,
+): PublicBookingExtraLimits {
+  const isTest = config.get<string>('NODE_ENV') === 'test';
+  return {
+    ipTherapistLimit: parsePositiveInt(
+      config.get<string>('PUBLIC_BOOKING_IP_THROTTLE_LIMIT'),
+      isTest ? 1000 : 10,
+    ),
+    ipTherapistTtlMs: parsePositiveInt(
+      config.get<string>('PUBLIC_BOOKING_IP_THROTTLE_TTL_MS'),
+      60 * 60 * 1000,
+    ),
+    dailyTherapistLimit: parsePositiveInt(
+      config.get<string>('PUBLIC_BOOKING_DAILY_LIMIT'),
+      isTest ? 10000 : 100,
+    ),
+    dailyTherapistTtlMs: parsePositiveInt(
+      config.get<string>('PUBLIC_BOOKING_DAILY_TTL_MS'),
+      DAY_MS,
+    ),
+  };
+}
+
 @Injectable()
 export class PublicScheduleThrottlerGuard extends ThrottlerGuard {
+  private readonly logger = new Logger(PublicScheduleThrottlerGuard.name);
+  private readonly extraLimits: PublicBookingExtraLimits;
+
+  constructor(
+    @InjectThrottlerOptions() options: ThrottlerModuleOptions,
+    @InjectThrottlerStorage() storageService: ThrottlerStorage,
+    reflector: Reflector,
+    config: ConfigService,
+  ) {
+    super(options, storageService, reflector);
+    this.extraLimits = buildPublicBookingExtraLimits(config);
+  }
+
   protected getTracker(req: Record<string, any>): Promise<string> {
     return Promise.resolve(
       getPublicScheduleTracker(
         req as Parameters<typeof getPublicScheduleTracker>[0],
       ),
     );
+  }
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const allowed = await super.canActivate(context);
+    if (!allowed) return false;
+
+    const req = context.switchToHttp().getRequest<{
+      method?: string;
+      ip: string;
+      params?: Record<string, string | string[] | undefined>;
+    }>();
+    if (req.method !== 'POST') return true;
+
+    const rawTherapistId = req.params?.['therapistId'];
+    const therapistId = Array.isArray(rawTherapistId)
+      ? rawTherapistId[0]
+      : (rawTherapistId ?? 'unknown');
+    const {
+      ipTherapistLimit,
+      ipTherapistTtlMs,
+      dailyTherapistLimit,
+      dailyTherapistTtlMs,
+    } = this.extraLimits;
+
+    const ipRecord = await this.storageService.increment(
+      `${PUBLIC_BOOKING_IP_BUCKET}:${req.ip}:${therapistId}`,
+      ipTherapistTtlMs,
+      ipTherapistLimit,
+      ipTherapistTtlMs,
+      PUBLIC_BOOKING_IP_BUCKET,
+    );
+    if (ipRecord.isBlocked) {
+      this.logger.warn(
+        `Límite por ip:therapistId excedido en la reserva pública (therapistId=${therapistId})`,
+      );
+      throw new ThrottlerException();
+    }
+
+    const dailyRecord = await this.storageService.increment(
+      `${PUBLIC_BOOKING_DAILY_BUCKET}:${therapistId}`,
+      dailyTherapistTtlMs,
+      dailyTherapistLimit,
+      dailyTherapistTtlMs,
+      PUBLIC_BOOKING_DAILY_BUCKET,
+    );
+    if (dailyRecord.isBlocked) {
+      this.logger.warn(
+        `Tope diario de reservas públicas excedido (therapistId=${therapistId})`,
+      );
+      throw new ThrottlerException();
+    }
+
+    return true;
   }
 }
