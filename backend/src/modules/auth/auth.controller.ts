@@ -16,6 +16,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { MfaRecoverDto } from './dto/mfa-recover.dto';
 import { MfaTokenDto } from './dto/mfa-token.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { getRequestClientIp } from '../../common/utils/client-ip.util';
 import {
   CurrentUser,
   type RequestUser,
@@ -84,7 +85,11 @@ export class AuthController {
   })
   @Post('mfa/verify')
   verifyMfa(@Body() dto: VerifyMfaDto, @Req() req: Request) {
-    return this.mfaService.verifyMfa(dto, req.ip, req.headers['user-agent']);
+    return this.mfaService.verifyMfa(
+      dto,
+      getRequestClientIp(req),
+      req.headers['user-agent'],
+    );
   }
 
   // Issue #5: signup propio, la única ruta no autenticada que crea una
@@ -212,7 +217,7 @@ export class AuthController {
     return this.mfaService.confirmMfaSetup(
       dto.setupToken,
       dto.token,
-      req.ip,
+      getRequestClientIp(req),
       req.headers['user-agent'],
     );
   }
@@ -334,7 +339,7 @@ export class AuthController {
     return this.mfaService.enableMfa(
       user.id,
       dto.token,
-      req.ip,
+      getRequestClientIp(req),
       req.headers['user-agent'],
     );
   }
@@ -349,7 +354,7 @@ export class AuthController {
     return this.mfaService.disableMfa(
       user.id,
       dto.token,
-      req.ip,
+      getRequestClientIp(req),
       req.headers['user-agent'],
     );
   }
@@ -359,13 +364,21 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Post('logout')
   logout(@CurrentUser() user: RequestUser, @Req() req: Request) {
-    return this.authService.logout(user, req.ip, req.headers['user-agent']);
+    return this.authService.logout(
+      user,
+      getRequestClientIp(req),
+      req.headers['user-agent'],
+    );
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('logout-all')
   logoutAll(@CurrentUser() user: RequestUser, @Req() req: Request) {
-    return this.authService.logoutAll(user, req.ip, req.headers['user-agent']);
+    return this.authService.logoutAll(
+      user,
+      getRequestClientIp(req),
+      req.headers['user-agent'],
+    );
   }
 
   // Issue #124: signup público sin invitación, sin rol ADMIN (decisión

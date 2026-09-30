@@ -85,6 +85,33 @@ describe('getPublicScheduleTracker', () => {
     const tracker = getPublicScheduleTracker({ ip: '10.0.0.5', params: {} });
     expect(tracker).toBe('10.0.0.5:unknown');
   });
+
+  it('usa la IP real del cliente (issue #301), no la del proxy', () => {
+    const req = (realIp: string) => ({
+      ip: '10.0.0.5',
+      headers: { 'x-forwarded-for': `${realIp}, 172.68.1.1, 10.27.1.1` },
+      params: { therapistId: 't1' },
+    });
+    expect(getPublicScheduleTracker(req('198.51.100.1'), 3)).toBe(
+      '198.51.100.1:t1',
+    );
+    expect(getPublicScheduleTracker(req('198.51.100.2'), 3)).toBe(
+      '198.51.100.2:t1',
+    );
+  });
+
+  it('con una XFF más corta que los hops cae a req.ip', () => {
+    expect(
+      getPublicScheduleTracker(
+        {
+          ip: '203.0.113.9',
+          headers: { 'x-forwarded-for': '6.6.6.6' },
+          params: { therapistId: 't1' },
+        },
+        3,
+      ),
+    ).toBe('203.0.113.9:t1');
+  });
 });
 
 // Issue #299: límites que no dependen del body (el bucket por email se reabre
@@ -183,6 +210,63 @@ describe('PublicScheduleThrottlerGuard (límites extra, issue #299)', () => {
       3600000,
       PUBLIC_BOOKING_IP_BUCKET,
     );
+  });
+
+  // Issue #301: detrás del proxy req.ip es la IP del proxy para todos.
+  it('separa el bucket ip:therapistId por cliente real y no por proxy (TRUSTED_PROXY_HOPS=3)', async () => {
+    const storage = buildStorage();
+    const guard = buildGuard({ TRUSTED_PROXY_HOPS: '3' }, storage);
+    const viaProxy = (realIp: string) =>
+      ({
+        switchToHttp: () => ({
+          getRequest: () => ({
+            method: 'POST',
+            ip: '10.0.0.5', // misma IP de proxy para todos
+            headers: {
+              'x-forwarded-for': `${realIp}, 172.68.1.1, 10.27.1.1`,
+            },
+            params: { therapistId: 'therapist-1' },
+            body: {},
+          }),
+        }),
+      }) as unknown as ExecutionContext;
+
+    await guard.canActivate(viaProxy('198.51.100.1'));
+    await guard.canActivate(viaProxy('198.51.100.2'));
+
+    const keys = (storage.increment.mock.calls as Array<[string]>).map(
+      (c) => c[0],
+    );
+    expect(keys).toEqual([
+      `${PUBLIC_BOOKING_IP_BUCKET}:198.51.100.1:therapist-1`,
+      `${PUBLIC_BOOKING_IP_BUCKET}:198.51.100.2:therapist-1`,
+    ]);
+  });
+
+  it('una XFF armada a mano más corta que los hops cae a req.ip y no abre un bucket nuevo', async () => {
+    const storage = buildStorage();
+    const guard = buildGuard({ TRUSTED_PROXY_HOPS: '3' }, storage);
+    const forged = (xff: string) =>
+      ({
+        switchToHttp: () => ({
+          getRequest: () => ({
+            method: 'POST',
+            ip: '203.0.113.9',
+            headers: { 'x-forwarded-for': xff },
+            params: { therapistId: 'therapist-1' },
+            body: {},
+          }),
+        }),
+      }) as unknown as ExecutionContext;
+
+    await guard.canActivate(forged('1.1.1.1'));
+    await guard.canActivate(forged('2.2.2.2'));
+
+    const keys = (storage.increment.mock.calls as Array<[string]>).map(
+      (c) => c[0],
+    );
+    expect(new Set(keys).size).toBe(1);
+    expect(keys[0]).toBe(`${PUBLIC_BOOKING_IP_BUCKET}:203.0.113.9:therapist-1`);
   });
 
   it('no cuenta las lecturas (GET) contra los límites extra', async () => {

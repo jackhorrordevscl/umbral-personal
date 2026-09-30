@@ -12,6 +12,7 @@ import type {
   ThrottlerStorage,
 } from '@nestjs/throttler';
 import { createHash } from 'crypto';
+import { getClientIp } from '../../common/utils/client-ip.util';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.2, design.md Decision 7 "Rate
 // limiting"): el getTracker de buildAuthThrottlerOptions (AuthModule) es
@@ -30,11 +31,23 @@ import { createHash } from 'crypto';
 // en logs de storage) -- se hashea con SHA-256 tras normalizar
 // trim+lowercase, así que el mismo email con distinto casing cae en el mismo
 // bucket de throttling.
-export function getPublicScheduleTracker(req: {
-  ip: string;
-  params?: Record<string, string | string[] | undefined>;
-  body?: { email?: unknown; patient?: { email?: unknown } };
-}): string {
+//
+// Issue #301: la IP es la del cliente real (getClientIp), no req.ip en crudo:
+// detrás del proxy req.ip es la del proxy y todos los visitantes compartirían
+// bucket (agotable por cualquiera para todos los pacientes).
+export function getPublicScheduleTracker(
+  req: {
+    ip: string;
+    headers?: Record<string, string | string[] | undefined>;
+    params?: Record<string, string | string[] | undefined>;
+    body?: { email?: unknown; patient?: { email?: unknown } };
+  },
+  trustedProxyHops = 1,
+): string {
+  const clientIp = getClientIp(
+    { headers: req.headers ?? {}, ip: req.ip },
+    trustedProxyHops,
+  );
   const rawTherapistId = req.params?.['therapistId'];
   const therapistId = Array.isArray(rawTherapistId)
     ? rawTherapistId[0]
@@ -45,10 +58,10 @@ export function getPublicScheduleTracker(req: {
     const emailHash = createHash('sha256')
       .update(rawEmail.trim().toLowerCase())
       .digest('hex');
-    return `${req.ip}:${therapistId}:${emailHash}`;
+    return `${clientIp}:${therapistId}:${emailHash}`;
   }
 
-  return `${req.ip}:${therapistId}`;
+  return `${clientIp}:${therapistId}`;
 }
 
 // Issue #299: el bucket por email de arriba se abre de nuevo con cada email
@@ -100,6 +113,7 @@ export function buildPublicBookingExtraLimits(
 export class PublicScheduleThrottlerGuard extends ThrottlerGuard {
   private readonly logger = new Logger(PublicScheduleThrottlerGuard.name);
   private readonly extraLimits: PublicBookingExtraLimits;
+  private readonly trustedProxyHops: number;
 
   constructor(
     @InjectThrottlerOptions() options: ThrottlerModuleOptions,
@@ -109,12 +123,17 @@ export class PublicScheduleThrottlerGuard extends ThrottlerGuard {
   ) {
     super(options, storageService, reflector);
     this.extraLimits = buildPublicBookingExtraLimits(config);
+    this.trustedProxyHops = parsePositiveInt(
+      config.get<string>('TRUSTED_PROXY_HOPS'),
+      1,
+    );
   }
 
   protected getTracker(req: Record<string, any>): Promise<string> {
     return Promise.resolve(
       getPublicScheduleTracker(
         req as Parameters<typeof getPublicScheduleTracker>[0],
+        this.trustedProxyHops,
       ),
     );
   }
@@ -126,8 +145,13 @@ export class PublicScheduleThrottlerGuard extends ThrottlerGuard {
     const req = context.switchToHttp().getRequest<{
       method?: string;
       ip: string;
+      headers?: Record<string, string | string[] | undefined>;
       params?: Record<string, string | string[] | undefined>;
     }>();
+    const clientIp = getClientIp(
+      { headers: req.headers ?? {}, ip: req.ip },
+      this.trustedProxyHops,
+    );
     if (req.method !== 'POST') return true;
 
     const rawTherapistId = req.params?.['therapistId'];
@@ -137,7 +161,7 @@ export class PublicScheduleThrottlerGuard extends ThrottlerGuard {
     const { ipTherapistLimit, ipTherapistTtlMs } = this.extraLimits;
 
     const ipRecord = await this.storageService.increment(
-      `${PUBLIC_BOOKING_IP_BUCKET}:${req.ip}:${therapistId}`,
+      `${PUBLIC_BOOKING_IP_BUCKET}:${clientIp}:${therapistId}`,
       ipTherapistTtlMs,
       ipTherapistLimit,
       ipTherapistTtlMs,

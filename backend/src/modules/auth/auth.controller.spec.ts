@@ -47,6 +47,29 @@ describe('AuthController — logout routes (issue #192)', () => {
     expect(authService.logoutAll).toHaveBeenCalledWith(user, '1.1.1.1', 'ua');
   });
 
+  it('registra la IP real (req.clientIp) y no la del proxy en logout (issue #301)', async () => {
+    const authService = {
+      logout: jest.fn().mockResolvedValue({ message: 'ok' }),
+    };
+    const controller = new AuthController(
+      authService as unknown as AuthService,
+      {} as MfaService,
+    );
+    const proxied = {
+      ip: '10.0.0.5',
+      clientIp: '198.51.100.20',
+      headers: { 'user-agent': 'ua' },
+    } as never;
+
+    await controller.logout(user, proxied);
+
+    expect(authService.logout).toHaveBeenCalledWith(
+      user,
+      '198.51.100.20',
+      'ua',
+    );
+  });
+
   it('ambas rutas exigen JwtAuthGuard', () => {
     const reflector = new Reflector();
     for (const name of ['logout', 'logoutAll'] as const) {
