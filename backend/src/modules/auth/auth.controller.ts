@@ -64,10 +64,11 @@ export class AuthController {
   }
 
   // mfa/verify no puede llevar JwtAuthGuard: es el segundo paso del login
-  // (login devuelve requiresMfa + userId antes de emitir ningún JWT), así que
-  // por diseño se llama sin sesión. Sin throttling acá, un userId conocido +
-  // fuerza bruta sobre el TOTP de 6 dígitos (window:1, ~3 códigos válidos)
-  // emitía un JWT real sin ningún límite de intentos.
+  // (login devuelve requiresMfa + mfaToken firmado antes de emitir ningún
+  // JWT), así que por diseño se llama sin sesión. El mfaToken (purpose
+  // 'mfa-verify', 5 min) prueba que se superó el paso de contraseña. Sin
+  // throttling acá, fuerza bruta sobre el TOTP de 6 dígitos (window:1, ~3
+  // códigos válidos) emitía un JWT real sin ningún límite de intentos.
   @UseGuards(ThrottlerGuard)
   @SkipThrottle({
     login: true,

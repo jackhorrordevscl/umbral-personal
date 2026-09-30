@@ -1,10 +1,12 @@
-import { IsString, IsUUID, Length } from 'class-validator';
+import { IsNotEmpty, IsString, Length, MaxLength } from 'class-validator';
 
 export class VerifyMfaDto {
   @IsString()
   @Length(6, 6)
   token: string;
 
-  @IsUUID('4')
-  userId: string;
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2048)
+  mfaToken: string;
 }

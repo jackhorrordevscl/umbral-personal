@@ -19,7 +19,7 @@ import type { RequestUser } from '../../common/decorators/current-user.decorator
 import * as argon2 from 'argon2';
 import * as crypto from 'crypto';
 import { User } from '@prisma/client';
-import { MFA_SETUP_PURPOSE } from './mfa.service';
+import { MFA_SETUP_PURPOSE, MFA_VERIFY_PURPOSE } from './mfa.service';
 import { getDummyPasswordHash } from './dummy-password-hash.util';
 
 // Idem para el cambio de contraseña forzado (T4.4 / issue #22): el admin
@@ -282,9 +282,16 @@ export class AuthService {
    */
   private completeLogin(user: User) {
     if (user.mfaEnabled) {
+      // Issue #302: never return the raw userId. The short-lived signed token
+      // proves the password step was completed and is the only accepted input
+      // for POST /auth/mfa/verify.
+      const mfaToken = this.jwtService.sign(
+        { sub: user.id, purpose: MFA_VERIFY_PURPOSE },
+        { expiresIn: '5m' },
+      );
       return {
         requiresMfa: true,
-        userId: user.id,
+        mfaToken,
       };
     }
 

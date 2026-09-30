@@ -29,6 +29,10 @@ model User {
   role                       Role      @default(PROFESSIONAL)
   mfaSecret                  String?
   mfaEnabled                 Boolean   @default(false)
+  // Issue #302: last accepted TOTP time step (floor(epoch / 30s) + delta).
+  // A code is only accepted if its step is greater than this value, so the
+  // same TOTP cannot be replayed. Reset when the secret changes.
+  lastUsedStep               Int?
   mustChangePassword         Boolean   @default(false)
   // Issue #5: signup propio. Default true (no false) para que las cuentas ya
   // existentes -- seedeadas o creadas directo vía Prisma, nunca vía

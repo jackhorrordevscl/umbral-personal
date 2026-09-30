@@ -483,7 +483,12 @@ describe('AuthService', () => {
         password: 'password1',
       });
 
-      expect(result).toEqual({ requiresMfa: true, userId: 'user-1' });
+      expect(result).toEqual({ requiresMfa: true, mfaToken: 'signed-token' });
+      expect(result).not.toHaveProperty('userId');
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        { sub: 'user-1', purpose: 'mfa-verify' },
+        { expiresIn: '5m' },
+      );
     });
   });
 

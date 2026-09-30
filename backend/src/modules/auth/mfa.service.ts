@@ -17,6 +17,14 @@ import { getDummyPasswordHash } from './dummy-password-hash.util';
 // constante para FIRMAR el setupToken que después consume MfaService.
 export const MFA_SETUP_PURPOSE = 'mfa-setup';
 
+// Issue #302: purpose del JWT de 5 min que emite completeLogin() tras el paso
+// de contraseña y que POST /auth/mfa/verify exige en lugar de un userId crudo.
+// Tampoco se acepta como sesión (ver jwt.strategy.ts).
+export const MFA_VERIFY_PURPOSE = 'mfa-verify';
+
+// Duración de un paso TOTP (RFC 6238, default de speakeasy).
+const TOTP_STEP_SECONDS = 30;
+
 // Issue #50: cantidad de códigos de recuperación de MFA generados por
 // enableMfa. 10 es el estándar de facto (GitHub, Google) -- suficiente para
 // varios extravíos del dispositivo TOTP sin ser tantos que degrade la
@@ -121,29 +129,76 @@ export class MfaService {
     }
   }
 
-  async verifyMfa(dto: VerifyMfaDto, ipAddress?: string, userAgent?: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: dto.userId },
-    });
-
-    // mfa/verify es un endpoint standalone que recibe un userId crudo (no
-    // requiere haber pasado por login() primero), así que necesita su propio
-    // chequeo de deletedAt -- sin esto, una cuenta desactivada tras un
-    // incidente (ej. offboarding de un colaborador comprometido) podía
-    // seguir logueando con el TOTP que ya tenía de antes de la revocación.
-    // El mensaje es el mismo que el de un TOTP incorrecto: como el endpoint
-    // recibe un userId crudo, distinguirlos permitiría enumerar qué userId
-    // existen y tienen MFA activo.
-    if (!user || !user.mfaSecret || user.deletedAt) {
+  /**
+   * Verifica el mfaToken emitido por completeLogin(): firma válida, no
+   * expirado y purpose === 'mfa-verify'. Prueba que el paso de contraseña se
+   * completó; sin él mfa/verify no acepta ningún TOTP.
+   */
+  private verifyMfaToken(mfaToken: string): { sub: string } {
+    let payload: { sub: string; purpose?: string };
+    try {
+      payload = this.jwtService.verify(mfaToken);
+    } catch {
       throw new UnauthorizedException('Código MFA inválido');
     }
 
-    const isValid = speakeasy.totp.verify({
-      secret: user.mfaSecret,
+    if (payload.purpose !== MFA_VERIFY_PURPOSE || !payload.sub) {
+      throw new UnauthorizedException('Código MFA inválido');
+    }
+
+    return payload;
+  }
+
+  /**
+   * Issue #302: valida un TOTP y consume su paso de forma atómica. Un mismo
+   * paso no puede aceptarse dos veces para el mismo usuario (replay): el
+   * updateMany condicional solo avanza lastUsedStep si el paso es mayor, y si
+   * otra petición concurrente ya lo consumió, count === 0.
+   */
+  private async consumeTotp(
+    userId: string,
+    secret: string,
+    token: string,
+  ): Promise<boolean> {
+    const delta = speakeasy.totp.verifyDelta({
+      secret,
       encoding: 'base32',
-      token: dto.token,
+      token,
       window: 1,
     });
+    if (!delta) return false;
+
+    const step =
+      Math.floor(Date.now() / 1000 / TOTP_STEP_SECONDS) + delta.delta;
+
+    const { count } = await this.prisma.user.updateMany({
+      where: {
+        id: userId,
+        OR: [{ lastUsedStep: null }, { lastUsedStep: { lt: step } }],
+      },
+      data: { lastUsedStep: step },
+    });
+
+    return count > 0;
+  }
+
+  async verifyMfa(dto: VerifyMfaDto, ipAddress?: string, userAgent?: string) {
+    const { sub: userId } = this.verifyMfaToken(dto.mfaToken);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    // El mfaToken se firmó antes de este paso, así que la cuenta pudo
+    // desactivarse o perder MFA en el intervalo (ej. offboarding de un
+    // colaborador comprometido, recover): se revalidan deletedAt y mfaEnabled.
+    // Solo con mfaEnabled se acepta el TOTP -- un secreto pendiente de
+    // enrolamiento (mfaEnabled=false) no debe servir para obtener sesión.
+    // Mismo mensaje que un TOTP incorrecto para no revelar el estado.
+    if (!user || !user.mfaEnabled || !user.mfaSecret || user.deletedAt) {
+      throw new UnauthorizedException('Código MFA inválido');
+    }
+
+    const isValid = await this.consumeTotp(user.id, user.mfaSecret, dto.token);
 
     if (!isValid) {
       throw new UnauthorizedException('Código MFA inválido');
@@ -187,7 +242,7 @@ export class MfaService {
     // Guarda el secreto temporalmente (aún no activa MFA)
     await this.prisma.user.update({
       where: { id: userId },
-      data: { mfaSecret: secret.base32 },
+      data: { mfaSecret: secret.base32, lastUsedStep: null },
     });
 
     const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url!);
@@ -209,12 +264,7 @@ export class MfaService {
       throw new UnauthorizedException('Primero genera el secreto MFA');
     }
 
-    const isValid = speakeasy.totp.verify({
-      secret: user.mfaSecret,
-      encoding: 'base32',
-      token,
-      window: 1,
-    });
+    const isValid = await this.consumeTotp(userId, user.mfaSecret, token);
 
     if (!isValid) {
       throw new UnauthorizedException('Código inválido, intenta de nuevo');
@@ -265,12 +315,7 @@ export class MfaService {
       throw new UnauthorizedException('MFA no está configurado');
     }
 
-    const isValid = speakeasy.totp.verify({
-      secret: user.mfaSecret,
-      encoding: 'base32',
-      token,
-      window: 1,
-    });
+    const isValid = await this.consumeTotp(userId, user.mfaSecret, token);
 
     if (!isValid) {
       throw new UnauthorizedException('Código inválido');
@@ -278,7 +323,7 @@ export class MfaService {
 
     await this.prisma.user.update({
       where: { id: userId },
-      data: { mfaEnabled: false, mfaSecret: null },
+      data: { mfaEnabled: false, mfaSecret: null, lastUsedStep: null },
     });
 
     // Compliance: mismo criterio que enableMfa -- registro explícito con
@@ -355,7 +400,7 @@ export class MfaService {
       }),
       this.prisma.user.update({
         where: { id: user.id },
-        data: { mfaEnabled: false, mfaSecret: null },
+        data: { mfaEnabled: false, mfaSecret: null, lastUsedStep: null },
       }),
     ]);
 

@@ -84,6 +84,17 @@ describe('JwtStrategy', () => {
     // JWT_SECRET, igual que password-reset/mfa-setup -- sin este bloqueo,
     // ese token de 10 minutos podría usarse como Bearer de sesión contra
     // cualquier ruta protegida por JwtAuthGuard mientras no expire.
+    it('rechaza el purpose mfa-verify como Bearer de sesión (issue #302)', async () => {
+      await expect(
+        strategy.validate({
+          ...basePayload,
+          purpose: 'mfa-verify',
+          iat: 1000,
+        }),
+      ).rejects.toThrow('Token no autorizado para esta operación');
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
     it('rechaza un purpose bloqueado (google-calendar-oauth) sin siquiera consultar prisma', async () => {
       await expect(
         strategy.validate({

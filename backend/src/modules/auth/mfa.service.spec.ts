@@ -16,6 +16,13 @@ const mockArgon2 = argon2 as jest.Mocked<typeof argon2>;
 const mockSpeakeasy = speakeasy as jest.Mocked<typeof speakeasy>;
 const mockQRCode = QRCode as jest.Mocked<typeof QRCode>;
 
+// verifyDelta returns { delta } for a valid code and undefined otherwise.
+function mockTotp(delta: number | null) {
+  (mockSpeakeasy.totp.verifyDelta as jest.Mock).mockReturnValue(
+    delta === null ? undefined : { delta },
+  );
+}
+
 function buildUser(overrides: Partial<User> = {}): User {
   return {
     id: 'user-1',
@@ -37,7 +44,7 @@ function buildUser(overrides: Partial<User> = {}): User {
 describe('MfaService', () => {
   let service: MfaService;
   let prisma: {
-    user: { findUnique: jest.Mock; update: jest.Mock };
+    user: { findUnique: jest.Mock; update: jest.Mock; updateMany: jest.Mock };
     mfaRecoveryCode: {
       findMany: jest.Mock;
       deleteMany: jest.Mock;
@@ -55,6 +62,7 @@ describe('MfaService', () => {
       user: {
         findUnique: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       mfaRecoveryCode: {
         findMany: jest.fn(),
@@ -141,7 +149,7 @@ describe('MfaService', () => {
 
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { mfaSecret: 'BASE32SECRET' },
+        data: { mfaSecret: 'BASE32SECRET', lastUsedStep: null },
       });
       expect(result).toEqual({
         secret: 'BASE32SECRET',
@@ -162,7 +170,7 @@ describe('MfaService', () => {
         .mockResolvedValueOnce(userWithSecret) // rejectIfAlreadyEnrolled
         .mockResolvedValueOnce(userWithSecret) // enableMfa
         .mockResolvedValueOnce(null); // relectura final en confirmMfaSetup
-      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+      mockTotp(0);
 
       await expect(
         service.confirmMfaSetup(setupToken, '123456'),
@@ -179,7 +187,7 @@ describe('MfaService', () => {
         mfaSecret: 'BASE32SECRET',
       });
       prisma.user.findUnique.mockResolvedValue(userWithSecret);
-      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+      mockTotp(0);
 
       const result = await service.confirmMfaSetup(setupToken, '123456');
 
@@ -205,80 +213,178 @@ describe('MfaService', () => {
   });
 
   describe('verifyMfa', () => {
+    const dto = { mfaToken: 'mfa-token', token: '123456' };
+
+    beforeEach(() => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'mfa-verify',
+      });
+    });
+
+    it('lanza 401 si el mfaToken es inválido o expiró', async () => {
+      jwtService.verify.mockImplementation(() => {
+        throw new Error('jwt expired');
+      });
+
+      await expect(service.verifyMfa(dto)).rejects.toThrow(
+        'Código MFA inválido',
+      );
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('lanza 401 si el purpose del token no es mfa-verify (ej. mfa-setup)', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'mfa-setup',
+      });
+
+      await expect(service.verifyMfa(dto)).rejects.toThrow(
+        'Código MFA inválido',
+      );
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('lanza 401 si el token no tiene purpose (JWT de sesión)', async () => {
+      jwtService.verify.mockReturnValue({ sub: 'user-1' });
+
+      await expect(service.verifyMfa(dto)).rejects.toThrow(
+        'Código MFA inválido',
+      );
+    });
+
     it('lanza 401 con el mismo mensaje que un TOTP inválido si el usuario no existe (anti-enumeración)', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.verifyMfa({ userId: 'user-1', token: '123456' }),
-      ).rejects.toThrow('Código MFA inválido');
-    });
-
-    it('lanza 401 con el mismo mensaje que un TOTP inválido si el usuario no tiene mfaSecret', async () => {
-      prisma.user.findUnique.mockResolvedValue(buildUser({ mfaSecret: null }));
-
-      await expect(
-        service.verifyMfa({ userId: 'user-1', token: '123456' }),
-      ).rejects.toThrow('Código MFA inválido');
-    });
-
-    it('lanza 401 si la cuenta está soft-deleted, aunque el TOTP sea válido (mfa/verify es standalone y recibe userId crudo)', async () => {
-      prisma.user.findUnique.mockResolvedValue(
-        buildUser({ mfaSecret: 'BASE32SECRET', deletedAt: new Date() }),
+      await expect(service.verifyMfa(dto)).rejects.toThrow(
+        'Código MFA inválido',
       );
-      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+    });
 
-      await expect(
-        service.verifyMfa({ userId: 'user-1', token: '123456' }),
-      ).rejects.toThrow('Código MFA inválido');
+    it('lanza 401 si el usuario no tiene mfaSecret', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaEnabled: true, mfaSecret: null }),
+      );
+
+      await expect(service.verifyMfa(dto)).rejects.toThrow(
+        'Código MFA inválido',
+      );
+    });
+
+    it('lanza 401 si el usuario tiene mfaSecret pero mfaEnabled=false (enrolamiento pendiente), aunque el TOTP sea válido', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: false }),
+      );
+      mockTotp(0);
+
+      await expect(service.verifyMfa(dto)).rejects.toThrow(
+        'Código MFA inválido',
+      );
+      expect(jwtService.sign).not.toHaveBeenCalled();
+      expect(prisma.user.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('lanza 401 si la cuenta está soft-deleted, aunque el TOTP sea válido', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({
+          mfaSecret: 'BASE32SECRET',
+          mfaEnabled: true,
+          deletedAt: new Date(),
+        }),
+      );
+      mockTotp(0);
+
+      await expect(service.verifyMfa(dto)).rejects.toThrow(
+        'Código MFA inválido',
+      );
       // No debe llegar a emitir accessToken para una cuenta desactivada.
       expect(jwtService.sign).not.toHaveBeenCalled();
     });
 
     it('lanza 401 si el TOTP es inválido', async () => {
       prisma.user.findUnique.mockResolvedValue(
-        buildUser({ mfaSecret: 'BASE32SECRET' }),
+        buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
       );
-      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(false);
+      mockTotp(null);
 
-      await expect(
-        service.verifyMfa({ userId: 'user-1', token: '000000' }),
-      ).rejects.toThrow('Código MFA inválido');
+      await expect(service.verifyMfa(dto)).rejects.toThrow(
+        'Código MFA inválido',
+      );
+      expect(prisma.user.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('lanza 401 si el mismo paso TOTP ya fue consumido (replay)', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
+      );
+      mockTotp(0);
+      prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.verifyMfa(dto)).rejects.toThrow(
+        'Código MFA inválido',
+      );
+      expect(jwtService.sign).not.toHaveBeenCalled();
+    });
+
+    it('consume el paso de forma atómica: solo avanza lastUsedStep si es mayor', async () => {
+      const now = 1_700_000_000_000;
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
+      );
+      mockTotp(-1);
+
+      await service.verifyMfa(dto);
+      nowSpy.mockRestore();
+
+      const step = Math.floor(now / 1000 / 30) - 1;
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'user-1',
+          OR: [{ lastUsedStep: null }, { lastUsedStep: { lt: step } }],
+        },
+        data: { lastUsedStep: step },
+      });
     });
 
     it('lanza 401 sin emitir accessToken si mustChangePassword=true, aunque el TOTP sea válido', async () => {
       prisma.user.findUnique.mockResolvedValue(
-        buildUser({ mfaSecret: 'BASE32SECRET', mustChangePassword: true }),
+        buildUser({
+          mfaSecret: 'BASE32SECRET',
+          mfaEnabled: true,
+          mustChangePassword: true,
+        }),
       );
-      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+      mockTotp(0);
 
-      await expect(
-        service.verifyMfa({ userId: 'user-1', token: '123456' }),
-      ).rejects.toThrow('Debes cambiar tu contraseña antes de iniciar sesión');
+      await expect(service.verifyMfa(dto)).rejects.toThrow(
+        'Debes cambiar tu contraseña antes de iniciar sesión',
+      );
       expect(jwtService.sign).not.toHaveBeenCalled();
     });
 
     it('no revela mustChangePassword si el TOTP es inválido', async () => {
       prisma.user.findUnique.mockResolvedValue(
-        buildUser({ mfaSecret: 'BASE32SECRET', mustChangePassword: true }),
+        buildUser({
+          mfaSecret: 'BASE32SECRET',
+          mfaEnabled: true,
+          mustChangePassword: true,
+        }),
       );
-      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(false);
+      mockTotp(null);
 
-      await expect(
-        service.verifyMfa({ userId: 'user-1', token: '000000' }),
-      ).rejects.toThrow('Código MFA inválido');
+      await expect(service.verifyMfa(dto)).rejects.toThrow(
+        'Código MFA inválido',
+      );
     });
 
     it('crea una Session con el jti firmado en el JWT, expiresAt del exp e ip/user-agent', async () => {
       prisma.user.findUnique.mockResolvedValue(
-        buildUser({ mfaSecret: 'BASE32SECRET' }),
+        buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
       );
-      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+      mockTotp(0);
 
-      await service.verifyMfa(
-        { userId: 'user-1', token: '123456' },
-        '10.0.0.1',
-        'jest-agent',
-      );
+      await service.verifyMfa(dto, '10.0.0.1', 'jest-agent');
 
       const [payload] = jwtService.sign.mock.calls[0] as [
         { jti: string; sub: string },
@@ -296,18 +402,16 @@ describe('MfaService', () => {
       });
     });
 
-    it('devuelve accessToken si el TOTP es válido', async () => {
+    it('devuelve accessToken si el mfaToken y el TOTP son válidos', async () => {
       prisma.user.findUnique.mockResolvedValue(
-        buildUser({ mfaSecret: 'BASE32SECRET' }),
+        buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
       );
-      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+      mockTotp(0);
 
-      const result = await service.verifyMfa({
-        userId: 'user-1',
-        token: '123456',
-      });
+      const result = await service.verifyMfa(dto);
 
-      expect(mockSpeakeasy.totp.verify).toHaveBeenCalledWith({
+      expect(jwtService.verify).toHaveBeenCalledWith('mfa-token');
+      expect(mockSpeakeasy.totp.verifyDelta).toHaveBeenCalledWith({
         secret: 'BASE32SECRET',
         encoding: 'base32',
         token: '123456',
@@ -363,7 +467,7 @@ describe('MfaService', () => {
       });
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { mfaSecret: 'BASE32SECRET' },
+        data: { mfaSecret: 'BASE32SECRET', lastUsedStep: null },
       });
       expect(result).toEqual({
         secret: 'BASE32SECRET',
@@ -385,18 +489,31 @@ describe('MfaService', () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ mfaSecret: 'BASE32SECRET' }),
       );
-      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(false);
+      mockTotp(null);
 
       await expect(service.enableMfa('user-1', '000000')).rejects.toThrow(
         'Código inválido, intenta de nuevo',
       );
     });
 
+    it('lanza 401 si el TOTP ya fue usado en este paso (replay)', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET' }),
+      );
+      mockTotp(0);
+      prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.enableMfa('user-1', '123456')).rejects.toThrow(
+        'Código inválido, intenta de nuevo',
+      );
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
     it('activa MFA, genera 10 recovery codes y audita en el camino feliz', async () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ mfaSecret: 'BASE32SECRET' }),
       );
-      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+      mockTotp(0);
       mockArgon2.hash.mockResolvedValue('hashed-code' as never);
 
       const result = await service.enableMfa('user-1', '123456');
@@ -436,7 +553,7 @@ describe('MfaService', () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ mfaSecret: 'BASE32SECRET' }),
       );
-      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(false);
+      mockTotp(null);
 
       await expect(service.disableMfa('user-1', '000000')).rejects.toThrow(
         'Código inválido',
@@ -447,15 +564,28 @@ describe('MfaService', () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
       );
-      (mockSpeakeasy.totp.verify as jest.Mock).mockReturnValue(true);
+      mockTotp(0);
 
       const result = await service.disableMfa('user-1', '123456');
 
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { mfaEnabled: false, mfaSecret: null },
+        data: { mfaEnabled: false, mfaSecret: null, lastUsedStep: null },
       });
       expect(result).toEqual({ message: 'MFA desactivado correctamente' });
+    });
+
+    it('lanza 401 si el TOTP ya fue usado en este paso (replay)', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
+      );
+      mockTotp(0);
+      prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.disableMfa('user-1', '123456')).rejects.toThrow(
+        'Código inválido',
+      );
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
   });
 
@@ -546,7 +676,7 @@ describe('MfaService', () => {
       });
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { mfaEnabled: false, mfaSecret: null },
+        data: { mfaEnabled: false, mfaSecret: null, lastUsedStep: null },
       });
       expect(auditService.log).toHaveBeenCalledWith({
         userId: 'user-1',
