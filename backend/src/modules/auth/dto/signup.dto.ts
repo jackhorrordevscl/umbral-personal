@@ -1,3 +1,4 @@
+import { PersonName } from '../../../common/validators/person-name.decorator';
 import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
 
 export class SignupDto {
@@ -8,7 +9,7 @@ export class SignupDto {
   @MinLength(8)
   password: string;
 
-  @IsString()
+  @PersonName(200)
   @MinLength(1)
   name: string;
 

@@ -6,6 +6,7 @@ import {
   Matches,
   MaxLength,
 } from 'class-validator';
+import { PersonName } from '../../../common/validators/person-name.decorator';
 import { RUT_FORMAT } from '../../patients/dto/create-patient.dto';
 import type { PublicBookingPatientInput } from '../../patients/patients.service';
 
@@ -25,8 +26,7 @@ import type { PublicBookingPatientInput } from '../../patients/patients.service'
 export class PublicBookingPatientDto implements PublicBookingPatientInput {
   // Issue #299: MaxLength alineado con CreatePatientDto -- este endpoint es
   // anónimo, sin límites un request podría persistir strings arbitrarios.
-  @IsString()
-  @MaxLength(200)
+  @PersonName(200)
   fullName: string;
 
   @IsString()
