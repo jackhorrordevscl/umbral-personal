@@ -1,7 +1,10 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { MailService } from '../mail/mail.service';
+import { MfaSecretCryptoService } from './mfa-secret-crypto.service';
+import { maskEmail } from '../../common/utils/mask-email.util';
 import { VerifyMfaDto } from './dto/verify-mfa.dto';
 import { MfaRecoverDto } from './dto/mfa-recover.dto';
 import * as argon2 from 'argon2';
@@ -33,11 +36,57 @@ const MFA_RECOVERY_CODES_COUNT = 10;
 
 @Injectable()
 export class MfaService {
+  private readonly logger = new Logger(MfaService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private auditService: AuditService,
+    private mfaSecretCrypto: MfaSecretCryptoService,
+    private mailService: MailService,
   ) {}
+
+  /**
+   * Issue #302: mfaSecret is stored encrypted at rest. Returns the plaintext
+   * base32 secret, or null when the stored value cannot be decrypted
+   * (tampered, or encrypted under another key) so callers reject the request
+   * like any invalid code instead of surfacing a 500.
+   */
+  private revealSecret(userId: string, stored: string): string | null {
+    try {
+      return this.mfaSecretCrypto.decrypt(stored);
+    } catch {
+      this.logger.error(
+        `No se pudo descifrar el mfaSecret del usuario ${userId}: valor alterado o clave distinta.`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Issue #302: rows written before the encryption at rest hold the base32
+   * secret in plaintext. They keep working (decrypt passes them through) and
+   * are re-encrypted lazily on the first successful TOTP. The conditional
+   * updateMany makes it a no-op if the secret changed concurrently, and a
+   * failure here never blocks the login (the secret is still valid as is).
+   */
+  private async reencryptLegacySecret(
+    userId: string,
+    stored: string,
+    plaintext: string,
+  ): Promise<void> {
+    if (this.mfaSecretCrypto.isEncrypted(stored)) return;
+    try {
+      await this.prisma.user.updateMany({
+        where: { id: userId, mfaSecret: stored },
+        data: { mfaSecret: this.mfaSecretCrypto.encrypt(plaintext) },
+      });
+    } catch (error) {
+      this.logger.error(
+        `No se pudo re-cifrar el mfaSecret legado del usuario ${userId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 
   /**
    * Enrolamiento MFA forzado (paso 1) para cualquier cuenta sin MFA
@@ -198,11 +247,18 @@ export class MfaService {
       throw new UnauthorizedException('Código MFA inválido');
     }
 
-    const isValid = await this.consumeTotp(user.id, user.mfaSecret, dto.token);
+    const secret = this.revealSecret(user.id, user.mfaSecret);
+    if (!secret) {
+      throw new UnauthorizedException('Código MFA inválido');
+    }
+
+    const isValid = await this.consumeTotp(user.id, secret, dto.token);
 
     if (!isValid) {
       throw new UnauthorizedException('Código MFA inválido');
     }
+
+    await this.reencryptLegacySecret(user.id, user.mfaSecret, secret);
 
     // Mismo criterio que login(): ningún accessToken se emite mientras la
     // contraseña deba cambiarse. Se chequea recién con el TOTP válido para no
@@ -242,7 +298,10 @@ export class MfaService {
     // Guarda el secreto temporalmente (aún no activa MFA)
     await this.prisma.user.update({
       where: { id: userId },
-      data: { mfaSecret: secret.base32, lastUsedStep: null },
+      data: {
+        mfaSecret: this.mfaSecretCrypto.encrypt(secret.base32),
+        lastUsedStep: null,
+      },
     });
 
     const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url!);
@@ -264,7 +323,12 @@ export class MfaService {
       throw new UnauthorizedException('Primero genera el secreto MFA');
     }
 
-    const isValid = await this.consumeTotp(userId, user.mfaSecret, token);
+    const secret = this.revealSecret(userId, user.mfaSecret);
+    if (!secret) {
+      throw new UnauthorizedException('Primero genera el secreto MFA');
+    }
+
+    const isValid = await this.consumeTotp(userId, secret, token);
 
     if (!isValid) {
       throw new UnauthorizedException('Código inválido, intenta de nuevo');
@@ -315,7 +379,12 @@ export class MfaService {
       throw new UnauthorizedException('MFA no está configurado');
     }
 
-    const isValid = await this.consumeTotp(userId, user.mfaSecret, token);
+    const secret = this.revealSecret(userId, user.mfaSecret);
+    if (!secret) {
+      throw new UnauthorizedException('Código inválido');
+    }
+
+    const isValid = await this.consumeTotp(userId, secret, token);
 
     if (!isValid) {
       throw new UnauthorizedException('Código inválido');
@@ -355,7 +424,7 @@ export class MfaService {
    * limpio en el chequeo de mfaEnabled de más abajo, sin necesidad de borrar
    * el resto (enableMfa los reemplaza igual la próxima vez que se habilite).
    */
-  async recoverMfa(dto: MfaRecoverDto) {
+  async recoverMfa(dto: MfaRecoverDto, ipAddress?: string, userAgent?: string) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -402,6 +471,13 @@ export class MfaService {
         where: { id: user.id },
         data: { mfaEnabled: false, mfaSecret: null, lastUsedStep: null },
       }),
+      // Issue #302: whoever holds the recovery code + password may not be the
+      // owner, so every session opened before the recovery dies with it. In
+      // the same transaction so MFA is never off while old sessions live.
+      this.prisma.session.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
     ]);
 
     await this.auditService.log({
@@ -409,7 +485,24 @@ export class MfaService {
       action: 'MFA_DISABLED_VIA_RECOVERY',
       resource: 'User',
       resourceId: user.id,
+      ipAddress,
+      userAgent,
     });
+
+    // Best effort: MailService never throws on provider errors, and anything
+    // unexpected must not undo a recovery that is already committed.
+    try {
+      await this.mailService.sendMfaRecoveryNoticeEmail(
+        user.email,
+        user.name,
+        ipAddress,
+        userAgent,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Falló el aviso de recuperación de MFA a ${maskEmail(user.email)}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
 
     return {
       message:

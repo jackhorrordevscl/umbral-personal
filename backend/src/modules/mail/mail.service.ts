@@ -158,6 +158,51 @@ export class MailService {
     }
   }
 
+  // Issue #302: aviso al dueño de la cuenta cuando MFA se desactiva con un
+  // código de recuperación (y sus sesiones se cierran). Mismo contrato "nunca
+  // lanza" que el resto de esta clase: la recuperación ya está hecha y un
+  // fallo de Resend no debe deshacerla. IP y user-agent vienen del request
+  // (controlados por el cliente), por eso se escapan igual que los nombres.
+  async sendMfaRecoveryNoticeEmail(
+    to: string,
+    name: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn(
+        `RESEND_API_KEY no configurada: se salteó el aviso de recuperación de MFA a ${maskEmail(to)}.`,
+      );
+      return;
+    }
+
+    const origin = [
+      ipAddress ? `IP: ${escapeHtml(ipAddress)}` : null,
+      userAgent ? `Dispositivo: ${escapeHtml(userAgent)}` : null,
+    ]
+      .filter((line): line is string => line !== null)
+      .join('<br />');
+
+    const { error } = await this.resend.emails.send({
+      from: this.from,
+      to,
+      subject:
+        'Se desactivó la verificación en dos pasos de tu cuenta de Umbral - RCE',
+      html: `
+        <p>Hola ${escapeHtml(name)},</p>
+        <p>La verificación en dos pasos (MFA) de tu cuenta se desactivó usando un código de recuperación. Por seguridad, cerramos todas tus sesiones abiertas.</p>
+        ${origin ? `<p>${origin}</p>` : ''}
+        <p>Si fuiste tú, vuelve a habilitar MFA cuanto antes. Si no fuiste tú, cambia tu contraseña y contacta a soporte lo antes posible.</p>
+      `,
+    });
+
+    if (error) {
+      this.logger.error(
+        `Falló el envío del aviso de recuperación de MFA a ${maskEmail(to)}: ${error.message}`,
+      );
+    }
+  }
+
   // sdd/session-reminders PR 2 (T5.1): llamado por RemindersService por cada
   // (consultation, offset) despachado por el canal EMAIL. Mismo contrato
   // "nunca lanza" que el resto de esta clase -- design.md "Email Channel

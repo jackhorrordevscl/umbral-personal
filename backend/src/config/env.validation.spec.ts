@@ -66,6 +66,18 @@ const validGoogleTokenKey = Buffer.alloc(32, 11).toString('base64');
 // anteriores.
 const validPaymentKey = Buffer.alloc(32, 13).toString('base64');
 
+// Issue #302 (part 2): idem para MFA_SECRET_ENCRYPTION_KEY, cuyo valor de
+// ejemplo público (README.md/install.sh) también se rechaza en producción.
+const readmeExampleMfaKey = extractExample(
+  readmePath,
+  'MFA_SECRET_ENCRYPTION_KEY',
+);
+const installShExampleMfaKey = extractExample(
+  installShPath,
+  'MFA_SECRET_ENCRYPTION_KEY',
+);
+const validMfaKey = Buffer.alloc(32, 17).toString('base64');
+
 describe('validateEnv', () => {
   it('permite un JWT_SECRET largo y no genérico en producción', () => {
     const config = {
@@ -74,6 +86,7 @@ describe('validateEnv', () => {
       DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
       GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
       PAYMENT_CREDENTIALS_ENCRYPTION_KEY: validPaymentKey,
+      MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
     };
 
     expect(validateEnv(config)).toBe(config);
@@ -131,6 +144,7 @@ describe('validateEnv', () => {
       DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
       GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
       PAYMENT_CREDENTIALS_ENCRYPTION_KEY: validPaymentKey,
+      MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
     };
 
     expect(validateEnv(config)).toBe(config);
@@ -190,6 +204,7 @@ describe('validateEnv', () => {
       DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
       GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
       PAYMENT_CREDENTIALS_ENCRYPTION_KEY: validPaymentKey,
+      MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
     };
 
     expect(validateEnv(config)).toBe(config);
@@ -397,6 +412,7 @@ describe('validateEnv', () => {
       DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
       GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
       PAYMENT_CREDENTIALS_ENCRYPTION_KEY: validPaymentKey,
+      MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
     };
 
     expect(validateEnv(config)).toBe(config);
@@ -447,6 +463,51 @@ describe('validateEnv', () => {
 
   it('no valida PAYMENT_CREDENTIALS_ENCRYPTION_KEY fuera de producción', () => {
     const config = { NODE_ENV: 'test' };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
+  // Issue #302 (part 2): MFA_SECRET_ENCRYPTION_KEY cifra User.mfaSecret.
+  const productionBase = {
+    NODE_ENV: 'production',
+    JWT_SECRET: 'a'.repeat(32),
+    DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
+    GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
+    PAYMENT_CREDENTIALS_ENCRYPTION_KEY: validPaymentKey,
+  };
+
+  it('rechaza MFA_SECRET_ENCRYPTION_KEY ausente en producción', () => {
+    expect(() => validateEnv({ ...productionBase })).toThrow(
+      /MFA_SECRET_ENCRYPTION_KEY inválida/,
+    );
+  });
+
+  it('rechaza un MFA_SECRET_ENCRYPTION_KEY que no decodifica a 32 bytes en producción', () => {
+    expect(() =>
+      validateEnv({
+        ...productionBase,
+        MFA_SECRET_ENCRYPTION_KEY: Buffer.alloc(16, 17).toString('base64'),
+      }),
+    ).toThrow(/MFA_SECRET_ENCRYPTION_KEY inválida/);
+  });
+
+  it.each([
+    ['README.md', readmeExampleMfaKey],
+    ['install.sh', installShExampleMfaKey],
+  ])(
+    'rechaza el valor de ejemplo de %s para MFA_SECRET_ENCRYPTION_KEY en producción',
+    (_file, example) => {
+      expect(() =>
+        validateEnv({ ...productionBase, MFA_SECRET_ENCRYPTION_KEY: example }),
+      ).toThrow(/MFA_SECRET_ENCRYPTION_KEY inválida/);
+    },
+  );
+
+  it('permite un MFA_SECRET_ENCRYPTION_KEY válido en producción', () => {
+    const config = {
+      ...productionBase,
+      MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
+    };
 
     expect(validateEnv(config)).toBe(config);
   });

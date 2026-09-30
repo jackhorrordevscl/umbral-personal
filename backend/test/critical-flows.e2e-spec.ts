@@ -6,6 +6,7 @@ import * as argon2 from 'argon2';
 import speakeasy from 'speakeasy';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { MfaSecretCryptoService } from '../src/modules/auth/mfa-secret-crypto.service';
 import { uniqueTestRut } from './support/unique-rut';
 
 /**
@@ -152,7 +153,8 @@ describe('Critical flows (e2e)', () => {
       // (replay protection, issue #302), so use the next step. It is within
       // the server's window of 1.
       const totp = speakeasy.totp({
-        secret: user!.mfaSecret!,
+        // mfaSecret is encrypted at rest (issue #302): decrypt to sign a TOTP.
+        secret: app.get(MfaSecretCryptoService).decrypt(user!.mfaSecret!),
         encoding: 'base32',
         time: Math.floor(Date.now() / 1000) + 30,
       });

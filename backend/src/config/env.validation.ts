@@ -32,10 +32,17 @@ const KNOWN_EXAMPLE_PAYMENT_KEY_HASHES = new Set([
   '8f655db9f918bd78d2b1c856385a52a0125a768fe6b14aad80ce9330a99653b5', // README.md
 ]);
 
+// Issue #302 (part 2): mismo criterio, para MFA_SECRET_ENCRYPTION_KEY (clave
+// AES-256-GCM propia que cifra User.mfaSecret, no compartida con las demás).
+const KNOWN_EXAMPLE_MFA_SECRET_KEY_HASHES = new Set([
+  '4dfdc8114b33d2644e1157dcc73f26d1f75cf2766be7f40db2710b2630a67996', // README.md / install.sh
+]);
+
 const MIN_JWT_SECRET_LENGTH = 32;
 const DOCUMENT_ENCRYPTION_KEY_BYTE_LENGTH = 32;
 const GOOGLE_TOKEN_ENCRYPTION_KEY_BYTE_LENGTH = 32;
 const PAYMENT_CREDENTIALS_ENCRYPTION_KEY_BYTE_LENGTH = 32;
+const MFA_SECRET_ENCRYPTION_KEY_BYTE_LENGTH = 32;
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -226,6 +233,24 @@ export function validateEnv(
     ) {
       throw new Error(
         `PAYMENT_CREDENTIALS_ENCRYPTION_KEY inválida: en producción debe decodificar a ${PAYMENT_CREDENTIALS_ENCRYPTION_KEY_BYTE_LENGTH} bytes en base64 y no puede ser el valor de ejemplo de README.md. Generala con: openssl rand -base64 32`,
+      );
+    }
+
+    // Issue #302 (part 2): mismo criterio que PAYMENT_CREDENTIALS_ENCRYPTION_KEY
+    // -- clave independiente que cifra User.mfaSecret, exigida siempre en
+    // producción (MfaSecretCryptoService.onModuleInit la valida igual).
+    const mfaKeyRaw =
+      typeof config.MFA_SECRET_ENCRYPTION_KEY === 'string'
+        ? config.MFA_SECRET_ENCRYPTION_KEY
+        : '';
+    const mfaKeyBytes = Buffer.from(mfaKeyRaw, 'base64');
+
+    if (
+      mfaKeyBytes.length !== MFA_SECRET_ENCRYPTION_KEY_BYTE_LENGTH ||
+      KNOWN_EXAMPLE_MFA_SECRET_KEY_HASHES.has(sha256(mfaKeyRaw))
+    ) {
+      throw new Error(
+        `MFA_SECRET_ENCRYPTION_KEY inválida: en producción debe decodificar a ${MFA_SECRET_ENCRYPTION_KEY_BYTE_LENGTH} bytes en base64 y no puede ser el valor de ejemplo de README.md/install.sh. Generala con: openssl rand -base64 32`,
       );
     }
   }

@@ -99,6 +99,9 @@ DOCUMENT_ENCRYPTION_KEY="+rPRh0H2ayZ4yAIjhOWbvOghetuNtScBP8g2VgNuBik="
 # token de Google Calendar (distinta de DOCUMENT_ENCRYPTION_KEY a propósito,
 # ver design.md) -- genera la tuya con: openssl rand -base64 32
 GOOGLE_TOKEN_ENCRYPTION_KEY="vihs9JiRKVRGjurFGk+YqxhpvD7zanIZJgbHGeSOMi4="
+# Issue #302: clave AES-256-GCM propia para cifrar User.mfaSecret en reposo --
+# genera la tuya con: openssl rand -base64 32
+MFA_SECRET_ENCRYPTION_KEY="eavDeSzpA4lgArMXue/a+govyIRpcxYkhweEvcOr/gg="
 # Opcionales: sin GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET, la integración con
 # Google Calendar se registra deshabilitada (no bloquea el arranque).
 GOOGLE_CLIENT_ID=""

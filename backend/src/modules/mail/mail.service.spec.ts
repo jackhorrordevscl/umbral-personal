@@ -272,6 +272,18 @@ describe('MailService: escape de HTML en templates (issue #300)', () => {
       (s, v) => s.sendEmailChangeNoticeEmail('a@b.cl', 'Ana', v),
     ],
     [
+      'sendMfaRecoveryNoticeEmail (name)',
+      (s, v) => s.sendMfaRecoveryNoticeEmail('a@b.cl', v, '1.2.3.4', 'Brave'),
+    ],
+    [
+      'sendMfaRecoveryNoticeEmail (ipAddress)',
+      (s, v) => s.sendMfaRecoveryNoticeEmail('a@b.cl', 'Ana', v, 'Brave'),
+    ],
+    [
+      'sendMfaRecoveryNoticeEmail (userAgent)',
+      (s, v) => s.sendMfaRecoveryNoticeEmail('a@b.cl', 'Ana', '1.2.3.4', v),
+    ],
+    [
       'sendSessionReminderEmail (therapist)',
       (s, v) =>
         s.sendSessionReminderEmail('a@b.cl', v, 'Juan', new Date(), '2 horas'),
@@ -313,6 +325,22 @@ describe('MailService: escape de HTML en templates (issue #300)', () => {
       const html = sentHtml();
       expect(html).toContain('José Núñez O&#39;Brien');
     });
+  });
+
+  it('sendMfaRecoveryNoticeEmail incluye IP y dispositivo, y no lanza si Resend falla', async () => {
+    await build().sendMfaRecoveryNoticeEmail(
+      'a@b.cl',
+      'Ana',
+      '1.2.3.4',
+      'Brave',
+    );
+    expect(sentHtml()).toContain('IP: 1.2.3.4');
+    expect(sentHtml()).toContain('Dispositivo: Brave');
+
+    sendMock.mockResolvedValue({ data: null, error: { message: 'boom' } });
+    await expect(
+      build().sendMfaRecoveryNoticeEmail('a@b.cl', 'Ana'),
+    ).resolves.toBeUndefined();
   });
 
   it('escapa las URLs (href y texto) sin romper el atributo', async () => {
