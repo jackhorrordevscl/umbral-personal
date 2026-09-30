@@ -1,4 +1,18 @@
-import { getPublicScheduleTracker } from './public-schedule-throttler.guard';
+import { ExecutionContext } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
+import {
+  ThrottlerException,
+  ThrottlerGuard,
+  ThrottlerModuleOptions,
+  ThrottlerStorage,
+} from '@nestjs/throttler';
+import {
+  buildPublicBookingExtraLimits,
+  getPublicScheduleTracker,
+  PUBLIC_BOOKING_IP_BUCKET,
+  PublicScheduleThrottlerGuard,
+} from './public-schedule-throttler.guard';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.2, design.md Decision 7 "Rate
 // limiting"): mismo criterio de testeo que getLoginTracker
@@ -70,5 +84,157 @@ describe('getPublicScheduleTracker', () => {
   it('sin therapistId en params, cae a "unknown" en vez de romper', () => {
     const tracker = getPublicScheduleTracker({ ip: '10.0.0.5', params: {} });
     expect(tracker).toBe('10.0.0.5:unknown');
+  });
+});
+
+// Issue #299: límites que no dependen del body (el bucket por email se reabre
+// con cada email distinto).
+describe('PublicScheduleThrottlerGuard (límites extra, issue #299)', () => {
+  const OPTIONS = { throttlers: [] } as ThrottlerModuleOptions;
+
+  function buildContext(method: string, therapistId = 'therapist-1') {
+    return {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          method,
+          ip: '10.0.0.5',
+          params: { therapistId },
+          body: { patient: { email: `${Math.random()}@ejemplo.cl` } },
+        }),
+      }),
+    } as unknown as ExecutionContext;
+  }
+
+  // Storage en memoria mínimo: cuenta hits por key y bloquea al superar limit.
+  function buildStorage() {
+    const hits = new Map<string, number>();
+    const increment = jest.fn((key: string, _ttl: number, limit: number) => {
+      const totalHits = (hits.get(key) ?? 0) + 1;
+      hits.set(key, totalHits);
+      return Promise.resolve({
+        totalHits,
+        timeToExpire: 1,
+        isBlocked: totalHits > limit,
+        timeToBlockExpire: 1,
+      });
+    });
+    return { increment } as unknown as ThrottlerStorage & {
+      increment: jest.Mock;
+    };
+  }
+
+  function buildGuard(env: Record<string, string>, storage: ThrottlerStorage) {
+    const config = {
+      get: (key: string) => env[key],
+    } as unknown as ConfigService;
+    return new PublicScheduleThrottlerGuard(
+      OPTIONS,
+      storage,
+      new Reflector(),
+      config,
+    );
+  }
+
+  beforeEach(() => {
+    jest.spyOn(ThrottlerGuard.prototype, 'canActivate').mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('bloquea con 429 al superar el límite por ip:therapistId aunque cambie el email', async () => {
+    const guard = buildGuard(
+      { PUBLIC_BOOKING_IP_THROTTLE_LIMIT: '2' },
+      buildStorage(),
+    );
+
+    await expect(guard.canActivate(buildContext('POST'))).resolves.toBe(true);
+    await expect(guard.canActivate(buildContext('POST'))).resolves.toBe(true);
+    await expect(guard.canActivate(buildContext('POST'))).rejects.toThrow(
+      ThrottlerException,
+    );
+  });
+
+  it('el límite por ip:therapistId es independiente entre terapeutas', async () => {
+    const guard = buildGuard(
+      { PUBLIC_BOOKING_IP_THROTTLE_LIMIT: '1' },
+      buildStorage(),
+    );
+
+    await expect(
+      guard.canActivate(buildContext('POST', 'therapist-1')),
+    ).resolves.toBe(true);
+    await expect(
+      guard.canActivate(buildContext('POST', 'therapist-2')),
+    ).resolves.toBe(true);
+  });
+
+  it('usa su propio bucket por ip:therapistId y no aplica ningún tope diario en storage', async () => {
+    const storage = buildStorage();
+    const guard = buildGuard({}, storage);
+
+    await expect(guard.canActivate(buildContext('POST'))).resolves.toBe(true);
+    expect(storage.increment).toHaveBeenCalledTimes(1);
+    expect(storage.increment).toHaveBeenCalledWith(
+      `${PUBLIC_BOOKING_IP_BUCKET}:10.0.0.5:therapist-1`,
+      3600000,
+      10,
+      3600000,
+      PUBLIC_BOOKING_IP_BUCKET,
+    );
+  });
+
+  it('no cuenta las lecturas (GET) contra los límites extra', async () => {
+    const storage = buildStorage();
+    const guard = buildGuard(
+      { PUBLIC_BOOKING_IP_THROTTLE_LIMIT: '1' },
+      storage,
+    );
+
+    for (let i = 0; i < 5; i++) {
+      await expect(guard.canActivate(buildContext('GET'))).resolves.toBe(true);
+    }
+    expect(storage.increment).not.toHaveBeenCalled();
+  });
+
+  it('respeta el rechazo del throttler base sin tocar los límites extra', async () => {
+    jest
+      .spyOn(ThrottlerGuard.prototype, 'canActivate')
+      .mockResolvedValue(false);
+    const storage = buildStorage();
+    const guard = buildGuard({}, storage);
+
+    await expect(guard.canActivate(buildContext('POST'))).resolves.toBe(false);
+    expect(storage.increment).not.toHaveBeenCalled();
+  });
+});
+
+describe('buildPublicBookingExtraLimits', () => {
+  const cfg = (env: Record<string, string>) => ({
+    get: (key: string) => env[key],
+  });
+
+  it('usa defaults conservadores fuera de test', () => {
+    expect(buildPublicBookingExtraLimits(cfg({}))).toEqual({
+      ipTherapistLimit: 10,
+      ipTherapistTtlMs: 3600000,
+    });
+  });
+
+  it('sube los límites por defecto en NODE_ENV=test', () => {
+    const limits = buildPublicBookingExtraLimits(cfg({ NODE_ENV: 'test' }));
+    expect(limits.ipTherapistLimit).toBe(1000);
+  });
+
+  it('ignora valores no numéricos o no positivos y cae al default', () => {
+    const limits = buildPublicBookingExtraLimits(
+      cfg({
+        PUBLIC_BOOKING_IP_THROTTLE_LIMIT: 'abc',
+        PUBLIC_BOOKING_IP_THROTTLE_TTL_MS: '0',
+      }),
+    );
+    expect(limits.ipTherapistLimit).toBe(10);
+    expect(limits.ipTherapistTtlMs).toBe(3600000);
   });
 });

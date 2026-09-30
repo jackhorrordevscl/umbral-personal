@@ -51,6 +51,64 @@ describe('BookPublicSlotDto', () => {
     );
   });
 
+  // Issue #299: el endpoint es anónimo, así que rut/strings necesitan formato
+  // y tope de largo.
+  describe('límites y formato de patient (issue #299)', () => {
+    async function patientErrorProps(patient: Record<string, unknown>) {
+      const dto = plainToInstance(BookPublicSlotDto, {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient,
+      });
+      const errors = await validate(dto);
+      return (
+        errors
+          .find((e) => e.property === 'patient')
+          ?.children?.map((c) => c.property) ?? []
+      );
+    }
+
+    it.each(['12345678-9', '12.345.678-9', '1.234.567-K', '7654321-k'])(
+      'acepta el RUT %s',
+      async (rut) => {
+        expect(await patientErrorProps({ ...validPatient, rut })).toEqual([]);
+      },
+    );
+
+    it.each(['arbitrario', '123', '12345678', '12.345.678', "1-1'; DROP--"])(
+      'rechaza el RUT con formato inválido %s',
+      async (rut) => {
+        expect(await patientErrorProps({ ...validPatient, rut })).toContain(
+          'rut',
+        );
+      },
+    );
+
+    it('rechaza fullName con más de 200 caracteres', async () => {
+      expect(
+        await patientErrorProps({ ...validPatient, fullName: 'x'.repeat(201) }),
+      ).toContain('fullName');
+    });
+
+    it('rechaza email con más de 254 caracteres', async () => {
+      const email = `${'a'.repeat(250)}@ejemplo.cl`;
+      expect(await patientErrorProps({ ...validPatient, email })).toContain(
+        'email',
+      );
+    });
+
+    it('rechaza address, phone y ocupación por encima de su tope', async () => {
+      const props = await patientErrorProps({
+        ...validPatient,
+        address: 'x'.repeat(301),
+        phone: '1'.repeat(31),
+        occupation: 'x'.repeat(201),
+      });
+      expect(props).toEqual(
+        expect.arrayContaining(['address', 'phone', 'occupation']),
+      );
+    });
+  });
+
   // issue #157: origin es opcional -- clientes viejos (o navegadores sin
   // referrer) siguen pudiendo reservar sin mandarlo.
   describe('origin', () => {

@@ -437,10 +437,11 @@ export class PatientsService {
     therapistId: string,
     dto: PublicBookingPatientInput,
     origin?: PublicBookingOriginInput,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
   ): Promise<{ patient: Patient; isNew: boolean }> {
     const normalizedEmail = dto.email.trim().toLowerCase();
 
-    const matches = await this.prisma.patient.findMany({
+    const matches = await client.patient.findMany({
       where: {
         therapistId,
         deletedAt: null,
@@ -448,7 +449,19 @@ export class PatientsService {
       },
     });
 
-    if (matches.length === 1) return { patient: matches[0], isNew: false };
+    if (matches.length === 1) {
+      // Issue #299 (opción A): el email por sí solo no prueba identidad --
+      // quien conozca el email de un paciente podría reservar a su nombre. El
+      // RUT enviado debe coincidir con el guardado; si no, el mismo 409
+      // uniforme de los demás casos, sin revelar qué campo falló.
+      if (normalizeRut(dto.rut) !== normalizeRut(matches[0].rut)) {
+        this.logger.warn(
+          `Reserva pública rechazada: identidad no verificada bajo therapistId=${therapistId}`,
+        );
+        throw new ConflictException('No fue posible procesar la reserva.');
+      }
+      return { patient: matches[0], isNew: false };
+    }
 
     if (matches.length > 1) {
       // Nunca se loguea el email en texto plano (mismo criterio que el
@@ -461,7 +474,7 @@ export class PatientsService {
     }
 
     const rut = normalizeRut(dto.rut);
-    const existingRut = await this.prisma.patient.findUnique({
+    const existingRut = await client.patient.findUnique({
       where: { rut },
       select: { id: true, therapistId: true },
     });
@@ -479,7 +492,7 @@ export class PatientsService {
     // unicidad de Patient.rut es el guard real: la perdedora recibe P2002 y
     // se traduce al mismo 409 uniforme, nunca a un 500.
     try {
-      const patient = await this.prisma.patient.create({
+      const patient = await client.patient.create({
         data: {
           fullName: dto.fullName,
           rut,

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NotificationType } from '@prisma/client';
+import { ThrottlerException } from '@nestjs/throttler';
 import { PublicSchedulingService } from './public-scheduling.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../availability/availability.service';
@@ -27,10 +28,16 @@ describe('PublicSchedulingService', () => {
   let prisma: {
     user: { findUnique: jest.Mock };
     paymentAccount: { findUnique: jest.Mock };
+    bookedSlot: { count: jest.Mock };
+    $transaction: jest.Mock;
   };
+  const tx = { __tx: true };
   let availabilityService: { computeSlots: jest.Mock };
   let patientsService: { resolveForPublicBooking: jest.Mock };
-  let consultationsService: { createFromPublicBooking: jest.Mock };
+  let consultationsService: {
+    createFromPublicBooking: jest.Mock;
+    afterPublicBookingCommit: jest.Mock;
+  };
   let notificationsService: {
     create: jest.Mock<Promise<unknown>, [CreateNotificationData]>;
   };
@@ -38,13 +45,14 @@ describe('PublicSchedulingService', () => {
   function buildService(
     enabled = true,
     checkoutInlineEnabled = false,
+    extraEnv: Record<string, string> = {},
   ): PublicSchedulingService {
     const config = {
       get: (key: string) => {
         if (key === 'PUBLIC_SCHEDULING_ENABLED') return String(enabled);
         if (key === 'PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED')
           return String(checkoutInlineEnabled);
-        return undefined;
+        return extraEnv[key];
       },
     };
     return new PublicSchedulingService(
@@ -61,10 +69,17 @@ describe('PublicSchedulingService', () => {
     prisma = {
       user: { findUnique: jest.fn() },
       paymentAccount: { findUnique: jest.fn() },
+      bookedSlot: { count: jest.fn().mockResolvedValue(0) },
+      // Emula la transaccion interactiva: corre el callback con un tx
+      // sentinela; si el callback lanza, la promesa se rechaza (rollback).
+      $transaction: jest.fn((cb: (t: unknown) => Promise<unknown>) => cb(tx)),
     };
     availabilityService = { computeSlots: jest.fn() };
     patientsService = { resolveForPublicBooking: jest.fn() };
-    consultationsService = { createFromPublicBooking: jest.fn() };
+    consultationsService = {
+      createFromPublicBooking: jest.fn(),
+      afterPublicBookingCommit: jest.fn(),
+    };
     notificationsService = {
       create: jest
         .fn<Promise<unknown>, [CreateNotificationData]>()
@@ -189,21 +204,28 @@ describe('PublicSchedulingService', () => {
         patient,
         isNew: false,
       });
-      const consultation = { id: 'consultation-1', groupId: 'consultation-1' };
-      consultationsService.createFromPublicBooking.mockResolvedValue(
-        consultation,
-      );
+      const sessionDate = new Date('2026-09-05T13:00:00.000Z');
+      consultationsService.createFromPublicBooking.mockResolvedValue({
+        id: 'consultation-1',
+        sessionDate,
+      });
 
       const result = await service.book('therapist-1', {
         slotStart: '2026-09-05T13:00:00.000Z',
         patient: patientDto,
       } as never);
 
-      expect(result).toBe(consultation);
+      // Issue #299: solo id/groupId/sessionDate, nada del paciente.
+      expect(result).toEqual({
+        id: 'consultation-1',
+        groupId: 'consultation-1',
+        sessionDate,
+      });
       expect(patientsService.resolveForPublicBooking).toHaveBeenCalledWith(
         'therapist-1',
         patientDto,
         undefined,
+        tx,
       );
       expect(consultationsService.createFromPublicBooking).toHaveBeenCalledWith(
         'therapist-1',
@@ -211,6 +233,7 @@ describe('PublicSchedulingService', () => {
         '11111111-1',
         new Date('2026-09-05T13:00:00.000Z'),
         50,
+        tx,
       );
     });
 
@@ -231,6 +254,7 @@ describe('PublicSchedulingService', () => {
       });
       consultationsService.createFromPublicBooking.mockResolvedValue({
         id: 'c-1',
+        sessionDate: new Date(),
       });
 
       await service.book('therapist-1', {
@@ -244,7 +268,120 @@ describe('PublicSchedulingService', () => {
         '11111111-1',
         new Date('2026-09-05T13:00:00.000Z'),
         30,
+        tx,
       );
+    });
+  });
+
+  // Issue #299: paciente + consulta en una sola transaccion; notificacion y
+  // efectos post-reserva solo tras el commit.
+  describe('atomicidad de la reserva (issue #299)', () => {
+    const patientDto = {
+      fullName: 'Paciente Publico',
+      rut: '11.111.111-1',
+      birthDate: '1990-01-01',
+      email: 'paciente@ejemplo.cl',
+    };
+    const dto = {
+      slotStart: '2026-09-05T13:00:00.000Z',
+      patient: patientDto,
+    } as never;
+
+    function setUpFreeSlot(isNew: boolean): void {
+      prisma.user.findUnique.mockResolvedValue({ sessionDurationMinutes: 50 });
+      availabilityService.computeSlots.mockResolvedValue([
+        { start: '2026-09-05T13:00:00.000Z', end: '2026-09-05T13:50:00.000Z' },
+      ]);
+      patientsService.resolveForPublicBooking.mockResolvedValue({
+        patient: {
+          id: 'patient-1',
+          rut: '11111111-1',
+          fullName: 'Paciente Publico',
+        },
+        isNew,
+      });
+    }
+
+    it('un conflicto de slot revierte la transaccion: sin notificacion ni efectos post-commit', async () => {
+      setUpFreeSlot(true);
+      consultationsService.createFromPublicBooking.mockRejectedValue(
+        new ConflictException('El horario seleccionado ya no esta disponible.'),
+      );
+
+      await expect(service.book('therapist-1', dto)).rejects.toThrow(
+        ConflictException,
+      );
+      await Promise.resolve();
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(notificationsService.create).not.toHaveBeenCalled();
+      expect(
+        consultationsService.afterPublicBookingCommit,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('resuelve paciente y crea la consulta con el MISMO tx', async () => {
+      setUpFreeSlot(true);
+      consultationsService.createFromPublicBooking.mockResolvedValue({
+        id: 'consultation-1',
+        sessionDate: new Date(),
+      });
+
+      await service.book('therapist-1', dto);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      const resolveArgs = patientsService.resolveForPublicBooking.mock
+        .calls[0] as unknown[];
+      expect(resolveArgs[3]).toBe(tx);
+      const createArgs = consultationsService.createFromPublicBooking.mock
+        .calls[0] as unknown[];
+      expect(createArgs[5]).toBe(tx);
+    });
+
+    it('la notificacion y los efectos post-reserva se envian despues del commit', async () => {
+      setUpFreeSlot(true);
+      consultationsService.createFromPublicBooking.mockResolvedValue({
+        id: 'consultation-1',
+        sessionDate: new Date(),
+      });
+      const order: string[] = [];
+      prisma.$transaction.mockImplementation(
+        async (cb: (t: unknown) => Promise<unknown>) => {
+          const result = await cb(tx);
+          order.push('commit');
+          return result;
+        },
+      );
+      consultationsService.afterPublicBookingCommit.mockImplementation(() => {
+        order.push('afterCommit');
+      });
+      notificationsService.create.mockImplementation(() => {
+        order.push('notify');
+        return Promise.resolve({});
+      });
+
+      await service.book('therapist-1', dto);
+
+      expect(order).toEqual(['commit', 'afterCommit', 'notify']);
+      expect(
+        consultationsService.afterPublicBookingCommit,
+      ).toHaveBeenCalledWith('consultation-1', 'therapist-1');
+    });
+
+    it('si resolver el paciente falla (p. ej. RUT que no coincide) no crea consulta ni notifica', async () => {
+      setUpFreeSlot(true);
+      patientsService.resolveForPublicBooking.mockRejectedValue(
+        new ConflictException('No fue posible procesar la reserva.'),
+      );
+
+      await expect(service.book('therapist-1', dto)).rejects.toThrow(
+        ConflictException,
+      );
+
+      expect(
+        consultationsService.createFromPublicBooking,
+      ).not.toHaveBeenCalled();
+      expect(notificationsService.create).not.toHaveBeenCalled();
     });
   });
 
@@ -254,6 +391,133 @@ describe('PublicSchedulingService', () => {
   // lee Payment -- solo PaymentAccount.status (leído directo por
   // performance, ver comentario en el service) y el defaultSessionAmount del
   // Patient ya resuelto por resolveForPublicBooking.
+  describe('tope diario de reservas exitosas por terapeuta (issue #299)', () => {
+    const dto = {
+      slotStart: '2026-09-05T13:00:00.000Z',
+      patient: {
+        fullName: 'Paciente Publico',
+        rut: '11.111.111-1',
+        birthDate: '1990-01-01',
+        email: 'paciente@ejemplo.cl',
+      },
+    } as never;
+
+    function setUpFreeSlot(): void {
+      prisma.user.findUnique.mockResolvedValue({ sessionDurationMinutes: 50 });
+      availabilityService.computeSlots.mockResolvedValue([
+        { start: '2026-09-05T13:00:00.000Z', end: '2026-09-05T13:50:00.000Z' },
+      ]);
+      patientsService.resolveForPublicBooking.mockResolvedValue({
+        patient: { id: 'patient-1', rut: '11111111-1', fullName: 'Paciente' },
+        isNew: true,
+      });
+      consultationsService.createFromPublicBooking.mockResolvedValue({
+        id: 'consultation-1',
+        sessionDate: new Date(),
+      });
+    }
+
+    it('la reserva N+1 se rechaza con 429 sin crear nada ni notificar', async () => {
+      service = buildService(true, false, { PUBLIC_BOOKING_DAILY_LIMIT: '3' });
+      setUpFreeSlot();
+      prisma.bookedSlot.count.mockResolvedValue(3);
+
+      await expect(service.book('therapist-1', dto)).rejects.toThrow(
+        ThrottlerException,
+      );
+      await Promise.resolve();
+
+      expect(availabilityService.computeSlots).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(patientsService.resolveForPublicBooking).not.toHaveBeenCalled();
+      expect(
+        consultationsService.createFromPublicBooking,
+      ).not.toHaveBeenCalled();
+      expect(notificationsService.create).not.toHaveBeenCalled();
+      expect(
+        consultationsService.afterPublicBookingCommit,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('la última reserva dentro del tope (N-1 previas) todavía se acepta', async () => {
+      service = buildService(true, false, { PUBLIC_BOOKING_DAILY_LIMIT: '3' });
+      setUpFreeSlot();
+      prisma.bookedSlot.count.mockResolvedValue(2);
+
+      await expect(service.book('therapist-1', dto)).resolves.toMatchObject({
+        id: 'consultation-1',
+      });
+    });
+
+    it('los intentos fallidos no consumen el tope: no crean BookedSlot y el conteo sale de la base', async () => {
+      service = buildService(true, false, { PUBLIC_BOOKING_DAILY_LIMIT: '1' });
+      setUpFreeSlot();
+      // Un intento fallido (409 por slot ocupado) no deja BookedSlot: el conteo
+      // sigue en 0 y el siguiente intento no recibe 429.
+      availabilityService.computeSlots.mockResolvedValueOnce([]);
+
+      await expect(service.book('therapist-1', dto)).rejects.toThrow(
+        ConflictException,
+      );
+      await expect(service.book('therapist-1', dto)).resolves.toMatchObject({
+        id: 'consultation-1',
+      });
+      expect(prisma.bookedSlot.count).toHaveBeenCalledTimes(2);
+    });
+
+    it('cuenta solo las reservas del terapeuta pedido, en la ventana de 24h', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-09-05T12:00:00.000Z'));
+      try {
+        setUpFreeSlot();
+
+        await service.book('therapist-2', dto);
+
+        expect(prisma.bookedSlot.count).toHaveBeenCalledWith({
+          where: {
+            therapistId: 'therapist-2',
+            createdAt: { gte: new Date('2026-09-04T12:00:00.000Z') },
+          },
+        });
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('otro terapeuta no se ve afectado por el tope de uno saturado', async () => {
+      service = buildService(true, false, { PUBLIC_BOOKING_DAILY_LIMIT: '2' });
+      setUpFreeSlot();
+      prisma.bookedSlot.count.mockImplementation(
+        (args: { where: { therapistId: string } }) =>
+          Promise.resolve(args.where.therapistId === 'therapist-1' ? 2 : 0),
+      );
+
+      await expect(service.book('therapist-1', dto)).rejects.toThrow(
+        ThrottlerException,
+      );
+      await expect(service.book('therapist-2', dto)).resolves.toMatchObject({
+        id: 'consultation-1',
+      });
+    });
+
+    it('el tope por defecto es 100 y respeta PUBLIC_BOOKING_DAILY_TTL_MS como ventana', async () => {
+      service = buildService(true, false, {
+        PUBLIC_BOOKING_DAILY_TTL_MS: '3600000',
+      });
+      setUpFreeSlot();
+      prisma.bookedSlot.count.mockResolvedValue(100);
+
+      await expect(service.book('therapist-1', dto)).rejects.toThrow(
+        ThrottlerException,
+      );
+      const args = prisma.bookedSlot.count.mock.calls[0] as [
+        { where: { createdAt: { gte: Date } } },
+      ];
+      const windowMs = Date.now() - args[0].where.createdAt.gte.getTime();
+      expect(windowMs).toBeGreaterThanOrEqual(3600000);
+      expect(windowMs).toBeLessThan(3600000 + 5000);
+    });
+  });
+
   describe('checkout hint (PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED)', () => {
     const patientDto = {
       fullName: 'Paciente Público',
@@ -282,8 +546,7 @@ describe('PublicSchedulingService', () => {
       });
       consultationsService.createFromPublicBooking.mockResolvedValue({
         id: 'consultation-1',
-        groupId: 'consultation-1',
-        checkoutUrl: null,
+        sessionDate: new Date(),
       });
     }
 
@@ -411,7 +674,7 @@ describe('PublicSchedulingService', () => {
       });
       consultationsService.createFromPublicBooking.mockResolvedValue({
         id: 'consultation-1',
-        groupId: 'consultation-1',
+        sessionDate: new Date(),
       });
     }
 
