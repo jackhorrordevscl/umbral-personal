@@ -211,7 +211,10 @@ describe('getLoginTracker (unit)', () => {
     ).toBe('198.51.100.7');
   });
 
-  it('con trustedProxyHops mayor a la cantidad de valores, cae al primero en vez de romper', () => {
+  // Issue #301: una lista más corta que TRUSTED_PROXY_HOPS no pasó por toda
+  // la cadena confiable; hops[0] lo controla el cliente, así que se cae a
+  // req.ip en vez de darle un bucket nuevo por cada XFF inventado.
+  it('con trustedProxyHops mayor a la cantidad de valores, cae a req.ip (no a hops[0], que controla el cliente)', () => {
     expect(
       getLoginTracker(
         {
@@ -220,6 +223,6 @@ describe('getLoginTracker (unit)', () => {
         },
         3,
       ),
-    ).toBe('198.51.100.7');
+    ).toBe('127.0.0.1');
   });
 });

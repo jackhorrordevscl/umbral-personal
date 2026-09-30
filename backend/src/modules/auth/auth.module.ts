@@ -8,6 +8,7 @@ import { MfaService } from './mfa.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { MailModule } from '../mail/mail.module';
+import { getClientIp } from '../../common/utils/client-ip.util';
 
 /**
  * Config de los throttlers de auth (T4.2, issue #20; hallazgo de code
@@ -64,9 +65,12 @@ function parsePositiveInt(
 // las conexiones — colapsando el límite de login en un único bucket global
 // compartido por todos los usuarios, donde cualquiera podría agotarlo y
 // bloquear el login de todo el mundo con 429. En vez de tocar la config
-// global de Express en main.ts (que afectaría a cualquier otro consumidor
-// de req.ip en la app, ej. AuditLog.ipAddress), esto queda acotado al
-// throttler de login.
+// global de Express en main.ts (`trust proxy` cambiaría req.ip para cualquier
+// otro consumidor), el cálculo vive en un helper común, getClientIp
+// (common/utils/client-ip.util.ts), que reutilizan todos los throttlers
+// (auth, payments, profile, public-scheduling) y ClientIpMiddleware, que deja
+// la IP real en req.clientIp para AuditLog, Session y el historial de MFA.
+// req.ip queda intacto (IP del par TCP).
 //
 // X-Forwarded-For es una lista que cada proxy AGREGA al final, no reemplaza:
 // el primer valor lo pone el cliente (así que es trivialmente falsificable
@@ -90,15 +94,13 @@ function parsePositiveInt(
 // cantidad de saltos internos de Render, se ajusta la env var sin tocar
 // código.
 //
-// Si la lista tiene menos valores de los esperados (headers.length < hops
-// esperados) se usa el primer valor como fallback en vez de un índice
-// negativo — más seguro que reventar. OJO: esto asume que la cantidad real
-// de proxies confiables delante nunca es MENOR a TRUSTED_PROXY_HOPS — si el
-// origin de Render fuera alcanzable directo (bypaseando Cloudflare), un
-// atacante podría mandar una lista más corta con contenido propio y
-// controlar qué valor cae en el índice esperado. Este código no puede
-// blindar contra eso por sí solo; requiere que la infra (Render/Cloudflare)
-// efectivamente bloquee el acceso directo al origin.
+// Si la lista tiene MENOS valores que TRUSTED_PROXY_HOPS, el request no pasó
+// por toda la cadena confiable (origin alcanzable sin Cloudflare, o cabecera
+// armada a mano): ningún valor de la lista es confiable, así que se cae a
+// req.ip (IP del par TCP, no falsificable por cabecera) en vez de usar
+// hops[0], que en ese caso controla el atacante y le daría un bucket nuevo en
+// cada request. Con la cadena completa igual se asume que la infra bloquea el
+// acceso directo al origin: el helper no puede blindar eso por sí solo.
 export function getLoginTracker(
   req: {
     headers: Record<string, string | string[] | undefined>;
@@ -106,21 +108,7 @@ export function getLoginTracker(
   },
   trustedProxyHops = 1,
 ): string {
-  const forwardedFor = req.headers['x-forwarded-for'];
-  const raw = Array.isArray(forwardedFor)
-    ? forwardedFor.join(',')
-    : forwardedFor;
-  if (typeof raw === 'string') {
-    const hops = raw
-      .split(',')
-      .map((hop) => hop.trim())
-      .filter((hop) => hop.length > 0);
-    if (hops.length > 0) {
-      const index = hops.length - trustedProxyHops;
-      return hops[index >= 0 ? index : 0];
-    }
-  }
-  return req.ip;
+  return getClientIp(req, trustedProxyHops);
 }
 
 export function buildAuthThrottlerOptions(

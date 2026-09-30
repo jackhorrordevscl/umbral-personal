@@ -118,6 +118,21 @@ describe('AuditInterceptor', () => {
       expect(entry.detail).toBe('GET /api/v1/patients/abc');
     });
 
+    it('registra la IP real del cliente (req.clientIp) y no la del proxy (issue #301)', async () => {
+      const logMock = jest.fn().mockResolvedValue(undefined);
+      const entry = await run(
+        buildContext({ ip: '10.0.0.5', clientIp: '198.51.100.20' }),
+        logMock,
+      );
+      expect(entry.ipAddress).toBe('198.51.100.20');
+    });
+
+    it('sin req.clientIp cae a req.ip', async () => {
+      const logMock = jest.fn().mockResolvedValue(undefined);
+      const entry = await run(buildContext({ ip: '10.0.0.5' }), logMock);
+      expect(entry.ipAddress).toBe('10.0.0.5');
+    });
+
     it('sobrescribe la acción con la del decorador', async () => {
       class Ctrl {
         @AuditRead({ action: 'EXPORT_PDF' })

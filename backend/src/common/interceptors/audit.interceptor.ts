@@ -11,6 +11,7 @@ import type { Request } from 'express';
 import { AuditAction } from '@prisma/client';
 import { AuditService } from '../../modules/audit/audit.service';
 import { getResourceFromUrl } from '../utils/audit-resource.util';
+import { getRequestClientIp } from '../utils/client-ip.util';
 import {
   AUDIT_READ_KEY,
   type AuditReadOptions,
@@ -52,7 +53,7 @@ export class AuditInterceptor implements NestInterceptor {
 
     const method = request.method;
     const url = request.url;
-    const ipAddress = request.ip;
+    const ipAddress = getRequestClientIp(request);
     const userAgent = request.headers['user-agent'];
 
     // Determina la acción según el método HTTP

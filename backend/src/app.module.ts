@@ -1,4 +1,9 @@
-import { Module } from '@nestjs/common';
+import {
+  MiddlewareConsumer,
+  Module,
+  NestModule,
+  RequestMethod,
+} from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_INTERCEPTOR } from '@nestjs/core';
@@ -20,6 +25,7 @@ import { PublicSchedulingModule } from './modules/public-scheduling/public-sched
 import { SharedFilesModule } from './shared-files/shared-files.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
+import { ClientIpMiddleware } from './common/middleware/client-ip.middleware';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -66,4 +72,12 @@ import { AppService } from './app.service';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  // Issue #301: deja la IP real del cliente en req.clientIp antes de guards e
+  // interceptores (auditoría, sesiones, historial de MFA).
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(ClientIpMiddleware)
+      .forRoutes({ path: '{*path}', method: RequestMethod.ALL });
+  }
+}
