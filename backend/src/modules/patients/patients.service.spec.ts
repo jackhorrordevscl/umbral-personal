@@ -574,6 +574,75 @@ describe('PatientsService', () => {
       expect(prisma.patient.create).not.toHaveBeenCalled();
     });
 
+    // Issue #299 (opción A): el email solo no prueba identidad.
+    it('el RUT enviado se compara normalizado (sin puntos, K mayúscula) con el guardado', async () => {
+      const existing = buildPatient({
+        email: 'paciente@ejemplo.cl',
+        rut: '12345678-K',
+      });
+      prisma.patient.findMany.mockResolvedValue([existing]);
+
+      const result = await service.resolveForPublicBooking('therapist-1', {
+        ...dto,
+        rut: ' 12.345.678-k ',
+      } as never);
+
+      expect(result).toEqual({ patient: existing, isNew: false });
+    });
+
+    it('email existente con un RUT distinto -> 409 uniforme, sin devolver la ficha (issue #299)', async () => {
+      prisma.patient.findMany.mockResolvedValue([
+        buildPatient({ email: 'paciente@ejemplo.cl', rut: '22222222-2' }),
+      ]);
+
+      const attempt = service.resolveForPublicBooking(
+        'therapist-1',
+        dto as never,
+      );
+
+      await expect(attempt).rejects.toThrow(ConflictException);
+      await expect(attempt).rejects.toThrow(
+        'No fue posible procesar la reserva.',
+      );
+      expect(prisma.patient.create).not.toHaveBeenCalled();
+    });
+
+    it('el mensaje del 409 por RUT distinto no revela qué campo falló ni el RUT guardado', async () => {
+      prisma.patient.findMany.mockResolvedValue([
+        buildPatient({ email: 'paciente@ejemplo.cl', rut: '22222222-2' }),
+      ]);
+
+      const error = (await service
+        .resolveForPublicBooking('therapist-1', dto as never)
+        .catch((e: unknown) => e)) as ConflictException;
+
+      const message = JSON.stringify(error.getResponse());
+      expect(message).not.toMatch(/rut/i);
+      expect(message).not.toContain('22222222');
+      expect(message).not.toMatch(/email/i);
+    });
+
+    it('usa el client transaccional recibido en vez de this.prisma', async () => {
+      const tx = {
+        patient: {
+          findMany: jest.fn().mockResolvedValue([]),
+          findUnique: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue(buildPatient()),
+        },
+      };
+
+      await service.resolveForPublicBooking(
+        'therapist-1',
+        dto as never,
+        undefined,
+        tx as never,
+      );
+
+      expect(tx.patient.create).toHaveBeenCalled();
+      expect(prisma.patient.findMany).not.toHaveBeenCalled();
+      expect(prisma.patient.create).not.toHaveBeenCalled();
+    });
+
     it('crea una nueva ficha reducida si no hay match de email bajo ese terapeuta', async () => {
       prisma.patient.findMany.mockResolvedValue([]);
       prisma.patient.findUnique.mockResolvedValue(null);
