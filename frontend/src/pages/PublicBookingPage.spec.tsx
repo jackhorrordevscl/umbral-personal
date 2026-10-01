@@ -8,7 +8,7 @@ import PublicBookingPage, {
   CHECKOUT_POLL_TIMEOUT_MS,
 } from './PublicBookingPage'
 import api from '../api/client'
-import { toChileDayKey } from '../utils/datetime'
+import { chileMonthGridRange, toChileDayKey } from '../utils/datetime'
 
 // sdd/patient-self-scheduling PR 5 (tasks.md 5.2/5.4, public-scheduling Req:
 // "Public Availability Read Endpoint" + "Double-Booking Protection"): página
@@ -26,8 +26,15 @@ const mockedApi = vi.mocked(api)
 // Slot fijo dentro del rango de la grilla del mes actual (chileMonthGridRange
 // usa "hoy" en Chile como ancla) -- se calcula relativo a "ahora" para no
 // quedar fuera del grid 6x7 ni del horizonte de 60 días al pasar el tiempo.
+// El día se ancla a la fecha de Chile (no a la UTC) y, si caería fuera del
+// grid del mes actual (p. ej. a fin de mes), se usa la última celda del grid.
 function futureSlotOnChileDay(daysAhead: number, hourUTC: number) {
-  const base = new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000)
+  const now = Date.now()
+  const [year, month] = toChileDayKey(new Date(now).toISOString()).split('-').map(Number)
+  const { days } = chileMonthGridRange(year, month)
+  const wanted = toChileDayKey(new Date(now + daysAhead * 24 * 60 * 60 * 1000).toISOString())
+  const dayKey = days.includes(wanted) ? wanted : days[days.length - 1]
+  const base = new Date(`${dayKey}T00:00:00Z`)
   base.setUTCHours(hourUTC, 0, 0, 0)
   const start = base.toISOString()
   const end = new Date(base.getTime() + 50 * 60000).toISOString()
