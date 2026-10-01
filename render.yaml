@@ -71,6 +71,11 @@ services:
         sync: false
       - key: PAYMENT_CREDENTIALS_ENCRYPTION_KEY
         sync: false
+      # Issue #302: clave AES-256-GCM propia que cifra User.mfaSecret, mismo
+      # criterio que las dos anteriores (openssl rand -base64 32). Cargarla en
+      # Render ANTES de desplegar: sin ella el arranque falla.
+      - key: MFA_SECRET_ENCRYPTION_KEY
+        sync: false
       # Google Calendar (OAuth) y flag del sync.
       - key: GOOGLE_CLIENT_ID
         sync: false

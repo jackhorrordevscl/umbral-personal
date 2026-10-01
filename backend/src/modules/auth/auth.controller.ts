@@ -315,8 +315,12 @@ export class AuthController {
     'payment-return': true,
   })
   @Post('mfa/recover')
-  recoverMfa(@Body() dto: MfaRecoverDto) {
-    return this.mfaService.recoverMfa(dto);
+  recoverMfa(@Body() dto: MfaRecoverDto, @Req() req: Request) {
+    return this.mfaService.recoverMfa(
+      dto,
+      getRequestClientIp(req),
+      req.headers['user-agent'],
+    );
   }
 
   @UseGuards(JwtAuthGuard)

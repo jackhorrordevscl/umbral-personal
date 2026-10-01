@@ -67,6 +67,10 @@ jobs:
       # base64 nuevo -- un valor nunca visto dispara una alerta nueva en
       # GitGuardian aunque sea un dummy de CI, no un secreto real.
       PAYMENT_CREDENTIALS_ENCRYPTION_KEY: MoDh8f3G8V0hR0m5wq8V0hR0m5wq8V0hR0m5wq8V0i8=
+      # Issue #302: MfaSecretCryptoService.onModuleInit exige esta clave
+      # siempre -- sin esto, AppModule no arranca en CI. Mismo valor dummy ya
+      # conocido que las claves anteriores (evita alertas nuevas de escaneo).
+      MFA_SECRET_ENCRYPTION_KEY: MoDh8f3G8V0hR0m5wq8V0hR0m5wq8V0hR0m5wq8V0i8=
       # A diferencia de REMINDERS_ENABLED/GOOGLE_CALENDAR_SYNC_ENABLED, este
       # SÍ debe quedar habilitado: payments.e2e-spec.ts crea una consulta y
       # espera que PaymentsService.ensureCharge() (gateado por este flag)

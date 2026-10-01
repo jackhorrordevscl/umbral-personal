@@ -66,6 +66,8 @@ describe('MFA recovery codes (e2e)', () => {
       id: user.id,
       recoveryCodes: (confirmSetup.body as Record<string, unknown>)
         .recoveryCodes as string[],
+      accessToken: (confirmSetup.body as Record<string, unknown>)
+        .accessToken as string,
     };
   }
 
@@ -118,6 +120,13 @@ describe('MFA recovery codes (e2e)', () => {
 
       expect(recoveryCodes).toHaveLength(10);
       expect(new Set(recoveryCodes).size).toBe(10);
+    });
+
+    it('guarda el mfaSecret cifrado en reposo (issue #302)', async () => {
+      const { id } = await createUserWithMfaEnabled('confirm.encrypted');
+
+      const user = await prisma.user.findUnique({ where: { id } });
+      expect(user!.mfaSecret).toMatch(/^enc:v1:/);
     });
   });
 
@@ -174,11 +183,18 @@ describe('MFA recovery codes (e2e)', () => {
     });
 
     it('camino feliz: consume el código, desactiva MFA, y permite re-enrolar en el próximo login', async () => {
-      const { email, id, recoveryCodes } =
+      const { email, id, recoveryCodes, accessToken } =
         await createUserWithMfaEnabled('recover.happy');
+
+      // The session opened by the enrollment works before the recovery.
+      await request(app.getHttpServer())
+        .get('/api/v1/profile')
+        .set('Authorization', 'Bearer ' + accessToken)
+        .expect(200);
 
       const recoverRes = await request(app.getHttpServer())
         .post('/api/v1/auth/mfa/recover')
+        .set('User-Agent', 'recover-e2e-agent')
         .send({
           email,
           password: TEST_PASSWORD,
@@ -195,6 +211,24 @@ describe('MFA recovery codes (e2e)', () => {
       const user = await prisma.user.findUnique({ where: { id } });
       expect(user!.mfaEnabled).toBe(false);
       expect(user!.mfaSecret).toBeNull();
+
+      // Issue #302: the recovery revokes every session opened before it...
+      await request(app.getHttpServer())
+        .get('/api/v1/profile')
+        .set('Authorization', 'Bearer ' + accessToken)
+        .expect(401);
+      const activeSessions = await prisma.session.count({
+        where: { userId: id, revokedAt: null },
+      });
+      expect(activeSessions).toBe(0);
+
+      // ...and the audit row carries the client IP and user-agent.
+      const auditRow = await prisma.auditLog.findFirst({
+        where: { userId: id, action: 'MFA_DISABLED_VIA_RECOVERY' },
+      });
+      expect(auditRow).not.toBeNull();
+      expect(auditRow!.userAgent).toBe('recover-e2e-agent');
+      expect(auditRow!.ipAddress).toBeTruthy();
 
       // Sin MFA habilitado, el próximo login vuelve a exigir enrolamiento
       // forzado (mismo comportamiento que una cuenta que nunca tuvo MFA).
