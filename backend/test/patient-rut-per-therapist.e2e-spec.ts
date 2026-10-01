@@ -9,7 +9,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { uniqueTestRut } from './support/unique-rut';
 
 /**
- * Issue #314: Patient.rut es único por terapeuta (@@unique([therapistId, rut])).
+ * Issue #314: Patient.rut es único por terapeuta (índice único parcial sobre fichas activas).
  * Dos terapeutas pueden registrar el mismo RUT; el mismo terapeuta recibe 409
  * solo por sus propios pacientes, así que el 409 ya no permite sondear RUT de
  * otros terapeutas.
@@ -148,5 +148,20 @@ describe('Patient RUT uniqueness per therapist (e2e)', () => {
     await createPatient(therapistAToken, rut).expect(201);
     await createPatient(therapistBToken, rut).expect(201);
     await createPatient(therapistBToken, rut).expect(409);
+  });
+
+  // Issue #285: el índice único es parcial (WHERE "deletedAt" IS NULL).
+  it('allows recreating the RUT of a soft-deleted patient, and still 409s on active duplicates', async () => {
+    const rut = uniqueTestRut();
+
+    const first = await createPatient(therapistAToken, rut).expect(201);
+    const firstId = (first.body as Record<string, unknown>).id as string;
+    await request(app.getHttpServer())
+      .delete(`/api/v1/patients/${firstId}`)
+      .set('Authorization', `Bearer ${therapistAToken}`)
+      .expect(200);
+
+    await createPatient(therapistAToken, rut).expect(201);
+    await createPatient(therapistAToken, rut).expect(409);
   });
 });

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import {
   NotificationType,
+  Prisma,
   type CalendarEventLink,
   type GoogleCalendarConnection,
 } from '@prisma/client';
@@ -453,15 +454,39 @@ export class CalendarSyncService {
         connection.calendarId,
         eventBody,
       );
-      await this.prisma.calendarEventLink.create({
-        data: {
-          connectionId: connection.id,
-          groupId: consultation.groupId,
-          googleEventId: created.id,
-          lastSessionDate: consultation.sessionDate,
-          syncStatus: 'SYNCED',
-        },
-      });
+      try {
+        await this.prisma.calendarEventLink.create({
+          data: {
+            connectionId: connection.id,
+            groupId: consultation.groupId,
+            googleEventId: created.id,
+            lastSessionDate: consultation.sessionDate,
+            syncStatus: 'SYNCED',
+          },
+        });
+      } catch (linkErr) {
+        // issue #285: el guard de reentrada de reconcile() es por proceso, así
+        // que el intent, el cron u otra instancia pueden insertar a la vez el
+        // evento del mismo grupo. @@unique([connectionId, groupId]) deja un
+        // solo link ganador; la perdedora borra el evento que acaba de
+        // insertar para no dejar un huérfano duplicado en Google. El link
+        // ganador ya refleja el grupo, y el próximo tick repara cualquier
+        // drift de fecha.
+        if (
+          linkErr instanceof Prisma.PrismaClientKnownRequestError &&
+          linkErr.code === 'P2002'
+        ) {
+          await this.googleCalendarClient
+            .deleteEvent(oauth2Client, connection.calendarId, created.id)
+            .catch((delErr: unknown) => {
+              this.logger.error(
+                `No se pudo eliminar el evento duplicado de Google (groupId=${consultation.groupId}): ${delErr instanceof Error ? delErr.message : String(delErr)}`,
+              );
+            });
+          return;
+        }
+        throw linkErr;
+      }
     } catch (err) {
       if (!(err instanceof GoogleCalendarError)) throw err;
 

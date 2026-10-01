@@ -206,7 +206,11 @@ model Patient {
 
   // issue #314: el RUT es único por terapeuta, no global -- un 409 solo
   // revela fichas propias y dos terapeutas pueden atender a la misma persona.
-  @@unique([therapistId, rut])
+  // issue #285: la unicidad es un índice único PARCIAL (solo fichas activas,
+  // WHERE "deletedAt" IS NULL) para poder recrear el RUT de una ficha dada de
+  // baja. Prisma no expresa índices parciales: vive solo en SQL
+  // (migración 20261001160000_patient_rut_unique_active_only), por eso no hay
+  // @@unique aquí ni `therapistId_rut` en el cliente.
   @@index([therapistId])
 }
 

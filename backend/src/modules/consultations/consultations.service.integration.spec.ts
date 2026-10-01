@@ -195,6 +195,7 @@ describe('ConsultationsService + CalendarSyncService (integration, Google client
       auditService,
       calendarSync,
       buildDisabledPaymentsService(prisma),
+      buildAvailabilityService(prisma),
     );
     consultationsService = new ConsultationsService(
       prisma,
@@ -383,6 +384,7 @@ describe('ConsultationsService.findByRange (integration, real Prisma)', () => {
       auditService,
       calendarSync,
       buildDisabledPaymentsService(prisma),
+      buildAvailabilityService(prisma),
     );
     consultationsService = new ConsultationsService(
       prisma,
@@ -565,6 +567,7 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
       auditService,
       calendarSync,
       buildDisabledPaymentsService(prisma),
+      buildAvailabilityService(prisma),
     );
     consultationsService = new ConsultationsService(
       prisma,
@@ -1017,6 +1020,7 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
       auditService,
       calendarSync,
       buildDisabledPaymentsService(prisma),
+      buildAvailabilityService(prisma),
     );
 
     const registry = new PaymentGatewayRegistry([

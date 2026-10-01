@@ -231,6 +231,41 @@ describe('CalendarSyncService (integration, real Prisma)', () => {
     });
   });
 
+  describe('ejecuciones concurrentes sobre el mismo grupo (issue #285)', () => {
+    it('dos syncGroup simultáneos dejan un solo link y borran el evento duplicado de Google', async () => {
+      const groupId = randomUUID();
+      let n = 0;
+      // La demora hace que ambas ejecuciones lean 'sin link' antes de que
+      // cualquiera cree el suyo, reproduciendo la carrera real.
+      googleCalendarClient.insertEvent.mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return { id: `google-event-race-${++n}` };
+      });
+      googleCalendarClient.deleteEvent.mockResolvedValue(undefined);
+      await createConsultation(
+        groupId,
+        new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+        { id: groupId },
+      );
+
+      await Promise.all([
+        service.syncGroup(groupId),
+        service.syncGroup(groupId),
+      ]);
+
+      expect(googleCalendarClient.insertEvent).toHaveBeenCalledTimes(2);
+      const links = await prisma.calendarEventLink.findMany({
+        where: { connectionId, groupId },
+      });
+      expect(links).toHaveLength(1);
+      expect(googleCalendarClient.deleteEvent).toHaveBeenCalledTimes(1);
+      const deletedEventId = (
+        googleCalendarClient.deleteEvent.mock.calls[0] as unknown[]
+      )[2];
+      expect(deletedEventId).not.toBe(links[0].googleEventId);
+    });
+  });
+
   describe('backfill: una sola pasada acotada por conexión (T6.13)', () => {
     it('sincroniza sesiones futuras dentro de la ventana y ninguna fuera de ella', async () => {
       googleCalendarClient.insertEvent.mockImplementation(() =>
