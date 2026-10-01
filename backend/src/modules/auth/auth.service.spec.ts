@@ -917,7 +917,7 @@ describe('AuthService', () => {
   // Issue #303: el trabajo posterior a la respuesta corre en segundo plano.
   describe('trabajo en segundo plano (issue #303)', () => {
     const forgotDto = { email: 'user@example.com' };
-    let loggerError: jest.SpyInstance<void, [message: unknown]>;
+    let loggerError: jest.SpiedFunction<typeof Logger.prototype.error>;
 
     beforeEach(() => {
       loggerError = jest
