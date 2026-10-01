@@ -12,6 +12,7 @@ import {
   CurrentUser,
   type RequestUser,
 } from '../../common/decorators/current-user.decorator';
+import { SkipAudit } from '../../common/decorators/skip-audit.decorator';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 
 @Controller('notifications')
@@ -27,6 +28,8 @@ export class NotificationsController {
   // Debe declararse ANTES de ':id' -- si no, Express/Nest matchea
   // "unread-count" contra ese wildcard de un solo segmento (mismo trap
   // documentado en consultations.controller.ts:40).
+  // El frontend lo consulta cada 30 s: se excluye de la auditoría.
+  @SkipAudit()
   @Get('unread-count')
   unreadCount(@CurrentUser() user: RequestUser) {
     return this.notificationsService.unreadCount(user.id);

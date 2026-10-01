@@ -1,9 +1,13 @@
 import {
+  BadRequestException,
   CallHandler,
   Controller,
   ExecutionContext,
+  ForbiddenException,
   Get,
   Logger,
+  NotFoundException,
+  UnauthorizedException,
   Param,
   Req,
   Res,
@@ -13,10 +17,11 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import type { Request, Response } from 'express';
 import request from 'supertest';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { AuditInterceptor } from './audit.interceptor';
 import { AuditService } from '../../modules/audit/audit.service';
 import { AuditRead } from '../decorators/audit-read.decorator';
+import { SkipAudit } from '../decorators/skip-audit.decorator';
 
 function buildContext(
   overrides: Partial<any> = {},
@@ -187,6 +192,126 @@ describe('AuditInterceptor', () => {
             done();
           });
         });
+    });
+  });
+
+  describe('@SkipAudit', () => {
+    it('no registra nada en un handler marcado con @SkipAudit()', (done) => {
+      class Ctrl {
+        @SkipAudit()
+        handler() {}
+      }
+      const logMock = jest.fn().mockResolvedValue(undefined);
+      const interceptor = new AuditInterceptor({
+        log: logMock,
+      } as unknown as AuditService);
+      interceptor
+        .intercept(buildContext({}, handlerOf(Ctrl)), buildCallHandler())
+        .subscribe(() => {
+          setImmediate(() => {
+            expect(logMock).not.toHaveBeenCalled();
+            done();
+          });
+        });
+    });
+  });
+
+  describe('accesos denegados sobre recursos clínicos', () => {
+    function runError(
+      error: unknown,
+      logMock: jest.Mock,
+      overrides: Partial<any> = {},
+      handler?: () => void,
+    ): Promise<unknown> {
+      const interceptor = new AuditInterceptor({
+        log: logMock,
+      } as unknown as AuditService);
+      return new Promise((resolve) => {
+        interceptor
+          .intercept(buildContext(overrides, handler), {
+            handle: () => throwError(() => error),
+          })
+          .subscribe({
+            error: (e: unknown) => setImmediate(() => resolve(e)),
+          });
+      });
+    }
+
+    it('registra UNAUTHORIZED_ATTEMPT en un 403 y relanza el mismo error', async () => {
+      const logMock = jest.fn().mockResolvedValue(undefined);
+      const error = new ForbiddenException('No autorizado');
+      const thrown = await runError(error, logMock);
+      expect(thrown).toBe(error);
+      expect(logMock).toHaveBeenCalledTimes(1);
+      expect(firstLogEntry(logMock)).toEqual({
+        userId: 'user-1',
+        action: 'UNAUTHORIZED_ATTEMPT',
+        resource: 'Patient',
+        resourceId: 'abc',
+        detail: 'GET /api/v1/patients/abc status=403',
+        ipAddress: '127.0.0.1',
+        userAgent: 'jest',
+      });
+    });
+
+    it('registra UNAUTHORIZED_ATTEMPT en un 404 de un recurso clínico', async () => {
+      const logMock = jest.fn().mockResolvedValue(undefined);
+      const error = new NotFoundException();
+      const thrown = await runError(error, logMock, {
+        url: '/api/v1/consultations/xyz',
+        params: { id: 'xyz' },
+      });
+      expect(thrown).toBe(error);
+      const entry = firstLogEntry(logMock);
+      expect(entry.resource).toBe('Consultation');
+      expect(entry.resourceId).toBe('xyz');
+      expect(entry.detail).toBe('GET /api/v1/consultations/xyz status=404');
+    });
+
+    it('no registra un 401 (ya lo hace el guard JWT)', async () => {
+      const logMock = jest.fn().mockResolvedValue(undefined);
+      await runError(new UnauthorizedException(), logMock);
+      expect(logMock).not.toHaveBeenCalled();
+    });
+
+    it('no registra errores 400 ni errores no HTTP', async () => {
+      const logMock = jest.fn().mockResolvedValue(undefined);
+      await runError(new BadRequestException(), logMock);
+      await runError(new Error('boom'), logMock);
+      expect(logMock).not.toHaveBeenCalled();
+    });
+
+    it('no registra un 404 en recursos no clínicos', async () => {
+      const logMock = jest.fn().mockResolvedValue(undefined);
+      await runError(new NotFoundException(), logMock, {
+        url: '/api/v1/notifications/abc',
+      });
+      expect(logMock).not.toHaveBeenCalled();
+    });
+
+    it('respeta @SkipAudit en el camino de error', async () => {
+      class Ctrl {
+        @SkipAudit()
+        handler() {}
+      }
+      const logMock = jest.fn().mockResolvedValue(undefined);
+      await runError(new ForbiddenException(), logMock, {}, handlerOf(Ctrl));
+      expect(logMock).not.toHaveBeenCalled();
+    });
+
+    it('es fail-open: si el registro falla, relanza el error original y reporta', async () => {
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      const logMock = jest.fn().mockRejectedValue(new Error('caído'));
+      const error = new ForbiddenException();
+      const thrown = await runError(error, logMock);
+      expect(thrown).toBe(error);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy.mock.calls[0][0]).toContain(
+        'Fallo al registrar intento no autorizado',
+      );
+      errorSpy.mockRestore();
     });
   });
 
