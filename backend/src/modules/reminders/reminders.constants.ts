@@ -1,4 +1,4 @@
-import { ReminderOffset } from '@prisma/client';
+import { ReminderChannel, ReminderOffset } from '@prisma/client';
 
 // sdd/session-reminders PR 2: due-ness es aritmética de instantes en UTC
 // (ver design.md "UTC instant arithmetic; explicit render zone") -- el orden
@@ -19,9 +19,22 @@ export const REMINDER_OFFSETS: ReadonlyArray<{
 // él (no está hardcodeado a 24h a propósito).
 export const MAX_LOOKAHEAD_MS = Math.max(...REMINDER_OFFSETS.map((o) => o.ms));
 
-// Tope de filas por tick de scan -- protege contra un scan sin límite si
-// alguna vez hay miles de sesiones en la ventana de 24h.
-export const SCAN_BATCH_LIMIT = 500;
+// Tamaño de página del scan (issue #286 parte 2: antes era un tope por tick).
+// Tipado como number (no literal 500) para poder sustituirlo en los tests.
+export const SCAN_BATCH_LIMIT: number = 500;
+
+// issue #286 (parte 2): el scan pagina con cursor (sessionDate, id) hasta
+// agotar la ventana, así que ninguna sesión queda sin alcanzar por estar más
+// allá de SCAN_BATCH_LIMIT. Este tope de páginas por tick es solo una red de
+// seguridad para que un dataset patológico no deje el cron sin límite.
+export const SCAN_MAX_PAGES = 20;
+
+// Canales por los que se despacha cada offset. Un offset solo está
+// "reclamado" para una consulta cuando existe una fila por cada canal.
+export const REMINDER_CHANNELS: readonly ReminderChannel[] = [
+  ReminderChannel.IN_APP,
+  ReminderChannel.EMAIL,
+];
 
 // issue #286: tope de intentos de envío por (offset, canal), contando el
 // primero. Agotado el tope, el dispatch queda FAILED de forma definitiva.

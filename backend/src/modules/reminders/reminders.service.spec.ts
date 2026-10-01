@@ -3,6 +3,7 @@ import { RemindersService } from './reminders.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MailService } from '../mail/mail.service';
+import * as constants from './reminders.constants';
 import {
   REMINDER_MAX_ATTEMPTS,
   REMINDER_PENDING_STALE_MS,
@@ -57,6 +58,24 @@ interface UpdateCallArgs {
   data: { status: string };
 }
 
+interface ActionableBand {
+  sessionDate: { gt: Date; lte: Date };
+  OR: {
+    NOT: {
+      AND: {
+        reminderDispatches: { some: { offsetKind: string; channel: string } };
+      }[];
+    };
+  }[];
+}
+
+// Tipos de offset que una rama OR exige tener reclamados en todos los canales.
+function offsetKindsOf(branch: ActionableBand['OR'][number]): string[] {
+  return [
+    ...new Set(branch.NOT.AND.map((c) => c.reminderDispatches.some.offsetKind)),
+  ];
+}
+
 describe('RemindersService.scan', () => {
   let prisma: {
     consultation: { findMany: jest.Mock };
@@ -71,6 +90,10 @@ describe('RemindersService.scan', () => {
   let mailService: { sendSessionReminderEmail: jest.Mock };
   let config: { get: jest.Mock };
   let service: RemindersService;
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
 
   beforeEach(() => {
     prisma = {
@@ -140,6 +163,88 @@ describe('RemindersService.scan', () => {
           patient: { deletedAt: null },
         }) as { patient: { deletedAt: null } },
       }),
+    );
+  });
+
+  // issue #286 (parte 2): este mock no valida el filtro contra SQL real (eso lo
+  // cubre reminders.service.integration.spec.ts); solo fija su forma.
+  it('filtra solo consultas accionables: por tramo, algún offset due sin fila en algún canal', async () => {
+    prisma.consultation.findMany.mockResolvedValue([]);
+
+    await service.scan();
+
+    const args = (
+      prisma.consultation.findMany.mock.calls as {
+        where: { OR: ActionableBand[] };
+      }[][]
+    )[0][0];
+    expect(args.where.OR).toHaveLength(2);
+
+    const [h2Band, h24Band] = args.where.OR;
+    // Tramo cercano (<= 2h): H2 se despacha y H24 queda SKIPPED => ambos cuentan.
+    expect(h2Band.OR.map(offsetKindsOf)).toEqual([['H2'], ['H24']]);
+    // Tramo lejano (2h-24h): solo H24 está due.
+    expect(h24Band.OR.map(offsetKindsOf)).toEqual([['H24']]);
+    // Cada offset exige una fila por canal para considerarse reclamado.
+    expect(h24Band.OR[0].NOT.AND).toEqual([
+      {
+        reminderDispatches: { some: { offsetKind: 'H24', channel: 'IN_APP' } },
+      },
+      { reminderDispatches: { some: { offsetKind: 'H24', channel: 'EMAIL' } } },
+    ]);
+    // Los tramos son contiguos: el límite superior del cercano es el inferior
+    // del lejano.
+    expect(h2Band.sessionDate.lte).toEqual(h24Band.sessionDate.gt);
+  });
+
+  it('pagina con cursor (sessionDate, id) hasta agotar la ventana más allá de SCAN_BATCH_LIMIT', async () => {
+    jest.replaceProperty(constants, 'SCAN_BATCH_LIMIT', 2);
+    const c1 = buildConsultation({ id: 'c1', groupId: 'g1' });
+    const c2 = buildConsultation({ id: 'c2', groupId: 'g2' });
+    const c3 = buildConsultation({ id: 'c3', groupId: 'g3' });
+    prisma.consultation.findMany
+      .mockResolvedValueOnce([c1, c2])
+      .mockResolvedValueOnce([c3]);
+
+    await service.scan();
+
+    expect(prisma.consultation.findMany).toHaveBeenCalledTimes(2);
+    const calls = prisma.consultation.findMany.mock.calls as {
+      orderBy: unknown;
+      cursor?: unknown;
+      skip?: number;
+    }[][];
+    expect(calls[0][0].orderBy).toEqual([
+      { sessionDate: 'asc' },
+      { id: 'asc' },
+    ]);
+    expect(calls[0][0].cursor).toBeUndefined();
+    expect(calls[1][0].cursor).toEqual({ id: 'c2' });
+    expect(calls[1][0].skip).toBe(1);
+    // Las tres consultas se procesan (2 canales cada una).
+    expect(prisma.reminderDispatch.create).toHaveBeenCalledTimes(6);
+  });
+
+  it('no pide más páginas si la última vino incompleta', async () => {
+    prisma.consultation.findMany.mockResolvedValue([buildConsultation()]);
+
+    await service.scan();
+
+    expect(prisma.consultation.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('corta en SCAN_MAX_PAGES aunque cada página venga llena', async () => {
+    jest.replaceProperty(constants, 'SCAN_BATCH_LIMIT', 1);
+    prisma.consultation.findMany.mockResolvedValue([
+      buildConsultation({ id: 'c1' }),
+    ]);
+    // Todo ya reclamado: el cursor es lo único que avanza.
+    prisma.reminderDispatch.create.mockRejectedValue(uniqueViolation());
+
+    await service.scan();
+
+    expect(prisma.consultation.findMany).toHaveBeenCalledTimes(
+      constants.SCAN_MAX_PAGES,
     );
   });
 

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import {
   NotificationType,
+  type CalendarEventLink,
   type GoogleCalendarConnection,
 } from '@prisma/client';
 import { OAuth2Client } from 'google-auth-library';
@@ -20,6 +21,7 @@ import {
   BACKFILL_WINDOW_DAYS,
   CALENDAR_TIME_ZONE,
   DEFAULT_SESSION_MINUTES,
+  MAX_RECONCILE_PAGES,
   RECONCILE_BATCH_LIMIT,
 } from './calendar-integration.constants';
 
@@ -187,18 +189,54 @@ export class CalendarSyncService {
   private async repairFailedLinks(
     connection: GoogleCalendarConnection,
   ): Promise<void> {
-    const links = await this.prisma.calendarEventLink.findMany({
-      where: { connectionId: connection.id, syncStatus: 'FAILED' },
-      take: RECONCILE_BATCH_LIMIT,
-    });
+    await this.forEachPage<CalendarEventLink>(
+      'repairFailedLinks',
+      (last) =>
+        this.prisma.calendarEventLink.findMany({
+          where: {
+            connectionId: connection.id,
+            syncStatus: 'FAILED',
+            ...(last ? { id: { gt: last.id } } : {}),
+          },
+          orderBy: { id: 'asc' },
+          take: RECONCILE_BATCH_LIMIT,
+        }),
+      async (links) => {
+        for (const link of links) {
+          await this.syncGroup(link.groupId).catch((err: unknown) => {
+            this.logger.error(
+              `Reconcile: fallo al reparar link FAILED groupId=${link.groupId}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
+        }
+      },
+    );
+  }
 
-    for (const link of links) {
-      await this.syncGroup(link.groupId).catch((err: unknown) => {
-        this.logger.error(
-          `Reconcile: fallo al reparar link FAILED groupId=${link.groupId}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
+  // issue #286 (parte 2): recorre TODAS las páginas de una consulta ordenada
+  // por id, en vez de procesar siempre los primeros RECONCILE_BATCH_LIMIT. La
+  // paginación es por keyset (`id > último`) y no por cursor de Prisma porque
+  // los handlers pueden borrar o mover filas (p. ej. deleteLinkForGroup borra
+  // el link): un cursor sobre una fila ya borrada terminaría la iteración en
+  // silencio. MAX_RECONCILE_PAGES acota el trabajo por tick.
+  private async forEachPage<T extends { id: string }>(
+    label: string,
+    fetchPage: (last: T | undefined) => Promise<T[]>,
+    handlePage: (rows: T[]) => Promise<void>,
+  ): Promise<void> {
+    let last: T | undefined;
+    for (let page = 0; page < MAX_RECONCILE_PAGES; page++) {
+      const rows = await fetchPage(last);
+      if (rows.length === 0) return;
+
+      await handlePage(rows);
+
+      if (rows.length < RECONCILE_BATCH_LIMIT) return;
+      last = rows[rows.length - 1];
     }
+    this.logger.warn(
+      `Reconcile: ${label} alcanzó el tope de ${MAX_RECONCILE_PAGES} páginas; el resto se procesa en el próximo tick`,
+    );
   }
 
   // T6.7/T6.8: la ventana de 90 días SOLO gobierna el backfill (qué se
@@ -209,72 +247,94 @@ export class CalendarSyncService {
   private async deleteForRemovedConsultations(
     connection: GoogleCalendarConnection,
   ): Promise<void> {
-    const links = await this.prisma.calendarEventLink.findMany({
-      where: { connectionId: connection.id },
-      take: RECONCILE_BATCH_LIMIT,
-    });
-    if (links.length === 0) return;
+    await this.forEachPage<CalendarEventLink>(
+      'deleteForRemovedConsultations',
+      (last) =>
+        this.prisma.calendarEventLink.findMany({
+          where: {
+            connectionId: connection.id,
+            ...(last ? { id: { gt: last.id } } : {}),
+          },
+          orderBy: { id: 'asc' },
+          take: RECONCILE_BATCH_LIMIT,
+        }),
+      async (links) => {
+        const groupIds = links.map((l) => l.groupId);
+        const consultations = await this.prisma.consultation.findMany({
+          where: { groupId: { in: groupIds }, correctedBy: null },
+          select: {
+            groupId: true,
+            deletedAt: true,
+            patient: { select: { deletedAt: true } },
+          },
+        });
+        const byGroupId = new Map(consultations.map((c) => [c.groupId, c]));
 
-    const groupIds = links.map((l) => l.groupId);
-    const consultations = await this.prisma.consultation.findMany({
-      where: { groupId: { in: groupIds }, correctedBy: null },
-      select: {
-        groupId: true,
-        deletedAt: true,
-        patient: { select: { deletedAt: true } },
-      },
-    });
-    const byGroupId = new Map(consultations.map((c) => [c.groupId, c]));
+        for (const link of links) {
+          const consultation = byGroupId.get(link.groupId);
+          const shouldDelete =
+            !consultation ||
+            consultation.deletedAt !== null ||
+            consultation.patient.deletedAt !== null;
 
-    for (const link of links) {
-      const consultation = byGroupId.get(link.groupId);
-      const shouldDelete =
-        !consultation ||
-        consultation.deletedAt !== null ||
-        consultation.patient.deletedAt !== null;
+          if (!shouldDelete) continue;
 
-      if (!shouldDelete) continue;
-
-      await this.deleteLinkForGroup(connection, link.groupId).catch(
-        (err: unknown) => {
-          this.logger.error(
-            `Reconcile: fallo al eliminar evento removido groupId=${link.groupId}: ${err instanceof Error ? err.message : String(err)}`,
+          await this.deleteLinkForGroup(connection, link.groupId).catch(
+            (err: unknown) => {
+              this.logger.error(
+                `Reconcile: fallo al eliminar evento removido groupId=${link.groupId}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            },
           );
-        },
-      );
-    }
+        }
+      },
+    );
   }
 
   private async repairDriftedLinks(
     connection: GoogleCalendarConnection,
   ): Promise<void> {
-    const links = await this.prisma.calendarEventLink.findMany({
-      where: { connectionId: connection.id, syncStatus: 'SYNCED' },
-      take: RECONCILE_BATCH_LIMIT,
-    });
-    if (links.length === 0) return;
-
-    const groupIds = links.map((l) => l.groupId);
-    const consultations = await this.prisma.consultation.findMany({
-      where: { groupId: { in: groupIds }, correctedBy: null, deletedAt: null },
-      select: { groupId: true, sessionDate: true },
-    });
-    const byGroupId = new Map(consultations.map((c) => [c.groupId, c]));
-
-    for (const link of links) {
-      const consultation = byGroupId.get(link.groupId);
-      if (!consultation) continue; // ya cubierto por deleteForRemovedConsultations
-
-      if (
-        consultation.sessionDate.getTime() !== link.lastSessionDate.getTime()
-      ) {
-        await this.syncGroup(link.groupId).catch((err: unknown) => {
-          this.logger.error(
-            `Reconcile: fallo al reparar drift groupId=${link.groupId}: ${err instanceof Error ? err.message : String(err)}`,
-          );
+    await this.forEachPage<CalendarEventLink>(
+      'repairDriftedLinks',
+      (last) =>
+        this.prisma.calendarEventLink.findMany({
+          where: {
+            connectionId: connection.id,
+            syncStatus: 'SYNCED',
+            ...(last ? { id: { gt: last.id } } : {}),
+          },
+          orderBy: { id: 'asc' },
+          take: RECONCILE_BATCH_LIMIT,
+        }),
+      async (links) => {
+        const groupIds = links.map((l) => l.groupId);
+        const consultations = await this.prisma.consultation.findMany({
+          where: {
+            groupId: { in: groupIds },
+            correctedBy: null,
+            deletedAt: null,
+          },
+          select: { groupId: true, sessionDate: true },
         });
-      }
-    }
+        const byGroupId = new Map(consultations.map((c) => [c.groupId, c]));
+
+        for (const link of links) {
+          const consultation = byGroupId.get(link.groupId);
+          if (!consultation) continue; // ya cubierto por deleteForRemovedConsultations
+
+          if (
+            consultation.sessionDate.getTime() !==
+            link.lastSessionDate.getTime()
+          ) {
+            await this.syncGroup(link.groupId).catch((err: unknown) => {
+              this.logger.error(
+                `Reconcile: fallo al reparar drift groupId=${link.groupId}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            });
+          }
+        }
+      },
+    );
   }
 
   // design.md "Bounded Backfill at Connect Time": en la práctica también es
@@ -288,38 +348,50 @@ export class CalendarSyncService {
       now.getTime() + BACKFILL_WINDOW_DAYS * MS_PER_DAY,
     );
 
-    const candidates = await this.prisma.consultation.findMany({
-      where: {
-        therapistId: connection.therapistId,
-        correctedBy: null,
-        deletedAt: null,
-        patient: { deletedAt: null },
-        sessionDate: { gt: now, lte: windowEnd },
-      },
-      select: { groupId: true },
-      take: RECONCILE_BATCH_LIMIT,
-    });
-    if (candidates.length === 0) return;
-
-    const groupIds = candidates.map((c) => c.groupId);
-    const linkedGroupIds = new Set(
-      (
-        await this.prisma.calendarEventLink.findMany({
-          where: { connectionId: connection.id, groupId: { in: groupIds } },
-          select: { groupId: true },
-        })
-      ).map((l) => l.groupId),
-    );
-
-    for (const candidate of candidates) {
-      if (linkedGroupIds.has(candidate.groupId)) continue;
-
-      await this.syncGroup(candidate.groupId).catch((err: unknown) => {
-        this.logger.error(
-          `Reconcile: fallo en backfill groupId=${candidate.groupId}: ${err instanceof Error ? err.message : String(err)}`,
+    // Acá sí se usa el cursor de Prisma: el handler solo crea links y las
+    // consultas nunca se borran físicamente, así que la fila cursor siempre
+    // existe. El orden por fecha prioriza las sesiones más próximas.
+    await this.forEachPage<{ id: string; groupId: string }>(
+      'backfill',
+      (last) =>
+        this.prisma.consultation.findMany({
+          where: {
+            therapistId: connection.therapistId,
+            correctedBy: null,
+            deletedAt: null,
+            patient: { deletedAt: null },
+            sessionDate: { gt: now, lte: windowEnd },
+          },
+          select: { id: true, groupId: true },
+          orderBy: [{ sessionDate: 'asc' }, { id: 'asc' }],
+          take: RECONCILE_BATCH_LIMIT,
+          ...(last ? { cursor: { id: last.id }, skip: 1 } : {}),
+        }),
+      async (candidates) => {
+        const groupIds = candidates.map((c) => c.groupId);
+        const linkedGroupIds = new Set(
+          (
+            await this.prisma.calendarEventLink.findMany({
+              where: {
+                connectionId: connection.id,
+                groupId: { in: groupIds },
+              },
+              select: { groupId: true },
+            })
+          ).map((l) => l.groupId),
         );
-      });
-    }
+
+        for (const candidate of candidates) {
+          if (linkedGroupIds.has(candidate.groupId)) continue;
+
+          await this.syncGroup(candidate.groupId).catch((err: unknown) => {
+            this.logger.error(
+              `Reconcile: fallo en backfill groupId=${candidate.groupId}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
+        }
+      },
+    );
   }
 
   // T5.1/T5.3: decide insert vs. patch según exista un link, y clasifica
