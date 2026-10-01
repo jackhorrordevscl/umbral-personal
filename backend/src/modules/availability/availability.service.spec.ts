@@ -474,6 +474,19 @@ describe('AvailabilityService (cache)', () => {
     expect(prisma.therapistAvailability.findMany).toHaveBeenCalledTimes(2);
   });
 
+  // issue #285: las consultas de pacientes eliminados no ocupan slots.
+  it('la lectura de ocupación excluye consultas de pacientes eliminados', async () => {
+    await service.computeSlots('therapist-1', from, to, now);
+
+    expect(prisma.consultation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          patient: { deletedAt: null },
+        }) as unknown,
+      }),
+    );
+  });
+
   const cacheSize = (): number =>
     (service as unknown as { cache: Map<string, unknown> }).cache.size;
 

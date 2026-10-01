@@ -311,7 +311,13 @@ export class ConsultationsService {
 
   // Issue #40: 2 queries de agregación en vez de traer todas las filas.
   async getStats(therapistId: string) {
-    const baseWhere = { therapistId, correctedBy: null, deletedAt: null };
+    // issue #285: las consultas de pacientes eliminados no cuentan.
+    const baseWhere = {
+      therapistId,
+      correctedBy: null,
+      deletedAt: null,
+      patient: { deletedAt: null },
+    };
     const [total, upcoming] = await Promise.all([
       this.prisma.consultation.count({ where: baseWhere }),
       this.prisma.consultation.count({
@@ -363,74 +369,100 @@ export class ConsultationsService {
       sessionType: original.sessionType,
     });
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      // Issue #131 (Ley 20.584 Art. 14 / review R3-001): cubre el caso de
-      // createFromPublicBooking -- la reserva pública crea una Consultation
-      // placeholder sin contenido clínico real ("Pendiente de definir por
-      // el terapeuta"); correct() es el punto donde ese contenido clínico
-      // real se carga por primera vez, así que necesita el mismo guardrail
-      // que create(). Corre dentro de la misma transacción que la
-      // escritura -- misma razón que en create(), cierra la ventana de
-      // carrera entre el chequeo y el insert.
-      const consentStatus = await this.patientsService.getConsentStatusMap(
-        [original.patientId],
-        tx,
-      );
-      const consent = consentStatus.get(original.patientId);
-      if (!consent?.TREATMENT && !consent?.TELEMEDICINE) {
-        throw new ForbiddenException(
-          'El paciente no tiene un consentimiento informado vigente. Registra el consentimiento antes de corregir la consulta.',
+    const result = await this.prisma
+      .$transaction(async (tx) => {
+        // Issue #131 (Ley 20.584 Art. 14 / review R3-001): cubre el caso de
+        // createFromPublicBooking -- la reserva pública crea una Consultation
+        // placeholder sin contenido clínico real ("Pendiente de definir por
+        // el terapeuta"); correct() es el punto donde ese contenido clínico
+        // real se carga por primera vez, así que necesita el mismo guardrail
+        // que create(). Corre dentro de la misma transacción que la
+        // escritura -- misma razón que en create(), cierra la ventana de
+        // carrera entre el chequeo y el insert.
+        const consentStatus = await this.patientsService.getConsentStatusMap(
+          [original.patientId],
+          tx,
         );
-      }
+        const consent = consentStatus.get(original.patientId);
+        if (!consent?.TREATMENT && !consent?.TELEMEDICINE) {
+          throw new ForbiddenException(
+            'El paciente no tiene un consentimiento informado vigente. Registra el consentimiento antes de corregir la consulta.',
+          );
+        }
 
-      // El snapshot queda indexado por groupId, no por el id de la versión
-      // que se está corrigiendo, para que el historial sea el mismo visto
-      // desde cualquier versión de la cadena.
-      await tx.consultationHistory.create({
-        data: {
-          consultationId: original.groupId,
-          editedById: therapistId,
-          snapshot,
-        },
+        // El snapshot queda indexado por groupId, no por el id de la versión
+        // que se está corrigiendo, para que el historial sea el mismo visto
+        // desde cualquier versión de la cadena.
+        await tx.consultationHistory.create({
+          data: {
+            consultationId: original.groupId,
+            editedById: therapistId,
+            snapshot,
+          },
+        });
+
+        // Nunca se toca la fila original — se crea una fila nueva que la
+        // sucede vía correctsId. La original queda bit a bit idéntica y
+        // consultable por su id de siempre.
+        const corrected = await tx.consultation.create({
+          data: {
+            groupId: original.groupId,
+            patientId: original.patientId,
+            therapistId: original.therapistId,
+            sessionDate: dto.sessionDate
+              ? parseDate(dto.sessionDate)
+              : original.sessionDate,
+            consultReason: dto.consultReason
+              ? sanitizeClinicalNote(dto.consultReason)
+              : original.consultReason,
+            intervention: dto.intervention
+              ? sanitizeClinicalNote(dto.intervention)
+              : original.intervention,
+            agreements:
+              dto.agreements !== undefined
+                ? sanitizeClinicalNote(dto.agreements)
+                : original.agreements,
+            nextSessionDate: dto.nextSessionDate
+              ? parseDate(dto.nextSessionDate)
+              : original.nextSessionDate,
+            sessionType: dto.sessionType ?? original.sessionType,
+            scheduledAt: original.scheduledAt,
+            patientRut: original.patientRut,
+            correctsId: id,
+          },
+          include: THERAPIST_SELECT,
+        });
+
+        // issue #285: si la sesión se movió, el BookedSlot del grupo (solo
+        // existe en reservas públicas) se mueve con ella: el horario original
+        // vuelve a ser reservable y el nuevo queda protegido por el @@unique.
+        if (
+          corrected.sessionDate.getTime() !== original.sessionDate.getTime()
+        ) {
+          await tx.bookedSlot.updateMany({
+            where: { groupId: original.groupId },
+            data: { slotStart: corrected.sessionDate },
+          });
+        }
+
+        return {
+          ...corrected,
+          history: await this.getHistory(original.groupId, tx),
+        };
+      })
+      .catch((err: unknown) => {
+        // issue #285: el nuevo horario ya está tomado por otra reserva
+        // (BookedSlot.@@unique); la transacción hizo rollback completo.
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          throw new ConflictException(
+            'El nuevo horario seleccionado ya no está disponible.',
+          );
+        }
+        throw err;
       });
-
-      // Nunca se toca la fila original — se crea una fila nueva que la
-      // sucede vía correctsId. La original queda bit a bit idéntica y
-      // consultable por su id de siempre.
-      const corrected = await tx.consultation.create({
-        data: {
-          groupId: original.groupId,
-          patientId: original.patientId,
-          therapistId: original.therapistId,
-          sessionDate: dto.sessionDate
-            ? parseDate(dto.sessionDate)
-            : original.sessionDate,
-          consultReason: dto.consultReason
-            ? sanitizeClinicalNote(dto.consultReason)
-            : original.consultReason,
-          intervention: dto.intervention
-            ? sanitizeClinicalNote(dto.intervention)
-            : original.intervention,
-          agreements:
-            dto.agreements !== undefined
-              ? sanitizeClinicalNote(dto.agreements)
-              : original.agreements,
-          nextSessionDate: dto.nextSessionDate
-            ? parseDate(dto.nextSessionDate)
-            : original.nextSessionDate,
-          sessionType: dto.sessionType ?? original.sessionType,
-          scheduledAt: original.scheduledAt,
-          patientRut: original.patientRut,
-          correctsId: id,
-        },
-        include: THERAPIST_SELECT,
-      });
-
-      return {
-        ...corrected,
-        history: await this.getHistory(original.groupId, tx),
-      };
-    });
     this.logger.log(
       `Consulta corregida: originalId=${id} nuevaId=${result.id} groupId=${original.groupId} therapistId=${therapistId}`,
     );
@@ -467,6 +499,8 @@ export class ConsultationsService {
         therapistId,
         correctedBy: null,
         deletedAt: null,
+        // issue #285: paciente eliminado => sus sesiones salen del calendario.
+        patient: { deletedAt: null },
         sessionDate: { gte: from, lt: to },
       },
       include: { patient: { select: { fullName: true } } },
@@ -548,6 +582,7 @@ export class ConsultationsService {
           therapistId,
           correctedBy: null,
           deletedAt: null,
+          patient: { deletedAt: null },
           sessionDate: { gte: slotStart, lt: slotEnd },
         },
         select: { id: true },

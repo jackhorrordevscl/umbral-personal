@@ -44,6 +44,8 @@ describe('PatientsService', () => {
     };
     patientConsent: { findMany: jest.Mock; create: jest.Mock };
     patientHistory: { create: jest.Mock; findMany: jest.Mock };
+    consultation: { findMany: jest.Mock };
+    bookedSlot: { deleteMany: jest.Mock };
     $transaction: jest.Mock;
   };
   let calendarSync: { deletePatientEvents: jest.Mock };
@@ -68,6 +70,8 @@ describe('PatientsService', () => {
         create: jest.fn(),
         findMany: jest.fn(),
       },
+      consultation: { findMany: jest.fn().mockResolvedValue([]) },
+      bookedSlot: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       // $transaction([...]) real ejecuta cada operación y devuelve sus
       // resultados; para el caso callback (usado en update) alcanza con
       // invocar la función pasándole el propio mock de prisma como `tx`.
@@ -380,6 +384,36 @@ describe('PatientsService', () => {
         where: { id: 'patient-1' },
         data: { deletedAt: expect.any(Date) as unknown as Date },
       });
+    });
+
+    // issue #285: sin liberar el BookedSlot, el horario seguía dando 409.
+    it('libera los BookedSlot de las consultas del paciente en la misma transacción', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.consultation.findMany.mockResolvedValue([
+        { groupId: 'g-1' },
+        { groupId: 'g-2' },
+      ]);
+      prisma.patient.update.mockResolvedValue(
+        buildPatient({ deletedAt: new Date() }),
+      );
+
+      await service.softDelete('patient-1', 'therapist-1');
+
+      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(prisma.bookedSlot.deleteMany).toHaveBeenCalledWith({
+        where: { groupId: { in: ['g-1', 'g-2'] } },
+      });
+    });
+
+    it('no llama a bookedSlot.deleteMany si el paciente no tiene consultas', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patient.update.mockResolvedValue(
+        buildPatient({ deletedAt: new Date() }),
+      );
+
+      await service.softDelete('patient-1', 'therapist-1');
+
+      expect(prisma.bookedSlot.deleteMany).not.toHaveBeenCalled();
     });
 
     it('lanza 404 si el paciente no pertenece al terapeuta', async () => {
