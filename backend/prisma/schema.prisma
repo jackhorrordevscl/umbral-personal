@@ -169,7 +169,7 @@ model MfaRecoveryCode {
 model Patient {
   id                    String    @id @default(uuid())
   fullName              String
-  rut                   String    @unique
+  rut                   String
   birthDate             DateTime
   occupation            String?
   address               String?
@@ -204,6 +204,9 @@ model Patient {
   history       PatientHistory[]
   consents      PatientConsent[]
 
+  // issue #314: el RUT es único por terapeuta, no global -- un 409 solo
+  // revela fichas propias y dos terapeutas pueden atender a la misma persona.
+  @@unique([therapistId, rut])
   @@index([therapistId])
 }
 
