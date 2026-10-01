@@ -1,12 +1,8 @@
-import {
-  ConflictException,
-  ForbiddenException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
-import { Role, User } from '@prisma/client';
+import { Prisma, Role, User } from '@prisma/client';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
@@ -125,7 +121,28 @@ describe('AuthService', () => {
       usedAt: null,
     };
 
-    it('lanza 409 si el email ya está registrado', async () => {
+    // Issue #303: email ya registrado + invitación válida responde igual que
+    // una invitación inválida (mismo status y mensaje), sin crear nada.
+    it('lanza 401 con el mismo mensaje genérico si el email ya está registrado', async () => {
+      prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
+      prisma.user.findUnique.mockResolvedValue(buildUser());
+      mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+
+      const dto = {
+        email: 'user@example.com',
+        password: 'password1',
+        name: 'Nueva Cuenta',
+        inviteCode: 'valid-code',
+      };
+      await expect(service.signup(dto)).rejects.toThrow(UnauthorizedException);
+      await expect(service.signup(dto)).rejects.toThrow(
+        'Código de invitación inválido o expirado',
+      );
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('valida la invitación antes de consultar si el email existe (sin invitación válida no hay oráculo de emails)', async () => {
+      prisma.invitationCode.findUnique.mockResolvedValue(null);
       prisma.user.findUnique.mockResolvedValue(buildUser());
 
       await expect(
@@ -133,9 +150,49 @@ describe('AuthService', () => {
           email: 'user@example.com',
           password: 'password1',
           name: 'Nueva Cuenta',
+          inviteCode: 'no-existe',
+        }),
+      ).rejects.toThrow('Código de invitación inválido o expirado');
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('lanza el mismo 401 genérico si el unique de email salta dentro de la transacción (signups concurrentes)', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
+      mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+      prisma.user.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+
+      const attempt = service.signup({
+        email: 'user@example.com',
+        password: 'password1',
+        name: 'Test User',
+        inviteCode: 'valid-code',
+      });
+      await expect(attempt).rejects.toThrow(UnauthorizedException);
+      await expect(attempt).rejects.toThrow(
+        'Código de invitación inválido o expirado',
+      );
+    });
+
+    it('no enmascara otros errores de la transacción', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
+      mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+      prisma.user.create.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.signup({
+          email: 'user@example.com',
+          password: 'password1',
+          name: 'Test User',
           inviteCode: 'valid-code',
         }),
-      ).rejects.toThrow(ConflictException);
+      ).rejects.toThrow('db down');
     });
 
     // Issue #124: signup público sin invitación. Sin un InvitationCode

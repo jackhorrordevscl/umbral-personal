@@ -1,5 +1,4 @@
 import {
-  ConflictException,
   ForbiddenException,
   Injectable,
   UnauthorizedException,
@@ -18,7 +17,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import type { RequestUser } from '../../common/decorators/current-user.decorator';
 import * as argon2 from 'argon2';
 import * as crypto from 'crypto';
-import { User } from '@prisma/client';
+import { Prisma, User } from '@prisma/client';
 import { MFA_SETUP_PURPOSE, MFA_VERIFY_PURPOSE } from './mfa.service';
 import { getDummyPasswordHash } from './dummy-password-hash.util';
 
@@ -61,6 +60,10 @@ const RESEND_VERIFICATION_GENERIC_MESSAGE = {
 // email con ForbiddenException.
 const INVITATION_EXPIRES_IN_MS = 7 * 24 * 60 * 60 * 1000;
 
+// Issue #303: único rechazo de signup (invitación inválida/usada/expirada o
+// email ya registrado); mismo status y mensaje para no habilitar enumeración.
+const SIGNUP_REJECTED_MESSAGE = 'Código de invitación inválido o expirado';
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -84,13 +87,10 @@ export class AuthService {
   // las dos operaciones no deje ni una invitación "gastada" sin cuenta ni
   // una cuenta creada con una invitación que sigue viéndose disponible.
   async signup(dto: SignupDto) {
-    const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
-    if (existing) {
-      throw new ConflictException('El email ya está registrado');
-    }
-
+    // Issue #303: la invitación se valida ANTES de mirar si el email existe, y
+    // ambos fallos (invitación inválida, email ya registrado) responden con el
+    // mismo status y mensaje. Así, sin una invitación válida no hay forma de
+    // enumerar qué emails tienen cuenta.
     const invitation = await this.prisma.invitationCode.findUnique({
       where: { code: dto.inviteCode },
     });
@@ -99,12 +99,20 @@ export class AuthService {
       invitation.usedById ||
       invitation.expiresAt < new Date()
     ) {
-      throw new UnauthorizedException(
-        'Código de invitación inválido o expirado',
-      );
+      throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
     }
 
+    // El hash corre antes del chequeo de email para que la rama "email ya
+    // registrado" no sea mucho más rápida que la de éxito (oráculo de tiempo).
     const passwordHash = await argon2.hash(dto.password);
+
+    const existing = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+    if (existing) {
+      throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
+    }
+
     // Transacción interactiva (no el array-form usado en otros métodos de
     // este archivo) porque el segundo paso -- enlazar usedById en el
     // InvitationCode -- necesita el id del User recién creado en el primero;
@@ -120,26 +128,39 @@ export class AuthService {
     // updateMany de este par encuentra count 0 (el primero ya puso
     // usedById) y aborta toda la transacción, en vez de dejar dos cuentas
     // creadas con una sola invitación.
-    const user = await this.prisma.$transaction(async (tx) => {
-      const createdUser = await tx.user.create({
-        data: {
-          email: dto.email,
-          passwordHash,
-          name: dto.name,
-          emailVerified: false,
-        },
+    //
+    // Issue #303: dos signups concurrentes con el mismo email pueden pasar
+    // ambos el findUnique de arriba; el segundo cae en el unique de User.email
+    // (P2002) y debe responder igual que el resto de rechazos, no con un 409
+    // ni un 500 que delate que el email existe.
+    const user = await this.prisma
+      .$transaction(async (tx) => {
+        const createdUser = await tx.user.create({
+          data: {
+            email: dto.email,
+            passwordHash,
+            name: dto.name,
+            emailVerified: false,
+          },
+        });
+        const { count } = await tx.invitationCode.updateMany({
+          where: { id: invitation.id, usedById: null },
+          data: { usedById: createdUser.id, usedAt: new Date() },
+        });
+        if (count === 0) {
+          throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
+        }
+        return createdUser;
+      })
+      .catch((err: unknown) => {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
+        }
+        throw err;
       });
-      const { count } = await tx.invitationCode.updateMany({
-        where: { id: invitation.id, usedById: null },
-        data: { usedById: createdUser.id, usedAt: new Date() },
-      });
-      if (count === 0) {
-        throw new UnauthorizedException(
-          'Código de invitación inválido o expirado',
-        );
-      }
-      return createdUser;
-    });
 
     const token = this.jwtService.sign(
       { sub: user.id, purpose: EMAIL_VERIFY_PURPOSE },
