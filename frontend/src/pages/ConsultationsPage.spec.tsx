@@ -396,6 +396,29 @@ describe('ConsultationsPage', () => {
     expect(screen.queryByRole('button', { name: /reintentar cobro/i })).not.toBeInTheDocument()
   })
 
+  it.each(['PAID', 'CANCELLED'])('no muestra copiar ni reenviar link de pago si el cargo está %s', async (status) => {
+    mockPayment({ status, paymentUrl: 'https://flow.cl/pay/token-1' })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByText('Motivo de la sesión')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /copiar link de pago/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /reenviar link de pago/i })).not.toBeInTheDocument()
+  })
+
+  it.each(['PENDING', 'LATE'])('muestra copiar y reenviar link de pago si el cargo está %s', async (status) => {
+    mockPayment({ status, paymentUrl: 'https://flow.cl/pay/token-1' })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByRole('button', { name: /copiar link de pago/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /reenviar link de pago/i })).toBeInTheDocument()
+  })
+
   it('no muestra reintento si el cargo ya tiene paymentUrl', async () => {
     mockPayment({ paymentUrl: 'https://flow.cl/pay/token-1', lastError: 'viejo' })
     const user = userEvent.setup()
