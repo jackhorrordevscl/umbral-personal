@@ -58,6 +58,22 @@ function isDate(val: unknown): val is Date {
   );
 }
 
+// Forma canónica para comparar un valor entrante con el almacenado: null,
+// undefined y '' son lo mismo; el RUT se compara normalizado y las fechas
+// como instante ISO (el DTO manda 'YYYY-MM-DD', la DB devuelve Date).
+function comparableValue(key: string, value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (isDate(value)) return value.toISOString();
+  if (key === 'rut' && typeof value === 'string') return normalizeRut(value);
+  if (key === 'birthDate' && typeof value === 'string') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+  }
+  return typeof value === 'object'
+    ? JSON.stringify(value)
+    : String(value as string | number | boolean);
+}
+
 type ConsentStatusMap = Record<ConsentPurpose, boolean>;
 
 function emptyConsentStatus(): ConsentStatusMap {
@@ -232,16 +248,7 @@ export class PatientsService {
         key
       ] as typeof incoming;
 
-      const incomingStr = isDate(incoming)
-        ? incoming.toISOString()
-        : String(incoming);
-      const currentStr = isDate(currentVal)
-        ? currentVal.toISOString()
-        : currentVal !== null && currentVal !== undefined
-          ? String(currentVal)
-          : null;
-
-      if (incomingStr !== currentStr) {
+      if (comparableValue(key, incoming) !== comparableValue(key, currentVal)) {
         diff[key] = { from: currentVal, to: incoming };
       }
     }

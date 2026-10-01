@@ -254,6 +254,28 @@ describe('PatientsService', () => {
       expect(prisma.patient.update).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ['campo nulo enviado como null', { occupation: null }],
+      ['campo nulo enviado como cadena vacía', { phone: '' }],
+      ['RUT con formato distinto al almacenado', { rut: '11111111-1' }],
+      [
+        'fecha de nacimiento solo-día igual a la almacenada',
+        { birthDate: '1990-01-01' },
+      ],
+    ])('%s no cuenta como cambio (issue #283)', async (_label, fields) => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patientConsent.findMany.mockResolvedValue([]);
+
+      await service.update(
+        'patient-1',
+        { ...fields, reason: 'Motivo sin cambios reales' } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.patientHistory.create).not.toHaveBeenCalled();
+    });
+
     it('con cambios reales guarda el diff en PatientHistory y actualiza el paciente', async () => {
       prisma.patient.findFirst.mockResolvedValue(buildPatient());
       prisma.patientConsent.findMany.mockResolvedValue([]);
