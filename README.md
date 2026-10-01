@@ -238,7 +238,7 @@ Password:  Umbral2024!
 ## Despliegue (issue #8)
 
 **Backend ya desplegado y en producción** en Render:
-https://umbral-backend-uces.onrender.com/api/v1 (servicio `umbral-backend`,
+https://umbralapi.groundzerodevs.com/api/v1 (servicio `umbral-backend`,
 auto-deploy desactivado a propósito para no gastar crédito del free tier con
 cada push — el deploy es manual desde el dashboard de Render). Stack:
 **backend en Render** (free
@@ -257,6 +257,20 @@ copia offsite de backups en **Backblaze B2** (ver
 > acepta para el MVP mientras se prueba con el terapeuta; la migración a
 > una VM Oracle Cloud Always Free (always-on real, sin cold start) queda
 > planificada en el issue #10 para cuando el uso real lo confirme necesario.
+
+> **Topología de red y acceso al origen (issue #307):** el tráfico entra por
+> el dominio propio `umbralapi.groundzerodevs.com`, que pasa por Cloudflare y
+> luego por la infraestructura de Render hasta la app; por eso
+> `TRUSTED_PROXY_HOPS=3`. El subdominio `umbral-backend-uces.onrender.com`
+> está **desactivado** (Render → servicio → Settings → *Render Subdomain* =
+> disabled): responde `404` con `x-render-routing: blocked-render-subdomain`.
+> Es lo que impide llegar al origen sin pasar por el dominio propio y
+> mandar un `X-Forwarded-For` falsificado para evadir los límites de tasa
+> (login, MFA, reset, autoagenda pública). Si se reactiva ese subdominio, el
+> límite por IP deja de ser confiable. Todas las URLs públicas que usa el
+> backend (`BACKEND_PUBLIC_URL`, `GOOGLE_REDIRECT_URI`, webhook de Resend)
+> apuntan al dominio propio. El valor `3` se deduce de esta topología; no se
+> midió con un request real contra producción.
 
 ### Orden de setup
 
