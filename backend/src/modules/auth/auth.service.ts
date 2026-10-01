@@ -91,7 +91,7 @@ export class AuthService {
   // MISMA $transaction que crea el User, para que un fallo de cualquiera de
   // las dos operaciones no deje ni una invitación "gastada" sin cuenta ni
   // una cuenta creada con una invitación que sigue viéndose disponible.
-  async signup(dto: SignupDto) {
+  async signup(dto: SignupDto, ipAddress?: string, userAgent?: string) {
     // Issue #303: la invitación se valida ANTES de mirar si el email existe, y
     // ambos fallos (invitación inválida, email ya registrado) responden con el
     // mismo status y mensaje. Así, sin una invitación válida no hay forma de
@@ -104,7 +104,7 @@ export class AuthService {
       invitation.usedById ||
       invitation.expiresAt < new Date()
     ) {
-      throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
+      this.rejectSignup('INVITATION_INVALID', ipAddress, userAgent);
     }
 
     // El hash corre antes del chequeo de email para que la rama "email ya
@@ -115,7 +115,7 @@ export class AuthService {
       where: { email: normalizeEmail(dto.email) },
     });
     if (existing) {
-      throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
+      this.rejectSignup('EMAIL_TAKEN', ipAddress, userAgent);
     }
 
     // Transacción interactiva (no el array-form usado en otros métodos de
@@ -162,10 +162,25 @@ export class AuthService {
           err instanceof Prisma.PrismaClientKnownRequestError &&
           err.code === 'P2002'
         ) {
-          throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
+          this.rejectSignup('EMAIL_TAKEN_RACE', ipAddress, userAgent);
+        }
+        if (err instanceof UnauthorizedException) {
+          this.rejectSignup('INVITATION_USED_RACE', ipAddress, userAgent);
         }
         throw err;
       });
+
+    // issue #283: alta de cuenta e invitación consumida quedan en una sola
+    // fila (la invitación vincula usedById en la misma transacción).
+    await logAuditFailOpen(this.auditService, this.logger, {
+      userId: user.id,
+      action: 'CREATE',
+      resource: 'User',
+      resourceId: user.id,
+      detail: `SIGNUP invitationId=${invitation.id}`,
+      ipAddress,
+      userAgent,
+    });
 
     const token = this.jwtService.sign(
       { sub: user.id, purpose: EMAIL_VERIFY_PURPOSE },
@@ -185,6 +200,26 @@ export class AuthService {
       message:
         'Cuenta creada. Revisa tu email para verificarla antes de iniciar sesión.',
     };
+  }
+
+  // Todo rechazo de signup responde igual (SIGNUP_REJECTED_MESSAGE, issue
+  // #303); el motivo real solo queda en AuditLog. Sin await a propósito: la
+  // escritura no debe volver distinguible por latencia ninguna rama. Sin
+  // email ni código en el detalle (issue #134).
+  private rejectSignup(
+    reason: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): never {
+    void logAuditFailOpen(this.auditService, this.logger, {
+      action: 'UNAUTHORIZED_ATTEMPT',
+      resource: 'Signup',
+      resourceId: 'N/A',
+      detail: reason,
+      ipAddress,
+      userAgent,
+    });
+    throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
   }
 
   async verifyEmail(token: string) {

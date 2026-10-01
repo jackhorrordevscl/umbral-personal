@@ -116,8 +116,12 @@ export class AuthController {
     'payment-return': true,
   })
   @Post('signup')
-  signup(@Body() dto: SignupDto) {
-    return this.authService.signup(dto);
+  signup(@Body() dto: SignupDto, @Req() req: Request) {
+    return this.authService.signup(
+      dto,
+      getRequestClientIp(req),
+      req.headers['user-agent'],
+    );
   }
 
   // Sin JwtAuthGuard a propósito, mismo motivo que mfa/setup/*: el usuario
