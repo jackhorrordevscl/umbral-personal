@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { AuthContext, type User } from './useAuth';
 import api from '../api/client';
 
@@ -25,8 +26,14 @@ function readStoredAuth(): { user: User | null; token: string | null } {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [{ user, token }, setAuth] = useState(readStoredAuth);
+  const queryClient = useQueryClient();
 
+  // Issue #291: el QueryClient es un singleton y sus claves no incluyen al
+  // usuario, así que sin vaciarlo el siguiente usuario de un equipo compartido
+  // vería fichas y perfil del anterior desde el caché. Se vacía en login y en
+  // logout (este último cubre el 401 y el cierre por inactividad).
   const login = (newToken: string, newUser: User) => {
+    queryClient.clear();
     localStorage.setItem('token', newToken);
     localStorage.setItem('user', JSON.stringify(newUser));
     setAuth({ token: newToken, user: newUser });
@@ -47,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    queryClient.clear();
     setAuth({ token: null, user: null });
   };
 

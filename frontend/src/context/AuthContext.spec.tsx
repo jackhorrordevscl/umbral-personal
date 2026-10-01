@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import type { ReactNode } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './AuthContext'
 import { useAuth, type User } from './useAuth'
 import api from '../api/client'
@@ -14,12 +15,17 @@ const user: User = {
   name: 'Ana',
 }
 
+let queryClient: QueryClient
+
 const wrapper = ({ children }: { children: ReactNode }) => (
-  <AuthProvider>{children}</AuthProvider>
+  <QueryClientProvider client={queryClient}>
+    <AuthProvider>{children}</AuthProvider>
+  </QueryClientProvider>
 )
 
 describe('AuthProvider / useAuth', () => {
   beforeEach(() => {
+    queryClient = new QueryClient()
     localStorage.clear()
     vi.mocked(api.post).mockReset()
     vi.mocked(api.post).mockResolvedValue({})
@@ -111,6 +117,27 @@ describe('AuthProvider / useAuth', () => {
 
     expect(result.current.isAuthenticated).toBe(false)
     expect(localStorage.getItem('token')).toBeNull()
+  })
+
+  it('logout empties the query cache so the next user cannot see the previous data (issue #291)', () => {
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    act(() => result.current.login('new-token', user))
+    queryClient.setQueryData(['patients'], [{ id: 'p1' }])
+    queryClient.setQueryData(['profile'], { id: 'u1' })
+
+    act(() => result.current.logout())
+
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0)
+    expect(queryClient.getQueryData(['patients'])).toBeUndefined()
+  })
+
+  it('login empties the query cache left over from a previous session (issue #291)', () => {
+    queryClient.setQueryData(['patients'], [{ id: 'p-previous-user' }])
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    act(() => result.current.login('new-token', user))
+
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0)
   })
 
   it('logout does not call the API when there is no session', () => {
