@@ -14,6 +14,7 @@ import * as QRCode from 'qrcode';
 import * as crypto from 'crypto';
 import { randomUUID } from 'crypto';
 import { getDummyPasswordHash } from './dummy-password-hash.util';
+import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 
 // Purpose que llevan los JWT de corta duración emitidos para forzar el
 // enrolamiento MFA. Nunca deben aceptarse como sesión (ver jwt.strategy.ts).
@@ -256,6 +257,16 @@ export class MfaService {
     const isValid = await this.consumeTotp(user.id, secret, dto.token);
 
     if (!isValid) {
+      // Sin await: no suma latencia a la respuesta de rechazo (fail-open).
+      void logAuditFailOpen(this.auditService, this.logger, {
+        userId: user.id,
+        action: 'MFA_FAILED',
+        resource: 'MFA',
+        resourceId: user.id,
+        detail: 'Código TOTP inválido',
+        ipAddress,
+        userAgent,
+      });
       throw new UnauthorizedException('Código MFA inválido');
     }
 
@@ -436,6 +447,15 @@ export class MfaService {
 
     const passwordValid = await argon2.verify(user.passwordHash, dto.password);
     if (!passwordValid) {
+      void logAuditFailOpen(this.auditService, this.logger, {
+        userId: user.id,
+        action: 'LOGIN_FAILED',
+        resource: 'MFA',
+        resourceId: user.id,
+        detail: 'Contraseña incorrecta en la recuperación de MFA',
+        ipAddress,
+        userAgent,
+      });
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
@@ -460,6 +480,15 @@ export class MfaService {
     }
 
     if (!matchedCodeId) {
+      void logAuditFailOpen(this.auditService, this.logger, {
+        userId: user.id,
+        action: 'MFA_FAILED',
+        resource: 'MFA',
+        resourceId: user.id,
+        detail: 'Código de recuperación inválido',
+        ipAddress,
+        userAgent,
+      });
       throw new UnauthorizedException('Código de recuperación inválido');
     }
 
@@ -582,6 +611,17 @@ export class MfaService {
         ipAddress: ipAddress ?? null,
         userAgent: userAgent ?? null,
       },
+    });
+
+    // Único punto donde se emite una sesión (verify, recovery y enrolamiento
+    // forzado pasan por acá): un LOGIN por sesión, sin doble registro.
+    await logAuditFailOpen(this.auditService, this.logger, {
+      userId: user.id,
+      action: 'LOGIN',
+      resource: 'Auth',
+      resourceId: user.id,
+      ipAddress,
+      userAgent,
     });
 
     return {

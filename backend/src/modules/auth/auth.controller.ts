@@ -59,8 +59,12 @@ export class AuthController {
     'payment-return': true,
   })
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.authService.login(dto);
+  login(@Body() dto: LoginDto, @Req() req: Request) {
+    return this.authService.login(
+      dto,
+      getRequestClientIp(req),
+      req.headers['user-agent'],
+    );
   }
 
   // mfa/verify no puede llevar JwtAuthGuard: es el segundo paso del login
@@ -288,8 +292,12 @@ export class AuthController {
     'payment-return': true,
   })
   @Post('password/reset')
-  resetPassword(@Body() dto: ResetPasswordDto) {
-    return this.authService.resetPassword(dto);
+  resetPassword(@Body() dto: ResetPasswordDto, @Req() req: Request) {
+    return this.authService.resetPassword(
+      dto,
+      getRequestClientIp(req),
+      req.headers['user-agent'],
+    );
   }
 
   // Issue #50: círculo cerrado de disableMfa (más abajo) -- ahí se exige un

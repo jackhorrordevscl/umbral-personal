@@ -545,6 +545,86 @@ describe('AuthService', () => {
       );
     });
 
+    describe('auditoría de intentos fallidos (issue #283)', () => {
+      const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+      it('registra LOGIN_FAILED con ip y user-agent si la contraseña es incorrecta, sin la contraseña ni el email', async () => {
+        prisma.user.findUnique.mockResolvedValue(buildUser());
+        mockArgon2.verify.mockResolvedValue(false as never);
+
+        await expect(
+          service.login(
+            { email: 'user@example.com', password: 'wrong-pass' },
+            '203.0.113.7',
+            'jest-agent',
+          ),
+        ).rejects.toThrow('Credenciales inválidas');
+        await flush();
+
+        expect(auditService.log).toHaveBeenCalledTimes(1);
+        const entry = (
+          auditService.log.mock.calls as Array<[Record<string, string>]>
+        )[0][0];
+        expect(entry).toMatchObject({
+          userId: 'user-1',
+          action: 'LOGIN_FAILED',
+          resource: 'Auth',
+          resourceId: 'user-1',
+          ipAddress: '203.0.113.7',
+          userAgent: 'jest-agent',
+        });
+        expect(JSON.stringify(entry)).not.toContain('wrong-pass');
+        expect(JSON.stringify(entry)).not.toContain('user@example.com');
+      });
+
+      it('no registra nada si el usuario no existe o está soft-deleted (no filtra existencia)', async () => {
+        prisma.user.findUnique.mockResolvedValue(null);
+        await expect(
+          service.login({ email: 'no@example.com', password: 'password1' }),
+        ).rejects.toThrow('Credenciales inválidas');
+
+        prisma.user.findUnique.mockResolvedValue(
+          buildUser({ deletedAt: new Date() }),
+        );
+        await expect(
+          service.login({ email: 'user@example.com', password: 'password1' }),
+        ).rejects.toThrow('Credenciales inválidas');
+        await flush();
+
+        expect(auditService.log).not.toHaveBeenCalled();
+      });
+
+      it('un fallo al registrar no cambia la excepción 401 (fail-open)', async () => {
+        const errorSpy = jest
+          .spyOn(Logger.prototype, 'error')
+          .mockImplementation(() => undefined);
+        auditService.log.mockRejectedValue(new Error('DB caída'));
+        prisma.user.findUnique.mockResolvedValue(buildUser());
+        mockArgon2.verify.mockResolvedValue(false as never);
+
+        await expect(
+          service.login({ email: 'user@example.com', password: 'wrong-pass' }),
+        ).rejects.toThrow(UnauthorizedException);
+        await flush();
+
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+        errorSpy.mockRestore();
+      });
+
+      it('no registra LOGIN_FAILED cuando la contraseña es correcta', async () => {
+        prisma.user.findUnique.mockResolvedValue(buildUser());
+        mockArgon2.verify.mockResolvedValue(true as never);
+
+        await service.login({
+          email: 'user@example.com',
+          password: 'password1',
+        });
+        await flush();
+
+        expect(auditService.log).not.toHaveBeenCalled();
+      });
+    });
+
     it('lanza 401 si el email no está verificado (signup propio, issue #5)', async () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ emailVerified: false }),
@@ -1078,6 +1158,50 @@ describe('AuthService', () => {
       ).rejects.toThrow('Token de restablecimiento inválido o ya utilizado');
     });
 
+    it('audita UNAUTHORIZED_ATTEMPT con ip y user-agent si el token ya fue usado (usuario conocido)', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'password-reset',
+        resetIssuedAt: 1000,
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ passwordResetTokenIssuedAt: null }),
+      );
+
+      await expect(
+        service.resetPassword(
+          { resetToken: 'token', newPassword: 'newpassword1' },
+          '203.0.113.7',
+          'jest-agent',
+        ),
+      ).rejects.toThrow('Token de restablecimiento inválido o ya utilizado');
+
+      expect(auditService.log).toHaveBeenCalledTimes(1);
+      expect(auditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-1',
+          action: 'UNAUTHORIZED_ATTEMPT',
+          ipAddress: '203.0.113.7',
+          userAgent: 'jest-agent',
+        }),
+      );
+    });
+
+    it('no audita si el token no verifica (sin userId confiable)', async () => {
+      jwtService.verify.mockImplementation(() => {
+        throw new Error('jwt expired');
+      });
+
+      await expect(
+        service.resetPassword({
+          resetToken: 'bad-token',
+          newPassword: 'newpassword1',
+        }),
+      ).rejects.toThrow('Token de restablecimiento inválido o expirado');
+
+      expect(auditService.log).not.toHaveBeenCalled();
+    });
+
     it('lanza 401 (replay guard) si ya no hay ningún reset pendiente (token ya usado)', async () => {
       jwtService.verify.mockReturnValue({
         sub: 'user-1',
@@ -1179,7 +1303,7 @@ describe('AuthService', () => {
       });
     });
 
-    it('lanza 401 y no audita si un reset concurrente ya consumió el token (updateMany no encuentra la fila, issue #302)', async () => {
+    it('lanza 401 y solo audita el intento rechazado si un reset concurrente ya consumió el token (updateMany no encuentra la fila, issue #302)', async () => {
       jwtService.verify.mockReturnValue({
         sub: 'user-1',
         purpose: 'password-reset',
@@ -1197,7 +1321,11 @@ describe('AuthService', () => {
           newPassword: 'newpassword1',
         }),
       ).rejects.toThrow('Token de restablecimiento inválido o ya utilizado');
-      expect(auditService.log).not.toHaveBeenCalled();
+      // Solo el intento rechazado: nunca PASSWORD_RESET_COMPLETED/PASSWORD_CHANGED.
+      expect(auditService.log).toHaveBeenCalledTimes(1);
+      expect(auditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'UNAUTHORIZED_ATTEMPT' }),
+      );
     });
   });
 });

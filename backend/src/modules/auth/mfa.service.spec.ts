@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
@@ -732,6 +732,191 @@ describe('MfaService', () => {
         'Código inválido',
       );
       expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('auditoría de autenticación (issue #283)', () => {
+    const verifyDto = { mfaToken: 'mfa-token', token: '123456' };
+    const recoverDto = {
+      email: 'user@example.com',
+      password: 'password1',
+      recoveryCode: 'a1b2-c3d4',
+    };
+    const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+    it('registra LOGIN con ip y user-agent al emitir la sesión tras verificar el TOTP', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'mfa-verify',
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
+      );
+      mockTotp(0);
+
+      await service.verifyMfa(verifyDto, '203.0.113.7', 'jest-agent');
+
+      expect(auditService.log).toHaveBeenCalledTimes(1);
+      expect(auditService.log).toHaveBeenCalledWith({
+        userId: 'user-1',
+        action: 'LOGIN',
+        resource: 'Auth',
+        resourceId: 'user-1',
+        ipAddress: '203.0.113.7',
+        userAgent: 'jest-agent',
+      });
+    });
+
+    it('un fallo al registrar LOGIN no rompe la emisión de la sesión (fail-open)', async () => {
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      auditService.log.mockRejectedValue(new Error('DB caída'));
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'mfa-verify',
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
+      );
+      mockTotp(0);
+
+      const result = await service.verifyMfa(verifyDto);
+
+      expect(result.accessToken).toBe('signed-token');
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      errorSpy.mockRestore();
+    });
+
+    it('registra LOGIN una sola vez en el enrolamiento forzado', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'mfa-setup',
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaEnabled: false, mfaSecret: 'BASE32SECRET' }),
+      );
+      mockTotp(0);
+
+      await service.confirmMfaSetup('setup-token', '123456', '10.0.0.1', 'ua');
+
+      const logins = auditService.log.mock.calls.filter(
+        ([entry]: [{ action: string }]) => entry.action === 'LOGIN',
+      );
+      expect(logins).toHaveLength(1);
+    });
+
+    it('registra MFA_FAILED con ip y user-agent si el TOTP es inválido, sin el código', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'mfa-verify',
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
+      );
+      mockTotp(null);
+
+      await expect(
+        service.verifyMfa(verifyDto, '203.0.113.7', 'jest-agent'),
+      ).rejects.toThrow('Código MFA inválido');
+      await flush();
+
+      expect(auditService.log).toHaveBeenCalledTimes(1);
+      const entry = (
+        auditService.log.mock.calls as Array<[Record<string, string>]>
+      )[0][0];
+      expect(entry).toMatchObject({
+        userId: 'user-1',
+        action: 'MFA_FAILED',
+        ipAddress: '203.0.113.7',
+        userAgent: 'jest-agent',
+      });
+      expect(JSON.stringify(entry)).not.toContain('123456');
+    });
+
+    it('no registra nada si el mfaToken es inválido (no hay userId confiable)', async () => {
+      jwtService.verify.mockImplementation(() => {
+        throw new Error('jwt expired');
+      });
+
+      await expect(service.verifyMfa(verifyDto)).rejects.toThrow(
+        'Código MFA inválido',
+      );
+      await flush();
+
+      expect(auditService.log).not.toHaveBeenCalled();
+    });
+
+    it('un fallo al registrar MFA_FAILED no cambia la excepción lanzada', async () => {
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      auditService.log.mockRejectedValue(new Error('DB caída'));
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'mfa-verify',
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
+      );
+      mockTotp(null);
+
+      await expect(service.verifyMfa(verifyDto)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      await flush();
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      errorSpy.mockRestore();
+    });
+
+    it('registra MFA_FAILED si el código de recuperación es inválido', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser({ mfaEnabled: true }));
+      mockArgon2.verify
+        .mockResolvedValueOnce(true as never)
+        .mockResolvedValueOnce(false as never);
+      prisma.mfaRecoveryCode.findMany.mockResolvedValue([
+        { id: 'code-1', codeHash: 'hash-1' },
+      ]);
+
+      await expect(
+        service.recoverMfa(recoverDto, '203.0.113.7', 'jest-agent'),
+      ).rejects.toThrow('Código de recuperación inválido');
+      await flush();
+
+      expect(auditService.log).toHaveBeenCalledTimes(1);
+      const entry = (
+        auditService.log.mock.calls as Array<[Record<string, string>]>
+      )[0][0];
+      expect(entry).toMatchObject({
+        userId: 'user-1',
+        action: 'MFA_FAILED',
+        ipAddress: '203.0.113.7',
+        userAgent: 'jest-agent',
+      });
+      expect(JSON.stringify(entry)).not.toContain('a1b2-c3d4');
+    });
+
+    it('registra LOGIN_FAILED si la contraseña de recoverMfa es incorrecta, sin filas para emails desconocidos', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser({ mfaEnabled: true }));
+      mockArgon2.verify.mockResolvedValue(false as never);
+
+      await expect(service.recoverMfa(recoverDto, '1.1.1.1')).rejects.toThrow(
+        'Credenciales inválidas',
+      );
+      await flush();
+      expect(auditService.log).toHaveBeenCalledTimes(1);
+      expect(auditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1', action: 'LOGIN_FAILED' }),
+      );
+
+      auditService.log.mockClear();
+      prisma.user.findUnique.mockResolvedValue(null);
+      await expect(service.recoverMfa(recoverDto)).rejects.toThrow(
+        'Credenciales inválidas',
+      );
+      await flush();
+      expect(auditService.log).not.toHaveBeenCalled();
     });
   });
 

@@ -47,6 +47,29 @@ describe('AuthController — logout routes (issue #192)', () => {
     expect(authService.logoutAll).toHaveBeenCalledWith(user, '1.1.1.1', 'ua');
   });
 
+  it('login y reset de contraseña delegan en AuthService con ip y user-agent (issue #283)', async () => {
+    const authService = {
+      login: jest.fn().mockResolvedValue({}),
+      resetPassword: jest.fn().mockResolvedValue({}),
+    };
+    const controller = new AuthController(
+      authService as unknown as AuthService,
+      {} as MfaService,
+    );
+    const loginDto = { email: 'a@b.cl', password: 'password1' };
+    const resetDto = { resetToken: 't', newPassword: 'newpassword1' };
+
+    await controller.login(loginDto, req);
+    await controller.resetPassword(resetDto, req);
+
+    expect(authService.login).toHaveBeenCalledWith(loginDto, '1.1.1.1', 'ua');
+    expect(authService.resetPassword).toHaveBeenCalledWith(
+      resetDto,
+      '1.1.1.1',
+      'ua',
+    );
+  });
+
   it('registra la IP real (req.clientIp) y no la del proxy en logout (issue #301)', async () => {
     const authService = {
       logout: jest.fn().mockResolvedValue({ message: 'ok' }),
