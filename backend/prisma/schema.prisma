@@ -538,6 +538,14 @@ model ReminderDispatch {
   resendMessageId String?
   deliveredAt     DateTime?
   openedAt        DateTime?
+  // issue #286: cantidad de intentos de envío (1 = el primer despacho). Los
+  // reintentos acotados (REMINDER_MAX_ATTEMPTS) lo incrementan al re-reclamar.
+  attempts        Int                    @default(1)
+  // issue #286: instante del último claim (INSERT inicial o re-claim de un
+  // reintento). Un PENDING cuyo claimedAt es viejo se considera abandonado
+  // (el proceso murió entre el claim y el envío); createdAt no sirve porque
+  // no cambia al re-reclamar.
+  claimedAt       DateTime               @default(now())
 
   @@unique([groupId, sessionDate, offsetKind, channel])
   @@index([consultationId])
