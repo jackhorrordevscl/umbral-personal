@@ -53,6 +53,24 @@ describe('Forgot/reset password (e2e)', () => {
     );
   }
 
+  // Issue #303: forgot-password responde antes de persistir el timestamp (el
+  // trabajo corre en segundo plano), así que los tests lo esperan por polling.
+  async function waitForResetIssuedAt(
+    id: string,
+    notEqualTo?: number,
+  ): Promise<number> {
+    const deadline = Date.now() + 5000;
+    for (;;) {
+      const user = await prisma.user.findUnique({ where: { id } });
+      const value = user?.passwordResetTokenIssuedAt?.getTime();
+      if (value !== undefined && value !== notEqualTo) return value;
+      if (Date.now() > deadline) {
+        throw new Error('passwordResetTokenIssuedAt no se persistió a tiempo');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
@@ -131,8 +149,8 @@ describe('Forgot/reset password (e2e)', () => {
         .send({ email })
         .expect(201);
 
-      const user = await prisma.user.findUnique({ where: { id } });
-      expect(user!.passwordResetTokenIssuedAt).not.toBeNull();
+      // forgot-password persiste el timestamp en segundo plano (issue #303).
+      expect(await waitForResetIssuedAt(id)).toBeGreaterThan(0);
     });
   });
 
@@ -178,11 +196,7 @@ describe('Forgot/reset password (e2e)', () => {
         (forgotRes.body as Record<string, unknown>).accessToken as string,
       ).toBeUndefined();
 
-      const user = await prisma.user.findUnique({ where: { id } });
-      const token = signResetToken(
-        id,
-        user!.passwordResetTokenIssuedAt!.getTime(),
-      );
+      const token = signResetToken(id, await waitForResetIssuedAt(id));
 
       const resetRes = await request(app.getHttpServer())
         .post('/api/v1/auth/password/reset')
@@ -220,11 +234,7 @@ describe('Forgot/reset password (e2e)', () => {
         .send({ email })
         .expect(201);
 
-      const user = await prisma.user.findUnique({ where: { id } });
-      const token = signResetToken(
-        id,
-        user!.passwordResetTokenIssuedAt!.getTime(),
-      );
+      const token = signResetToken(id, await waitForResetIssuedAt(id));
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/password/reset')
@@ -244,9 +254,7 @@ describe('Forgot/reset password (e2e)', () => {
         .post('/api/v1/auth/password/forgot')
         .send({ email })
         .expect(201);
-      const firstIssuedAt = (await prisma.user.findUnique({
-        where: { id },
-      }))!.passwordResetTokenIssuedAt!.getTime();
+      const firstIssuedAt = await waitForResetIssuedAt(id);
       const staleToken = signResetToken(id, firstIssuedAt);
 
       // Simula que pasa tiempo real entre ambos pedidos, para que el segundo
@@ -257,6 +265,9 @@ describe('Forgot/reset password (e2e)', () => {
         .post('/api/v1/auth/password/forgot')
         .send({ email })
         .expect(201);
+      // El segundo forgot también persiste en segundo plano: esperar a que el
+      // timestamp cambie antes de usar el link viejo.
+      await waitForResetIssuedAt(id, firstIssuedAt);
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/password/reset')
@@ -271,11 +282,7 @@ describe('Forgot/reset password (e2e)', () => {
         .post('/api/v1/auth/password/forgot')
         .send({ email })
         .expect(201);
-      const user = await prisma.user.findUnique({ where: { id } });
-      const token = signResetToken(
-        id,
-        user!.passwordResetTokenIssuedAt!.getTime(),
-      );
+      const token = signResetToken(id, await waitForResetIssuedAt(id));
 
       await request(app.getHttpServer())
         .get('/api/v1/patients')
@@ -315,11 +322,7 @@ describe('Forgot/reset password (e2e)', () => {
         .post('/api/v1/auth/password/forgot')
         .send({ email })
         .expect(201);
-      const user = await prisma.user.findUnique({ where: { id } });
-      const token = signResetToken(
-        id,
-        user!.passwordResetTokenIssuedAt!.getTime(),
-      );
+      const token = signResetToken(id, await waitForResetIssuedAt(id));
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/password/reset')

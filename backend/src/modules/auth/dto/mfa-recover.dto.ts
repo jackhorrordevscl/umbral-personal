@@ -1,7 +1,8 @@
-import { IsEmail, IsString } from 'class-validator';
+import { NormalizedEmail } from '../../../common/validators/normalized-email.decorator';
+import { IsString } from 'class-validator';
 
 export class MfaRecoverDto {
-  @IsEmail()
+  @NormalizedEmail()
   email: string;
 
   @IsString()

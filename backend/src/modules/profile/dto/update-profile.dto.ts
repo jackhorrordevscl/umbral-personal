@@ -1,15 +1,10 @@
+import { NormalizedEmail } from '../../../common/validators/normalized-email.decorator';
 import { PersonName } from '../../../common/validators/person-name.decorator';
-import {
-  IsEmail,
-  IsString,
-  MinLength,
-  MaxLength,
-  IsOptional,
-} from 'class-validator';
+import { IsString, MinLength, MaxLength, IsOptional } from 'class-validator';
 
 export class UpdateProfileDto {
   @IsOptional()
-  @IsEmail()
+  @NormalizedEmail()
   email?: string;
 
   @IsOptional()

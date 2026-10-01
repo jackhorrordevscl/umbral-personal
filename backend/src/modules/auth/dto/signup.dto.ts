@@ -1,8 +1,9 @@
+import { NormalizedEmail } from '../../../common/validators/normalized-email.decorator';
 import { PersonName } from '../../../common/validators/person-name.decorator';
-import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
+import { IsNotEmpty, IsString, MinLength } from 'class-validator';
 
 export class SignupDto {
-  @IsEmail()
+  @NormalizedEmail()
   email: string;
 
   @IsString()

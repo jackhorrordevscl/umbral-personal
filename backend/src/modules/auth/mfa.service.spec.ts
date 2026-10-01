@@ -750,6 +750,20 @@ describe('MfaService', () => {
       );
     });
 
+    // Issue #303: el lookup usa el email canónico aunque el servicio se llame
+    // sin pasar por el ValidationPipe.
+    it('busca al usuario por el email recortado y en minúsculas', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.recoverMfa({ ...dto, email: '  User@Example.COM ' }),
+      ).rejects.toThrow('Credenciales inválidas');
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { email: 'user@example.com' },
+      });
+    });
+
     it('corre un argon2.verify dummy si el usuario no existe (cierra el timing oracle)', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 

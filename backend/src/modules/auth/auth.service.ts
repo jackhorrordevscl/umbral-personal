@@ -1,7 +1,7 @@
 import {
-  ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -18,8 +18,9 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import type { RequestUser } from '../../common/decorators/current-user.decorator';
 import * as argon2 from 'argon2';
 import * as crypto from 'crypto';
-import { User } from '@prisma/client';
+import { Prisma, User } from '@prisma/client';
 import { MFA_SETUP_PURPOSE, MFA_VERIFY_PURPOSE } from './mfa.service';
+import { normalizeEmail } from '../../common/utils/normalize-email.util';
 import { getDummyPasswordHash } from './dummy-password-hash.util';
 
 // Idem para el cambio de contraseña forzado (T4.4 / issue #22): el admin
@@ -61,8 +62,14 @@ const RESEND_VERIFICATION_GENERIC_MESSAGE = {
 // email con ForbiddenException.
 const INVITATION_EXPIRES_IN_MS = 7 * 24 * 60 * 60 * 1000;
 
+// Issue #303: único rechazo de signup (invitación inválida/usada/expirada o
+// email ya registrado); mismo status y mensaje para no habilitar enumeración.
+const SIGNUP_REJECTED_MESSAGE = 'Código de invitación inválido o expirado';
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -84,13 +91,10 @@ export class AuthService {
   // las dos operaciones no deje ni una invitación "gastada" sin cuenta ni
   // una cuenta creada con una invitación que sigue viéndose disponible.
   async signup(dto: SignupDto) {
-    const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
-    if (existing) {
-      throw new ConflictException('El email ya está registrado');
-    }
-
+    // Issue #303: la invitación se valida ANTES de mirar si el email existe, y
+    // ambos fallos (invitación inválida, email ya registrado) responden con el
+    // mismo status y mensaje. Así, sin una invitación válida no hay forma de
+    // enumerar qué emails tienen cuenta.
     const invitation = await this.prisma.invitationCode.findUnique({
       where: { code: dto.inviteCode },
     });
@@ -99,12 +103,20 @@ export class AuthService {
       invitation.usedById ||
       invitation.expiresAt < new Date()
     ) {
-      throw new UnauthorizedException(
-        'Código de invitación inválido o expirado',
-      );
+      throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
     }
 
+    // El hash corre antes del chequeo de email para que la rama "email ya
+    // registrado" no sea mucho más rápida que la de éxito (oráculo de tiempo).
     const passwordHash = await argon2.hash(dto.password);
+
+    const existing = await this.prisma.user.findUnique({
+      where: { email: normalizeEmail(dto.email) },
+    });
+    if (existing) {
+      throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
+    }
+
     // Transacción interactiva (no el array-form usado en otros métodos de
     // este archivo) porque el segundo paso -- enlazar usedById en el
     // InvitationCode -- necesita el id del User recién creado en el primero;
@@ -120,26 +132,39 @@ export class AuthService {
     // updateMany de este par encuentra count 0 (el primero ya puso
     // usedById) y aborta toda la transacción, en vez de dejar dos cuentas
     // creadas con una sola invitación.
-    const user = await this.prisma.$transaction(async (tx) => {
-      const createdUser = await tx.user.create({
-        data: {
-          email: dto.email,
-          passwordHash,
-          name: dto.name,
-          emailVerified: false,
-        },
+    //
+    // Issue #303: dos signups concurrentes con el mismo email pueden pasar
+    // ambos el findUnique de arriba; el segundo cae en el unique de User.email
+    // (P2002) y debe responder igual que el resto de rechazos, no con un 409
+    // ni un 500 que delate que el email existe.
+    const user = await this.prisma
+      .$transaction(async (tx) => {
+        const createdUser = await tx.user.create({
+          data: {
+            email: normalizeEmail(dto.email),
+            passwordHash,
+            name: dto.name,
+            emailVerified: false,
+          },
+        });
+        const { count } = await tx.invitationCode.updateMany({
+          where: { id: invitation.id, usedById: null },
+          data: { usedById: createdUser.id, usedAt: new Date() },
+        });
+        if (count === 0) {
+          throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
+        }
+        return createdUser;
+      })
+      .catch((err: unknown) => {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
+        }
+        throw err;
       });
-      const { count } = await tx.invitationCode.updateMany({
-        where: { id: invitation.id, usedById: null },
-        data: { usedById: createdUser.id, usedAt: new Date() },
-      });
-      if (count === 0) {
-        throw new UnauthorizedException(
-          'Código de invitación inválido o expirado',
-        );
-      }
-      return createdUser;
-    });
 
     const token = this.jwtService.sign(
       { sub: user.id, purpose: EMAIL_VERIFY_PURPOSE },
@@ -208,12 +233,21 @@ export class AuthService {
    */
   async resendVerificationEmail(dto: ResendVerificationDto) {
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: normalizeEmail(dto.email) },
     });
-    if (!user || user.deletedAt || user.emailVerified) {
-      return RESEND_VERIFICATION_GENERIC_MESSAGE;
+    // Issue #303: el envío (la parte lenta y distinguible por latencia) corre
+    // en segundo plano; la respuesta sale tras el mismo único findUnique
+    // exista o no la cuenta.
+    if (user && !user.deletedAt && !user.emailVerified) {
+      this.runInBackground('reenvío de verificación', user.id, () =>
+        this.sendVerificationLink(user),
+      );
     }
 
+    return RESEND_VERIFICATION_GENERIC_MESSAGE;
+  }
+
+  private async sendVerificationLink(user: User): Promise<void> {
     const token = this.jwtService.sign(
       { sub: user.id, purpose: EMAIL_VERIFY_PURPOSE },
       { expiresIn: EMAIL_VERIFY_EXPIRES_IN },
@@ -227,13 +261,28 @@ export class AuthService {
       user.name,
       verifyUrl,
     );
+  }
 
-    return RESEND_VERIFICATION_GENERIC_MESSAGE;
+  // Mismo patrón fire-and-forget que ConsultationsService.emitCalendarSync:
+  // nunca se await, y un fallo se registra sin relanzar. El log lleva el id
+  // del usuario, nunca el email (issue #134).
+  private runInBackground(
+    label: string,
+    userId: string,
+    task: () => Promise<void>,
+  ): void {
+    void Promise.resolve()
+      .then(task)
+      .catch((err: unknown) => {
+        this.logger.error(
+          `Fallo no bloqueante en ${label} (userId=${userId}): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
   }
 
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: normalizeEmail(dto.email) },
     });
 
     if (!user || user.deletedAt) {
@@ -419,12 +468,21 @@ export class AuthService {
    */
   async forgotPassword(dto: ForgotPasswordDto) {
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: normalizeEmail(dto.email) },
     });
-    if (!user || user.deletedAt) {
-      return FORGOT_PASSWORD_GENERIC_MESSAGE;
+    // Issue #303: update + mail + audit corren en segundo plano, de modo que
+    // la latencia de la respuesta no distingue cuentas existentes de las que
+    // no (antes, solo las existentes pagaban un UPDATE, el envío y el audit).
+    if (user && !user.deletedAt) {
+      this.runInBackground('forgot-password', user.id, () =>
+        this.issuePasswordReset(user),
+      );
     }
 
+    return FORGOT_PASSWORD_GENERIC_MESSAGE;
+  }
+
+  private async issuePasswordReset(user: User): Promise<void> {
     // Se guarda el timestamp además de firmarlo en el JWT: un token de reset
     // es un JWT sin estado, válido hasta que expira (30 min). Sin este
     // replay guard, un link filtrado (logs, bandeja compartida) seguiría
@@ -460,8 +518,6 @@ export class AuthService {
       resource: 'User',
       resourceId: user.id,
     });
-
-    return FORGOT_PASSWORD_GENERIC_MESSAGE;
   }
 
   /**
@@ -604,7 +660,10 @@ export class AuthService {
    */
   async createInvitation(user: RequestUser) {
     const inviteCreatorEmail = this.config.get<string>('INVITE_CREATOR_EMAIL');
-    if (!inviteCreatorEmail || user.email !== inviteCreatorEmail) {
+    if (
+      !inviteCreatorEmail ||
+      normalizeEmail(user.email) !== normalizeEmail(inviteCreatorEmail)
+    ) {
       throw new ForbiddenException(
         'No tienes permiso para generar invitaciones',
       );

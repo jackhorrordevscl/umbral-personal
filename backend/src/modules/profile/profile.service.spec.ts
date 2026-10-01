@@ -141,6 +141,17 @@ describe('ProfileService', () => {
       expect(result.canInvite).toBe(true);
     });
 
+    it('canInvite=true aunque INVITE_CREATOR_EMAIL difiera en mayúsculas o espacios (issue #303)', async () => {
+      prisma.user.findFirst.mockResolvedValue(
+        buildUser({ email: 'creador@example.com' }),
+      );
+      config.get.mockReturnValue(' Creador@Example.com ');
+
+      const result = await service.findOne('user-1');
+
+      expect(result.canInvite).toBe(true);
+    });
+
     it('canInvite=false si el email del usuario no coincide con INVITE_CREATOR_EMAIL', async () => {
       prisma.user.findFirst.mockResolvedValue(
         buildUser({ email: 'user@example.com' }),
@@ -321,6 +332,43 @@ describe('ProfileService', () => {
       ).rejects.toThrow(ConflictException);
       expect(emailChangeService.requestChange).not.toHaveBeenCalled();
       expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    // Issue #303: comparación y unicidad usan el email canónico.
+    it('normaliza el email pedido antes de chequear unicidad y delegar', async () => {
+      prisma.user.findFirst
+        .mockResolvedValueOnce(buildUser())
+        .mockResolvedValueOnce(null);
+      mockArgon2.verify.mockResolvedValue(true as never);
+      prisma.user.update.mockResolvedValue(buildUser());
+
+      const result = await service.update('user-1', {
+        email: '  New@Example.COM ',
+        currentPassword: 'correct-password',
+      });
+
+      expect(prisma.user.findFirst).toHaveBeenLastCalledWith({
+        where: { email: 'new@example.com', id: { not: 'user-1' } },
+        select: { id: true },
+      });
+      expect(emailChangeService.requestChange).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'user-1' }),
+        'new@example.com',
+      );
+      expect(result.pendingEmail).toBe('new@example.com');
+    });
+
+    it('pedir el mismo email activo con otras mayúsculas es un no-op', async () => {
+      prisma.user.findFirst.mockResolvedValue(buildUser());
+      mockArgon2.verify.mockResolvedValue(true as never);
+      prisma.user.update.mockResolvedValue(buildUser());
+
+      await service.update('user-1', {
+        email: 'USER@example.com',
+        currentPassword: 'correct-password',
+      });
+
+      expect(emailChangeService.requestChange).not.toHaveBeenCalled();
     });
 
     it('pedir el mismo email ya activo es un no-op (sin delta, no delega)', async () => {

@@ -122,6 +122,30 @@ describe('EmailChangeService', () => {
       });
     });
 
+    it('guarda y envía pendingEmail en forma canónica (issue #303)', async () => {
+      await service.requestChange(
+        { id: 'user-1', email: 'old@example.com', name: 'Test User' },
+        '  New@Example.COM ',
+      );
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: {
+          pendingEmail: 'new@example.com',
+          pendingEmailTokenIssuedAt: expect.any(Date) as unknown as Date,
+        },
+      });
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ pendingEmail: 'new@example.com' }),
+        { expiresIn: '24h' },
+      );
+      expect(mailService.sendEmailChangeVerificationEmail).toHaveBeenCalledWith(
+        'new@example.com',
+        'Test User',
+        expect.any(String) as unknown as string,
+      );
+    });
+
     it('una segunda solicitud pisa pendingEmail/token anterior con la nueva dirección (supersede)', async () => {
       config.get.mockReturnValue(undefined);
 

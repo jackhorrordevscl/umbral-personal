@@ -133,7 +133,7 @@ describe('Signup + verificación de email (e2e)', () => {
       expect(user!.role).toBe('PROFESSIONAL');
     });
 
-    it('rechaza un email ya registrado (409)', async () => {
+    it('rechaza un email ya registrado con el mismo 401 genérico que una invitación inválida (issue #303)', async () => {
       const email = `signup.dup.${runId}@umbral.cl`;
       createdEmails.push(email);
 
@@ -147,9 +147,8 @@ describe('Signup + verificación de email (e2e)', () => {
         })
         .expect(201);
 
-      // El chequeo de email duplicado corre antes que el de la invitación
-      // (ver AuthService.signup) -- no hace falta un código válido acá, el
-      // 409 llega igual.
+      // La invitación se valida antes que el email (ver AuthService.signup) y
+      // ambos rechazos responden igual (401, mismo mensaje).
       await request(app.getHttpServer())
         .post('/api/v1/auth/signup')
         .send({
@@ -158,7 +157,12 @@ describe('Signup + verificación de email (e2e)', () => {
           name: 'Segunda Vez',
           inviteCode: await createInviteCode(),
         })
-        .expect(409);
+        .expect(401)
+        .expect((res) => {
+          expect((res.body as { message: string }).message).toBe(
+            'Código de invitación inválido o expirado',
+          );
+        });
     });
 
     it('rechaza contraseña menor a 8 caracteres (400)', async () => {

@@ -1,12 +1,12 @@
 import {
-  ConflictException,
   ForbiddenException,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
-import { Role, User } from '@prisma/client';
+import { Prisma, Role, User } from '@prisma/client';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
@@ -33,6 +33,10 @@ function buildUser(overrides: Partial<User> = {}): User {
     ...overrides,
   } as unknown as User;
 }
+
+// Deja correr las promesas encoladas del trabajo fire-and-forget (issue #303)
+// antes de afirmar sobre sus efectos.
+const flushBackground = () => new Promise((resolve) => setImmediate(resolve));
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -125,7 +129,52 @@ describe('AuthService', () => {
       usedAt: null,
     };
 
-    it('lanza 409 si el email ya está registrado', async () => {
+    // Issue #303: email ya registrado + invitación válida responde igual que
+    // una invitación inválida (mismo status y mensaje), sin crear nada.
+    it('lanza 401 con el mismo mensaje genérico si el email ya está registrado', async () => {
+      prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
+      prisma.user.findUnique.mockResolvedValue(buildUser());
+      mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+
+      const dto = {
+        email: 'user@example.com',
+        password: 'password1',
+        name: 'Nueva Cuenta',
+        inviteCode: 'valid-code',
+      };
+      await expect(service.signup(dto)).rejects.toThrow(UnauthorizedException);
+      await expect(service.signup(dto)).rejects.toThrow(
+        'Código de invitación inválido o expirado',
+      );
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('guarda el email en forma canónica al crear la cuenta (issue #303)', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
+      mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+      prisma.user.create.mockResolvedValue(buildUser({ emailVerified: false }));
+      prisma.invitationCode.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.signup({
+        email: ' Ana@Example.COM ',
+        password: 'password1',
+        name: 'Ana',
+        inviteCode: 'valid-code',
+      });
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { email: 'ana@example.com' },
+      });
+      expect(prisma.user.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          email: 'ana@example.com',
+        }) as unknown as Record<string, unknown>,
+      });
+    });
+
+    it('valida la invitación antes de consultar si el email existe (sin invitación válida no hay oráculo de emails)', async () => {
+      prisma.invitationCode.findUnique.mockResolvedValue(null);
       prisma.user.findUnique.mockResolvedValue(buildUser());
 
       await expect(
@@ -133,9 +182,49 @@ describe('AuthService', () => {
           email: 'user@example.com',
           password: 'password1',
           name: 'Nueva Cuenta',
+          inviteCode: 'no-existe',
+        }),
+      ).rejects.toThrow('Código de invitación inválido o expirado');
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('lanza el mismo 401 genérico si el unique de email salta dentro de la transacción (signups concurrentes)', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
+      mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+      prisma.user.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+
+      const attempt = service.signup({
+        email: 'user@example.com',
+        password: 'password1',
+        name: 'Test User',
+        inviteCode: 'valid-code',
+      });
+      await expect(attempt).rejects.toThrow(UnauthorizedException);
+      await expect(attempt).rejects.toThrow(
+        'Código de invitación inválido o expirado',
+      );
+    });
+
+    it('no enmascara otros errores de la transacción', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
+      mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+      prisma.user.create.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.signup({
+          email: 'user@example.com',
+          password: 'password1',
+          name: 'Test User',
           inviteCode: 'valid-code',
         }),
-      ).rejects.toThrow(ConflictException);
+      ).rejects.toThrow('db down');
     });
 
     // Issue #124: signup público sin invitación. Sin un InvitationCode
@@ -286,6 +375,21 @@ describe('AuthService', () => {
       );
     });
 
+    it('compara INVITE_CREATOR_EMAIL sin distinguir mayúsculas ni espacios (issue #303)', async () => {
+      config.get.mockImplementation((key: string) =>
+        key === 'INVITE_CREATOR_EMAIL' ? ' Creador@Example.com ' : undefined,
+      );
+      prisma.invitationCode.create.mockResolvedValue({
+        id: 'invitation-1',
+        code: 'abc123',
+        expiresAt: new Date('2026-09-16T00:00:00.000Z'),
+      });
+
+      await expect(service.createInvitation(requestUser)).resolves.toEqual(
+        expect.objectContaining({ code: 'abc123' }),
+      );
+    });
+
     it('crea la invitación y audita CREATE en el camino feliz', async () => {
       config.get.mockImplementation((key: string) =>
         key === 'INVITE_CREATOR_EMAIL' ? 'creador@example.com' : undefined,
@@ -414,6 +518,18 @@ describe('AuthService', () => {
       await expect(
         service.login({ email: 'user@example.com', password: 'password1' }),
       ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('busca la cuenta por el email recortado y en minúsculas (issue #303)', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.login({ email: ' User@Example.COM ', password: 'password1' }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { email: 'user@example.com' },
+      });
     });
 
     it('lanza 401 si la contraseña es incorrecta', async () => {
@@ -688,6 +804,7 @@ describe('AuthService', () => {
       const result = await service.forgotPassword({
         email: 'user@example.com',
       });
+      await flushBackground();
 
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
@@ -713,6 +830,144 @@ describe('AuthService', () => {
       expect(result).toEqual({
         message:
           'Si el email está registrado, vas a recibir un enlace para restablecer tu contraseña.',
+      });
+    });
+  });
+
+  // Issue #303: el trabajo posterior a la respuesta corre en segundo plano.
+  describe('trabajo en segundo plano (issue #303)', () => {
+    const forgotDto = { email: 'user@example.com' };
+    let loggerError: jest.SpyInstance<void, [message: unknown]>;
+
+    beforeEach(() => {
+      loggerError = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      loggerError.mockRestore();
+    });
+
+    it('forgotPassword responde sin esperar el UPDATE, el email ni el audit', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser());
+      prisma.user.update.mockReturnValue(new Promise(() => undefined));
+
+      const result = await service.forgotPassword(forgotDto);
+
+      expect(result).toEqual({
+        message:
+          'Si el email está registrado, vas a recibir un enlace para restablecer tu contraseña.',
+      });
+      expect(mailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+    });
+
+    it('forgotPassword hace el mismo trabajo síncrono (un findUnique) para cuenta existente e inexistente', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      await service.forgotPassword(forgotDto);
+      await flushBackground();
+      const callsMissing = prisma.user.findUnique.mock.calls.length;
+
+      prisma.user.findUnique.mockClear();
+      prisma.user.findUnique.mockResolvedValue(buildUser());
+      await service.forgotPassword(forgotDto);
+      await flushBackground();
+
+      expect(callsMissing).toBe(1);
+      expect(prisma.user.findUnique).toHaveBeenCalledTimes(1);
+    });
+
+    it('forgotPassword registra (sin lanzar ni exponer el email) si el envío falla en segundo plano', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser());
+      mailService.sendPasswordResetEmail.mockRejectedValue(
+        new Error('resend down'),
+      );
+
+      await expect(service.forgotPassword(forgotDto)).resolves.toBeDefined();
+      await flushBackground();
+
+      expect(loggerError).toHaveBeenCalledTimes(1);
+      const logged = String(loggerError.mock.calls[0]?.[0]);
+      expect(logged).toContain('resend down');
+      expect(logged).toContain('user-1');
+      expect(logged).not.toContain('user@example.com');
+      expect(auditService.log).not.toHaveBeenCalled();
+    });
+
+    it('forgotPassword registra si el UPDATE falla en segundo plano', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser());
+      prisma.user.update.mockRejectedValue(new Error('db down'));
+
+      await expect(service.forgotPassword(forgotDto)).resolves.toBeDefined();
+      await flushBackground();
+
+      expect(loggerError).toHaveBeenCalledTimes(1);
+      expect(mailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+    });
+
+    describe('resendVerificationEmail', () => {
+      const dto = { email: 'user@example.com' };
+      const generic = {
+        message:
+          'Si el email está registrado y pendiente de verificar, vas a recibir un nuevo enlace.',
+      };
+
+      it.each([
+        ['no existe', null],
+        ['está soft-deleted', buildUser({ deletedAt: new Date() })],
+        ['ya está verificado', buildUser({ emailVerified: true })],
+      ])(
+        'responde el mensaje genérico sin enviar nada si la cuenta %s',
+        async (_label, user) => {
+          prisma.user.findUnique.mockResolvedValue(user);
+
+          const result = await service.resendVerificationEmail(dto);
+          await flushBackground();
+
+          expect(result).toEqual(generic);
+          expect(mailService.sendVerificationEmail).not.toHaveBeenCalled();
+        },
+      );
+
+      it('envía el link en segundo plano si la cuenta está pendiente de verificar', async () => {
+        prisma.user.findUnique.mockResolvedValue(
+          buildUser({ emailVerified: false }),
+        );
+        config.get.mockImplementation((key: string) =>
+          key === 'FRONTEND_URL' ? 'http://localhost:5173' : undefined,
+        );
+        mailService.sendVerificationEmail.mockReturnValue(
+          new Promise(() => undefined),
+        );
+
+        const result = await service.resendVerificationEmail(dto);
+        await flushBackground();
+
+        expect(result).toEqual(generic);
+        expect(mailService.sendVerificationEmail).toHaveBeenCalledWith(
+          'user@example.com',
+          'Test User',
+          'http://localhost:5173/verify-email?token=signed-token',
+        );
+      });
+
+      it('registra (sin lanzar ni exponer el email) si el envío falla en segundo plano', async () => {
+        prisma.user.findUnique.mockResolvedValue(
+          buildUser({ emailVerified: false }),
+        );
+        mailService.sendVerificationEmail.mockRejectedValue(
+          new Error('resend down'),
+        );
+
+        await expect(service.resendVerificationEmail(dto)).resolves.toEqual(
+          generic,
+        );
+        await flushBackground();
+
+        expect(loggerError).toHaveBeenCalledTimes(1);
+        const logged = String(loggerError.mock.calls[0]?.[0]);
+        expect(logged).toContain('resend down');
+        expect(logged).not.toContain('user@example.com');
       });
     });
   });

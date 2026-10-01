@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
 import { MfaSecretCryptoService } from './mfa-secret-crypto.service';
+import { normalizeEmail } from '../../common/utils/normalize-email.util';
 import { maskEmail } from '../../common/utils/mask-email.util';
 import { VerifyMfaDto } from './dto/verify-mfa.dto';
 import { MfaRecoverDto } from './dto/mfa-recover.dto';
@@ -426,7 +427,7 @@ export class MfaService {
    */
   async recoverMfa(dto: MfaRecoverDto, ipAddress?: string, userAgent?: string) {
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: normalizeEmail(dto.email) },
     });
     if (!user || user.deletedAt) {
       await argon2.verify(await getDummyPasswordHash(), dto.password);
