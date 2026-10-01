@@ -839,10 +839,17 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
   // T3.5/T3.6: correct() que mueve sessionDate actualiza el MISMO Payment
   // (mismo groupId) y su dueDate, nunca crea un segundo cargo.
   it('correct() que cambia sessionDate actualiza el mismo Payment y mueve dueDate, sin crear un segundo cargo', async () => {
+    // issue #284: el vencimiento de una sesión ya realizada no se recalcula
+    // (ahora + gracia), así que la reprogramación se prueba con fechas
+    // futuras relativas a hoy.
+    const futureDate = (daysAhead: number) =>
+      new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
     const original = await consultationsService.create(
       {
         patientId,
-        sessionDate: '2026-05-15',
+        sessionDate: futureDate(10),
         consultReason: 'Motivo original',
         intervention: 'Intervención original',
       } as never,
@@ -853,7 +860,7 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
 
     const corrected = await consultationsService.correct(
       original.id,
-      { sessionDate: '2026-05-20' } as never,
+      { sessionDate: futureDate(15) } as never,
       therapistId,
     );
 

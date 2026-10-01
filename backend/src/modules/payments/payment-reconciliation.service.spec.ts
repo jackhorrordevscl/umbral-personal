@@ -286,6 +286,45 @@ describe('PaymentReconciliationService', () => {
       );
     });
 
+    // issue #284: sin orden, los más antiguos ocupaban siempre el lote.
+    it('pass 2 ordena el lote por updatedAt ascendente (rotación de revisión)', async () => {
+      await service.sweep();
+
+      expect(prisma.payment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            gatewayToken: { not: null },
+          }) as unknown,
+          orderBy: { updatedAt: 'asc' },
+        }) as unknown,
+      );
+    });
+
+    it('pass 2 marca cada candidato como revisado (updatedAt) aunque Flow no lo reporte pagado', async () => {
+      const stalePayment = buildPayment({
+        id: 'payment-stale-touch',
+        status: 'PENDING',
+        gatewayToken: 'token-touch',
+        therapistId: 'therapist-1',
+      });
+      pass2Candidates = [stalePayment];
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PENDING' });
+
+      await service.sweep();
+
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'payment-stale-touch',
+          status: { in: ['PENDING', 'LATE'] },
+        },
+        data: { updatedAt: expect.any(Date) as unknown },
+      });
+      expect(paymentsService.markPaid).not.toHaveBeenCalled();
+    });
+
     // sdd/payments-multigateway-redesign task 3.3 + design.md Decision 2:
     // "memoized in a Map local to one run and discarded at the end" -- dos
     // cargos vencidos del mismo terapeuta en el mismo tick de sweep()

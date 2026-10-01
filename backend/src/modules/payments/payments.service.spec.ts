@@ -155,6 +155,19 @@ describe('PaymentsService', () => {
   });
 
   describe('ensureCharge', () => {
+    // issue #284: dueDate depende de "ahora" (max(sessionDate, ahora) + gracia),
+    // así que se fija el reloj para que los tests no dependan de la fecha real.
+    const NOW = new Date('2026-09-20T12:00:00.000Z');
+    const GRACE_MS = 24 * 60 * 60 * 1000;
+
+    beforeEach(() => {
+      jest.useFakeTimers({ now: NOW });
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
     // spec.md "Feature Flag Gating" + "Automatic Charge Creation Gated by
     // Gateway Connection" + "Charge Amount Resolution": ninguna de las tres
     // condiciones de gating crea un cargo. "sin PaymentAccount conectada"
@@ -228,7 +241,28 @@ describe('PaymentsService', () => {
           therapistId: 'therapist-1',
           amount: 30000,
           status: 'PENDING',
-          dueDate: new Date('2026-09-10T15:00:00.000Z'),
+          // sesión ya realizada (2026-09-10): la gracia corre desde ahora
+          dueDate: new Date(NOW.getTime() + GRACE_MS),
+        }) as unknown,
+      });
+    });
+
+    it('para una sesión futura el vencimiento es la fecha de la sesión más la gracia', async () => {
+      const sessionDate = new Date('2026-10-01T15:00:00.000Z');
+      prisma.consultation.findFirst.mockResolvedValue(
+        buildConsultation({ sessionDate }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      prisma.payment.findUnique.mockResolvedValue(null);
+      prisma.payment.create.mockResolvedValue(buildPayment());
+
+      await service.ensureCharge('group-1');
+
+      expect(prisma.payment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          dueDate: new Date(sessionDate.getTime() + GRACE_MS),
         }) as unknown,
       });
     });
@@ -374,7 +408,7 @@ describe('PaymentsService', () => {
       expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
       expect(prisma.payment.update).toHaveBeenCalledWith({
         where: { id: 'payment-1' },
-        data: { dueDate: new Date('2026-10-01T15:00:00.000Z') },
+        data: { dueDate: new Date('2026-10-02T15:00:00.000Z') },
       });
     });
 
@@ -433,7 +467,7 @@ describe('PaymentsService', () => {
       expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
       expect(prisma.payment.update).toHaveBeenCalledWith({
         where: { id: 'payment-1' },
-        data: { dueDate: new Date('2026-10-01T15:00:00.000Z') },
+        data: { dueDate: new Date('2026-10-02T15:00:00.000Z') },
       });
     });
 
@@ -471,11 +505,15 @@ describe('PaymentsService', () => {
 
       expect(prisma.payment.update).toHaveBeenCalledWith({
         where: { id: 'payment-1' },
-        data: { dueDate: futureDate, status: 'PENDING', lateNotifiedAt: null },
+        data: {
+          dueDate: new Date(futureDate.getTime() + GRACE_MS),
+          status: 'PENDING',
+          lateNotifiedAt: null,
+        },
       });
     });
 
-    it('un cargo LATE cuyo nuevo dueDate sigue en el pasado solo mueve dueDate, sin re-armarse', async () => {
+    it('un cargo LATE cuya sesión sigue en el pasado no se mueve ni se re-arma', async () => {
       const stillPastDate = new Date('2026-08-15T15:00:00.000Z');
       prisma.consultation.findFirst.mockResolvedValue(
         buildConsultation({ sessionDate: stillPastDate }),
@@ -492,19 +530,42 @@ describe('PaymentsService', () => {
 
       await service.ensureCharge('group-1');
 
-      expect(prisma.payment.update).toHaveBeenCalledWith({
-        where: { id: 'payment-1' },
-        data: { dueDate: stillPastDate },
-      });
+      expect(prisma.payment.update).not.toHaveBeenCalled();
     });
 
-    it('un cargo existente cuyo dueDate no cambió no dispara ningún update', async () => {
-      prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
+    // Regresión de la revisión: sesión futura corregida hacia una fecha ya
+    // pasada conservaba el dueDate futuro y el aviso de vencido llegaba tarde.
+    it('un cargo PENDING cuya sesión se corrige a una fecha pasada recorta el dueDate a ahora + gracia', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(
+        buildConsultation({
+          sessionDate: new Date('2026-09-15T15:00:00.000Z'),
+        }),
+      );
       paymentAccountService.resolveGatewayContext.mockResolvedValue(
         buildContext(),
       );
       prisma.payment.findUnique.mockResolvedValue(
-        buildPayment({ dueDate: new Date('2026-09-10T15:00:00.000Z') }),
+        buildPayment({ dueDate: new Date('2026-12-01T15:00:00.000Z') }),
+      );
+
+      await service.ensureCharge('group-1');
+
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: { dueDate: new Date(NOW.getTime() + GRACE_MS) },
+      });
+    });
+
+    it('un cargo existente cuyo dueDate no cambió no dispara ningún update', async () => {
+      const sessionDate = new Date('2026-10-01T15:00:00.000Z');
+      prisma.consultation.findFirst.mockResolvedValue(
+        buildConsultation({ sessionDate }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      prisma.payment.findUnique.mockResolvedValue(
+        buildPayment({ dueDate: new Date(sessionDate.getTime() + GRACE_MS) }),
       );
 
       await service.ensureCharge('group-1');
@@ -569,20 +630,41 @@ describe('PaymentsService', () => {
 
     // sdd/payments-multigateway-redesign task 3.9 + spec.md
     // "Self-Service Disconnection", scenario "Disconnecting stops future
-    // automatic charges only": once resolveGatewayContext returns null
-    // (account DISCONNECTED), ensureCharge never even reads the Payment
-    // table -- proving a stronger guarantee than "no new charge": a
-    // pending charge created BEFORE disconnection cannot possibly be
-    // touched by this call, because it's never looked up at all.
-    it('con la cuenta desconectada, ensureCharge nunca consulta ni muta la tabla Payment (un cargo previo queda intacto)', async () => {
+    // automatic charges only": con la cuenta desconectada no se crea ningún
+    // cargo ni se emite una orden.
+    it('con la cuenta desconectada y sin cargo previo, ensureCharge no crea ni muta nada', async () => {
       prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
+      prisma.payment.findUnique.mockResolvedValue(null);
       paymentAccountService.resolveGatewayContext.mockResolvedValue(null);
 
       await service.ensureCharge('group-1');
 
-      expect(prisma.payment.findUnique).not.toHaveBeenCalled();
       expect(prisma.payment.create).not.toHaveBeenCalled();
       expect(prisma.payment.update).not.toHaveBeenCalled();
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+    });
+
+    // issue #284: antes resolveGatewayContext() cortaba el flujo antes de
+    // leer el cargo, así que reprogramar una sesión con la cuenta
+    // desconectada dejaba el dueDate viejo y el sweep lo marcaba LATE.
+    it('con la cuenta desconectada, reprogramar la sesión igual mueve el dueDate del cargo existente sin tocar la pasarela', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(
+        buildConsultation({
+          sessionDate: new Date('2026-10-01T15:00:00.000Z'),
+        }),
+      );
+      prisma.payment.findUnique.mockResolvedValue(
+        buildPayment({ dueDate: new Date('2026-09-10T15:00:00.000Z') }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(null);
+
+      await service.ensureCharge('group-1');
+
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: { dueDate: new Date('2026-10-02T15:00:00.000Z') },
+      });
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
     });
   });
 
@@ -600,7 +682,7 @@ describe('PaymentsService', () => {
       const result = await service.updateAmount('group-1', 45000);
 
       expect(prisma.payment.updateMany).toHaveBeenCalledWith({
-        where: { groupId: 'group-1', status: 'PENDING' },
+        where: { groupId: 'group-1', status: { in: ['PENDING', 'LATE'] } },
         data: { amount: 45000 },
       });
       expect(result.amount).toBe(45000);
@@ -640,11 +722,29 @@ describe('PaymentsService', () => {
       expect(gatewayAdapter.createOrder).toHaveBeenCalled();
     });
 
-    it('lanza NotFoundException si no hay un cargo PENDING para ese groupId', async () => {
+    // issue #284: un cobro LATE existe y es cancelable, pero el 404 lo
+    // trataba como inexistente (caso real corregido a mano en producción).
+    it('acepta un cargo LATE (el updateMany filtra por estados cancelables, no solo PENDING)', async () => {
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment({ status: 'LATE', amount: 45000 }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      prisma.patient.findUnique.mockResolvedValue(buildConsultation().patient);
+
+      const result = await service.updateAmount('group-1', 45000);
+
+      expect(result.amount).toBe(45000);
+      expect(gatewayAdapter.createOrder).toHaveBeenCalled();
+    });
+
+    it('lanza NotFoundException si no hay un cargo pendiente o vencido para ese groupId', async () => {
       prisma.payment.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(service.updateAmount('group-1', 45000)).rejects.toThrow(
-        NotFoundException,
+        'No existe un cargo pendiente o vencido para esta sesión.',
       );
     });
 

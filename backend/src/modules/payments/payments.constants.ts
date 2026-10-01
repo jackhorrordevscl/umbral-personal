@@ -12,6 +12,12 @@ export const SWEEP_BATCH_LIMIT = 200;
 // reconciling a charge whose callback may have been lost -- PR 2.
 export const RECONCILE_MIN_AGE_MS = 15 * 60 * 1000;
 
+// issue #284: ventana de gracia que se suma al vencimiento de un cobro
+// (dueDate = max(sessionDate, ahora) + gracia). Sin ella, registrar una
+// sesión ya realizada creaba un cobro que el sweep marcaba LATE minutos
+// después de enviar el link al paciente.
+export const PAYMENT_DUE_GRACE_MS = 24 * 60 * 60 * 1000;
+
 // issue #115: how many sweep candidates PaymentsService.runInBatches()
 // processes concurrently within a SWEEP_BATCH_LIMIT batch. Bounds how many
 // requests hit Flow (or the DB/mail path) at once instead of running the

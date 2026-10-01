@@ -153,16 +153,40 @@ export class PaymentReconciliationService {
         gatewayToken: { not: null },
         orderIssuedAt: { lte: cutoff },
       },
+      // issue #284: sin orden, los cobros impagos más antiguos ocupaban
+      // siempre el lote y el resto nunca se reconciliaba. updatedAt hace de
+      // "última revisión" (ver markReconcileAttempt): el lote rota desde la
+      // fila menos recientemente tocada, sin columna ni migración nueva.
+      orderBy: { updatedAt: 'asc' },
       take: SWEEP_BATCH_LIMIT,
     });
 
-    await this.runInBatches(candidates, (payment) =>
-      this.reconcileOne(payment, contextCache).catch((err: unknown) => {
+    await this.runInBatches(candidates, async (payment) => {
+      await this.markReconcileAttempt(payment.id);
+      await this.reconcileOne(payment, contextCache).catch((err: unknown) => {
         this.logger.error(
           `Sweep: fallo al reconciliar paymentId=${payment.id}: ${err instanceof Error ? err.message : String(err)}`,
         );
-      }),
-    );
+      });
+    });
+  }
+
+  // issue #284: marca la fila como revisada en este tick (aunque Flow aún no
+  // la reporte pagada o la consulta falle) para que el próximo lote, ordenado
+  // por updatedAt, empiece por las que lleva más tiempo sin revisar. El gate
+  // por estado evita pisar un cobro que otro flujo ya pagó o canceló. Un fallo
+  // acá nunca debe impedir la reconciliación de la fila.
+  private async markReconcileAttempt(paymentId: string): Promise<void> {
+    try {
+      await this.prisma.payment.updateMany({
+        where: { id: paymentId, status: { in: [...CANCELLABLE_STATUSES] } },
+        data: { updatedAt: new Date() },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Sweep: no se pudo marcar la revisión de paymentId=${paymentId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   // issue #115: transitionLatePayments()/reconcilePendingPayments() ran
