@@ -14,6 +14,7 @@ import { MailService } from '../mail/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
   CANCELLABLE_STATUSES,
+  PAYMENT_DUE_GRACE_MS,
   PAYMENT_CONFIRM_PATH,
   PAYMENT_RETURN_PATH,
   PAYMENT_RETURN_REDIRECT_PATH,
@@ -121,11 +122,10 @@ export class PaymentsService {
     });
     if (!consultation || consultation.patient.deletedAt) return;
 
-    const context = await this.paymentAccountService.resolveGatewayContext(
-      consultation.therapistId,
-    );
-    if (!context) return;
-
+    // issue #284: el cargo existente se lee y se le mueve el dueDate ANTES de
+    // exigir un contexto de pasarela -- con la cuenta desconectada, reprogramar
+    // una sesión dejaba el dueDate viejo y el sweep marcaba LATE un cobro de
+    // una sesión que ya no estaba vencida.
     const existing = await this.prisma.payment.findUnique({
       where: { groupId },
     });
@@ -134,6 +134,11 @@ export class PaymentsService {
       await this.moveDueDateIfNeeded(existing, consultation.sessionDate);
       return;
     }
+
+    const context = await this.paymentAccountService.resolveGatewayContext(
+      consultation.therapistId,
+    );
+    if (!context) return;
 
     // spec.md "Charge Amount Resolution and Snapshot": with no resolvable
     // amount (neither a session override -- PATCH /payments/:groupId, PR 2 --
@@ -153,7 +158,7 @@ export class PaymentsService {
           therapistId: consultation.therapistId,
           amount,
           status: 'PENDING',
-          dueDate: consultation.sessionDate,
+          dueDate: this.computeDueDate(consultation.sessionDate),
         },
       });
     } catch (err) {
@@ -250,20 +255,36 @@ export class PaymentsService {
     sessionDate: Date,
   ): Promise<void> {
     if (existing.status !== 'PENDING' && existing.status !== 'LATE') return;
-    if (existing.dueDate.getTime() === sessionDate.getTime()) return;
 
-    const isRescheduleToFuture =
-      existing.status === 'LATE' && sessionDate.getTime() > Date.now();
+    // issue #284: una sesión ya realizada no recalcula el vencimiento --
+    // computeDueDate() depende de "ahora" y movería el dueDate en cada
+    // llamada, además de re-armar un cobro LATE como si fuera una
+    // reprogramación real.
+    if (sessionDate.getTime() <= Date.now()) return;
+
+    const dueDate = this.computeDueDate(sessionDate);
+    if (existing.dueDate.getTime() === dueDate.getTime()) return;
+
+    const isRescheduleToFuture = existing.status === 'LATE';
 
     await this.prisma.payment.update({
       where: { id: existing.id },
       data: {
-        dueDate: sessionDate,
+        dueDate,
         ...(isRescheduleToFuture
           ? { status: 'PENDING' as const, lateNotifiedAt: null }
           : {}),
       },
     });
+  }
+
+  // issue #284: dueDate = max(sessionDate, ahora) + gracia. Para una sesión
+  // futura es la fecha de la sesión más la gracia; para una ya realizada, la
+  // gracia corre desde el momento de registrar el cobro.
+  private computeDueDate(sessionDate: Date): Date {
+    return new Date(
+      Math.max(sessionDate.getTime(), Date.now()) + PAYMENT_DUE_GRACE_MS,
+    );
   }
 
   // design.md "PATCH /payments/:groupId ... Per-session amount override
@@ -290,12 +311,12 @@ export class PaymentsService {
     }
 
     const result = await this.prisma.payment.updateMany({
-      where: { groupId, status: 'PENDING' },
+      where: { groupId, status: { in: [...CANCELLABLE_STATUSES] } },
       data: { amount },
     });
     if (result.count === 0) {
       throw new NotFoundException(
-        'No existe un cargo pendiente para esta sesión.',
+        'No existe un cargo pendiente o vencido para esta sesión.',
       );
     }
 
