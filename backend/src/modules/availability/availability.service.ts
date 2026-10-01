@@ -314,10 +314,13 @@ export class AvailabilityService {
     if (this.overlayEnabled) {
       const connection = await this.prisma.googleCalendarConnection.findUnique({
         where: { therapistId },
-        select: { busySyncedAt: true },
+        select: { busySyncedAt: true, status: true },
       });
+      // issue #283: una conexión desconectada puede conservar busySyncedAt
+      // reciente; sin exigir CONNECTED, sus bloques seguirían ocultando slots.
       const isFresh =
-        !!connection?.busySyncedAt &&
+        connection?.status === 'CONNECTED' &&
+        !!connection.busySyncedAt &&
         now.getTime() - connection.busySyncedAt.getTime() <
           OVERLAY_STALENESS_MS;
       if (isFresh) {

@@ -248,6 +248,10 @@ export class CalendarOauthService {
       select: { status: true },
     });
 
+    // issue #283: los intervalos ocupados de Google dejan de ser válidos al
+    // desconectar; no deben quedar almacenados ni afectar la disponibilidad.
+    await this.prisma.calendarBusyBlock.deleteMany({ where: { therapistId } });
+
     // issue #119: desconexión pedida por el propio terapeuta -- la
     // desconexión por invalid_grant (CalendarSyncService.handleInvalidGrant)
     // audita aparte, no pasa por acá.

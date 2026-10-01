@@ -486,6 +486,11 @@ export class CalendarSyncService {
     });
     if (!connection) return;
 
+    // issue #283: mismo criterio que CalendarOauthService.disconnect.
+    await this.prisma.calendarBusyBlock.deleteMany({
+      where: { therapistId: connection.therapistId },
+    });
+
     // issue #119: misma acción que CalendarOauthService.disconnect (el
     // terapeuta termina desconectado igual), pero con detail distinto -- acá
     // el trigger fue Google, no un pedido explícito.

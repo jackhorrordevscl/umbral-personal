@@ -837,6 +837,7 @@ describe('AvailabilityService (calendar overlay)', () => {
 
   it('flag prendido y overlay fresco: fusiona CalendarBusyBlock en blockouts y descarta el slot cubierto', async () => {
     prisma.googleCalendarConnection.findUnique.mockResolvedValue({
+      status: 'CONNECTED',
       busySyncedAt: new Date('2026-05-01T00:00:00.000Z'), // now, 0ms de antigüedad
     });
     // 09:00 Chile = 13:00 UTC -- bloquea exactamente el primer slot.
@@ -865,6 +866,22 @@ describe('AvailabilityService (calendar overlay)', () => {
       },
       select: { startsAt: true, endsAt: true },
     });
+  });
+
+  it('flag prendido, busySyncedAt fresco pero conexión DISCONNECTED: NO consulta CalendarBusyBlock (issue #283)', async () => {
+    prisma.googleCalendarConnection.findUnique.mockResolvedValue({
+      status: 'DISCONNECTED',
+      busySyncedAt: new Date('2026-05-01T00:00:00.000Z'),
+    });
+    service = new AvailabilityService(
+      prisma as unknown as PrismaService,
+      buildConfig({ CALENDAR_AVAILABILITY_OVERLAY_ENABLED: 'true' }),
+    );
+
+    const result = await service.computeSlots('therapist-1', from, to, now);
+
+    expect(result).toHaveLength(4);
+    expect(prisma.calendarBusyBlock.findMany).not.toHaveBeenCalled();
   });
 
   it('flag prendido pero overlay stale (busySyncedAt viejo): NO consulta CalendarBusyBlock, salida idéntica a la de sin overlay', async () => {
