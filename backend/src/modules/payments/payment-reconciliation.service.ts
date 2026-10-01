@@ -232,6 +232,7 @@ export class PaymentReconciliationService {
     await this.paymentsService.markPaid(
       payment.id,
       orderStatus.gatewayPaymentId,
+      orderStatus.amount,
     );
   }
 }

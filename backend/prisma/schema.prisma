@@ -503,6 +503,10 @@ enum NotificationType {
   // legales perdidos. No la emite ningún flujo de la aplicación -- solo el
   // script one-off de este anuncio (backend/scripts/notify-document-reupload.ts).
   PATIENT_DOCUMENT_REUPLOAD_REQUIRED
+  // issue #284: emitida por PaymentsService cuando la pasarela reporta un
+  // pago que el cobro local no puede representar (PAID sobre un cobro
+  // CANCELLED, o un monto distinto al del cobro).
+  PAYMENT_ANOMALY
 }
 
 // sdd/session-reminders PR 2: log de despachos de recordatorios, uno por

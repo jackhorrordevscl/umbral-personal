@@ -54,6 +54,7 @@ function buildDisabledPaymentsService(prisma: PrismaService): PaymentsService {
     registry,
     config,
     new MailService(config),
+    new NotificationsService(prisma),
   );
 }
 
@@ -763,6 +764,7 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
       registry,
       buildConfig(),
       new MailService(buildConfig()),
+      new NotificationsService(prisma),
     );
     consultationsService = new ConsultationsService(
       prisma,

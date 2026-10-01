@@ -5,12 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Payment } from '@prisma/client';
+import { NotificationType, Payment } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GatewayContext } from './payment-gateway.client';
 import { PaymentGatewayRegistry } from './payment-gateway.registry';
 import { PaymentAccountService } from './payment-account.service';
 import { MailService } from '../mail/mail.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   CANCELLABLE_STATUSES,
   PAYMENT_CONFIRM_PATH,
@@ -68,6 +69,7 @@ export class PaymentsService {
     private gatewayRegistry: PaymentGatewayRegistry,
     private config: ConfigService,
     private mailService: MailService,
+    private notificationsService: NotificationsService,
   ) {
     // Absent => enabled by default, same criterion as
     // RemindersService/CalendarSyncService -- only an explicit "false"
@@ -312,6 +314,12 @@ export class PaymentsService {
         patient?.email ?? null,
         payment.therapistId,
       );
+      // issue #284: el link anterior sigue vivo en la pasarela con el monto
+      // viejo (y el mismo commerceOrder = groupId); se anula ANTES de
+      // reemitir para que el paciente no pueda pagarlo.
+      if (payment.gatewayToken) {
+        await this.voidGatewayOrder(context, payment);
+      }
       const order = await this.issueOrder({
         paymentId: payment.id,
         context,
@@ -319,6 +327,16 @@ export class PaymentsService {
         groupId,
         payerEmail,
       });
+      if (!order && payment.gatewayToken) {
+        // La reemisión falló: la orden anterior ya fue anulada (o su
+        // anulación falló y quedó logueada), así que el link/token guardado
+        // no es confiable. Se limpian para que la UI ofrezca reintentar el
+        // cobro en vez de mostrar un link con el monto viejo.
+        await this.prisma.payment.update({
+          where: { id: payment.id },
+          data: { paymentUrl: null, gatewayToken: null },
+        });
+      }
       if (patient) {
         await this.deliverPaymentLink(payment.id, patient, order, amount);
       }
@@ -569,14 +587,26 @@ export class PaymentsService {
     );
     if (!context) return;
 
+    await this.voidGatewayOrder(context, payment);
+  }
+
+  // issue #111: anula la orden en la pasarela sin dejar que un fallo
+  // propague -- compartido por cancelPaymentRow y updateAmount (issue #284).
+  // Un rechazo (p. ej. la orden ya estaba pagada, una carrera real) se
+  // loguea fuerte en vez de tragarse en silencio.
+  private async voidGatewayOrder(
+    context: GatewayContext,
+    payment: Payment,
+  ): Promise<void> {
+    if (!payment.gatewayToken) return;
     try {
       await this.gatewayRegistry
         .get(context.provider)
         .voidOrder(context.credentials, payment.gatewayToken);
     } catch (err) {
       // issue #111: this IS the operator-visibility gap -- log loudly
-      // instead of swallowing silently. The local CANCELLED transition
-      // above already happened and is never rolled back for this.
+      // instead of swallowing silently. Callers never roll back their own
+      // local write for this.
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(
         `Fallo al anular la orden en la pasarela de pago (paymentId=${payment.id}, groupId=${payment.groupId}, token=${payment.gatewayToken}): ${message}`,
@@ -613,12 +643,22 @@ export class PaymentsService {
   // null), the charge is left exactly as it was -- there is no credential
   // left to ask Flow with, and the controller already rejected the
   // confirmation before ever reaching this point in that case.
+  //
+  // issue #284: a CANCELLED row is no longer skipped before the gateway
+  // call. If the gateway reports PAID for it, the money was collected for a
+  // charge cancelled locally (a real race with cancelUnpaid, or a void that
+  // failed) -- the row is still never reopened, but the divergence is
+  // logged and the therapist is notified instead of vanishing silently.
   async confirm(token: string): Promise<void> {
     const payment = await this.prisma.payment.findFirst({
       where: { gatewayToken: token },
     });
     if (!payment) return;
-    if (!(CANCELLABLE_STATUSES as readonly string[]).includes(payment.status)) {
+    const isCancelled = payment.status === 'CANCELLED';
+    if (
+      !isCancelled &&
+      !(CANCELLABLE_STATUSES as readonly string[]).includes(payment.status)
+    ) {
       return;
     }
 
@@ -632,7 +672,52 @@ export class PaymentsService {
       .getOrderStatus(context.credentials, token);
     if (orderStatus.status !== 'PAID') return;
 
-    await this.markPaid(payment.id, orderStatus.gatewayPaymentId);
+    if (isCancelled) {
+      await this.reportPaymentAnomaly(
+        payment,
+        'La pasarela reportó PAID para un cobro anulado localmente',
+        'Pago recibido en un cobro anulado',
+        'La pasarela registró un pago para un cobro que estaba anulado en Umbral. Revisa tu cuenta de la pasarela para conciliarlo.',
+      );
+      return;
+    }
+
+    await this.markPaid(
+      payment.id,
+      orderStatus.gatewayPaymentId,
+      orderStatus.amount,
+    );
+  }
+
+  // issue #284: error log + in-app notification for a payment state the
+  // local row cannot represent (money collected vs. local status/amount).
+  // Never throws: the webhook/reconciliation caller must not fail because
+  // the alert could not be persisted. No PII -- only ids reach logs and the
+  // notification metadata.
+  private async reportPaymentAnomaly(
+    payment: Pick<Payment, 'id' | 'groupId' | 'therapistId'>,
+    logMessage: string,
+    title: string,
+    body: string,
+    detail = '',
+  ): Promise<void> {
+    this.logger.error(
+      `${logMessage} (paymentId=${payment.id}, groupId=${payment.groupId}${detail})`,
+    );
+    try {
+      await this.notificationsService.create({
+        userId: payment.therapistId,
+        type: NotificationType.PAYMENT_ANOMALY,
+        title,
+        body,
+        metadata: { paymentId: payment.id, groupId: payment.groupId },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `Fallo al notificar la anomalía de cobro (paymentId=${payment.id}, groupId=${payment.groupId}): ${message}`,
+      );
+    }
   }
 
   // T5.4/T5.5/T7.7/T7.8: used by PaymentsController.updateAmount (PATCH
@@ -789,10 +874,34 @@ export class PaymentsService {
   // ambos caminos no puedan divergir si uno se corrige y el otro se olvida.
   // Público porque PaymentReconciliationService lo invoca desde
   // reconcileOne() -- ya no es una llamada interna únicamente.
+  //
+  // issue #284: when the gateway reports the amount it actually charged,
+  // it must match payment.amount -- updateAmount() re-issues the order, so
+  // a link sent before the change could still be paid at the old amount.
+  // On mismatch the row is left untouched (never silently PAID) and the
+  // divergence is logged and notified. `gatewayAmount` is optional: an
+  // adapter that does not expose it skips the check.
   async markPaid(
     paymentId: string,
     gatewayPaymentId: string | undefined,
+    gatewayAmount?: number,
   ): Promise<void> {
+    if (gatewayAmount !== undefined) {
+      const payment = await this.prisma.payment.findUnique({
+        where: { id: paymentId },
+      });
+      if (payment && payment.amount !== gatewayAmount) {
+        await this.reportPaymentAnomaly(
+          payment,
+          'El monto cobrado en la pasarela no coincide con el del cobro; no se marca como pagado',
+          'Monto de pago distinto al del cobro',
+          'La pasarela registró un pago con un monto distinto al del cobro. El cobro no se marcó como pagado; revisa tu cuenta de la pasarela.',
+          `, localAmount=${payment.amount}, gatewayAmount=${gatewayAmount}`,
+        );
+        return;
+      }
+    }
+
     await this.prisma.payment.updateMany({
       where: { id: paymentId, status: { in: [...CANCELLABLE_STATUSES] } },
       data: {
