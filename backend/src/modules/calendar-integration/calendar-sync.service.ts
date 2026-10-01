@@ -55,6 +55,7 @@ interface SyncableConsultation {
 export class CalendarSyncService {
   private readonly logger = new Logger(CalendarSyncService.name);
   private readonly enabled: boolean;
+  private reconciling = false;
 
   constructor(
     private prisma: PrismaService,
@@ -109,12 +110,25 @@ export class CalendarSyncService {
   async reconcile(): Promise<void> {
     if (!this.enabled) return;
 
-    const connections = await this.prisma.googleCalendarConnection.findMany({
-      where: { status: 'CONNECTED' },
-    });
+    // Guard de reentrada: como reconcile() recorre todo el universo, un tick
+    // lento no debe solaparse con el siguiente (duplicaría llamadas a Google).
+    if (this.reconciling) {
+      this.logger.warn(
+        'Reconcile: el tick anterior sigue en curso; se omite este',
+      );
+      return;
+    }
+    this.reconciling = true;
+    try {
+      const connections = await this.prisma.googleCalendarConnection.findMany({
+        where: { status: 'CONNECTED' },
+      });
 
-    for (const connection of connections) {
-      await this.reconcileConnection(connection);
+      for (const connection of connections) {
+        await this.reconcileConnection(connection);
+      }
+    } finally {
+      this.reconciling = false;
     }
   }
 

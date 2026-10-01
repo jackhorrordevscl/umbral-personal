@@ -617,6 +617,40 @@ describe('CalendarSyncService', () => {
     });
   });
 
+  describe('reconcile — guard de reentrada (issue #286)', () => {
+    it('omite un tick que llega mientras el anterior sigue en curso y permite el siguiente al terminar', async () => {
+      let release!: () => void;
+      const blocked = new Promise<unknown[]>((resolve) => {
+        release = () => resolve([]);
+      });
+      prisma.googleCalendarConnection.findMany
+        .mockReturnValueOnce(blocked)
+        .mockResolvedValue([]);
+
+      const first = service.reconcile();
+      await service.reconcile();
+
+      expect(prisma.googleCalendarConnection.findMany).toHaveBeenCalledTimes(1);
+
+      release();
+      await first;
+      await service.reconcile();
+
+      expect(prisma.googleCalendarConnection.findMany).toHaveBeenCalledTimes(2);
+    });
+
+    it('libera el guard aunque el tick falle', async () => {
+      prisma.googleCalendarConnection.findMany
+        .mockRejectedValueOnce(new Error('db caída'))
+        .mockResolvedValue([]);
+
+      await expect(service.reconcile()).rejects.toThrow('db caída');
+      await service.reconcile();
+
+      expect(prisma.googleCalendarConnection.findMany).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('purgeLinksOnAccountChange (T5.4)', () => {
     it('purga todos los links si el googleAccountEmail cambió', async () => {
       await service.purgeLinksOnAccountChange(

@@ -1,5 +1,6 @@
 import { OAuth2Client } from 'google-auth-library';
 import {
+  GOOGLE_REQUEST_TIMEOUT_MS,
   GoogleCalendarClient,
   GoogleCalendarError,
 } from './google-calendar.client';
@@ -452,6 +453,54 @@ describe('GoogleCalendarClient', () => {
       ).rejects.toMatchObject({
         kind: 'transient',
       } as Partial<GoogleCalendarError>);
+    });
+  });
+
+  describe('timeouts (issue #286)', () => {
+    it('manda un AbortSignal en cada fetch', async () => {
+      const oauth2Client = buildOAuth2Client();
+      mockFetchOnce({ ok: true, status: 200 });
+
+      await client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY);
+
+      const calls = (globalThis.fetch as jest.Mock).mock.calls as [
+        string,
+        { signal?: AbortSignal },
+      ][];
+      expect(calls[0][1].signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it('clasifica como transient un fetch abortado por timeout', async () => {
+      const oauth2Client = buildOAuth2Client();
+      (globalThis.fetch as jest.Mock).mockRejectedValueOnce(
+        new DOMException('The operation timed out', 'TimeoutError'),
+      );
+
+      await expect(
+        client.deleteEvent(oauth2Client, CALENDAR_ID, 'event-1'),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<GoogleCalendarError>);
+    });
+
+    it('clasifica como transient (no invalid_grant) un refresh de token colgado', async () => {
+      jest.useFakeTimers();
+      try {
+        const oauth2Client = {
+          getAccessToken: jest.fn().mockReturnValue(new Promise(() => {})),
+        } as unknown as OAuth2Client;
+
+        const result = client.deleteEvent(oauth2Client, CALENDAR_ID, 'event-1');
+        const assertion = expect(result).rejects.toMatchObject({
+          kind: 'transient',
+        } as Partial<GoogleCalendarError>);
+        await jest.advanceTimersByTimeAsync(GOOGLE_REQUEST_TIMEOUT_MS);
+
+        await assertion;
+        expect(globalThis.fetch).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 });
