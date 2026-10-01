@@ -311,7 +311,13 @@ export class ConsultationsService {
 
   // Issue #40: 2 queries de agregación en vez de traer todas las filas.
   async getStats(therapistId: string) {
-    const baseWhere = { therapistId, correctedBy: null, deletedAt: null };
+    // issue #285: las consultas de pacientes eliminados no cuentan.
+    const baseWhere = {
+      therapistId,
+      correctedBy: null,
+      deletedAt: null,
+      patient: { deletedAt: null },
+    };
     const [total, upcoming] = await Promise.all([
       this.prisma.consultation.count({ where: baseWhere }),
       this.prisma.consultation.count({
@@ -426,6 +432,32 @@ export class ConsultationsService {
         include: THERAPIST_SELECT,
       });
 
+      // issue #285: si la sesión se movió, el BookedSlot del grupo (solo
+      // existe en reservas públicas) se mueve con ella: el horario original
+      // vuelve a ser reservable y el nuevo queda protegido por el @@unique.
+      if (corrected.sessionDate.getTime() !== original.sessionDate.getTime()) {
+        try {
+          await tx.bookedSlot.updateMany({
+            where: { groupId: original.groupId },
+            data: { slotStart: corrected.sessionDate },
+          });
+        } catch (err) {
+          // El nuevo horario ya está tomado por otra reserva
+          // (BookedSlot.@@unique); al lanzar, la transacción hace rollback
+          // completo. Solo este P2002 se traduce: otros (p. ej. correctsId
+          // @unique en una corrección concurrente) deben propagarse tal cual.
+          if (
+            err instanceof Prisma.PrismaClientKnownRequestError &&
+            err.code === 'P2002'
+          ) {
+            throw new ConflictException(
+              'El nuevo horario seleccionado ya no está disponible.',
+            );
+          }
+          throw err;
+        }
+      }
+
       return {
         ...corrected,
         history: await this.getHistory(original.groupId, tx),
@@ -467,6 +499,8 @@ export class ConsultationsService {
         therapistId,
         correctedBy: null,
         deletedAt: null,
+        // issue #285: paciente eliminado => sus sesiones salen del calendario.
+        patient: { deletedAt: null },
         sessionDate: { gte: from, lt: to },
       },
       include: { patient: { select: { fullName: true } } },
@@ -548,6 +582,7 @@ export class ConsultationsService {
           therapistId,
           correctedBy: null,
           deletedAt: null,
+          patient: { deletedAt: null },
           sessionDate: { gte: slotStart, lt: slotEnd },
         },
         select: { id: true },

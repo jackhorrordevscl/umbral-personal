@@ -25,6 +25,20 @@ import {
 } from '../payments/payment-gateway.client';
 import { MailService } from '../mail/mail.service';
 
+// Fecha futura determinista dentro de una corrida: `daysAhead` días después de
+// hoy (UTC) a la hora `hourUtc`. Evita fechas fijas que caducan con el tiempo.
+function futureUtcDay(daysAhead: number, hourUtc: number): Date {
+  const now = new Date();
+  return new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() + daysAhead,
+      hourUtc,
+    ),
+  );
+}
+
 // Los describe blocks preexistentes de este archivo (calendar/findByRange)
 // no ejercitan PaymentsService -- se les inyecta una instancia con
 // PAYMENTS_ENABLED="false" para que ensureCharge() sea un no-op inmediato y
@@ -478,6 +492,8 @@ describe('ConsultationsService.findByRange (integration, real Prisma)', () => {
 describe('ConsultationsService.createFromPublicBooking (integration, concurrencia real)', () => {
   let prisma: PrismaService;
   let consultationsService: ConsultationsService;
+  let patientsService: PatientsService;
+  const extraPatientIds: string[] = [];
   const runId = Date.now() + 3;
 
   let therapistId: string;
@@ -533,7 +549,7 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
       buildConfig(),
       auditService,
     );
-    const patientsService = new PatientsService(
+    patientsService = new PatientsService(
       prisma,
       auditService,
       calendarSync,
@@ -549,8 +565,16 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
 
   afterAll(async () => {
     await prisma.bookedSlot.deleteMany({ where: { therapistId } });
+    await prisma.consultationHistory.deleteMany({
+      where: { editedById: therapistId },
+    });
     await prisma.consultation.deleteMany({ where: { therapistId } });
-    await prisma.patient.deleteMany({ where: { id: patientId } });
+    await prisma.patientConsent.deleteMany({
+      where: { patientId: { in: [patientId, ...extraPatientIds] } },
+    });
+    await prisma.patient.deleteMany({
+      where: { id: { in: [patientId, ...extraPatientIds] } },
+    });
     await prisma.user.deleteMany({ where: { id: therapistId } });
     await prisma.onModuleDestroy();
   }, 30000);
@@ -591,6 +615,97 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
       where: { therapistId, slotStart },
     });
     expect(bookedSlots).toHaveLength(1);
+  }, 20000);
+
+  // issue #285: correct() mueve el BookedSlot con la sesión.
+  it('correct() con nuevo sessionDate libera el horario original y ocupa el nuevo', async () => {
+    await prisma.patientConsent.create({
+      data: {
+        patientId,
+        purpose: 'TREATMENT',
+        action: 'GRANT',
+        recordedById: therapistId,
+        evidence: 'integration test',
+      },
+    });
+    const original = futureUtcDay(30, 13);
+    const moved = futureUtcDay(30, 15);
+    const booked = await consultationsService.createFromPublicBooking(
+      therapistId,
+      patientId,
+      '11111111-1',
+      original,
+      50,
+    );
+
+    await consultationsService.correct(
+      booked.id,
+      { sessionDate: moved.toISOString() } as never,
+      therapistId,
+    );
+
+    // El horario original vuelve a ser reservable por otro paciente.
+    await expect(
+      prisma.bookedSlot.findMany({
+        where: { therapistId, slotStart: original },
+      }),
+    ).resolves.toHaveLength(0);
+    await expect(
+      prisma.bookedSlot.findMany({ where: { therapistId, slotStart: moved } }),
+    ).resolves.toHaveLength(1);
+
+    // El nuevo horario queda protegido por el unique.
+    await expect(
+      consultationsService.createFromPublicBooking(
+        therapistId,
+        patientId,
+        '11111111-1',
+        moved,
+        50,
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+  }, 20000);
+
+  it('softDelete del paciente libera sus BookedSlot y oculta sus consultas', async () => {
+    const patient = await prisma.patient.create({
+      data: {
+        fullName: 'Paciente Eliminado',
+        rut: `${runId}-2`,
+        birthDate: new Date('1990-01-01T12:00:00.000Z'),
+        therapistId,
+      },
+    });
+    extraPatientIds.push(patient.id);
+    const slotStart = futureUtcDay(31, 13);
+    await consultationsService.createFromPublicBooking(
+      therapistId,
+      patient.id,
+      '22222222-2',
+      slotStart,
+      50,
+    );
+
+    await patientsService.softDelete(patient.id, therapistId);
+
+    await expect(
+      prisma.bookedSlot.findMany({ where: { therapistId, slotStart } }),
+    ).resolves.toHaveLength(0);
+    const visible = await consultationsService.findByRange(therapistId, {
+      from: futureUtcDay(31, 0).toISOString(),
+      to: futureUtcDay(32, 0).toISOString(),
+    });
+    expect(visible).toHaveLength(0);
+
+    // El horario puede reservarse de nuevo.
+    await expect(
+      consultationsService.createFromPublicBooking(
+        therapistId,
+        patientId,
+        '11111111-1',
+        slotStart,
+        50,
+      ),
+    ).resolves.toBeDefined();
   }, 20000);
 });
 

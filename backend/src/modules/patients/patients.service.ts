@@ -304,9 +304,26 @@ export class PatientsService {
 
   async softDelete(id: string, userId: string) {
     await this.assertAccess(id, userId);
-    const deleted = await this.prisma.patient.update({
-      where: { id },
-      data: { deletedAt: new Date() },
+    // issue #285: las consultas del paciente dejan de ocupar el horario. Los
+    // lectores (disponibilidad, calendario, stats) filtran por
+    // patient.deletedAt, pero BookedSlot.@@unique seguiría bloqueando la
+    // reserva del mismo horario: se libera en la misma transacción que el
+    // soft-delete. No hay flujo de restauración de pacientes.
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      const groups = await tx.consultation.findMany({
+        where: { patientId: id },
+        select: { groupId: true },
+        distinct: ['groupId'],
+      });
+      if (groups.length > 0) {
+        await tx.bookedSlot.deleteMany({
+          where: { groupId: { in: groups.map((g) => g.groupId) } },
+        });
+      }
+      return tx.patient.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+      });
     });
     this.logger.log(
       `Paciente eliminado (soft delete): id=${id} userId=${userId}`,

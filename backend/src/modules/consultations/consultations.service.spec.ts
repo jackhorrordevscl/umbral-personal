@@ -49,7 +49,7 @@ describe('ConsultationsService', () => {
     calendarEventLink: { findMany: jest.Mock };
     payment: { findMany: jest.Mock };
     reminderDispatch: { findMany: jest.Mock };
-    bookedSlot: { create: jest.Mock };
+    bookedSlot: { create: jest.Mock; updateMany: jest.Mock };
     $transaction: jest.Mock;
   };
   let patientsService: {
@@ -85,6 +85,7 @@ describe('ConsultationsService', () => {
       },
       bookedSlot: {
         create: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       $transaction: jest.fn((arg: unknown) => {
         if (typeof arg === 'function') {
@@ -408,6 +409,30 @@ describe('ConsultationsService', () => {
 
       expect(result).toEqual({ total: 10, upcoming: 3 });
     });
+
+    it('excluye las consultas de pacientes eliminados (issue #285)', async () => {
+      prisma.consultation.count.mockResolvedValue(0);
+
+      await service.getStats('therapist-1');
+
+      expect(prisma.consultation.count).toHaveBeenCalledTimes(2);
+      expect(prisma.consultation.count).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          where: expect.objectContaining({
+            patient: { deletedAt: null },
+          }) as unknown,
+        }),
+      );
+      expect(prisma.consultation.count).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          where: expect.objectContaining({
+            patient: { deletedAt: null },
+          }) as unknown,
+        }),
+      );
+    });
   });
 
   describe('findOne', () => {
@@ -570,6 +595,101 @@ describe('ConsultationsService', () => {
       ).resolves.toEqual(expect.objectContaining({ id: 'consultation-2' }));
     });
 
+    // issue #285: el BookedSlot debe seguir a la sesión movida.
+    it('mueve el BookedSlot del grupo al nuevo horario cuando cambia sessionDate', async () => {
+      const newDate = new Date('2026-01-12T15:00:00.000Z');
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation())
+        .mockResolvedValueOnce(null);
+      prisma.consultation.create.mockResolvedValue(
+        buildConsultation({
+          id: 'consultation-2',
+          correctsId: 'consultation-1',
+          sessionDate: newDate,
+        }),
+      );
+
+      await service.correct(
+        'consultation-1',
+        { sessionDate: newDate.toISOString() } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.bookedSlot.updateMany).toHaveBeenCalledWith({
+        where: { groupId: 'consultation-1' },
+        data: { slotStart: newDate },
+      });
+    });
+
+    it('no toca el BookedSlot si sessionDate no cambia', async () => {
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation())
+        .mockResolvedValueOnce(null);
+      prisma.consultation.create.mockResolvedValue(
+        buildConsultation({
+          id: 'consultation-2',
+          correctsId: 'consultation-1',
+        }),
+      );
+
+      await service.correct(
+        'consultation-1',
+        { consultReason: 'Motivo corregido' } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.bookedSlot.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('traduce P2002 al mover el BookedSlot a un horario ya reservado en 409', async () => {
+      const newDate = new Date('2026-01-12T15:00:00.000Z');
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation())
+        .mockResolvedValueOnce(null);
+      prisma.consultation.create.mockResolvedValue(
+        buildConsultation({
+          id: 'consultation-2',
+          correctsId: 'consultation-1',
+          sessionDate: newDate,
+        }),
+      );
+      prisma.bookedSlot.updateMany.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+
+      await expect(
+        service.correct(
+          'consultation-1',
+          { sessionDate: newDate.toISOString() } as never,
+          'therapist-1',
+        ),
+      ).rejects.toThrow(ConflictException);
+      expect(calendarSync.syncGroup).not.toHaveBeenCalled();
+    });
+
+    it('no disfraza de 409 de horario un P2002 que no viene del BookedSlot', async () => {
+      const p2002 = new Prisma.PrismaClientKnownRequestError(
+        'Unique constraint',
+        { code: 'P2002', clientVersion: 'test' },
+      );
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation())
+        .mockResolvedValueOnce(null);
+      prisma.consultation.create.mockRejectedValue(p2002);
+
+      const result = service.correct(
+        'consultation-1',
+        { consultReason: 'Motivo corregido' } as never,
+        'therapist-1',
+      );
+
+      await expect(result).rejects.toBe(p2002);
+      await expect(result).rejects.not.toBeInstanceOf(ConflictException);
+    });
+
     // sdd/online-payment-integration PR 1 (T2.5)
     it('dispara paymentsService.ensureCharge(groupId) tras persistir la corrección', async () => {
       prisma.consultation.findFirst
@@ -627,6 +747,7 @@ describe('ConsultationsService', () => {
             therapistId,
             correctedBy: null,
             deletedAt: null,
+            patient: { deletedAt: null },
             sessionDate: {
               gte: new Date('2026-09-01T00:00:00-04:00'),
               lt: new Date('2026-10-01T00:00:00-03:00'),

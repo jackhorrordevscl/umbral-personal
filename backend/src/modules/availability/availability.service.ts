@@ -364,6 +364,8 @@ export class AvailabilityService {
           therapistId,
           correctedBy: null,
           deletedAt: null,
+          // issue #285: las consultas de pacientes eliminados no ocupan slots.
+          patient: { deletedAt: null },
           sessionDate: { gte: from, lt: to },
         },
         select: { sessionDate: true },
