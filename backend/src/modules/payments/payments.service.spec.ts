@@ -533,6 +533,29 @@ describe('PaymentsService', () => {
       expect(prisma.payment.update).not.toHaveBeenCalled();
     });
 
+    // Regresión de la revisión: sesión futura corregida hacia una fecha ya
+    // pasada conservaba el dueDate futuro y el aviso de vencido llegaba tarde.
+    it('un cargo PENDING cuya sesión se corrige a una fecha pasada recorta el dueDate a ahora + gracia', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(
+        buildConsultation({
+          sessionDate: new Date('2026-09-15T15:00:00.000Z'),
+        }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      prisma.payment.findUnique.mockResolvedValue(
+        buildPayment({ dueDate: new Date('2026-12-01T15:00:00.000Z') }),
+      );
+
+      await service.ensureCharge('group-1');
+
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: { dueDate: new Date(NOW.getTime() + GRACE_MS) },
+      });
+    });
+
     it('un cargo existente cuyo dueDate no cambió no dispara ningún update', async () => {
       const sessionDate = new Date('2026-10-01T15:00:00.000Z');
       prisma.consultation.findFirst.mockResolvedValue(

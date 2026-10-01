@@ -256,11 +256,20 @@ export class PaymentsService {
   ): Promise<void> {
     if (existing.status !== 'PENDING' && existing.status !== 'LATE') return;
 
-    // issue #284: una sesión ya realizada no recalcula el vencimiento --
-    // computeDueDate() depende de "ahora" y movería el dueDate en cada
-    // llamada, además de re-armar un cobro LATE como si fuera una
-    // reprogramación real.
-    if (sessionDate.getTime() <= Date.now()) return;
+    // issue #284: una sesión ya realizada no recalcula el vencimiento en cada
+    // llamada (computeDueDate() depende de "ahora") ni re-arma un cobro LATE
+    // como si fuera una reprogramación real. Solo se recorta un dueDate que
+    // quedó más lejos que la gracia -- p. ej. una sesión futura corregida a
+    // una fecha pasada -- para que el aviso de cobro vencido no llegue tarde.
+    if (sessionDate.getTime() <= Date.now()) {
+      const cappedDueDate = this.computeDueDate(sessionDate);
+      if (existing.dueDate.getTime() <= cappedDueDate.getTime()) return;
+      await this.prisma.payment.update({
+        where: { id: existing.id },
+        data: { dueDate: cappedDueDate },
+      });
+      return;
+    }
 
     const dueDate = this.computeDueDate(sessionDate);
     if (existing.dueDate.getTime() === dueDate.getTime()) return;
