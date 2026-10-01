@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState, type ReactNode } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from '../context/AuthContext'
 import LoginPage from './LoginPage'
 import api from '../api/client'
@@ -18,12 +20,23 @@ vi.mock('react-router', async () => {
 
 const mockedApi = vi.mocked(api)
 
+// AuthProvider vacía el QueryClient en login/logout (issue #291), así que
+// necesita un QueryClientProvider por encima.
+function TestProviders({ children }: { children: ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient())
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>{children}</AuthProvider>
+    </QueryClientProvider>
+  )
+}
+
 function renderLoginPage() {
   return render(
     <MemoryRouter>
-      <AuthProvider>
+      <TestProviders>
         <LoginPage />
-      </AuthProvider>
+      </TestProviders>
     </MemoryRouter>,
   )
 }
@@ -153,11 +166,11 @@ describe('LoginPage', () => {
           },
         ]}
       >
-        <AuthProvider>
+        <TestProviders>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
           </Routes>
-        </AuthProvider>
+        </TestProviders>
       </MemoryRouter>,
     )
 
@@ -175,12 +188,12 @@ describe('LoginPage', () => {
 
     render(
       <MemoryRouter initialEntries={['/login']}>
-        <AuthProvider>
+        <TestProviders>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/dashboard" element={<p>Panel</p>} />
           </Routes>
-        </AuthProvider>
+        </TestProviders>
       </MemoryRouter>,
     )
 
