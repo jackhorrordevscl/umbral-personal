@@ -354,8 +354,11 @@ export class AuthService {
     // robado (o con la sesión previa) dejó un cambio de email pendiente, el
     // cambio de contraseña forzado no debe dejarlo sobrevivir -- mismo
     // criterio que el branch de password de ProfileService.update.
-    const updated = await this.prisma.user.update({
-      where: { id: user.id },
+    // El update es condicional (mustChangePassword: true) y se verifica el
+    // count: dos requests concurrentes con el mismo token pasan el chequeo de
+    // arriba, pero solo uno encuentra la fila aún marcada (issue #302).
+    const { count } = await this.prisma.user.updateMany({
+      where: { id: user.id, mustChangePassword: true },
       data: {
         passwordHash: newPasswordHash,
         mustChangePassword: false,
@@ -364,6 +367,12 @@ export class AuthService {
         pendingEmailTokenIssuedAt: null,
       },
     });
+    if (count === 0) {
+      throw new UnauthorizedException(
+        'La contraseña ya fue actualizada anteriormente',
+      );
+    }
+    const updated = { ...user, mustChangePassword: false };
 
     await this.auditService.log({
       userId: user.id,
@@ -503,8 +512,13 @@ export class AuthService {
     // víctima (el flujo pensado justamente para expulsar al atacante) no
     // debe dejar sobrevivir ese cambio pendiente -- mismo criterio que el
     // branch de password de ProfileService.update.
-    await this.prisma.user.update({
-      where: { id: user.id },
+    // Update condicional sobre el timestamp consumido: de dos resets
+    // concurrentes con el mismo link solo uno encuentra la fila (issue #302).
+    const { count } = await this.prisma.user.updateMany({
+      where: {
+        id: user.id,
+        passwordResetTokenIssuedAt: user.passwordResetTokenIssuedAt,
+      },
       data: {
         passwordHash: newPasswordHash,
         passwordResetTokenIssuedAt: null,
@@ -513,6 +527,11 @@ export class AuthService {
         pendingEmailTokenIssuedAt: null,
       },
     });
+    if (count === 0) {
+      throw new UnauthorizedException(
+        'Token de restablecimiento inválido o ya utilizado',
+      );
+    }
 
     await this.auditService.log({
       userId: user.id,

@@ -30,6 +30,10 @@ const OPENED_EVENT = 'email.opened';
 // robada seguiría siendo válida indefinidamente (replay).
 const TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000;
 
+// Los secrets de Svix/Resend decodifican a 24-64 bytes; menos de 16 indica un
+// valor truncado o no base64.
+const MIN_SECRET_BYTES = 16;
+
 @Injectable()
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
@@ -44,7 +48,18 @@ export class WebhooksService {
     // Resend) el endpoint degrada a 501 en el controller en vez de intentar
     // verificar una firma sin secret -- mismo criterio "no configurado =>
     // degrada, no rompe boot" que MailService sin RESEND_API_KEY.
-    this.secretBytes = secret ? WebhooksService.decodeSecret(secret) : null;
+    const decoded = secret ? WebhooksService.decodeSecret(secret) : null;
+    // Un secret mal formado decodifica a un buffer vacío o diminuto; con él
+    // isConfigured() daría true y la firma sería trivialmente falsificable
+    // (issue #302). Se trata como no configurado.
+    if (decoded && decoded.length < MIN_SECRET_BYTES) {
+      this.logger.error(
+        'RESEND_WEBHOOK_SECRET mal formado (muy corto tras decodificar base64); el webhook queda deshabilitado',
+      );
+      this.secretBytes = null;
+    } else {
+      this.secretBytes = decoded;
+    }
   }
 
   private static decodeSecret(secret: string): Buffer {

@@ -37,7 +37,12 @@ function buildUser(overrides: Partial<User> = {}): User {
 describe('AuthService', () => {
   let service: AuthService;
   let prisma: {
-    user: { findUnique: jest.Mock; update: jest.Mock; create: jest.Mock };
+    user: {
+      findUnique: jest.Mock;
+      update: jest.Mock;
+      updateMany: jest.Mock;
+      create: jest.Mock;
+    };
     invitationCode: {
       findUnique: jest.Mock;
       create: jest.Mock;
@@ -60,6 +65,7 @@ describe('AuthService', () => {
       user: {
         findUnique: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         create: jest.fn(),
       },
       session: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
@@ -565,18 +571,14 @@ describe('AuthService', () => {
       const user = buildUser({ mustChangePassword: true });
       prisma.user.findUnique.mockResolvedValue(user);
       mockArgon2.hash.mockResolvedValue('new-hashed-password' as never);
-      prisma.user.update.mockResolvedValue(
-        buildUser({ mustChangePassword: false }),
-      );
-
       const result = await service.changePassword({
         passwordChangeToken,
         newPassword: 'newpassword1',
       });
 
       expect(mockArgon2.hash).toHaveBeenCalledWith('newpassword1');
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-1', mustChangePassword: true },
         data: {
           passwordHash: 'new-hashed-password',
           mustChangePassword: false,
@@ -612,22 +614,38 @@ describe('AuthService', () => {
       });
       prisma.user.findUnique.mockResolvedValue(user);
       mockArgon2.hash.mockResolvedValue('new-hashed-password' as never);
-      prisma.user.update.mockResolvedValue(
-        buildUser({ mustChangePassword: false }),
-      );
-
       await service.changePassword({
         passwordChangeToken,
         newPassword: 'newpassword1',
       });
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-1', mustChangePassword: true },
         data: expect.objectContaining({
           pendingEmail: null,
           pendingEmailTokenIssuedAt: null,
         }) as unknown as Record<string, unknown>,
       });
+    });
+
+    it('lanza 401 y no audita si un cambio concurrente ya consumió el flag (updateMany no encuentra la fila, issue #302)', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'password-change',
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mustChangePassword: true }),
+      );
+      mockArgon2.hash.mockResolvedValue('new-hashed-password' as never);
+      prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.changePassword({
+          passwordChangeToken,
+          newPassword: 'newpassword1',
+        }),
+      ).rejects.toThrow('La contraseña ya fue actualizada anteriormente');
+      expect(auditService.log).not.toHaveBeenCalled();
     });
   });
 
@@ -840,8 +858,8 @@ describe('AuthService', () => {
       });
 
       expect(mockArgon2.hash).toHaveBeenCalledWith('newpassword1');
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-1', passwordResetTokenIssuedAt: new Date(1000) },
         data: {
           passwordHash: 'new-hashed-password',
           passwordResetTokenIssuedAt: null,
@@ -895,13 +913,36 @@ describe('AuthService', () => {
         newPassword: 'newpassword1',
       });
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: expect.objectContaining({
+          id: 'user-1',
+        }) as unknown as Record<string, unknown>,
         data: expect.objectContaining({
           pendingEmail: null,
           pendingEmailTokenIssuedAt: null,
         }) as unknown as Record<string, unknown>,
       });
+    });
+
+    it('lanza 401 y no audita si un reset concurrente ya consumió el token (updateMany no encuentra la fila, issue #302)', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'password-reset',
+        resetIssuedAt: 1000,
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ passwordResetTokenIssuedAt: new Date(1000) }),
+      );
+      mockArgon2.hash.mockResolvedValue('new-hashed-password' as never);
+      prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.resetPassword({
+          resetToken: 'token',
+          newPassword: 'newpassword1',
+        }),
+      ).rejects.toThrow('Token de restablecimiento inválido o ya utilizado');
+      expect(auditService.log).not.toHaveBeenCalled();
     });
   });
 });
