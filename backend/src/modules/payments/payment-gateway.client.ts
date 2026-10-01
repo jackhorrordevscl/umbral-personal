@@ -120,7 +120,12 @@ export abstract class PaymentGatewayClient {
   abstract getOrderStatus(
     credentials: GatewayCredentials,
     token: string,
-  ): Promise<{ status: GatewayOrderStatus; gatewayPaymentId?: string }>;
+  ): Promise<{
+    status: GatewayOrderStatus;
+    gatewayPaymentId?: string;
+    // issue #284: amount the gateway reports for the order, when exposed.
+    amount?: number;
+  }>;
 
   // issue #111: voids/cancels an order at the gateway so a checkout link the
   // patient still holds can no longer resolve to a real payment after the

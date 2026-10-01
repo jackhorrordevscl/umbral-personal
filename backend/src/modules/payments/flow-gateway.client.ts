@@ -63,6 +63,7 @@ interface FlowPaymentCreateResponse {
 interface FlowPaymentStatusResponse {
   status: number;
   flowOrder?: number;
+  amount?: number | string;
 }
 
 @Injectable()
@@ -130,7 +131,11 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
   async getOrderStatus(
     credentials: GatewayCredentials,
     token: string,
-  ): Promise<{ status: GatewayOrderStatus; gatewayPaymentId?: string }> {
+  ): Promise<{
+    status: GatewayOrderStatus;
+    gatewayPaymentId?: string;
+    amount?: number;
+  }> {
     const params: Record<string, string> = {
       apiKey: credentials.apiKey,
       token,
@@ -149,7 +154,17 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
         response.flowOrder !== undefined
           ? String(response.flowOrder)
           : undefined,
+      amount: this.parseAmount(response.amount),
     };
+  }
+
+  // issue #284: Flow returns amount as a number or numeric string; anything
+  // unparseable is treated as "not reported" so markPaid skips the check
+  // instead of rejecting a legitimate payment.
+  private parseAmount(raw: number | string | undefined): number | undefined {
+    if (raw === undefined || raw === null || raw === '') return undefined;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : undefined;
   }
 
   // issue #111: Flow's documented /payment/cancel endpoint voids an order

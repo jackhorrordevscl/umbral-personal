@@ -7,6 +7,7 @@ import { GatewayContext, GatewayCredentials } from './payment-gateway.client';
 import { PaymentGatewayRegistry } from './payment-gateway.registry';
 import { PaymentAccountService } from './payment-account.service';
 import { MailService } from '../mail/mail.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 interface ConsultationRow {
   id: string;
@@ -102,6 +103,7 @@ describe('PaymentsService', () => {
   let mailService: {
     sendPaymentLinkEmail: jest.Mock;
   };
+  let notificationsService: { create: jest.Mock };
 
   function buildService(enabled = true): PaymentsService {
     config = {
@@ -116,6 +118,7 @@ describe('PaymentsService', () => {
       gatewayRegistry as unknown as PaymentGatewayRegistry,
       config as unknown as ConfigService,
       mailService as unknown as MailService,
+      notificationsService as unknown as NotificationsService,
     );
   }
 
@@ -147,6 +150,7 @@ describe('PaymentsService', () => {
     mailService = {
       sendPaymentLinkEmail: jest.fn().mockResolvedValue(true),
     };
+    notificationsService = { create: jest.fn().mockResolvedValue(undefined) };
     service = buildService(true);
   });
 
@@ -682,6 +686,102 @@ describe('PaymentsService', () => {
 
       expect(prisma.patient.findUnique).not.toHaveBeenCalled();
       expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+    });
+  });
+
+  // issue #284: updateAmount() reemitía la orden sin anular la anterior ni
+  // limpiar paymentUrl/gatewayToken si la reemisión fallaba.
+  describe('updateAmount con una orden previa', () => {
+    function arrangeWithPreviousOrder() {
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment({
+          amount: 45000,
+          gatewayToken: 'old-token',
+          paymentUrl: 'https://flow.cl/pay/old-token',
+        }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      prisma.patient.findUnique.mockResolvedValue(buildConsultation().patient);
+    }
+
+    it('anula la orden anterior en la pasarela antes de emitir la nueva', async () => {
+      arrangeWithPreviousOrder();
+      const context = buildContext();
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(context);
+
+      await service.updateAmount('group-1', 45000);
+
+      expect(gatewayAdapter.voidOrder).toHaveBeenCalledWith(
+        context.credentials,
+        'old-token',
+      );
+      expect(gatewayAdapter.voidOrder.mock.invocationCallOrder[0]).toBeLessThan(
+        gatewayAdapter.createOrder.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('si la reemisión falla, limpia paymentUrl y gatewayToken para que el link viejo no quede vigente', async () => {
+      arrangeWithPreviousOrder();
+      gatewayAdapter.createOrder.mockRejectedValue(new Error('Flow caído'));
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await service.updateAmount('group-1', 45000);
+
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: { paymentUrl: null, gatewayToken: null },
+      });
+      expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+
+    it('si la reemisión funciona no limpia los campos del link', async () => {
+      arrangeWithPreviousOrder();
+
+      await service.updateAmount('group-1', 45000);
+
+      expect(prisma.payment.update).not.toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: { paymentUrl: null, gatewayToken: null },
+      });
+    });
+
+    it('si anular la orden anterior falla, lo loguea y igual reemite', async () => {
+      arrangeWithPreviousOrder();
+      gatewayAdapter.voidOrder.mockRejectedValue(
+        new Error('Flow: la orden ya fue pagada'),
+      );
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await service.updateAmount('group-1', 45000);
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('old-token') as unknown,
+      );
+      expect(gatewayAdapter.createOrder).toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+
+    it('un cargo sin orden previa no llama a voidOrder', async () => {
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment({ amount: 45000 }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      prisma.patient.findUnique.mockResolvedValue(buildConsultation().patient);
+
+      await service.updateAmount('group-1', 45000);
+
+      expect(gatewayAdapter.voidOrder).not.toHaveBeenCalled();
     });
   });
 
@@ -1311,16 +1411,128 @@ describe('PaymentsService', () => {
       expect(prisma.payment.updateMany).not.toHaveBeenCalled();
     });
 
-    // T7.3: "CANCELLED never becomes PAID".
-    it('un cargo CANCELLED nunca pasa a PAID', async () => {
+    // T7.3: "CANCELLED never becomes PAID". issue #284: ya no sale en silencio
+    // -- consulta al gateway y, si reporta PAID, alerta sin reabrir el cargo.
+    it('un cargo CANCELLED nunca pasa a PAID, pero si el gateway reporta PAID loguea y notifica al terapeuta', async () => {
       prisma.payment.findFirst.mockResolvedValue(
-        buildPayment({ status: 'CANCELLED' }),
+        buildPayment({ status: 'CANCELLED', gatewayToken: 'flow-token' }),
       );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.getOrderStatus.mockResolvedValue({
+        status: 'PAID',
+        gatewayPaymentId: 'flow-payment-1',
+      });
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
 
       await service.confirm('flow-token');
 
-      expect(gatewayAdapter.getOrderStatus).not.toHaveBeenCalled();
       expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /paymentId=payment-1.*groupId=group-1/,
+        ) as unknown,
+      );
+      expect(notificationsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'therapist-1',
+          type: 'PAYMENT_ANOMALY',
+          metadata: { paymentId: 'payment-1', groupId: 'group-1' },
+        }) as unknown,
+      );
+      errorSpy.mockRestore();
+    });
+
+    it('un cargo CANCELLED cuyo gateway no reporta PAID no alerta ni cambia nada', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ status: 'CANCELLED', gatewayToken: 'flow-token' }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'REJECTED' });
+
+      await service.confirm('flow-token');
+
+      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+      expect(notificationsService.create).not.toHaveBeenCalled();
+    });
+
+    it('si la notificación falla, confirm no propaga el error', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ status: 'CANCELLED', gatewayToken: 'flow-token' }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PAID' });
+      notificationsService.create.mockRejectedValue(new Error('db caída'));
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await expect(service.confirm('flow-token')).resolves.toBeUndefined();
+      errorSpy.mockRestore();
+    });
+
+    // issue #284: markPaid compara el monto que reporta la pasarela.
+    it('marca PAID cuando el monto de la pasarela coincide con el del cobro', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ status: 'PENDING', gatewayToken: 'flow-token' }),
+      );
+      prisma.payment.findUnique.mockResolvedValue(buildPayment());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.getOrderStatus.mockResolvedValue({
+        status: 'PAID',
+        amount: 30000,
+      });
+
+      await service.confirm('flow-token');
+
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'PAID' }) as unknown,
+        }) as unknown,
+      );
+      expect(notificationsService.create).not.toHaveBeenCalled();
+    });
+
+    it('no marca PAID, loguea ambos montos y notifica cuando el monto de la pasarela no coincide', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ status: 'PENDING', gatewayToken: 'flow-token' }),
+      );
+      prisma.payment.findUnique.mockResolvedValue(buildPayment());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.getOrderStatus.mockResolvedValue({
+        status: 'PAID',
+        amount: 20000,
+      });
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await service.confirm('flow-token');
+
+      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /groupId=group-1.*localAmount=30000.*gatewayAmount=20000/,
+        ) as unknown,
+      );
+      expect(notificationsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'therapist-1',
+          type: 'PAYMENT_ANOMALY',
+        }) as unknown,
+      );
+      errorSpy.mockRestore();
     });
 
     it('si el gateway re-consultado todavía reporta PENDING, no actualiza nada', async () => {

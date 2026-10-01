@@ -222,6 +222,23 @@ describe('FlowPaymentGatewayClient', () => {
       expect(result).toEqual({ status: 'PAID', gatewayPaymentId: '123456' });
     });
 
+    // issue #284: el monto que reporta Flow (número o string numérico) se
+    // expone para que markPaid lo compare; uno no parseable se ignora.
+    it.each([
+      [45000, 45000],
+      ['45000', 45000],
+      ['no-numerico', undefined],
+    ])('expone amount=%p como %p', async (raw, expected) => {
+      mockFetchOnce(
+        { ok: true, status: 200 },
+        { status: 2, flowOrder: 1, amount: raw },
+      );
+
+      const result = await client.getOrderStatus(credentials, 'flow-token-abc');
+
+      expect(result.amount).toBe(expected);
+    });
+
     it('mapea status=1 (pendiente) a PENDING', async () => {
       mockFetchOnce({ ok: true, status: 200 }, { status: 1 });
 

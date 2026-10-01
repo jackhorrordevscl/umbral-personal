@@ -228,6 +228,7 @@ describe('PaymentReconciliationService', () => {
       gatewayAdapter.getOrderStatus.mockResolvedValue({
         status: 'PAID',
         gatewayPaymentId: 'flow-payment-stale',
+        amount: 30000,
       });
 
       await service.sweep();
@@ -239,6 +240,7 @@ describe('PaymentReconciliationService', () => {
       expect(paymentsService.markPaid).toHaveBeenCalledWith(
         'payment-stale',
         'flow-payment-stale',
+        30000,
       );
     });
 
