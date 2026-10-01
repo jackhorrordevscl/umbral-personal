@@ -38,14 +38,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // sus propios endpoints, que los verifican manualmente con
     // jwtService.verify. Sin este chequeo, esos tokens podrían usarse para
     // acceder a cualquier ruta protegida por JwtAuthGuard.
-    if (
-      payload.purpose === 'mfa-setup' ||
-      payload.purpose === 'mfa-verify' ||
-      payload.purpose === 'password-change' ||
-      payload.purpose === 'email-verify' ||
-      payload.purpose === 'password-reset' ||
-      payload.purpose === 'google-calendar-oauth'
-    ) {
+    // Allowlist (issue #302): un token de sesión nunca lleva `purpose`, así
+    // que cualquier token con purpose se rechaza, incluidos los que se agreguen
+    // en el futuro (p. ej. email-change) sin tocar esta lista.
+    if (payload.purpose) {
       throw new UnauthorizedException(
         'Token no autorizado para esta operación',
       );

@@ -53,6 +53,18 @@ describe('WebhooksService.isConfigured / verifySignature', () => {
     expect(service.verifySignature(Buffer.from('{}'), headers)).toBe(false);
   });
 
+  it('trata un secret mal formado (decodifica a menos de 16 bytes) como no configurado (issue #302)', () => {
+    const service = new WebhooksService(
+      buildConfig('whsec_!!!'),
+      {} as PrismaService,
+    );
+
+    expect(service.isConfigured()).toBe(false);
+    expect(service.verifySignature(Buffer.from('{}'), signPayload('{}'))).toBe(
+      false,
+    );
+  });
+
   it('verifica como válida una firma generada con el mismo secret sobre el mismo body', () => {
     const service = new WebhooksService(
       buildConfig(TEST_SECRET),

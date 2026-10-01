@@ -95,6 +95,17 @@ describe('JwtStrategy', () => {
       expect(prisma.user.findUnique).not.toHaveBeenCalled();
     });
 
+    it('rechaza cualquier purpose, incluso uno no listado (email-change), sin consultar prisma (issue #302)', async () => {
+      await expect(
+        strategy.validate({
+          ...basePayload,
+          purpose: 'email-change',
+          iat: 1000,
+        }),
+      ).rejects.toThrow('Token no autorizado para esta operación');
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
     it('rechaza un purpose bloqueado (google-calendar-oauth) sin siquiera consultar prisma', async () => {
       await expect(
         strategy.validate({
