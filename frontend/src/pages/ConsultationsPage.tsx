@@ -627,7 +627,8 @@ export default function ConsultationsPage() {
                           </span>
                           <PaymentStatusBadge payment={c.payment} />
                           <ReminderEmailStatusBadge status={c.reminderEmailStatus} />
-                          {c.payment?.paymentUrl && (
+                          {c.payment?.paymentUrl &&
+                            (c.payment.status === 'PENDING' || c.payment.status === 'LATE') && (
                             <>
                               <CopyPaymentLinkButton paymentUrl={c.payment.paymentUrl} />
                               <ResendPaymentLinkButton groupId={c.payment.groupId} />

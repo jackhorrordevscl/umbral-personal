@@ -385,6 +385,11 @@ export class PaymentsService {
     const payment = await this.prisma.payment.findUniqueOrThrow({
       where: { groupId },
     });
+    if (!(CANCELLABLE_STATUSES as readonly string[]).includes(payment.status)) {
+      throw new BadRequestException(
+        'No se puede reenviar el link de un cobro pagado o cancelado.',
+      );
+    }
     if (!payment.paymentUrl) {
       throw new BadRequestException(
         'No hay un link de pago disponible para reenviar.',

@@ -798,6 +798,25 @@ describe('PaymentsService', () => {
       expect(result).toBeDefined();
     });
 
+    it.each(['PAID', 'CANCELLED'] as const)(
+      'cobro %s: rechaza con BadRequestException sin consultar al paciente ni llamar a MailService',
+      async (status) => {
+        prisma.payment.findUniqueOrThrow.mockResolvedValue(
+          buildPayment({
+            status,
+            paymentUrl: 'https://flow.cl/pay/existing-token',
+          }),
+        );
+
+        await expect(service.resendPaymentLink('group-1')).rejects.toThrow(
+          BadRequestException,
+        );
+        expect(prisma.patient.findUnique).not.toHaveBeenCalled();
+        expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+        expect(prisma.payment.update).not.toHaveBeenCalled();
+      },
+    );
+
     it('sin paymentUrl (nunca se emitió orden): rechaza con BadRequestException sin llamar a MailService', async () => {
       prisma.payment.findUniqueOrThrow.mockResolvedValue(
         buildPayment({ paymentUrl: null }),
