@@ -28,5 +28,8 @@ Replace global `Patient.rut @unique` with `@@unique([therapistId, rut])` so a th
 - Checks: npm lint OK, npm run build OK, npm test 1012 passed; 3 DB integration suites (calendar-sync, consultations, reminders) fail only for missing DATABASE_URL (environmental). e2e pending in an env with DB.
 - Known gap: PATCH rut collision within a therapist yields P2002 (unchanged behaviour, not handled).
 
+- Verified with local DB (127.0.0.1, umbral_db) after `prisma migrate deploy` applied 20261001120000_patient_rut_unique_per_therapist (before applying, the new e2e got 500 from the old Patient_rut_key index, as expected): patient-rut-per-therapist e2e 3/3 passed; public-scheduling, public-booking-checkout and patient-consent e2e: 26/26 passed.
+- The 14 `npm test` failures (calendar-sync, consultations, reminders integration) persist: those suites read DATABASE_URL from the process env, and jest unit config does not load .env. Environmental, unrelated to this change.
+
 ## Next step
-Run e2e with a DB-enabled env, then PR.
+Push branch and open PR (user decision).
