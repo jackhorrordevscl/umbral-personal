@@ -309,6 +309,7 @@ describe('CalendarSyncService', () => {
           data: expect.objectContaining({
             status: 'DISCONNECTED',
             refreshTokenEncrypted: null,
+            busySyncedAt: null,
           }) as unknown,
         }),
       );

@@ -331,6 +331,27 @@ describe('CalendarOauthService', () => {
       expect(busyBlockMock.deleteMany).toHaveBeenCalledWith({
         where: { therapistId },
       });
+      // Reconectar enseguida no debe reutilizar un overlay "fresco" ya vacío.
+      const callArg = connectionMock.update.mock.calls[0][0] as {
+        data: { busySyncedAt: null };
+      };
+      expect(callArg.data.busySyncedAt).toBeNull();
+    });
+
+    it('si falla el borrado de CalendarBusyBlock, la desconexión igual termina y audita (issue #283)', async () => {
+      const { service, connectionMock, busyBlockMock, logMock } =
+        buildService();
+      connectionMock.findUnique.mockResolvedValue({
+        status: 'CONNECTED',
+        refreshTokenEncrypted: null,
+      });
+      connectionMock.update.mockResolvedValue({ status: 'DISCONNECTED' });
+      busyBlockMock.deleteMany.mockRejectedValue(new Error('db caída'));
+
+      await expect(service.disconnect(therapistId)).resolves.toEqual({
+        status: 'DISCONNECTED',
+      });
+      expect(logMock).toHaveBeenCalled();
     });
 
     it('rechaza si no existe una conexión para el terapeuta', async () => {

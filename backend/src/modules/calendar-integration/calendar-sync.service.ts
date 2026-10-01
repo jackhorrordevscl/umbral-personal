@@ -476,6 +476,8 @@ export class CalendarSyncService {
         refreshTokenEncrypted: null,
         scope: null,
         lastError: 'invalid_grant',
+        // issue #283: ver CalendarOauthService.disconnect.
+        busySyncedAt: null,
       },
     });
     if (result.count === 0) return;
@@ -487,9 +489,13 @@ export class CalendarSyncService {
     if (!connection) return;
 
     // issue #283: mismo criterio que CalendarOauthService.disconnect.
-    await this.prisma.calendarBusyBlock.deleteMany({
-      where: { therapistId: connection.therapistId },
-    });
+    await this.prisma.calendarBusyBlock
+      .deleteMany({ where: { therapistId: connection.therapistId } })
+      .catch((err: unknown) => {
+        this.logger.error(
+          `Fallo al borrar CalendarBusyBlock para therapistId=${connection.therapistId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
 
     // issue #119: misma acción que CalendarOauthService.disconnect (el
     // terapeuta termina desconectado igual), pero con detail distinto -- acá
