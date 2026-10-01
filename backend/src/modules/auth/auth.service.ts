@@ -1,6 +1,7 @@
 import {
   ForbiddenException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -66,6 +67,8 @@ const SIGNUP_REJECTED_MESSAGE = 'Código de invitación inválido o expirado';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -231,10 +234,19 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
-    if (!user || user.deletedAt || user.emailVerified) {
-      return RESEND_VERIFICATION_GENERIC_MESSAGE;
+    // Issue #303: el envío (la parte lenta y distinguible por latencia) corre
+    // en segundo plano; la respuesta sale tras el mismo único findUnique
+    // exista o no la cuenta.
+    if (user && !user.deletedAt && !user.emailVerified) {
+      this.runInBackground('reenvío de verificación', user.id, () =>
+        this.sendVerificationLink(user),
+      );
     }
 
+    return RESEND_VERIFICATION_GENERIC_MESSAGE;
+  }
+
+  private async sendVerificationLink(user: User): Promise<void> {
     const token = this.jwtService.sign(
       { sub: user.id, purpose: EMAIL_VERIFY_PURPOSE },
       { expiresIn: EMAIL_VERIFY_EXPIRES_IN },
@@ -248,8 +260,23 @@ export class AuthService {
       user.name,
       verifyUrl,
     );
+  }
 
-    return RESEND_VERIFICATION_GENERIC_MESSAGE;
+  // Mismo patrón fire-and-forget que ConsultationsService.emitCalendarSync:
+  // nunca se await, y un fallo se registra sin relanzar. El log lleva el id
+  // del usuario, nunca el email (issue #134).
+  private runInBackground(
+    label: string,
+    userId: string,
+    task: () => Promise<void>,
+  ): void {
+    void Promise.resolve()
+      .then(task)
+      .catch((err: unknown) => {
+        this.logger.error(
+          `Fallo no bloqueante en ${label} (userId=${userId}): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
   }
 
   async login(dto: LoginDto) {
@@ -442,10 +469,19 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
-    if (!user || user.deletedAt) {
-      return FORGOT_PASSWORD_GENERIC_MESSAGE;
+    // Issue #303: update + mail + audit corren en segundo plano, de modo que
+    // la latencia de la respuesta no distingue cuentas existentes de las que
+    // no (antes, solo las existentes pagaban un UPDATE, el envío y el audit).
+    if (user && !user.deletedAt) {
+      this.runInBackground('forgot-password', user.id, () =>
+        this.issuePasswordReset(user),
+      );
     }
 
+    return FORGOT_PASSWORD_GENERIC_MESSAGE;
+  }
+
+  private async issuePasswordReset(user: User): Promise<void> {
     // Se guarda el timestamp además de firmarlo en el JWT: un token de reset
     // es un JWT sin estado, válido hasta que expira (30 min). Sin este
     // replay guard, un link filtrado (logs, bandeja compartida) seguiría
@@ -481,8 +517,6 @@ export class AuthService {
       resource: 'User',
       resourceId: user.id,
     });
-
-    return FORGOT_PASSWORD_GENERIC_MESSAGE;
   }
 
   /**

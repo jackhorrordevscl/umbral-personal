@@ -1,4 +1,8 @@
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
@@ -29,6 +33,10 @@ function buildUser(overrides: Partial<User> = {}): User {
     ...overrides,
   } as unknown as User;
 }
+
+// Deja correr las promesas encoladas del trabajo fire-and-forget (issue #303)
+// antes de afirmar sobre sus efectos.
+const flushBackground = () => new Promise((resolve) => setImmediate(resolve));
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -745,6 +753,7 @@ describe('AuthService', () => {
       const result = await service.forgotPassword({
         email: 'user@example.com',
       });
+      await flushBackground();
 
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
@@ -770,6 +779,144 @@ describe('AuthService', () => {
       expect(result).toEqual({
         message:
           'Si el email está registrado, vas a recibir un enlace para restablecer tu contraseña.',
+      });
+    });
+  });
+
+  // Issue #303: el trabajo posterior a la respuesta corre en segundo plano.
+  describe('trabajo en segundo plano (issue #303)', () => {
+    const forgotDto = { email: 'user@example.com' };
+    let loggerError: jest.SpyInstance<void, [message: unknown]>;
+
+    beforeEach(() => {
+      loggerError = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      loggerError.mockRestore();
+    });
+
+    it('forgotPassword responde sin esperar el UPDATE, el email ni el audit', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser());
+      prisma.user.update.mockReturnValue(new Promise(() => undefined));
+
+      const result = await service.forgotPassword(forgotDto);
+
+      expect(result).toEqual({
+        message:
+          'Si el email está registrado, vas a recibir un enlace para restablecer tu contraseña.',
+      });
+      expect(mailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+    });
+
+    it('forgotPassword hace el mismo trabajo síncrono (un findUnique) para cuenta existente e inexistente', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      await service.forgotPassword(forgotDto);
+      await flushBackground();
+      const callsMissing = prisma.user.findUnique.mock.calls.length;
+
+      prisma.user.findUnique.mockClear();
+      prisma.user.findUnique.mockResolvedValue(buildUser());
+      await service.forgotPassword(forgotDto);
+      await flushBackground();
+
+      expect(callsMissing).toBe(1);
+      expect(prisma.user.findUnique).toHaveBeenCalledTimes(1);
+    });
+
+    it('forgotPassword registra (sin lanzar ni exponer el email) si el envío falla en segundo plano', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser());
+      mailService.sendPasswordResetEmail.mockRejectedValue(
+        new Error('resend down'),
+      );
+
+      await expect(service.forgotPassword(forgotDto)).resolves.toBeDefined();
+      await flushBackground();
+
+      expect(loggerError).toHaveBeenCalledTimes(1);
+      const logged = String(loggerError.mock.calls[0]?.[0]);
+      expect(logged).toContain('resend down');
+      expect(logged).toContain('user-1');
+      expect(logged).not.toContain('user@example.com');
+      expect(auditService.log).not.toHaveBeenCalled();
+    });
+
+    it('forgotPassword registra si el UPDATE falla en segundo plano', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser());
+      prisma.user.update.mockRejectedValue(new Error('db down'));
+
+      await expect(service.forgotPassword(forgotDto)).resolves.toBeDefined();
+      await flushBackground();
+
+      expect(loggerError).toHaveBeenCalledTimes(1);
+      expect(mailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+    });
+
+    describe('resendVerificationEmail', () => {
+      const dto = { email: 'user@example.com' };
+      const generic = {
+        message:
+          'Si el email está registrado y pendiente de verificar, vas a recibir un nuevo enlace.',
+      };
+
+      it.each([
+        ['no existe', null],
+        ['está soft-deleted', buildUser({ deletedAt: new Date() })],
+        ['ya está verificado', buildUser({ emailVerified: true })],
+      ])(
+        'responde el mensaje genérico sin enviar nada si la cuenta %s',
+        async (_label, user) => {
+          prisma.user.findUnique.mockResolvedValue(user);
+
+          const result = await service.resendVerificationEmail(dto);
+          await flushBackground();
+
+          expect(result).toEqual(generic);
+          expect(mailService.sendVerificationEmail).not.toHaveBeenCalled();
+        },
+      );
+
+      it('envía el link en segundo plano si la cuenta está pendiente de verificar', async () => {
+        prisma.user.findUnique.mockResolvedValue(
+          buildUser({ emailVerified: false }),
+        );
+        config.get.mockImplementation((key: string) =>
+          key === 'FRONTEND_URL' ? 'http://localhost:5173' : undefined,
+        );
+        mailService.sendVerificationEmail.mockReturnValue(
+          new Promise(() => undefined),
+        );
+
+        const result = await service.resendVerificationEmail(dto);
+        await flushBackground();
+
+        expect(result).toEqual(generic);
+        expect(mailService.sendVerificationEmail).toHaveBeenCalledWith(
+          'user@example.com',
+          'Test User',
+          'http://localhost:5173/verify-email?token=signed-token',
+        );
+      });
+
+      it('registra (sin lanzar ni exponer el email) si el envío falla en segundo plano', async () => {
+        prisma.user.findUnique.mockResolvedValue(
+          buildUser({ emailVerified: false }),
+        );
+        mailService.sendVerificationEmail.mockRejectedValue(
+          new Error('resend down'),
+        );
+
+        await expect(service.resendVerificationEmail(dto)).resolves.toEqual(
+          generic,
+        );
+        await flushBackground();
+
+        expect(loggerError).toHaveBeenCalledTimes(1);
+        const logged = String(loggerError.mock.calls[0]?.[0]);
+        expect(logged).toContain('resend down');
+        expect(logged).not.toContain('user@example.com');
       });
     });
   });
