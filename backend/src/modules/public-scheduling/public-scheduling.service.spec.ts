@@ -190,6 +190,27 @@ describe('PublicSchedulingService', () => {
       ).not.toHaveBeenCalled();
     });
 
+    // issue #285: el recheck lee el estado real, no el cache del listado.
+    it('el recheck de disponibilidad salta el cache', async () => {
+      prisma.user.findUnique.mockResolvedValue({ sessionDurationMinutes: 50 });
+      availabilityService.computeSlots.mockResolvedValue([]);
+
+      await expect(
+        service.book('therapist-1', {
+          slotStart: '2026-09-05T13:00:00.000Z',
+          patient: patientDto,
+        } as never),
+      ).rejects.toThrow(ConflictException);
+
+      expect(availabilityService.computeSlots).toHaveBeenCalledWith(
+        'therapist-1',
+        new Date('2026-09-05T13:00:00.000Z'),
+        new Date('2026-09-05T13:50:00.000Z'),
+        expect.any(Date),
+        { bypassCache: true },
+      );
+    });
+
     it('reserva exitosamente cuando el slot sigue libre: resuelve paciente y crea la consulta', async () => {
       prisma.user.findUnique.mockResolvedValue({ sessionDurationMinutes: 50 });
       availabilityService.computeSlots.mockResolvedValue([

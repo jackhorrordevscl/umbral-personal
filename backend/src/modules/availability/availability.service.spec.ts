@@ -136,6 +136,44 @@ describe('computeAvailableSlots (pure)', () => {
     expect(result).toHaveLength(0);
   });
 
+  // issue #285: la ocupación se compara por intervalo, no solo por inicio.
+  it('una consulta que empieza dentro de un slot anterior bloquea también el siguiente que solapa', () => {
+    // Slots de 50 min desde 09:00 Chile (13:00 UTC): 13:00, 13:50, 14:40...
+    // Sesión a las 13:30 UTC (09:30 Chile) dura hasta 14:20: bloquea 13:00
+    // (contiene su inicio) y 13:50 (solapa), pero no 14:40.
+    const result = computeAvailableSlots(
+      baseInput({
+        weeklyRules: [
+          { dayOfWeek: 1, startMinute: 9 * 60, endMinute: 13 * 60 },
+        ],
+        occupiedConsultations: [
+          { sessionDate: new Date('2026-06-01T13:30:00.000Z') },
+        ],
+        now: new Date('2026-05-01T00:00:00.000Z'),
+      }),
+    );
+    expect(result.map((s) => s.start)).toEqual([
+      '2026-06-01T14:40:00.000Z',
+      '2026-06-01T15:30:00.000Z',
+    ]);
+  });
+
+  it('una consulta que termina justo cuando empieza un slot no lo bloquea (intervalo half-open)', () => {
+    // Sesión 13:00-13:50 UTC: el slot de 13:50 queda libre.
+    const result = computeAvailableSlots(
+      baseInput({
+        weeklyRules: [
+          { dayOfWeek: 1, startMinute: 9 * 60, endMinute: 13 * 60 },
+        ],
+        occupiedConsultations: [
+          { sessionDate: new Date('2026-06-01T13:00:00.000Z') },
+        ],
+        now: new Date('2026-05-01T00:00:00.000Z'),
+      }),
+    );
+    expect(result.map((s) => s.start)).toContain('2026-06-01T13:50:00.000Z');
+  });
+
   it('una consulta existente elimina el slot que ocupa', () => {
     const result = computeAvailableSlots(
       baseInput({
@@ -482,6 +520,35 @@ describe('AvailabilityService (cache)', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           patient: { deletedAt: null },
+        }) as unknown,
+      }),
+    );
+  });
+
+  // issue #285: el recheck de book() no puede servirse del cache.
+  it('bypassCache recalcula aunque haya una entrada vigente', async () => {
+    await service.computeSlots('therapist-1', from, to, now);
+    await service.computeSlots(
+      'therapist-1',
+      from,
+      to,
+      new Date(now.getTime() + 1000),
+      { bypassCache: true },
+    );
+
+    expect(prisma.therapistAvailability.findMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('la lectura de ocupación se amplía una duración antes de `from` para ver sesiones que lo solapan', async () => {
+    await service.computeSlots('therapist-1', from, to, now);
+
+    expect(prisma.consultation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          sessionDate: {
+            gte: new Date(from.getTime() - 50 * 60000),
+            lt: to,
+          },
         }) as unknown,
       }),
     );

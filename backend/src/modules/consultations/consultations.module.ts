@@ -4,6 +4,7 @@ import { ConsultationsController } from './consultations.controller';
 import { PatientsModule } from '../patients/patients.module';
 import { CalendarIntegrationModule } from '../calendar-integration/calendar-integration.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { AvailabilityModule } from '../availability/availability.module';
 
 // design.md "File Changes": importa CalendarIntegrationModule para que
 // ConsultationsService pueda inyectar CalendarSyncService y disparar
@@ -17,8 +18,15 @@ import { PaymentsModule } from '../payments/payments.module';
 // exporta ConsultationsService para que PublicSchedulingModule pueda
 // inyectarlo y llamar createFromPublicBooking() -- sin ciclo: consultations
 // no importa public-scheduling.
+// issue #285: importa AvailabilityModule para invalidar el cache de slots tras
+// escribir consultas -- sin ciclo, AvailabilityModule no importa nada.
 @Module({
-  imports: [PatientsModule, CalendarIntegrationModule, PaymentsModule],
+  imports: [
+    PatientsModule,
+    CalendarIntegrationModule,
+    PaymentsModule,
+    AvailabilityModule,
+  ],
   controllers: [ConsultationsController],
   providers: [ConsultationsService],
   exports: [ConsultationsService],

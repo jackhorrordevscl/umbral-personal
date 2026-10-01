@@ -118,6 +118,7 @@ export function computeAvailableSlots(
   );
   let blockoutIdx = 0;
   let occupiedIdx = 0;
+  const durationMs = sessionDurationMinutes * 60000;
 
   const slots: AvailableSlot[] = [];
   const lastDayKey = chileDayKeyFromInstant(new Date(to.getTime() - 1));
@@ -177,10 +178,14 @@ export function computeAvailableSlots(
         if (isBlocked) continue;
 
         // Mismo criterio: descarta permanentemente las consultas ocupadas
-        // que ya pasaron.
+        // cuyo intervalo [sessionDate, sessionDate + duración) ya terminó.
+        // issue #285: se compara el intervalo completo (todas las consultas
+        // comparten la duración vigente del terapeuta), así una sesión a las
+        // 10:30 también bloquea el slot de las 11:00.
         while (
           occupiedIdx < sortedOccupied.length &&
-          sortedOccupied[occupiedIdx].sessionDate.getTime() < startMs
+          sortedOccupied[occupiedIdx].sessionDate.getTime() + durationMs <=
+            startMs
         ) {
           occupiedIdx++;
         }
@@ -286,15 +291,18 @@ export class AvailabilityService {
     return `${therapistId}|${version}|${from.toISOString()}|${to.toISOString()}`;
   }
 
+  // issue #285: bypassCache fuerza el cómputo contra la DB (el recheck de
+  // book() no puede leer la misma entrada de cache que sirvió el listado).
   async computeSlots(
     therapistId: string,
     from: Date,
     to: Date,
     now: Date = new Date(),
+    options: { bypassCache?: boolean } = {},
   ): Promise<AvailableSlot[]> {
     const key = this.cacheKey(therapistId, from, to);
     const cached = this.cache.get(key);
-    if (cached && cached.expiresAt > now.getTime()) {
+    if (!options.bypassCache && cached && cached.expiresAt > now.getTime()) {
       return cached.slots;
     }
 
@@ -331,18 +339,22 @@ export class AvailabilityService {
       }
     }
 
+    // issue #285: la duración se lee antes porque amplía el rango de la query
+    // de ocupación (sesiones que empiezan antes de `from` pero lo solapan).
+    const therapist = await this.prisma.user.findUnique({
+      where: { id: therapistId },
+      select: { sessionDurationMinutes: true },
+    });
+    const sessionDurationMinutes =
+      therapist?.sessionDurationMinutes ?? DEFAULT_SESSION_MINUTES;
+
     const [
-      therapist,
       weeklyRules,
       blockouts,
       holidays,
       occupiedConsultations,
       busyBlocks,
     ] = await Promise.all([
-      this.prisma.user.findUnique({
-        where: { id: therapistId },
-        select: { sessionDurationMinutes: true },
-      }),
       this.prisma.therapistAvailability.findMany({
         where: { therapistId },
         select: { dayOfWeek: true, startMinute: true, endMinute: true },
@@ -366,15 +378,16 @@ export class AvailabilityService {
           deletedAt: null,
           // issue #285: las consultas de pacientes eliminados no ocupan slots.
           patient: { deletedAt: null },
-          sessionDate: { gte: from, lt: to },
+          sessionDate: {
+            gte: new Date(from.getTime() - sessionDurationMinutes * 60000),
+            lt: to,
+          },
         },
         select: { sessionDate: true },
       }),
       busyBlocksQuery,
     ]);
 
-    const sessionDurationMinutes =
-      therapist?.sessionDurationMinutes ?? DEFAULT_SESSION_MINUTES;
     const holidayDayKeys = new Set(
       holidays.map((h: { date: Date }) => dateOnlyDayKey(h.date)),
     );
