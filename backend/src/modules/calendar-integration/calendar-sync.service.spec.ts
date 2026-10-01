@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NotificationType } from '@prisma/client';
 import { CalendarSyncService } from './calendar-sync.service';
@@ -9,6 +10,10 @@ import {
 } from './google-calendar.client';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditService } from '../audit/audit.service';
+import {
+  MAX_RECONCILE_PAGES,
+  RECONCILE_BATCH_LIMIT,
+} from './calendar-integration.constants';
 
 // sdd/google-calendar-integration PR 2: capa de aplicación de
 // CalendarSyncService con Prisma/GoogleCalendarClient/NotificationsService
@@ -420,6 +425,195 @@ describe('CalendarSyncService', () => {
       await service.reconcile();
 
       expect(prisma.googleCalendarConnection.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  // issue #286 (parte 2): antes cada método leía solo los primeros
+  // RECONCILE_BATCH_LIMIT y el resto nunca se alcanzaba. Los mocks de Prisma no
+  // validan el filtro real; acá se verifica el protocolo de paginación
+  // (orden estable, cursor/keyset tras la última fila, tope de páginas).
+  describe('reconcile — paginación completa (issue #286)', () => {
+    function linkRow(index: number, syncStatus: 'SYNCED' | 'FAILED') {
+      const n = String(index).padStart(5, '0');
+      return {
+        id: `link-${n}`,
+        connectionId: 'connection-1',
+        groupId: `group-${n}`,
+        googleEventId: `event-${n}`,
+        lastSessionDate: new Date('2026-03-10T12:00:00.000Z'),
+        syncStatus,
+      };
+    }
+
+    function pageOf(
+      count: number,
+      offset: number,
+      syncStatus: 'SYNCED' | 'FAILED',
+    ) {
+      return Array.from({ length: count }, (_, i) =>
+        linkRow(offset + i, syncStatus),
+      );
+    }
+
+    interface LinkQuery {
+      where: { syncStatus?: string; id?: { gt: string } };
+      orderBy: { id: string };
+      take: number;
+    }
+
+    function linkQueries(): LinkQuery[] {
+      return (prisma.calendarEventLink.findMany.mock.calls as LinkQuery[][])
+        .map((call) => call[0])
+        .filter((query) => query.where.syncStatus === 'FAILED');
+    }
+
+    beforeEach(() => {
+      prisma.googleCalendarConnection.findMany.mockResolvedValue([
+        buildConnection(),
+      ]);
+      prisma.consultation.findMany.mockResolvedValue([]);
+    });
+
+    it('repairFailedLinks recorre todas las páginas con orden por id y keyset tras la última fila', async () => {
+      const failedPages = [
+        pageOf(RECONCILE_BATCH_LIMIT, 0, 'FAILED'),
+        pageOf(RECONCILE_BATCH_LIMIT, RECONCILE_BATCH_LIMIT, 'FAILED'),
+        pageOf(50, 2 * RECONCILE_BATCH_LIMIT, 'FAILED'),
+      ];
+      let failedCall = 0;
+      prisma.calendarEventLink.findMany.mockImplementation((args: LinkQuery) =>
+        Promise.resolve(
+          args.where.syncStatus === 'FAILED'
+            ? (failedPages[failedCall++] ?? [])
+            : [],
+        ),
+      );
+      const syncGroup = jest.spyOn(service, 'syncGroup').mockResolvedValue();
+
+      await service.reconcile();
+
+      const queries = linkQueries();
+      expect(queries).toHaveLength(3);
+      expect(queries.every((q) => q.orderBy.id === 'asc')).toBe(true);
+      expect(queries[0].where.id).toBeUndefined();
+      expect(queries[1].where.id).toEqual({ gt: 'link-00199' });
+      expect(queries[2].where.id).toEqual({ gt: 'link-00399' });
+      // Se repararon los 450 links, no solo los primeros 200.
+      expect(syncGroup).toHaveBeenCalledTimes(450);
+      expect(syncGroup).toHaveBeenCalledWith('group-00449');
+    });
+
+    it('deleteForRemovedConsultations alcanza los links de la segunda página', async () => {
+      const allPages = [
+        pageOf(RECONCILE_BATCH_LIMIT, 0, 'SYNCED'),
+        [linkRow(RECONCILE_BATCH_LIMIT, 'SYNCED')],
+      ];
+      let call = 0;
+      prisma.calendarEventLink.findMany.mockImplementation(
+        (args: LinkQuery) => {
+          if (args.where.syncStatus) return Promise.resolve([]);
+          return Promise.resolve(allPages[call++] ?? []);
+        },
+      );
+      // Ninguna consulta existe => todos los links se consideran huérfanos.
+      prisma.consultation.findMany.mockResolvedValue([]);
+      prisma.calendarEventLink.findUnique.mockImplementation(
+        (args: { where: { connectionId_groupId: { groupId: string } } }) =>
+          Promise.resolve({
+            id: `link-of-${args.where.connectionId_groupId.groupId}`,
+            googleEventId: 'event',
+          }),
+      );
+      googleCalendarClient.deleteEvent.mockResolvedValue(undefined);
+
+      await service.reconcile();
+
+      expect(googleCalendarClient.deleteEvent).toHaveBeenCalledTimes(
+        RECONCILE_BATCH_LIMIT + 1,
+      );
+    });
+
+    it('backfill pagina las consultas con cursor y solo sincroniza las que no tienen link', async () => {
+      const candidate = (i: number) => ({
+        id: `consultation-${String(i).padStart(5, '0')}`,
+        groupId: `group-${String(i).padStart(5, '0')}`,
+      });
+      const page1 = Array.from({ length: RECONCILE_BATCH_LIMIT }, (_, i) =>
+        candidate(i),
+      );
+      const page2 = [candidate(RECONCILE_BATCH_LIMIT)];
+      prisma.calendarEventLink.findMany.mockImplementation(
+        (args: {
+          where: { groupId?: { in: string[] }; syncStatus?: string };
+        }) => {
+          // Solo la consulta de links del backfill filtra por groupId in [...].
+          if (args.where.groupId) {
+            return Promise.resolve(
+              args.where.groupId.in
+                .filter((g) => page1.some((c) => c.groupId === g))
+                .map((groupId) => ({ groupId })),
+            );
+          }
+          return Promise.resolve([]);
+        },
+      );
+      let consultationCall = 0;
+      const consultationPages = [page1, page2];
+      prisma.consultation.findMany.mockImplementation(
+        (args: { select?: { id?: boolean; groupId?: boolean } }) =>
+          Promise.resolve(
+            args.select?.id
+              ? (consultationPages[consultationCall++] ?? [])
+              : [],
+          ),
+      );
+      const syncGroup = jest.spyOn(service, 'syncGroup').mockResolvedValue();
+
+      await service.reconcile();
+
+      const backfillQueries = (
+        prisma.consultation.findMany.mock.calls as {
+          select?: { id?: boolean };
+          orderBy?: unknown;
+          cursor?: unknown;
+          skip?: number;
+        }[][]
+      )
+        .map((c) => c[0])
+        .filter((q) => q.select?.id);
+      expect(backfillQueries).toHaveLength(2);
+      expect(backfillQueries[0].orderBy).toEqual([
+        { sessionDate: 'asc' },
+        { id: 'asc' },
+      ]);
+      expect(backfillQueries[0].cursor).toBeUndefined();
+      expect(backfillQueries[1].cursor).toEqual({ id: 'consultation-00199' });
+      expect(backfillQueries[1].skip).toBe(1);
+      // La página 1 ya estaba enlazada; solo la de la página 2 se sincroniza.
+      expect(syncGroup).toHaveBeenCalledTimes(1);
+      expect(syncGroup).toHaveBeenCalledWith('group-00200');
+    });
+
+    it('detiene el recorrido en MAX_RECONCILE_PAGES aunque siempre haya otra página', async () => {
+      prisma.calendarEventLink.findMany.mockImplementation((args: LinkQuery) =>
+        Promise.resolve(
+          args.where.syncStatus === 'FAILED'
+            ? pageOf(RECONCILE_BATCH_LIMIT, 0, 'FAILED')
+            : [],
+        ),
+      );
+      jest.spyOn(service, 'syncGroup').mockResolvedValue();
+      const warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+
+      await service.reconcile();
+
+      expect(linkQueries()).toHaveLength(MAX_RECONCILE_PAGES);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('repairFailedLinks'),
+      );
+      warn.mockRestore();
     });
   });
 

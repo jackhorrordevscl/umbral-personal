@@ -8,9 +8,16 @@
 // desde la conexión -- implementado en PR 2.
 export const BACKFILL_WINDOW_DAYS = 90;
 
-// design.md "Data Flow": tope de conexiones/links procesados por corrida del
-// reconciler, para no barrer la tabla completa en un solo tick -- PR 2.
+// design.md "Data Flow": tamaño de página de links/consultas que el
+// reconciler carga por consulta a la DB -- PR 2. Desde issue #286 (parte 2)
+// es el tamaño de página, no un tope por tick: cada método recorre todas las
+// páginas con cursor para no reprocesar siempre los mismos primeros 200.
 export const RECONCILE_BATCH_LIMIT = 200;
+
+// issue #286 (parte 2): tope de páginas por método y por conexión en cada
+// tick, solo como red de seguridad para que un dataset patológico no deje el
+// reconciler recorriendo sin límite (50 x 200 = 10.000 filas por método).
+export const MAX_RECONCILE_PAGES = 50;
 
 // Consultation no tiene columna de duración (design.md "Minimized event
 // body, fixed 50-minute duration") -- PR 2.

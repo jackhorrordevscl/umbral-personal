@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MailService } from '../mail/mail.service';
 import { RemindersService } from './reminders.service';
+import * as constants from './reminders.constants';
 import { REMINDER_MAX_ATTEMPTS } from './reminders.constants';
 
 /**
@@ -69,6 +70,10 @@ describe('RemindersService (integration, real Prisma)', () => {
       config,
     );
   }, 30000);
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
 
   afterAll(async () => {
     await prisma.reminderDispatch.deleteMany({ where: { therapistId } });
@@ -236,4 +241,116 @@ describe('RemindersService (integration, real Prisma)', () => {
     expect(row.status).toBe('FAILED');
     expect(row.attempts).toBe(1);
   }, 30000);
+
+  // issue #286 (parte 2): el filtro "accionable" solo se puede validar contra
+  // SQL real. Los asserts se acotan a las consultas de este test porque la DB
+  // local puede tener otras filas dentro de la ventana de 24h.
+  describe('scan solo toma consultas accionables (#286 parte 2)', () => {
+    const HOUR_MS = 60 * 60 * 1000;
+
+    function claimRows(
+      consultation: { id: string; sessionDate: Date },
+      offsetKind: 'H24' | 'H2',
+      status: 'SENT' | 'SKIPPED' | 'FAILED',
+    ) {
+      return (['IN_APP', 'EMAIL'] as const).map((channel) =>
+        prisma.reminderDispatch.create({
+          data: {
+            groupId: consultation.id,
+            sessionDate: consultation.sessionDate,
+            offsetKind,
+            channel,
+            consultationId: consultation.id,
+            therapistId,
+            status,
+            // FAILED recién reclamado: queda dentro del backoff, no reintenta.
+          },
+        }),
+      );
+    }
+
+    function createCallsFor(spy: jest.SpyInstance, consultationId: string) {
+      return (
+        spy.mock.calls as { data: { consultationId: string } }[][]
+      ).filter((call) => call[0].data.consultationId === consultationId);
+    }
+
+    it('un scan no reintenta insertar (sin P2002) consultas ya reclamadas y sí alcanza a la nueva aunque la preceda un lote lleno', async () => {
+      // Lote diminuto: antes de este fix, las 3 ya reclamadas (más próximas)
+      // llenaban el lote de 2 y la nueva, más lejana, nunca se alcanzaba.
+      jest.replaceProperty(constants, 'SCAN_BATCH_LIMIT', 2);
+
+      const claimed = [
+        await createConsultation(new Date(Date.now() + 5 * HOUR_MS)),
+        await createConsultation(new Date(Date.now() + 6 * HOUR_MS)),
+        await createConsultation(new Date(Date.now() + 7 * HOUR_MS)),
+      ];
+      for (const consultation of claimed) {
+        await Promise.all(claimRows(consultation, 'H24', 'SENT'));
+      }
+      const fresh = await createConsultation(
+        new Date(Date.now() + 20 * HOUR_MS),
+      );
+
+      const createSpy = jest.spyOn(prisma.reminderDispatch, 'create');
+      await service.scan();
+
+      for (const consultation of claimed) {
+        expect(createCallsFor(createSpy, consultation.id)).toHaveLength(0);
+      }
+      const freshRows = await prisma.reminderDispatch.findMany({
+        where: { consultationId: fresh.id },
+      });
+      expect(freshRows).toHaveLength(2);
+      expect(freshRows.every((r) => r.offsetKind === 'H24')).toBe(true);
+    }, 30000);
+
+    it('con la sesión a <2h: H24 SKIPPED sin H2 sigue accionable; con H2 reclamado en ambos canales ya no', async () => {
+      const needsH2 = await createConsultation(
+        new Date(Date.now() + 1 * HOUR_MS),
+      );
+      await Promise.all(claimRows(needsH2, 'H24', 'SKIPPED'));
+      const doneH2 = await createConsultation(
+        new Date(Date.now() + 1 * HOUR_MS),
+      );
+      await Promise.all(claimRows(doneH2, 'H24', 'SKIPPED'));
+      await Promise.all(claimRows(doneH2, 'H2', 'FAILED'));
+
+      const createSpy = jest.spyOn(prisma.reminderDispatch, 'create');
+      await service.scan();
+
+      const h2Rows = await prisma.reminderDispatch.findMany({
+        where: { consultationId: needsH2.id, offsetKind: 'H2' },
+      });
+      expect(h2Rows).toHaveLength(2);
+      expect(h2Rows.every((r) => r.status === 'SENT')).toBe(true);
+      // doneH2 tiene todo reclamado (FAILED cuenta como reclamado: lo
+      // recupera retryStaleDispatches, no el scan).
+      expect(createCallsFor(createSpy, doneH2.id)).toHaveLength(0);
+    }, 30000);
+
+    it('una consulta con un solo canal reclamado sigue accionable (completa el canal faltante)', async () => {
+      const consultation = await createConsultation(
+        new Date(Date.now() + 10 * HOUR_MS),
+      );
+      await prisma.reminderDispatch.create({
+        data: {
+          groupId: consultation.id,
+          sessionDate: consultation.sessionDate,
+          offsetKind: 'H24',
+          channel: 'IN_APP',
+          consultationId: consultation.id,
+          therapistId,
+          status: 'SENT',
+        },
+      });
+
+      await service.scan();
+
+      const emailRow = await prisma.reminderDispatch.findFirst({
+        where: { consultationId: consultation.id, channel: 'EMAIL' },
+      });
+      expect(emailRow?.status).toBe('SENT');
+    }, 30000);
+  });
 });

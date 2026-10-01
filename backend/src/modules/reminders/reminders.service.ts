@@ -3,21 +3,27 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   NotificationType,
+  Prisma,
   ReminderChannel,
   ReminderOffset,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MailService } from '../mail/mail.service';
-import { resolveDueOffsets } from './reminders.util';
+import {
+  buildActionableConsultationWhere,
+  resolveDueOffsets,
+} from './reminders.util';
 import {
   MAX_LOOKAHEAD_MS,
+  REMINDER_CHANNELS,
   REMINDER_OFFSETS,
   REMINDER_MAX_ATTEMPTS,
   REMINDER_PENDING_STALE_MS,
   REMINDER_RETRY_BACKOFF_MS,
   RETRY_BATCH_LIMIT,
   SCAN_BATCH_LIMIT,
+  SCAN_MAX_PAGES,
 } from './reminders.constants';
 
 const EMAIL_NOT_CONFIRMED_ERROR =
@@ -39,10 +45,7 @@ const OFFSET_LABELS: Record<ReminderOffset, string> = REMINDER_OFFSETS.reduce(
   {} as Record<ReminderOffset, string>,
 );
 
-const CHANNELS: readonly ReminderChannel[] = [
-  ReminderChannel.IN_APP,
-  ReminderChannel.EMAIL,
-];
+const CHANNELS: readonly ReminderChannel[] = REMINDER_CHANNELS;
 
 interface ScannedConsultation {
   id: string;
@@ -92,28 +95,44 @@ export class RemindersService {
     if (!this.enabled) return;
 
     const now = new Date();
-    const consultations = (await this.prisma.consultation.findMany({
-      where: {
-        deletedAt: null,
-        correctedBy: null,
-        // Soft-deleted patients must not keep receiving reminders for their
-        // future sessions (same guard as calendar-sync.service.ts).
-        patient: { deletedAt: null },
-        sessionDate: {
-          gt: now,
-          lte: new Date(now.getTime() + MAX_LOOKAHEAD_MS),
-        },
+    const where: Prisma.ConsultationWhereInput = {
+      deletedAt: null,
+      correctedBy: null,
+      // Soft-deleted patients must not keep receiving reminders for their
+      // future sessions (same guard as calendar-sync.service.ts).
+      patient: { deletedAt: null },
+      sessionDate: {
+        gt: now,
+        lte: new Date(now.getTime() + MAX_LOOKAHEAD_MS),
       },
-      orderBy: { sessionDate: 'asc' },
-      take: SCAN_BATCH_LIMIT,
-      include: {
-        patient: { select: { fullName: true } },
-        therapist: { select: { name: true, email: true } },
-      },
-    })) as ScannedConsultation[];
+      // issue #286: solo consultas a las que aún les falta algún dispatch en
+      // el offset vigente; las ya reclamadas no ocupan lugar en el lote.
+      ...buildActionableConsultationWhere(now),
+    };
 
-    for (const consultation of consultations) {
-      await this.processConsultation(consultation, now);
+    // issue #286: paginación con cursor (sessionDate, id) hasta agotar la
+    // ventana. Las filas reclamadas durante el tick salen del filtro, pero el
+    // cursor se resuelve por orden, así que la página siguiente continúa tras
+    // la última fila vista sin saltar ni repetir consultas.
+    let cursorId: string | undefined;
+    for (let page = 0; page < SCAN_MAX_PAGES; page++) {
+      const consultations = (await this.prisma.consultation.findMany({
+        where,
+        orderBy: [{ sessionDate: 'asc' }, { id: 'asc' }],
+        take: SCAN_BATCH_LIMIT,
+        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+        include: {
+          patient: { select: { fullName: true } },
+          therapist: { select: { name: true, email: true } },
+        },
+      })) as ScannedConsultation[];
+
+      for (const consultation of consultations) {
+        await this.processConsultation(consultation, now);
+      }
+
+      if (consultations.length < SCAN_BATCH_LIMIT) break;
+      cursorId = consultations[consultations.length - 1].id;
     }
 
     await this.retryStaleDispatches(now);
