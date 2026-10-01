@@ -46,6 +46,7 @@ interface PrismaConnectionMock {
 function buildPrismaMock(): {
   prisma: PrismaService;
   connectionMock: PrismaConnectionMock;
+  busyBlockMock: { deleteMany: jest.Mock };
 } {
   const connectionMock: PrismaConnectionMock = {
     findUnique: jest.fn<Promise<unknown>, unknown[]>(),
@@ -55,11 +56,15 @@ function buildPrismaMock(): {
       .fn<Promise<{ count: number }>, unknown[]>()
       .mockResolvedValue({ count: 1 }),
   };
+  const busyBlockMock = {
+    deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+  };
   const prisma = {
     googleCalendarConnection: connectionMock,
+    calendarBusyBlock: busyBlockMock,
   } as unknown as PrismaService;
 
-  return { prisma, connectionMock };
+  return { prisma, connectionMock, busyBlockMock };
 }
 
 function buildTokenCrypto(): GoogleTokenCryptoService {
@@ -300,7 +305,7 @@ describe('CalendarOauthService', () => {
     const therapistId = 'therapist-1';
 
     function buildService() {
-      const { prisma, connectionMock } = buildPrismaMock();
+      const { prisma, connectionMock, busyBlockMock } = buildPrismaMock();
       const tokenCrypto = buildTokenCrypto();
       const { auditService, logMock } = buildAuditServiceMock();
       const service = new CalendarOauthService(
@@ -310,8 +315,44 @@ describe('CalendarOauthService', () => {
         tokenCrypto,
         auditService,
       );
-      return { service, connectionMock, tokenCrypto, logMock };
+      return { service, connectionMock, busyBlockMock, tokenCrypto, logMock };
     }
+
+    it('borra los CalendarBusyBlock del terapeuta al desconectar (issue #283)', async () => {
+      const { service, connectionMock, busyBlockMock } = buildService();
+      connectionMock.findUnique.mockResolvedValue({
+        status: 'CONNECTED',
+        refreshTokenEncrypted: null,
+      });
+      connectionMock.update.mockResolvedValue({ status: 'DISCONNECTED' });
+
+      await service.disconnect(therapistId);
+
+      expect(busyBlockMock.deleteMany).toHaveBeenCalledWith({
+        where: { therapistId },
+      });
+      // Reconectar enseguida no debe reutilizar un overlay "fresco" ya vacío.
+      const callArg = connectionMock.update.mock.calls[0][0] as {
+        data: { busySyncedAt: null };
+      };
+      expect(callArg.data.busySyncedAt).toBeNull();
+    });
+
+    it('si falla el borrado de CalendarBusyBlock, la desconexión igual termina y audita (issue #283)', async () => {
+      const { service, connectionMock, busyBlockMock, logMock } =
+        buildService();
+      connectionMock.findUnique.mockResolvedValue({
+        status: 'CONNECTED',
+        refreshTokenEncrypted: null,
+      });
+      connectionMock.update.mockResolvedValue({ status: 'DISCONNECTED' });
+      busyBlockMock.deleteMany.mockRejectedValue(new Error('db caída'));
+
+      await expect(service.disconnect(therapistId)).resolves.toEqual({
+        status: 'DISCONNECTED',
+      });
+      expect(logMock).toHaveBeenCalled();
+    });
 
     it('rechaza si no existe una conexión para el terapeuta', async () => {
       const { service, connectionMock } = buildService();

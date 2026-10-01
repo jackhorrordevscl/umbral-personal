@@ -81,6 +81,7 @@ describe('CalendarSyncService', () => {
       deleteMany: jest.Mock;
       findMany: jest.Mock;
     };
+    calendarBusyBlock: { deleteMany: jest.Mock };
   };
   let tokenCrypto: { decrypt: jest.Mock };
   let googleCalendarClient: {
@@ -118,6 +119,9 @@ describe('CalendarSyncService', () => {
         delete: jest.fn().mockResolvedValue({}),
         deleteMany: jest.fn(),
         findMany: jest.fn(),
+      },
+      calendarBusyBlock: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
     };
     tokenCrypto = {
@@ -305,6 +309,7 @@ describe('CalendarSyncService', () => {
           data: expect.objectContaining({
             status: 'DISCONNECTED',
             refreshTokenEncrypted: null,
+            busySyncedAt: null,
           }) as unknown,
         }),
       );
@@ -315,6 +320,10 @@ describe('CalendarSyncService', () => {
           type: NotificationType.GOOGLE_CALENDAR_DISCONNECTED,
         }) as unknown,
       );
+      // issue #283: los bloques ocupados dejan de ser válidos al desconectar.
+      expect(prisma.calendarBusyBlock.deleteMany).toHaveBeenCalledWith({
+        where: { therapistId: 'therapist-1' },
+      });
       // issue #119: la desconexión automática por invalid_grant también
       // deja rastro en AuditLog, no solo la notificación in-app.
       expect(auditService.log).toHaveBeenCalledWith({
@@ -333,6 +342,7 @@ describe('CalendarSyncService', () => {
 
       expect(notificationsService.create).not.toHaveBeenCalled();
       expect(auditService.log).not.toHaveBeenCalled();
+      expect(prisma.calendarBusyBlock.deleteMany).not.toHaveBeenCalled();
     });
   });
 

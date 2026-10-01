@@ -244,9 +244,23 @@ export class CalendarOauthService {
         disconnectedAt: new Date(),
         refreshTokenEncrypted: null,
         scope: null,
+        // issue #283: invalida el overlay en la misma escritura; si el
+        // terapeuta reconecta enseguida, no se confía en bloques viejos.
+        busySyncedAt: null,
       },
       select: { status: true },
     });
+
+    // issue #283: los intervalos ocupados de Google dejan de ser válidos al
+    // desconectar. Higiene, no correctitud (busySyncedAt ya los invalida), así
+    // que un fallo se registra sin romper la desconexión ya hecha.
+    await this.prisma.calendarBusyBlock
+      .deleteMany({ where: { therapistId } })
+      .catch((err: unknown) => {
+        this.logger.error(
+          `Fallo al borrar CalendarBusyBlock para therapistId=${therapistId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
 
     // issue #119: desconexión pedida por el propio terapeuta -- la
     // desconexión por invalid_grant (CalendarSyncService.handleInvalidGrant)
