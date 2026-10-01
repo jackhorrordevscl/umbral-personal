@@ -129,6 +129,85 @@ describe('AuthService', () => {
       usedAt: null,
     };
 
+    describe('auditoría (issue #283)', () => {
+      const dto = {
+        email: 'user@example.com',
+        password: 'password1',
+        name: 'Nueva Cuenta',
+        inviteCode: 'valid-code',
+      };
+
+      it('registra CREATE sobre User con IP y user-agent al crear la cuenta', async () => {
+        prisma.user.findUnique.mockResolvedValue(null);
+        prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
+        mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+        prisma.user.create.mockResolvedValue(
+          buildUser({ id: 'user-9', emailVerified: false }),
+        );
+        prisma.invitationCode.updateMany.mockResolvedValue({ count: 1 });
+
+        await service.signup(dto, '10.0.0.1', 'jest-agent');
+
+        expect(auditService.log).toHaveBeenCalledWith({
+          userId: 'user-9',
+          action: 'CREATE',
+          resource: 'User',
+          resourceId: 'user-9',
+          detail: 'SIGNUP invitationId=invitation-1',
+          ipAddress: '10.0.0.1',
+          userAgent: 'jest-agent',
+        });
+      });
+
+      it('registra UNAUTHORIZED_ATTEMPT sin email ni código si la invitación es inválida', async () => {
+        prisma.invitationCode.findUnique.mockResolvedValue(null);
+
+        await expect(service.signup(dto, '10.0.0.1')).rejects.toThrow(
+          UnauthorizedException,
+        );
+
+        expect(auditService.log).toHaveBeenCalledTimes(1);
+        const [entry] = auditService.log.mock.calls[0] as [
+          Record<string, string>,
+        ];
+        expect(entry).toMatchObject({
+          action: 'UNAUTHORIZED_ATTEMPT',
+          resource: 'Signup',
+          detail: 'INVITATION_INVALID',
+          ipAddress: '10.0.0.1',
+        });
+        expect(JSON.stringify(entry)).not.toContain('user@example.com');
+        expect(JSON.stringify(entry)).not.toContain('valid-code');
+      });
+
+      it('registra el motivo EMAIL_TAKEN si el email ya existe', async () => {
+        prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
+        prisma.user.findUnique.mockResolvedValue(buildUser());
+        mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+
+        await expect(service.signup(dto)).rejects.toThrow(
+          UnauthorizedException,
+        );
+
+        expect(auditService.log).toHaveBeenCalledWith(
+          expect.objectContaining({ detail: 'EMAIL_TAKEN' }) as unknown,
+        );
+      });
+
+      it('un fallo de la escritura de auditoría no rompe el signup (fail-open)', async () => {
+        prisma.user.findUnique.mockResolvedValue(null);
+        prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
+        mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+        prisma.user.create.mockResolvedValue(
+          buildUser({ emailVerified: false }),
+        );
+        prisma.invitationCode.updateMany.mockResolvedValue({ count: 1 });
+        auditService.log.mockRejectedValue(new Error('audit down'));
+
+        await expect(service.signup(dto)).resolves.toHaveProperty('message');
+      });
+    });
+
     // Issue #303: email ya registrado + invitación válida responde igual que
     // una invitación inválida (mismo status y mensaje), sin crear nada.
     it('lanza 401 con el mismo mensaje genérico si el email ya está registrado', async () => {
