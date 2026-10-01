@@ -25,6 +25,20 @@ import {
 } from '../payments/payment-gateway.client';
 import { MailService } from '../mail/mail.service';
 
+// Fecha futura determinista dentro de una corrida: `daysAhead` días después de
+// hoy (UTC) a la hora `hourUtc`. Evita fechas fijas que caducan con el tiempo.
+function futureUtcDay(daysAhead: number, hourUtc: number): Date {
+  const now = new Date();
+  return new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() + daysAhead,
+      hourUtc,
+    ),
+  );
+}
+
 // Los describe blocks preexistentes de este archivo (calendar/findByRange)
 // no ejercitan PaymentsService -- se les inyecta una instancia con
 // PAYMENTS_ENABLED="false" para que ensureCharge() sea un no-op inmediato y
@@ -614,8 +628,8 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
         evidence: 'integration test',
       },
     });
-    const original = new Date('2026-11-03T13:00:00.000Z');
-    const moved = new Date('2026-11-03T15:00:00.000Z');
+    const original = futureUtcDay(30, 13);
+    const moved = futureUtcDay(30, 15);
     const booked = await consultationsService.createFromPublicBooking(
       therapistId,
       patientId,
@@ -662,7 +676,7 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
       },
     });
     extraPatientIds.push(patient.id);
-    const slotStart = new Date('2026-11-04T13:00:00.000Z');
+    const slotStart = futureUtcDay(31, 13);
     await consultationsService.createFromPublicBooking(
       therapistId,
       patient.id,
@@ -677,8 +691,8 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
       prisma.bookedSlot.findMany({ where: { therapistId, slotStart } }),
     ).resolves.toHaveLength(0);
     const visible = await consultationsService.findByRange(therapistId, {
-      from: '2026-11-04T00:00:00.000Z',
-      to: '2026-11-05T00:00:00.000Z',
+      from: futureUtcDay(31, 0).toISOString(),
+      to: futureUtcDay(32, 0).toISOString(),
     });
     expect(visible).toHaveLength(0);
 
