@@ -256,26 +256,39 @@ export class PatientsService {
     const { therapist, consultations, documents, consents, ...snapshot } =
       current;
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      await tx.patientHistory.create({
-        data: {
-          patientId: id,
-          changedById: userId,
-          reason,
-          snapshot: toJsonSnapshot(snapshot),
-          diff: toJsonSnapshot(diff),
-        },
-      });
+    const updated = await this.prisma
+      .$transaction(async (tx) => {
+        await tx.patientHistory.create({
+          data: {
+            patientId: id,
+            changedById: userId,
+            reason,
+            snapshot: toJsonSnapshot(snapshot),
+            diff: toJsonSnapshot(diff),
+          },
+        });
 
-      return tx.patient.update({
-        where: { id },
-        data: {
-          ...fields,
-          ...(fields.rut && { rut: normalizeRut(fields.rut) }),
-          ...(fields.birthDate && { birthDate: new Date(fields.birthDate) }),
-        },
+        return tx.patient.update({
+          where: { id },
+          data: {
+            ...fields,
+            ...(fields.rut && { rut: normalizeRut(fields.rut) }),
+            ...(fields.birthDate && { birthDate: new Date(fields.birthDate) }),
+          },
+        });
+      })
+      .catch((err: unknown) => {
+        // issue #317: @@unique([therapistId, rut]) -- la colisión solo ocurre
+        // contra otro paciente del mismo terapeuta; la transacción ya hizo
+        // rollback, así que no queda historial ni cambios parciales.
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          throw new ConflictException('Ya existe un paciente con ese RUT');
+        }
+        throw err;
       });
-    });
     this.logger.log(
       `Paciente actualizado: id=${id} userId=${userId} campos=${Object.keys(diff).join(',')}`,
     );

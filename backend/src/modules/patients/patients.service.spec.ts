@@ -306,6 +306,43 @@ describe('PatientsService', () => {
         data: expect.objectContaining({ rut: '22222222-2' }) as unknown,
       });
     });
+
+    it('RUT ya usado por otro paciente del terapeuta: P2002 -> 409 (issue #317)', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patientConsent.findMany.mockResolvedValue([]);
+      prisma.patient.update.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+
+      await expect(
+        service.update(
+          'patient-1',
+          {
+            rut: '22.222.222-2',
+            reason: 'RUT corregido a uno ya existente',
+          } as never,
+          'therapist-1',
+        ),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('un error del update que no es P2002 se propaga sin traducir', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patientConsent.findMany.mockResolvedValue([]);
+      const boom = new Error('conexión perdida');
+      prisma.patient.update.mockRejectedValue(boom);
+
+      await expect(
+        service.update(
+          'patient-1',
+          { fullName: 'Otro Nombre', reason: 'Corrección de nombre' } as never,
+          'therapist-1',
+        ),
+      ).rejects.toBe(boom);
+    });
   });
 
   describe('softDelete', () => {
