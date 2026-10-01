@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MailService } from '../mail/mail.service';
 import { RemindersService } from './reminders.service';
+import { REMINDER_MAX_ATTEMPTS } from './reminders.constants';
 
 /**
  * sdd/session-reminders PR 2 (T6.11/T6.12): a diferencia de
@@ -52,11 +53,12 @@ describe('RemindersService (integration, real Prisma)', () => {
     patientId = patient.id;
 
     const notificationsService = new NotificationsService(prisma);
-    // Sin RESEND_API_KEY -- el canal EMAIL se saltea con un log (no hay
-    // llamada de red real en estos tests de integración de Prisma).
-    const mailService = new MailService({
-      get: jest.fn().mockReturnValue(undefined),
-    } as unknown as ConfigService);
+    // Stub del envío: sin RESEND_API_KEY el MailService real devuelve null y el
+    // dispatch EMAIL queda FAILED (issue #286). Estos tests verifican la
+    // idempotencia de la clave única, no el proveedor, así que no hay red.
+    const mailService = {
+      sendSessionReminderEmail: jest.fn().mockResolvedValue('resend-msg-id'),
+    } as unknown as MailService;
     const config = {
       get: jest.fn().mockReturnValue(undefined),
     } as unknown as ConfigService;
@@ -169,5 +171,69 @@ describe('RemindersService (integration, real Prisma)', () => {
     // real de Postgres es la que garantiza esto, no un mock.
     expect(dispatches).toHaveLength(2);
     expect(dispatches.every((d) => d.status === 'SENT')).toBe(true);
+  }, 30000);
+
+  it('reintenta un EMAIL FAILED bajo el tope y deja de reintentar al agotarlo (#286)', async () => {
+    const dueSoon = new Date(Date.now() + 10 * 60 * 60 * 1000);
+    const retriable = await createConsultation(dueSoon);
+    const exhausted = await createConsultation(dueSoon);
+
+    const failedRow = (consultationId: string, attempts: number) => ({
+      groupId: consultationId,
+      sessionDate: dueSoon,
+      offsetKind: 'H24' as const,
+      channel: 'EMAIL' as const,
+      consultationId,
+      therapistId,
+      status: 'FAILED' as const,
+      error: 'proveedor caído',
+      attempts,
+      // Ya pasó el backoff: el último claim fue hace una hora.
+      claimedAt: new Date(Date.now() - 60 * 60 * 1000),
+    });
+    await prisma.reminderDispatch.create({ data: failedRow(retriable.id, 1) });
+    await prisma.reminderDispatch.create({
+      data: failedRow(exhausted.id, REMINDER_MAX_ATTEMPTS),
+    });
+
+    await service.scan();
+
+    const retried = await prisma.reminderDispatch.findFirstOrThrow({
+      where: { consultationId: retriable.id, channel: 'EMAIL' },
+    });
+    expect(retried.status).toBe('SENT');
+    expect(retried.attempts).toBe(2);
+    expect(retried.resendMessageId).toBe('resend-msg-id');
+
+    const notRetried = await prisma.reminderDispatch.findFirstOrThrow({
+      where: { consultationId: exhausted.id, channel: 'EMAIL' },
+    });
+    expect(notRetried.status).toBe('FAILED');
+    expect(notRetried.attempts).toBe(REMINDER_MAX_ATTEMPTS);
+  }, 30000);
+
+  it('no reintenta un EMAIL FAILED dentro del backoff (#286)', async () => {
+    const dueSoon = new Date(Date.now() + 10 * 60 * 60 * 1000);
+    const consultation = await createConsultation(dueSoon);
+    await prisma.reminderDispatch.create({
+      data: {
+        groupId: consultation.id,
+        sessionDate: dueSoon,
+        offsetKind: 'H24',
+        channel: 'EMAIL',
+        consultationId: consultation.id,
+        therapistId,
+        status: 'FAILED',
+        error: 'proveedor caído',
+      },
+    });
+
+    await service.scan();
+
+    const row = await prisma.reminderDispatch.findFirstOrThrow({
+      where: { consultationId: consultation.id, channel: 'EMAIL' },
+    });
+    expect(row.status).toBe('FAILED');
+    expect(row.attempts).toBe(1);
   }, 30000);
 });

@@ -13,8 +13,15 @@ import { resolveDueOffsets } from './reminders.util';
 import {
   MAX_LOOKAHEAD_MS,
   REMINDER_OFFSETS,
+  REMINDER_MAX_ATTEMPTS,
+  REMINDER_PENDING_STALE_MS,
+  REMINDER_RETRY_BACKOFF_MS,
+  RETRY_BATCH_LIMIT,
   SCAN_BATCH_LIMIT,
 } from './reminders.constants';
+
+const EMAIL_NOT_CONFIRMED_ERROR =
+  'El proveedor de email no confirmó el envío (sin API key o error de Resend)';
 
 // Mismo criterio duck-typed que EmailChangeService.isUniqueConstraintError
 // (email-change.service.ts) -- evita acoplar este archivo al tipo exacto de
@@ -45,6 +52,17 @@ interface ScannedConsultation {
   therapistId: string;
   patient: { fullName: string };
   therapist: { name: string; email: string };
+}
+
+interface RetryCandidate {
+  id: string;
+  consultationId: string;
+  sessionDate: Date;
+  offsetKind: ReminderOffset;
+  channel: ReminderChannel;
+  status: 'PENDING' | 'FAILED';
+  attempts: number;
+  consultation: ScannedConsultation;
 }
 
 // sdd/session-reminders PR 2 (T5.2): detecta consultas próximas y despacha
@@ -97,6 +115,8 @@ export class RemindersService {
     for (const consultation of consultations) {
       await this.processConsultation(consultation, now);
     }
+
+    await this.retryStaleDispatches(now);
   }
 
   private async processConsultation(
@@ -175,13 +195,92 @@ export class RemindersService {
       throw err;
     }
 
+    await this.sendAndMark(claim.id, consultation, offsetKind, channel);
+  }
+
+  // issue #286: reintentos acotados. Recoge dispatches FAILED, o PENDING
+  // abandonados (claimedAt viejo: el proceso murió entre el claim y el
+  // envío), con attempts < REMINDER_MAX_ATTEMPTS y cuya sesión sigue vigente
+  // y futura. Cada fila se re-reclama con un updateMany condicional
+  // (status + attempts leídos) para que dos instancias no la reintenten a la
+  // vez. Garantía: at-least-once -- en el caso raro de un PENDING abandonado
+  // cuyo envío sí salió antes de morir el proceso, el reintento puede
+  // duplicar el aviso; es preferible a perderlo en silencio.
+  private async retryStaleDispatches(now: Date): Promise<void> {
+    const staleCutoff = new Date(now.getTime() - REMINDER_PENDING_STALE_MS);
+    const backoffCutoff = new Date(now.getTime() - REMINDER_RETRY_BACKOFF_MS);
+    const rows = (await this.prisma.reminderDispatch.findMany({
+      where: {
+        attempts: { lt: REMINDER_MAX_ATTEMPTS },
+        OR: [
+          { status: 'FAILED', claimedAt: { lt: backoffCutoff } },
+          { status: 'PENDING', claimedAt: { lt: staleCutoff } },
+        ],
+        consultation: {
+          deletedAt: null,
+          correctedBy: null,
+          patient: { deletedAt: null },
+          sessionDate: { gt: now },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: RETRY_BATCH_LIMIT,
+      include: {
+        consultation: {
+          include: {
+            patient: { select: { fullName: true } },
+            therapist: { select: { name: true, email: true } },
+          },
+        },
+      },
+    })) as RetryCandidate[];
+
+    for (const row of rows) {
+      // Si la sesión se reprogramó, esta fila corresponde a la fecha vieja:
+      // los offsets de la nueva fecha los reclama el scan normal.
+      if (
+        row.sessionDate.getTime() !== row.consultation.sessionDate.getTime()
+      ) {
+        continue;
+      }
+
+      const reclaimed = await this.prisma.reminderDispatch.updateMany({
+        where: { id: row.id, status: row.status, attempts: row.attempts },
+        data: {
+          status: 'PENDING',
+          attempts: { increment: 1 },
+          error: null,
+          claimedAt: new Date(),
+        },
+      });
+      if (reclaimed.count !== 1) continue;
+
+      if (row.attempts + 1 >= REMINDER_MAX_ATTEMPTS) {
+        this.logger.warn(
+          `Último intento de recordatorio ${row.channel}/${row.offsetKind} para consultationId=${row.consultationId}`,
+        );
+      }
+      await this.sendAndMark(
+        row.id,
+        row.consultation,
+        row.offsetKind,
+        row.channel,
+      );
+    }
+  }
+
+  // Envía por el canal y deja el dispatch en SENT o FAILED. Compartido por el
+  // primer despacho y por los reintentos.
+  private async sendAndMark(
+    claimId: string,
+    consultation: ScannedConsultation,
+    offsetKind: ReminderOffset,
+    channel: ReminderChannel,
+  ): Promise<void> {
     const offsetLabel = OFFSET_LABELS[offsetKind];
 
     try {
-      // issue #163: resendMessageId queda null para IN_APP (no aplica) y
-      // también si sendSessionReminderEmail resolvió null (sin
-      // RESEND_API_KEY, o error del proveedor) -- el campo es nullable a
-      // propósito, ver schema.prisma.
+      // issue #163: resendMessageId queda null para IN_APP (no aplica).
       let resendMessageId: string | null = null;
       if (channel === ReminderChannel.IN_APP) {
         await this.notificationsService.create({
@@ -206,9 +305,15 @@ export class RemindersService {
           consultation.sessionDate,
           offsetLabel,
         );
+        // issue #286: null significa que el proveedor no confirmó el envío
+        // (sin RESEND_API_KEY o error de Resend). No es SENT: queda FAILED
+        // y el reintento acotado lo recoge.
+        if (resendMessageId === null) {
+          throw new Error(EMAIL_NOT_CONFIRMED_ERROR);
+        }
       }
       await this.prisma.reminderDispatch.update({
-        where: { id: claim.id },
+        where: { id: claimId },
         data: { status: 'SENT', sentAt: new Date(), resendMessageId },
       });
     } catch (err) {
@@ -218,7 +323,7 @@ export class RemindersService {
       );
       await this.prisma.reminderDispatch
         .update({
-          where: { id: claim.id },
+          where: { id: claimId },
           data: { status: 'FAILED', error: message },
         })
         .catch(() => undefined);

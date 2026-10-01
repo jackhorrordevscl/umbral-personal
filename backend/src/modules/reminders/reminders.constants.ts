@@ -23,6 +23,23 @@ export const MAX_LOOKAHEAD_MS = Math.max(...REMINDER_OFFSETS.map((o) => o.ms));
 // alguna vez hay miles de sesiones en la ventana de 24h.
 export const SCAN_BATCH_LIMIT = 500;
 
+// issue #286: tope de intentos de envío por (offset, canal), contando el
+// primero. Agotado el tope, el dispatch queda FAILED de forma definitiva.
+export const REMINDER_MAX_ATTEMPTS = 3;
+
+// issue #286: un dispatch PENDING cuyo último claim es más viejo que esto se
+// considera abandonado (el proceso murió entre el claim y el envío) y pasa a
+// ser reintentable. Debe ser bastante mayor que la duración de un envío.
+export const REMINDER_PENDING_STALE_MS = 10 * 60 * 1000;
+
+// issue #286: espera mínima entre el último claim de un dispatch FAILED y su
+// reintento. Sin esto los intentos se agotarían todos en el mismo tick, sin
+// darle tiempo a que se recupere el proveedor.
+export const REMINDER_RETRY_BACKOFF_MS = 5 * 60 * 1000;
+
+// issue #286: tope de filas reintentadas por tick.
+export const RETRY_BATCH_LIMIT = 100;
+
 // Zona horaria usada solo para renderizar fechas en texto humano (el email
 // de recordatorio). La aritmética de due-ness nunca usa esto -- ver
 // design.md "UTC instant arithmetic; explicit render zone".

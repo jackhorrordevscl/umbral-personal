@@ -217,6 +217,8 @@ export class MailService {
   // ReminderDispatch.resendMessageId -- es la clave de correlación con el
   // webhook de entrega/apertura (POST /webhooks/resend). El contrato "nunca
   // lanza" se mantiene igual, solo cambia qué devuelve en éxito.
+  // issue #286: RemindersService trata el null como envío fallido (FAILED, con
+  // reintento acotado), no como SENT.
   async sendSessionReminderEmail(
     to: string,
     therapistName: string,
