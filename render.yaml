@@ -135,5 +135,7 @@ services:
         value: "false"
       # 3 = Render detrás de Cloudflare (ver comentario en auth.module.ts).
       # Si el deploy real no tiene Cloudflare delante, esto debe bajar a 1.
+      # Requiere "Render Subdomain" desactivado en el dashboard (issue #307):
+      # con onrender.com accesible, un X-Forwarded-For falso evade el límite.
       - key: TRUSTED_PROXY_HOPS
         value: "3"
