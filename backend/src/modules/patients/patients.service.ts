@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { PaymentsService } from '../payments/payments.service';
+import { AvailabilityService } from '../availability/availability.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { RecordConsentDto } from './dto/record-consent.dto';
@@ -89,6 +90,7 @@ export class PatientsService {
     private auditService: AuditService,
     private calendarSync: CalendarSyncService,
     private paymentsService: PaymentsService,
+    private availabilityService: AvailabilityService,
   ) {}
 
   // Issue #176: no exige consentimiento vigente a propósito. La Ley 20.584
@@ -100,8 +102,10 @@ export class PatientsService {
 
     // Issue #314: la unicidad es por terapeuta, así el 409 solo revela fichas
     // propias y no permite sondear RUT de otros terapeutas.
-    const existing = await this.prisma.patient.findUnique({
-      where: { therapistId_rut: { therapistId, rut } },
+    const existing = await this.prisma.patient.findFirst({
+      // issue #285: el índice único es parcial (solo fichas activas), así que
+      // el RUT de un paciente dado de baja puede recrearse.
+      where: { therapistId, rut, deletedAt: null },
       select: { id: true },
     });
     if (existing) {
@@ -285,8 +289,9 @@ export class PatientsService {
         });
       })
       .catch((err: unknown) => {
-        // issue #317: @@unique([therapistId, rut]) -- la colisión solo ocurre
-        // contra otro paciente del mismo terapeuta; la transacción ya hizo
+        // issue #317: índice único parcial (therapistId, rut) WHERE deletedAt IS
+        // NULL -- la colisión solo ocurre contra otro paciente ACTIVO del mismo
+        // terapeuta; la transacción ya hizo
         // rollback, así que no queda historial ni cambios parciales.
         if (
           err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -332,6 +337,9 @@ export class PatientsService {
         data: { deletedAt: new Date() },
       });
     });
+    // issue #285: los BookedSlot liberados deben volver a ofrecerse de
+    // inmediato, no tras los 5 min de vida del caché de slots.
+    this.availabilityService.invalidate(userId);
     this.logger.log(
       `Paciente eliminado (soft delete): id=${id} userId=${userId}`,
     );
@@ -519,12 +527,12 @@ export class PatientsService {
     }
 
     const rut = normalizeRut(dto.rut);
-    const existingRut = await client.patient.findUnique({
-      where: { therapistId_rut: { therapistId, rut } },
+    const existingRut = await client.patient.findFirst({
+      where: { therapistId, rut, deletedAt: null },
       select: { id: true },
     });
     // Colisión de RUT con una ficha de ESTE terapeuta (no matcheó por email
-    // arriba, p. ej. email distinto o ficha dada de baja): 409 uniforme. Un
+    // arriba, p. ej. email distinto o ficha activa): 409 uniforme. Las fichas dadas de baja no cuentan (#285). Un
     // RUT registrado con otro terapeuta ya no colisiona (issue #314).
     if (existingRut) {
       throw new ConflictException('No fue posible procesar la reserva.');
@@ -533,7 +541,7 @@ export class PatientsService {
     // issue #199: el findUnique de arriba y este create no son atómicos, así
     // que dos reservas simultáneas del mismo paciente nuevo (doble click,
     // doble pestaña, reintento de red) pueden pasar ambas el chequeo. La
-    // unicidad de (therapistId, rut) es el guard real: la perdedora recibe P2002 y
+    // unicidad parcial de (therapistId, rut) es el guard real: la perdedora recibe P2002 y
     // se traduce al mismo 409 uniforme, nunca a un 500.
     try {
       const patient = await client.patient.create({

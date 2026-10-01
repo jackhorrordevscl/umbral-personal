@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { PaymentsService } from '../payments/payments.service';
+import { AvailabilityService } from '../availability/availability.service';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 
 function buildPatient(overrides: Partial<Patient> = {}): Patient {
@@ -34,7 +35,6 @@ describe('PatientsService', () => {
   let service: PatientsService;
   let prisma: {
     patient: {
-      findUnique: jest.Mock;
       create: jest.Mock;
       findMany: jest.Mock;
       count: jest.Mock;
@@ -51,11 +51,11 @@ describe('PatientsService', () => {
   };
   let calendarSync: { deletePatientEvents: jest.Mock };
   let paymentsService: { cancelUnpaidForPatient: jest.Mock };
+  let availabilityService: { invalidate: jest.Mock };
 
   beforeEach(() => {
     prisma = {
       patient: {
-        findUnique: jest.fn(),
         create: jest.fn(),
         findMany: jest.fn(),
         count: jest.fn(),
@@ -93,17 +93,20 @@ describe('PatientsService', () => {
       cancelUnpaidForPatient: jest.fn().mockResolvedValue(undefined),
     };
 
+    availabilityService = { invalidate: jest.fn() };
+
     service = new PatientsService(
       prisma as unknown as PrismaService,
       auditService,
       calendarSync as unknown as CalendarSyncService,
       paymentsService as unknown as PaymentsService,
+      availabilityService as unknown as AvailabilityService,
     );
   });
 
   describe('create', () => {
     it('lanza 409 si ya existe un paciente con ese RUT', async () => {
-      prisma.patient.findUnique.mockResolvedValue({ id: 'existing' });
+      prisma.patient.findFirst.mockResolvedValue({ id: 'existing' });
 
       await expect(
         service.create(
@@ -118,7 +121,7 @@ describe('PatientsService', () => {
     });
 
     it('normaliza el RUT (sin puntos, mayúsculas) antes de crear', async () => {
-      prisma.patient.findUnique.mockResolvedValue(null);
+      prisma.patient.findFirst.mockResolvedValue(null);
       prisma.patient.create.mockResolvedValue(buildPatient());
 
       await service.create(
@@ -130,9 +133,11 @@ describe('PatientsService', () => {
         'therapist-1',
       );
 
-      expect(prisma.patient.findUnique).toHaveBeenCalledWith({
+      expect(prisma.patient.findFirst).toHaveBeenCalledWith({
         where: {
-          therapistId_rut: { therapistId: 'therapist-1', rut: '11111111-1K' },
+          therapistId: 'therapist-1',
+          rut: '11111111-1K',
+          deletedAt: null,
         },
         select: { id: true },
       });
@@ -386,6 +391,20 @@ describe('PatientsService', () => {
         where: { id: 'patient-1' },
         data: { deletedAt: expect.any(Date) as unknown as Date },
       });
+    });
+
+    // issue #285: los slots liberados no deben seguir ocultos por el caché.
+    it('invalida el caché de disponibilidad del terapeuta tras el soft-delete', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patient.update.mockResolvedValue(
+        buildPatient({ deletedAt: new Date() }),
+      );
+
+      await service.softDelete('patient-1', 'therapist-1');
+
+      expect(availabilityService.invalidate).toHaveBeenCalledWith(
+        'therapist-1',
+      );
     });
 
     // issue #285: sin liberar el BookedSlot, el horario seguía dando 409.
@@ -739,7 +758,7 @@ describe('PatientsService', () => {
       const tx = {
         patient: {
           findMany: jest.fn().mockResolvedValue([]),
-          findUnique: jest.fn().mockResolvedValue(null),
+          findFirst: jest.fn().mockResolvedValue(null),
           create: jest.fn().mockResolvedValue(buildPatient()),
         },
       };
@@ -758,7 +777,7 @@ describe('PatientsService', () => {
 
     it('crea una nueva ficha reducida si no hay match de email bajo ese terapeuta', async () => {
       prisma.patient.findMany.mockResolvedValue([]);
-      prisma.patient.findUnique.mockResolvedValue(null);
+      prisma.patient.findFirst.mockResolvedValue(null);
       const created = buildPatient({ email: 'paciente@ejemplo.cl' });
       prisma.patient.create.mockResolvedValue(created);
 
@@ -787,14 +806,16 @@ describe('PatientsService', () => {
 
     it('colisión de RUT con una ficha de este terapeuta -> 409 uniforme, sin crear', async () => {
       prisma.patient.findMany.mockResolvedValue([]);
-      prisma.patient.findUnique.mockResolvedValue({ id: 'own-patient' });
+      prisma.patient.findFirst.mockResolvedValue({ id: 'own-patient' });
 
       await expect(
         service.resolveForPublicBooking('therapist-1', dto as never),
       ).rejects.toThrow(ConflictException);
-      expect(prisma.patient.findUnique).toHaveBeenCalledWith({
+      expect(prisma.patient.findFirst).toHaveBeenCalledWith({
         where: {
-          therapistId_rut: { therapistId: 'therapist-1', rut: '11111111-1' },
+          therapistId: 'therapist-1',
+          rut: '11111111-1',
+          deletedAt: null,
         },
         select: { id: true },
       });
@@ -804,7 +825,7 @@ describe('PatientsService', () => {
     it('RUT registrado solo con otro terapeuta -> crea la ficha (issue #314)', async () => {
       prisma.patient.findMany.mockResolvedValue([]);
       // La búsqueda acotada por terapeuta no encuentra la ficha del otro.
-      prisma.patient.findUnique.mockResolvedValue(null);
+      prisma.patient.findFirst.mockResolvedValue(null);
       prisma.patient.create.mockResolvedValue(buildPatient());
 
       const result = await service.resolveForPublicBooking(
@@ -817,7 +838,7 @@ describe('PatientsService', () => {
 
     it('carrera de RUT: P2002 en el create -> mismo 409 uniforme (issue #199)', async () => {
       prisma.patient.findMany.mockResolvedValue([]);
-      prisma.patient.findUnique.mockResolvedValue(null);
+      prisma.patient.findFirst.mockResolvedValue(null);
       prisma.patient.create.mockRejectedValue(
         new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
           code: 'P2002',
@@ -832,7 +853,7 @@ describe('PatientsService', () => {
 
     it('un error del create que no es P2002 se propaga sin traducir', async () => {
       prisma.patient.findMany.mockResolvedValue([]);
-      prisma.patient.findUnique.mockResolvedValue(null);
+      prisma.patient.findFirst.mockResolvedValue(null);
       const boom = new Error('conexión perdida');
       prisma.patient.create.mockRejectedValue(boom);
 
@@ -878,7 +899,7 @@ describe('PatientsService', () => {
     describe('origin (issue #157)', () => {
       it('paciente nuevo con origin.source -> se persiste tal cual', async () => {
         prisma.patient.findMany.mockResolvedValue([]);
-        prisma.patient.findUnique.mockResolvedValue(null);
+        prisma.patient.findFirst.mockResolvedValue(null);
         prisma.patient.create.mockResolvedValue(buildPatient());
 
         await service.resolveForPublicBooking('therapist-1', dto as never, {
@@ -896,7 +917,7 @@ describe('PatientsService', () => {
 
       it('paciente nuevo sin source pero con referrer -> persiste el hostname', async () => {
         prisma.patient.findMany.mockResolvedValue([]);
-        prisma.patient.findUnique.mockResolvedValue(null);
+        prisma.patient.findFirst.mockResolvedValue(null);
         prisma.patient.create.mockResolvedValue(buildPatient());
 
         await service.resolveForPublicBooking('therapist-1', dto as never, {
@@ -913,7 +934,7 @@ describe('PatientsService', () => {
 
       it('paciente nuevo sin source ni referrer -> "directo"', async () => {
         prisma.patient.findMany.mockResolvedValue([]);
-        prisma.patient.findUnique.mockResolvedValue(null);
+        prisma.patient.findFirst.mockResolvedValue(null);
         prisma.patient.create.mockResolvedValue(buildPatient());
 
         await service.resolveForPublicBooking('therapist-1', dto as never);
