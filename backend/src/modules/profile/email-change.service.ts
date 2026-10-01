@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { AuditService } from '../audit/audit.service';
+import { normalizeEmail } from '../../common/utils/normalize-email.util';
 
 // Issue #76: purpose de JWT propio para el cambio de email diferido, no
 // reutiliza 'email-verify' (AuthService) -- ese payload solo lleva `sub`, sin
@@ -60,7 +61,12 @@ export class EmailChangeService {
    * deja de coincidir y confirm() lo rechaza (issue #76, "segunda solicitud
    * supersede a la primera").
    */
-  async requestChange(user: RequestingUser, newEmail: string): Promise<void> {
+  async requestChange(
+    user: RequestingUser,
+    rawNewEmail: string,
+  ): Promise<void> {
+    // Issue #303: pendingEmail se guarda siempre en forma canónica.
+    const newEmail = normalizeEmail(rawNewEmail);
     const issuedAt = new Date();
     await this.prisma.user.update({
       where: { id: user.id },

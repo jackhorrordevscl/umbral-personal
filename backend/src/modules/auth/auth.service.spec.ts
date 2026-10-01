@@ -149,6 +149,30 @@ describe('AuthService', () => {
       expect(prisma.user.create).not.toHaveBeenCalled();
     });
 
+    it('guarda el email en forma canónica al crear la cuenta (issue #303)', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
+      mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+      prisma.user.create.mockResolvedValue(buildUser({ emailVerified: false }));
+      prisma.invitationCode.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.signup({
+        email: ' Ana@Example.COM ',
+        password: 'password1',
+        name: 'Ana',
+        inviteCode: 'valid-code',
+      });
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { email: 'ana@example.com' },
+      });
+      expect(prisma.user.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          email: 'ana@example.com',
+        }) as unknown as Record<string, unknown>,
+      });
+    });
+
     it('valida la invitación antes de consultar si el email existe (sin invitación válida no hay oráculo de emails)', async () => {
       prisma.invitationCode.findUnique.mockResolvedValue(null);
       prisma.user.findUnique.mockResolvedValue(buildUser());
@@ -351,6 +375,21 @@ describe('AuthService', () => {
       );
     });
 
+    it('compara INVITE_CREATOR_EMAIL sin distinguir mayúsculas ni espacios (issue #303)', async () => {
+      config.get.mockImplementation((key: string) =>
+        key === 'INVITE_CREATOR_EMAIL' ? ' Creador@Example.com ' : undefined,
+      );
+      prisma.invitationCode.create.mockResolvedValue({
+        id: 'invitation-1',
+        code: 'abc123',
+        expiresAt: new Date('2026-09-16T00:00:00.000Z'),
+      });
+
+      await expect(service.createInvitation(requestUser)).resolves.toEqual(
+        expect.objectContaining({ code: 'abc123' }),
+      );
+    });
+
     it('crea la invitación y audita CREATE en el camino feliz', async () => {
       config.get.mockImplementation((key: string) =>
         key === 'INVITE_CREATOR_EMAIL' ? 'creador@example.com' : undefined,
@@ -479,6 +518,18 @@ describe('AuthService', () => {
       await expect(
         service.login({ email: 'user@example.com', password: 'password1' }),
       ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('busca la cuenta por el email recortado y en minúsculas (issue #303)', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.login({ email: ' User@Example.COM ', password: 'password1' }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { email: 'user@example.com' },
+      });
     });
 
     it('lanza 401 si la contraseña es incorrecta', async () => {

@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { normalizeEmail } from '../../common/utils/normalize-email.util';
 import { EmailChangeService } from './email-change.service';
 import { AuditService } from '../audit/audit.service';
 import { assertFileContentMatchesMimetype } from '../../common/utils/file-signature.util';
@@ -67,7 +68,8 @@ export class ProfileService {
     // mismo email que AuthService.createInvitation exige al crear el código.
     const inviteCreatorEmail = this.config.get<string>('INVITE_CREATOR_EMAIL');
     const canInvite = Boolean(
-      inviteCreatorEmail && user.email === inviteCreatorEmail,
+      inviteCreatorEmail &&
+      normalizeEmail(user.email) === normalizeEmail(inviteCreatorEmail),
     );
 
     return { ...user, canInvite };
@@ -137,10 +139,13 @@ export class ProfileService {
       }
     }
 
-    const emailDelta = Boolean(dto.email && dto.email !== user.email);
+    const newEmail = dto.email ? normalizeEmail(dto.email) : undefined;
+    const emailDelta = Boolean(
+      newEmail && newEmail !== normalizeEmail(user.email),
+    );
     if (emailDelta) {
       const exists = await this.prisma.user.findFirst({
-        where: { email: dto.email, id: { not: id } },
+        where: { email: newEmail, id: { not: id } },
         select: { id: true },
       });
       if (exists) throw new ConflictException('El email ya está registrado');
@@ -184,13 +189,13 @@ export class ProfileService {
     if (emailDelta) {
       await this.emailChangeService.requestChange(
         { id: user.id, email: user.email, name: user.name },
-        dto.email as string,
+        newEmail as string,
       );
       // `updated` se leyó antes de que requestChange escribiera pendingEmail
       // en la DB (segunda query, separada a propósito -- ver comentario de
       // clase); el caller necesita ver el pendingEmail recién seteado en la
       // respuesta sin pagar un tercer round-trip.
-      updated.pendingEmail = dto.email as string;
+      updated.pendingEmail = newEmail as string;
     }
 
     if (dto.password) {

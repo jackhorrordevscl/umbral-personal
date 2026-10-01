@@ -20,6 +20,7 @@ import * as argon2 from 'argon2';
 import * as crypto from 'crypto';
 import { Prisma, User } from '@prisma/client';
 import { MFA_SETUP_PURPOSE, MFA_VERIFY_PURPOSE } from './mfa.service';
+import { normalizeEmail } from '../../common/utils/normalize-email.util';
 import { getDummyPasswordHash } from './dummy-password-hash.util';
 
 // Idem para el cambio de contraseña forzado (T4.4 / issue #22): el admin
@@ -110,7 +111,7 @@ export class AuthService {
     const passwordHash = await argon2.hash(dto.password);
 
     const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: normalizeEmail(dto.email) },
     });
     if (existing) {
       throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
@@ -140,7 +141,7 @@ export class AuthService {
       .$transaction(async (tx) => {
         const createdUser = await tx.user.create({
           data: {
-            email: dto.email,
+            email: normalizeEmail(dto.email),
             passwordHash,
             name: dto.name,
             emailVerified: false,
@@ -232,7 +233,7 @@ export class AuthService {
    */
   async resendVerificationEmail(dto: ResendVerificationDto) {
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: normalizeEmail(dto.email) },
     });
     // Issue #303: el envío (la parte lenta y distinguible por latencia) corre
     // en segundo plano; la respuesta sale tras el mismo único findUnique
@@ -281,7 +282,7 @@ export class AuthService {
 
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: normalizeEmail(dto.email) },
     });
 
     if (!user || user.deletedAt) {
@@ -467,7 +468,7 @@ export class AuthService {
    */
   async forgotPassword(dto: ForgotPasswordDto) {
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: normalizeEmail(dto.email) },
     });
     // Issue #303: update + mail + audit corren en segundo plano, de modo que
     // la latencia de la respuesta no distingue cuentas existentes de las que
@@ -659,7 +660,10 @@ export class AuthService {
    */
   async createInvitation(user: RequestUser) {
     const inviteCreatorEmail = this.config.get<string>('INVITE_CREATOR_EMAIL');
-    if (!inviteCreatorEmail || user.email !== inviteCreatorEmail) {
+    if (
+      !inviteCreatorEmail ||
+      normalizeEmail(user.email) !== normalizeEmail(inviteCreatorEmail)
+    ) {
       throw new ForbiddenException(
         'No tienes permiso para generar invitaciones',
       );
