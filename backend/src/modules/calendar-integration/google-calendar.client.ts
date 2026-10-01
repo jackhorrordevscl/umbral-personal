@@ -69,6 +69,10 @@ interface GoogleCalendarListEventsResponse {
 
 const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
 
+// Tope por llamada a Google (refresh del token y cada request). Sin él, una
+// conexión colgada bloquea reconcile() indefinidamente (issue #286).
+export const GOOGLE_REQUEST_TIMEOUT_MS = 15_000;
+
 @Injectable()
 export class GoogleCalendarClient {
   private readonly logger = new Logger(GoogleCalendarClient.name);
@@ -181,6 +185,30 @@ export class GoogleCalendarClient {
     return `${this.eventsUrl(calendarId)}/${encodeURIComponent(eventId)}`;
   }
 
+  // google-auth-library no acepta un AbortSignal en getAccessToken(), así que
+  // se compite contra un timer; la llamada subyacente puede seguir en vuelo,
+  // pero el tick ya no queda esperándola.
+  private async withTimeout<T>(promise: Promise<T>): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new GoogleCalendarError(
+              'transient',
+              `Google no respondió al refrescar el access_token en ${GOOGLE_REQUEST_TIMEOUT_MS} ms.`,
+            ),
+          ),
+        GOOGLE_REQUEST_TIMEOUT_MS,
+      );
+    });
+    try {
+      return await Promise.race([promise, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   // Separado de request() para que un fallo al refrescar el access_token
   // (p. ej. el refresh token fue revocado en Google) se clasifique siempre
   // como invalid_grant sin llegar a intentar el fetch -- google-auth-library
@@ -189,8 +217,11 @@ export class GoogleCalendarClient {
   private async getAccessToken(oauth2Client: OAuth2Client): Promise<string> {
     let token: string | null | undefined;
     try {
-      ({ token } = await oauth2Client.getAccessToken());
+      ({ token } = await this.withTimeout(oauth2Client.getAccessToken()));
     } catch (err) {
+      // Un timeout no dice nada sobre la credencial: tratarlo como
+      // invalid_grant desconectaría al terapeuta por una caída de red.
+      if (err instanceof GoogleCalendarError) throw err;
       throw new GoogleCalendarError(
         'invalid_grant',
         `Fallo al refrescar el access_token: ${err instanceof Error ? err.message : String(err)}`,
@@ -228,6 +259,7 @@ export class GoogleCalendarClient {
           ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(GOOGLE_REQUEST_TIMEOUT_MS),
       });
     } catch (err) {
       throw new GoogleCalendarError(
