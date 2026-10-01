@@ -125,7 +125,9 @@ describe('PatientsService', () => {
       );
 
       expect(prisma.patient.findUnique).toHaveBeenCalledWith({
-        where: { rut: '11111111-1K' },
+        where: {
+          therapistId_rut: { therapistId: 'therapist-1', rut: '11111111-1K' },
+        },
         select: { id: true },
       });
       expect(prisma.patient.create).toHaveBeenCalledWith({
@@ -540,9 +542,9 @@ describe('PatientsService', () => {
   });
 
   // sdd/patient-self-scheduling PR 3 (tasks.md 3.4, design.md "Identity
-  // resolution gotchas"): Patient.rut es GLOBALMENTE único (no por
-  // terapeuta) -- un paciente ya registrado con otro terapeuta no puede
-  // auto-crearse. Patient.email es nullable y NO único -- el match es
+  // resolution gotchas"): Patient.rut es único POR
+  // terapeuta (issue #314) -- un RUT registrado con otro terapeuta no
+  // interfiere. Patient.email es nullable y NO único -- el match es
   // case-insensitive y scopeado a therapistId; más de un match es ambiguo.
   // Ambos casos devuelven el MISMO 409 uniforme, sin distinguir hacia
   // afuera cuál ocurrió.
@@ -672,17 +674,34 @@ describe('PatientsService', () => {
       expect(createCall.data.defaultSessionAmount).toBeUndefined();
     });
 
-    it('colisión de RUT con otro terapeuta -> 409 uniforme, sin crear ni filtrar el caso', async () => {
+    it('colisión de RUT con una ficha de este terapeuta -> 409 uniforme, sin crear', async () => {
       prisma.patient.findMany.mockResolvedValue([]);
-      prisma.patient.findUnique.mockResolvedValue({
-        id: 'other-patient',
-        therapistId: 'therapist-2',
-      });
+      prisma.patient.findUnique.mockResolvedValue({ id: 'own-patient' });
 
       await expect(
         service.resolveForPublicBooking('therapist-1', dto as never),
       ).rejects.toThrow(ConflictException);
+      expect(prisma.patient.findUnique).toHaveBeenCalledWith({
+        where: {
+          therapistId_rut: { therapistId: 'therapist-1', rut: '11111111-1' },
+        },
+        select: { id: true },
+      });
       expect(prisma.patient.create).not.toHaveBeenCalled();
+    });
+
+    it('RUT registrado solo con otro terapeuta -> crea la ficha (issue #314)', async () => {
+      prisma.patient.findMany.mockResolvedValue([]);
+      // La búsqueda acotada por terapeuta no encuentra la ficha del otro.
+      prisma.patient.findUnique.mockResolvedValue(null);
+      prisma.patient.create.mockResolvedValue(buildPatient());
+
+      const result = await service.resolveForPublicBooking(
+        'therapist-1',
+        dto as never,
+      );
+
+      expect(result.isNew).toBe(true);
     });
 
     it('carrera de RUT: P2002 en el create -> mismo 409 uniforme (issue #199)', async () => {

@@ -82,8 +82,10 @@ export class PatientsService {
   async create(dto: CreatePatientDto, therapistId: string) {
     const rut = normalizeRut(dto.rut);
 
+    // Issue #314: la unicidad es por terapeuta, así el 409 solo revela fichas
+    // propias y no permite sondear RUT de otros terapeutas.
     const existing = await this.prisma.patient.findUnique({
-      where: { rut },
+      where: { therapistId_rut: { therapistId, rut } },
       select: { id: true },
     });
     if (existing) {
@@ -420,14 +422,13 @@ export class PatientsService {
 
   // sdd/patient-self-scheduling PR 3 (tasks.md 3.4, design.md "Identity
   // resolution gotchas"): resuelve la identidad del paciente para una
-  // reserva pública SIN autenticación ni OTP. Patient.rut es GLOBALMENTE
-  // único (no por terapeuta) -- un paciente ya registrado con OTRO
-  // terapeuta no puede auto-crearse. Patient.email es nullable y NO único
-  // -- el match por email es case-insensitive y scopeado a therapistId; más
-  // de un match es ambiguo. Ambos casos (colisión de RUT cruzada, email
+  // reserva pública SIN autenticación ni OTP. Patient.rut es único POR
+  // terapeuta (issue #314) -- un RUT registrado con otro terapeuta no
+  // interfiere. Patient.email es nullable y NO único -- el match por email
+  // es case-insensitive y scopeado a therapistId; más de un match es
+  // ambiguo. Ambos casos (colisión de RUT con este terapeuta, email
   // ambiguo) devuelven el MISMO ConflictException uniforme, sin distinguir
-  // hacia afuera cuál ocurrió -- nunca revela si el RUT/email pertenece a
-  // otra ficha.
+  // hacia afuera cuál ocurrió.
   //
   // issue #139: devuelve { patient, isNew } (no solo Patient) para que el
   // caller (PublicSchedulingService.book()) pueda notificar al terapeuta
@@ -475,13 +476,12 @@ export class PatientsService {
 
     const rut = normalizeRut(dto.rut);
     const existingRut = await client.patient.findUnique({
-      where: { rut },
-      select: { id: true, therapistId: true },
+      where: { therapistId_rut: { therapistId, rut } },
+      select: { id: true },
     });
-    // Colisión de RUT: sea con este terapeuta (no debería ocurrir sin haber
-    // matcheado por email arriba) o con otro -- el 409 es idéntico en ambos
-    // casos, para no filtrar (vía mensaje distinto) que el RUT ya existe en
-    // otra ficha.
+    // Colisión de RUT con una ficha de ESTE terapeuta (no matcheó por email
+    // arriba, p. ej. email distinto o ficha dada de baja): 409 uniforme. Un
+    // RUT registrado con otro terapeuta ya no colisiona (issue #314).
     if (existingRut) {
       throw new ConflictException('No fue posible procesar la reserva.');
     }
@@ -489,7 +489,7 @@ export class PatientsService {
     // issue #199: el findUnique de arriba y este create no son atómicos, así
     // que dos reservas simultáneas del mismo paciente nuevo (doble click,
     // doble pestaña, reintento de red) pueden pasar ambas el chequeo. La
-    // unicidad de Patient.rut es el guard real: la perdedora recibe P2002 y
+    // unicidad de (therapistId, rut) es el guard real: la perdedora recibe P2002 y
     // se traduce al mismo 409 uniforme, nunca a un 500.
     try {
       const patient = await client.patient.create({
