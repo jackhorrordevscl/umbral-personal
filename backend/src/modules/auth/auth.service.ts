@@ -22,6 +22,7 @@ import { Prisma, User } from '@prisma/client';
 import { MFA_SETUP_PURPOSE, MFA_VERIFY_PURPOSE } from './mfa.service';
 import { normalizeEmail } from '../../common/utils/normalize-email.util';
 import { getDummyPasswordHash } from './dummy-password-hash.util';
+import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 
 // Idem para el cambio de contraseña forzado (T4.4 / issue #22): el admin
 // semilla (y cualquier cuenta creada con mustChangePassword=true) no puede
@@ -280,18 +281,31 @@ export class AuthService {
       });
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, ipAddress?: string, userAgent?: string) {
     const user = await this.prisma.user.findUnique({
       where: { email: normalizeEmail(dto.email) },
     });
 
     if (!user || user.deletedAt) {
+      // Sin fila de auditoría: no hay usuario al que asociarla y registrar el
+      // intento revelaría (por diferencia de comportamiento) qué cuentas existen.
       await argon2.verify(await getDummyPasswordHash(), dto.password);
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
     const passwordValid = await argon2.verify(user.passwordHash, dto.password);
     if (!passwordValid) {
+      // Sin await a propósito: la escritura no debe sumar latencia solo a la
+      // rama "usuario existente" (timing oracle). Es fail-open.
+      void logAuditFailOpen(this.auditService, this.logger, {
+        userId: user.id,
+        action: 'LOGIN_FAILED',
+        resource: 'Auth',
+        resourceId: user.id,
+        detail: 'Contraseña incorrecta',
+        ipAddress,
+        userAgent,
+      });
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
@@ -527,7 +541,11 @@ export class AuthService {
    * el usuario vuelve a pasar por login normal (y por MFA si lo tiene
    * habilitado) con la contraseña nueva, sin bypasear ningún factor.
    */
-  async resetPassword(dto: ResetPasswordDto) {
+  async resetPassword(
+    dto: ResetPasswordDto,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
     let payload: { sub: string; purpose?: string; resetIssuedAt?: number };
     try {
       payload = this.jwtService.verify(dto.resetToken);
@@ -552,6 +570,7 @@ export class AuthService {
       !user.passwordResetTokenIssuedAt ||
       user.passwordResetTokenIssuedAt.getTime() !== payload.resetIssuedAt
     ) {
+      await this.auditRejectedReset(user.id, ipAddress, userAgent);
       throw new UnauthorizedException(
         'Token de restablecimiento inválido o ya utilizado',
       );
@@ -584,6 +603,7 @@ export class AuthService {
       },
     });
     if (count === 0) {
+      await this.auditRejectedReset(user.id, ipAddress, userAgent);
       throw new UnauthorizedException(
         'Token de restablecimiento inválido o ya utilizado',
       );
@@ -604,6 +624,25 @@ export class AuthService {
     });
 
     return { message: 'Contraseña actualizada. Ya puedes iniciar sesión.' };
+  }
+
+  // Reset rechazado con un token de firma válida de un usuario conocido
+  // (reemplazado por uno más nuevo o ya consumido). Si el token no verifica,
+  // no hay userId confiable y no se registra nada.
+  private auditRejectedReset(
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<void> {
+    return logAuditFailOpen(this.auditService, this.logger, {
+      userId,
+      action: 'UNAUTHORIZED_ATTEMPT',
+      resource: 'User',
+      resourceId: userId,
+      detail: 'Restablecimiento de contraseña con token ya utilizado',
+      ipAddress,
+      userAgent,
+    });
   }
 
   /**

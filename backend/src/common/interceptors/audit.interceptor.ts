@@ -1,4 +1,5 @@
 import {
+  HttpException,
   Injectable,
   Logger,
   NestInterceptor,
@@ -6,7 +7,7 @@ import {
   CallHandler,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Observable, tap } from 'rxjs';
+import { Observable, catchError, tap, throwError } from 'rxjs';
 import type { Request } from 'express';
 import { AuditAction } from '@prisma/client';
 import { AuditService } from '../../modules/audit/audit.service';
@@ -16,6 +17,7 @@ import {
   AUDIT_READ_KEY,
   type AuditReadOptions,
 } from '../decorators/audit-read.decorator';
+import { SKIP_AUDIT_KEY } from '../decorators/skip-audit.decorator';
 import type { RequestUser } from '../decorators/current-user.decorator';
 
 interface AuditableRequest extends Request {
@@ -35,6 +37,17 @@ function firstIfArray(
   return Array.isArray(value) ? value[0] : value;
 }
 
+// Recursos clínicos cuyo acceso denegado (403) o a un id inexistente/ajeno
+// (404) se registra como UNAUTHORIZED_ATTEMPT.
+const CLINICAL_RESOURCES = new Set([
+  'Patient',
+  'PatientConsent',
+  'Consultation',
+  'Report',
+  'Document',
+  'SharedFile',
+]);
+
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
   private readonly logger = new Logger(AuditInterceptor.name);
@@ -50,6 +63,13 @@ export class AuditInterceptor implements NestInterceptor {
 
     // Solo registra si hay usuario autenticado
     if (!user) return next.handle();
+
+    // @SkipAudit(): endpoints de sondeo que no deben generar filas.
+    const skip = this.reflector.get<boolean | undefined>(
+      SKIP_AUDIT_KEY,
+      context.getHandler(),
+    );
+    if (skip) return next.handle();
 
     const method = request.method;
     const url = request.url;
@@ -79,11 +99,7 @@ export class AuditInterceptor implements NestInterceptor {
         // URL, y ese interceptor corre DESPUÉS de este (que es global) pero
         // ANTES de que next.handle() resuelva -- leer el body antes de acá
         // lo encontraba vacío y dejaba resourceId en 'N/A' (issue #36).
-        const resourceId =
-          firstIfArray(request.params?.id) ??
-          firstIfArray(request.params?.patientId) ??
-          request.body?.patientId ??
-          'N/A';
+        const resourceId = this.resolveResourceId(request);
 
         // El handler ya corrió: auditPatientId, si lo fijó, está disponible.
         const detailParts = [`${method} ${url}`];
@@ -113,6 +129,44 @@ export class AuditInterceptor implements NestInterceptor {
             );
           });
       }),
+      catchError((error: unknown) => {
+        // Acceso denegado o a un recurso inexistente/ajeno sobre datos
+        // clínicos: queda registrado y el error original se relanza intacto.
+        // El 401 no se registra acá (ya lo hace el guard JWT).
+        if (
+          error instanceof HttpException &&
+          (error.getStatus() === 403 || error.getStatus() === 404) &&
+          CLINICAL_RESOURCES.has(resource)
+        ) {
+          const status = error.getStatus();
+          this.auditService
+            .log({
+              userId: user.id,
+              action: 'UNAUTHORIZED_ATTEMPT',
+              resource,
+              resourceId: this.resolveResourceId(request),
+              detail: `${method} ${url} status=${status}`,
+              ipAddress,
+              userAgent,
+            })
+            .catch((err) => {
+              this.logger.error(
+                `Fallo al registrar intento no autorizado: userId=${user.id} resource=${resource} status=${status} — ${err instanceof Error ? err.message : err}`,
+                err instanceof Error ? err.stack : undefined,
+              );
+            });
+        }
+        return throwError(() => error);
+      }),
+    );
+  }
+
+  private resolveResourceId(request: AuditableRequest): string {
+    return (
+      firstIfArray(request.params?.id) ??
+      firstIfArray(request.params?.patientId) ??
+      request.body?.patientId ??
+      'N/A'
     );
   }
 }
