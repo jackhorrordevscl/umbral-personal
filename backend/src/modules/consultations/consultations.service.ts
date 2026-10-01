@@ -19,6 +19,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { PaymentsService } from '../payments/payments.service';
+import { AvailabilityService } from '../availability/availability.service';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { CorrectConsultationDto } from './dto/correct-consultation.dto';
 import { ConsultationRangeQueryDto } from './dto/consultation-range-query.dto';
@@ -82,6 +83,7 @@ export class ConsultationsService {
     private patientsService: PatientsService,
     private calendarSync: CalendarSyncService,
     private paymentsService: PaymentsService,
+    private availabilityService: AvailabilityService,
   ) {}
 
   // design.md "Fire-and-forget intents plus a bounded reconciler": nunca se
@@ -168,6 +170,9 @@ export class ConsultationsService {
     this.logger.log(
       `Consulta creada: id=${consultation.id} patientId=${dto.patientId} therapistId=${therapistId}`,
     );
+    // issue #285: el horario recién ocupado no debe seguir ofrecido desde el
+    // cache de slots.
+    this.availabilityService.invalidate(therapistId);
     this.emitCalendarSync(consultation.groupId);
     this.emitPaymentCharge(consultation.groupId);
     return consultation;
@@ -466,6 +471,8 @@ export class ConsultationsService {
     this.logger.log(
       `Consulta corregida: originalId=${id} nuevaId=${result.id} groupId=${original.groupId} therapistId=${therapistId}`,
     );
+    // issue #285: la sesión pudo moverse; libera/ocupa slots en el cache.
+    this.availabilityService.invalidate(therapistId);
     this.emitCalendarSync(original.groupId);
     this.emitPaymentCharge(original.groupId);
     return result;
@@ -577,13 +584,33 @@ export class ConsultationsService {
     const id = randomUUID();
 
     const write = async (tx: Prisma.TransactionClient) => {
+      // issue #285: lock compartido sobre el paciente, contrapartida del FOR
+      // UPDATE de PatientsService.softDelete -- evita que un soft-delete
+      // concurrente deje un BookedSlot huérfano. Si el paciente ya fue
+      // eliminado, el horario no se reserva.
+      const lockedPatient = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "Patient"
+        WHERE id = ${patientId} AND "deletedAt" IS NULL
+        FOR SHARE`;
+      if (lockedPatient.length === 0) {
+        throw new ConflictException(
+          'El horario seleccionado ya no está disponible.',
+        );
+      }
+
       const conflicting = await tx.consultation.findFirst({
         where: {
           therapistId,
           correctedBy: null,
           deletedAt: null,
           patient: { deletedAt: null },
-          sessionDate: { gte: slotStart, lt: slotEnd },
+          // issue #285: solape de intervalos [sessionDate, +duración) contra
+          // [slotStart, slotEnd): una sesión que empezó antes pero termina
+          // después de slotStart también ocupa el horario.
+          sessionDate: {
+            gt: new Date(slotStart.getTime() - sessionDurationMinutes * 60000),
+            lt: slotEnd,
+          },
         },
         select: { id: true },
       });
@@ -650,6 +677,9 @@ export class ConsultationsService {
     this.logger.log(
       `Consulta creada vía reserva pública: id=${groupId} therapistId=${therapistId}`,
     );
+    // issue #285: ya con el commit visible, el slot reservado deja de
+    // ofrecerse desde el cache.
+    this.availabilityService.invalidate(therapistId);
     this.emitCalendarSync(groupId);
     this.emitPaymentCharge(groupId);
   }

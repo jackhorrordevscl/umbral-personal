@@ -167,6 +167,8 @@ export class PublicSchedulingService {
       therapistId,
       slotStart,
       slotEnd,
+      new Date(),
+      { bypassCache: true },
     );
     const isStillFree = freeSlots.some(
       (slot) =>

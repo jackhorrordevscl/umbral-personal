@@ -310,6 +310,13 @@ export class PatientsService {
     // reserva del mismo horario: se libera en la misma transacción que el
     // soft-delete. No hay flujo de restauración de pacientes.
     const deleted = await this.prisma.$transaction(async (tx) => {
+      // Lock de la fila del paciente (FOR UPDATE) antes de leer los grupos:
+      // BookedSlot no tiene relación con Consultation, así que sin lock una
+      // reserva pública que confirme entre el findMany y el deleteMany dejaría
+      // un BookedSlot huérfano. createFromPublicBooking toma FOR SHARE sobre la
+      // misma fila, lo que serializa ambos caminos: o la reserva commitea antes
+      // (y su consulta se ve abajo) o espera, ve deletedAt y responde 409.
+      await tx.$queryRaw`SELECT id FROM "Patient" WHERE id = ${id} FOR UPDATE`;
       const groups = await tx.consultation.findMany({
         where: { patientId: id },
         select: { groupId: true },

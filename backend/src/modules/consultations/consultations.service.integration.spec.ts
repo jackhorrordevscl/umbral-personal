@@ -24,6 +24,7 @@ import {
   PaymentGatewayError,
 } from '../payments/payment-gateway.client';
 import { MailService } from '../mail/mail.service';
+import { AvailabilityService } from '../availability/availability.service';
 
 // Fecha futura determinista dentro de una corrida: `daysAhead` días después de
 // hoy (UTC) a la hora `hourUtc`. Evita fechas fijas que caducan con el tiempo.
@@ -70,6 +71,14 @@ function buildDisabledPaymentsService(prisma: PrismaService): PaymentsService {
     new MailService(config),
     new NotificationsService(prisma),
   );
+}
+
+// issue #285: ConsultationsService invalida el cache de slots; con el overlay
+// de Google apagado (config vacía) AvailabilityService no necesita más.
+function buildAvailabilityService(prisma: PrismaService): AvailabilityService {
+  return new AvailabilityService(prisma, {
+    get: () => undefined,
+  } as unknown as ConfigService);
 }
 
 /**
@@ -192,6 +201,7 @@ describe('ConsultationsService + CalendarSyncService (integration, Google client
       patientsService,
       calendarSync,
       buildDisabledPaymentsService(prisma),
+      buildAvailabilityService(prisma),
     );
   }, 30000);
 
@@ -379,6 +389,7 @@ describe('ConsultationsService.findByRange (integration, real Prisma)', () => {
       patientsService,
       calendarSync,
       buildDisabledPaymentsService(prisma),
+      buildAvailabilityService(prisma),
     );
   }, 30000);
 
@@ -560,6 +571,7 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
       patientsService,
       calendarSync,
       buildDisabledPaymentsService(prisma),
+      buildAvailabilityService(prisma),
     );
   }, 30000);
 
@@ -661,6 +673,153 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
         patientId,
         '11111111-1',
         moved,
+        50,
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+  }, 20000);
+
+  // issue #285 (review parte 1): correct() hacia un horario ya tomado debe
+  // fallar con 409 sin dejar corrección ni historial a medias.
+  it('correct() hacia un slot ya tomado lanza ConflictException y no deja rastro parcial', async () => {
+    const otherPatient = await prisma.patient.create({
+      data: {
+        fullName: 'Paciente Corrección Conflicto',
+        rut: `${runId}-3`,
+        birthDate: new Date('1990-01-01T12:00:00.000Z'),
+        therapistId,
+      },
+    });
+    extraPatientIds.push(otherPatient.id);
+    await prisma.patientConsent.create({
+      data: {
+        patientId: otherPatient.id,
+        purpose: 'TREATMENT',
+        action: 'GRANT',
+        recordedById: therapistId,
+        evidence: 'integration test',
+      },
+    });
+    const slotA = futureUtcDay(33, 13);
+    const slotB = futureUtcDay(33, 16);
+    const bookedA = await consultationsService.createFromPublicBooking(
+      therapistId,
+      otherPatient.id,
+      '33333333-3',
+      slotA,
+      50,
+    );
+    const bookedB = await consultationsService.createFromPublicBooking(
+      therapistId,
+      patientId,
+      '11111111-1',
+      slotB,
+      50,
+    );
+
+    await expect(
+      consultationsService.correct(
+        bookedA.id,
+        { sessionDate: slotB.toISOString() } as never,
+        therapistId,
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    // Rollback completo: ni versión corregida ni snapshot de historial.
+    await expect(
+      prisma.consultation.findMany({ where: { groupId: bookedA.id } }),
+    ).resolves.toHaveLength(1);
+    await expect(
+      prisma.consultationHistory.count({
+        where: { consultationId: bookedA.id },
+      }),
+    ).resolves.toBe(0);
+    // El horario original sigue tomado por su grupo y el destino por el suyo.
+    await expect(
+      prisma.bookedSlot.findFirst({ where: { therapistId, slotStart: slotA } }),
+    ).resolves.toMatchObject({ groupId: bookedA.id });
+    await expect(
+      prisma.bookedSlot.findFirst({ where: { therapistId, slotStart: slotB } }),
+    ).resolves.toMatchObject({ groupId: bookedB.id });
+  }, 20000);
+
+  // issue #285: la ocupación se compara por intervalo, no solo por inicio.
+  it('rechaza una reserva cuyo intervalo se solapa con una sesión ya tomada y acepta la adyacente', async () => {
+    const existing = futureUtcDay(34, 13);
+    await consultationsService.createFromPublicBooking(
+      therapistId,
+      patientId,
+      '11111111-1',
+      existing,
+      50,
+    );
+
+    // 13:30 empieza dentro de la sesión de 13:00-13:50.
+    await expect(
+      consultationsService.createFromPublicBooking(
+        therapistId,
+        patientId,
+        '11111111-1',
+        new Date(existing.getTime() + 30 * 60000),
+        50,
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+    // 12:30 termina dentro de la sesión (13:20 > 13:00).
+    await expect(
+      consultationsService.createFromPublicBooking(
+        therapistId,
+        patientId,
+        '11111111-1',
+        new Date(existing.getTime() - 30 * 60000),
+        50,
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+    // 13:50 es adyacente (half-open): sigue libre.
+    await expect(
+      consultationsService.createFromPublicBooking(
+        therapistId,
+        patientId,
+        '11111111-1',
+        new Date(existing.getTime() + 50 * 60000),
+        50,
+      ),
+    ).resolves.toBeDefined();
+  }, 20000);
+
+  // issue #285 (review parte 1): softDelete y reserva concurrentes no dejan un
+  // BookedSlot huérfano, gane quien gane.
+  it('softDelete concurrente con una reserva pública no deja BookedSlot huérfano', async () => {
+    const racing = await prisma.patient.create({
+      data: {
+        fullName: 'Paciente Carrera',
+        rut: `${runId}-4`,
+        birthDate: new Date('1990-01-01T12:00:00.000Z'),
+        therapistId,
+      },
+    });
+    extraPatientIds.push(racing.id);
+    const slotStart = futureUtcDay(35, 13);
+
+    await Promise.allSettled([
+      patientsService.softDelete(racing.id, therapistId),
+      consultationsService.createFromPublicBooking(
+        therapistId,
+        racing.id,
+        '44444444-4',
+        slotStart,
+        50,
+      ),
+    ]);
+
+    await expect(
+      prisma.bookedSlot.findMany({ where: { therapistId, slotStart } }),
+    ).resolves.toHaveLength(0);
+    // Y una reserva posterior sobre el paciente ya eliminado se rechaza.
+    await expect(
+      consultationsService.createFromPublicBooking(
+        therapistId,
+        racing.id,
+        '44444444-4',
+        slotStart,
         50,
       ),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -886,6 +1045,7 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
       patientsService,
       calendarSync,
       paymentsService,
+      buildAvailabilityService(prisma),
     );
   }, 30000);
 

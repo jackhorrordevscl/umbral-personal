@@ -46,6 +46,7 @@ describe('PatientsService', () => {
     patientHistory: { create: jest.Mock; findMany: jest.Mock };
     consultation: { findMany: jest.Mock };
     bookedSlot: { deleteMany: jest.Mock };
+    $queryRaw: jest.Mock;
     $transaction: jest.Mock;
   };
   let calendarSync: { deletePatientEvents: jest.Mock };
@@ -72,6 +73,7 @@ describe('PatientsService', () => {
       },
       consultation: { findMany: jest.fn().mockResolvedValue([]) },
       bookedSlot: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'patient-1' }]),
       // $transaction([...]) real ejecuta cada operación y devuelve sus
       // resultados; para el caso callback (usado en update) alcanza con
       // invocar la función pasándole el propio mock de prisma como `tx`.
@@ -403,6 +405,22 @@ describe('PatientsService', () => {
       expect(prisma.bookedSlot.deleteMany).toHaveBeenCalledWith({
         where: { groupId: { in: ['g-1', 'g-2'] } },
       });
+    });
+
+    // issue #285 (review parte 1): lock de la fila antes de leer los grupos.
+    it('toma lock FOR UPDATE del paciente antes de leer sus consultas', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.consultation.findMany.mockResolvedValue([{ groupId: 'g-1' }]);
+      prisma.patient.update.mockResolvedValue(
+        buildPatient({ deletedAt: new Date() }),
+      );
+
+      await service.softDelete('patient-1', 'therapist-1');
+
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+      expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.consultation.findMany.mock.invocationCallOrder[0],
+      );
     });
 
     it('no llama a bookedSlot.deleteMany si el paciente no tiene consultas', async () => {
