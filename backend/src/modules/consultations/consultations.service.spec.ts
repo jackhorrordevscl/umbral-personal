@@ -670,6 +670,26 @@ describe('ConsultationsService', () => {
       expect(calendarSync.syncGroup).not.toHaveBeenCalled();
     });
 
+    it('no disfraza de 409 de horario un P2002 que no viene del BookedSlot', async () => {
+      const p2002 = new Prisma.PrismaClientKnownRequestError(
+        'Unique constraint',
+        { code: 'P2002', clientVersion: 'test' },
+      );
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation())
+        .mockResolvedValueOnce(null);
+      prisma.consultation.create.mockRejectedValue(p2002);
+
+      const result = service.correct(
+        'consultation-1',
+        { consultReason: 'Motivo corregido' } as never,
+        'therapist-1',
+      );
+
+      await expect(result).rejects.toBe(p2002);
+      await expect(result).rejects.not.toBeInstanceOf(ConflictException);
+    });
+
     // sdd/online-payment-integration PR 1 (T2.5)
     it('dispara paymentsService.ensureCharge(groupId) tras persistir la corrección', async () => {
       prisma.consultation.findFirst
