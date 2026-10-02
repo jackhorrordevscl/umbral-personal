@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AuthContext, type User } from './useAuth';
@@ -27,6 +27,12 @@ function readStoredAuth(): { user: User | null; token: string | null } {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [{ user, token }, setAuth] = useState(readStoredAuth);
   const queryClient = useQueryClient();
+  // Espejo del estado para el listener de `storage`, que no debe re-suscribirse
+  // en cada cambio de sesión.
+  const authRef = useRef({ user, token });
+  useEffect(() => {
+    authRef.current = { user, token };
+  }, [user, token]);
 
   // Issue #291: el QueryClient es un singleton y sus claves no incluyen al
   // usuario, así que sin vaciarlo el siguiente usuario de un equipo compartido
@@ -57,6 +63,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
     setAuth({ token: null, user: null });
   };
+
+  // Issue #293: el token vive en localStorage y es compartido por todas las
+  // pestañas. Si otra pestaña inicia sesión con otra cuenta o cierra sesión,
+  // esta seguiría mostrando al usuario anterior mientras sus requests van con
+  // el token nuevo. El evento `storage` solo se dispara en las OTRAS pestañas,
+  // así que no hay eco de los cambios propios.
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      // key === null es localStorage.clear().
+      if (e.key !== null && e.key !== 'token' && e.key !== 'user') return;
+      const next = readStoredAuth();
+      const prev = authRef.current;
+      if (prev.token === next.token && prev.user?.id === next.user?.id) return;
+      // Otra cuenta (o sin cuenta): el caché del usuario anterior no debe
+      // sobrevivir, mismo motivo que en login/logout (#291). Si solo cambió el
+      // token de la misma cuenta, el caché sigue siendo válido.
+      if (prev.user?.id !== next.user?.id) queryClient.clear();
+      setAuth(next);
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [queryClient]);
 
   return (
     <AuthContext.Provider
