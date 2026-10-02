@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -49,7 +49,7 @@ function renderConsultationsPage(initialEntry = '/consultations') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return render(
+  render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
         <LocationProbe />
@@ -57,6 +57,7 @@ function renderConsultationsPage(initialEntry = '/consultations') {
       </MemoryRouter>
     </QueryClientProvider>,
   )
+  return { queryClient }
 }
 
 async function selectFirstPatient(user: ReturnType<typeof userEvent.setup>) {
@@ -184,6 +185,31 @@ describe('ConsultationsPage', () => {
 
     expect(await screen.findByText(/No se pudieron cargar las consultas/)).toBeInTheDocument()
     expect(screen.queryByText('Sin consultas registradas')).not.toBeInTheDocument()
+  })
+
+  // Issue #346: un refetch fallido conserva `data`; el historial ya cargado sigue visible.
+  it('si un refetch falla con consultas en caché avisa pero mantiene el historial visible', async () => {
+    let consultationsFail = false
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url.startsWith('/consultations/patient/'))
+        return consultationsFail
+          ? Promise.reject(new Error('boom'))
+          : Promise.resolve({ data: [buildConsultation()] })
+      return Promise.resolve({ data: [] })
+    })
+    const user = userEvent.setup()
+
+    const { queryClient } = renderConsultationsPage()
+    await selectFirstPatient(user)
+    await screen.findByText('Motivo de la sesión')
+
+    consultationsFail = true
+    await act(() => queryClient.refetchQueries())
+
+    expect(await screen.findByText(/No se pudieron cargar las consultas/)).toBeInTheDocument()
+    expect(screen.getByText('Motivo de la sesión')).toBeInTheDocument()
+    expect(screen.getByText('Intervención realizada')).toBeInTheDocument()
   })
 
   it('muestra el historial de consultas del paciente seleccionado', async () => {

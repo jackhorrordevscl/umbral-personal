@@ -60,6 +60,9 @@ export default function ConsultationForm({
     isError: patientsError,
     refetch: refetchPatients,
   } = usePatients();
+  // Un refetch fallido conserva la lista ya cargada: solo se bloquea el select
+  // cuando no hay pacientes que mostrar (issue #346).
+  const patientsUnavailable = patientsError && patients.length === 0;
   const createMutation = useCreateConsultation();
   const uploadMutation = useUploadPatientDocument(form.patientId || undefined);
 
@@ -159,12 +162,12 @@ export default function ConsultationForm({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FormField id="consult-patientId" label="Paciente" required className="md:col-span-2">
           <select id="consult-patientId" className="input-field" value={form.patientId}
-            disabled={patientsLoading || patientsError}
+            disabled={patientsLoading || patientsUnavailable}
             onChange={e => setForm({ ...form, patientId: e.target.value })}>
             <option value="">
               {patientsLoading
                 ? 'Cargando pacientes...'
-                : patientsError
+                : patientsUnavailable
                   ? 'No se pudieron cargar los pacientes'
                   : 'Seleccionar paciente...'}
             </option>

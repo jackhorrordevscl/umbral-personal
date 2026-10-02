@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ConsultationForm from './ConsultationForm'
@@ -18,11 +18,12 @@ function renderForm() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return render(
+  render(
     <QueryClientProvider client={queryClient}>
       <ConsultationForm onSuccess={vi.fn()} onCancel={vi.fn()} />
     </QueryClientProvider>,
   )
+  return { queryClient }
 }
 
 const patient = { id: 'patient-1', fullName: 'Paciente de Prueba', rut: '11111111-1' }
@@ -60,5 +61,25 @@ describe('ConsultationForm — select de pacientes', () => {
       await screen.findByRole('option', { name: /Paciente de Prueba/ }),
     ).toBeInTheDocument()
     expect(screen.getByLabelText(/Paciente/)).toBeEnabled()
+  })
+
+  // Issue #346: un refetch fallido conserva `data`; la lista ya cargada sirve.
+  it('si un refetch falla con pacientes en caché avisa pero mantiene la lista y el select habilitado', async () => {
+    mockedApi.get.mockResolvedValue({ data: [patient] })
+
+    const { queryClient } = renderForm()
+
+    await screen.findByRole('option', { name: /Paciente de Prueba/ })
+    mockedApi.get.mockRejectedValue(new Error('boom'))
+    await act(() => queryClient.refetchQueries())
+
+    expect(
+      await screen.findByText('No se pudieron cargar los pacientes.'),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText(/Paciente/)).toBeEnabled()
+    expect(screen.getByRole('option', { name: /Paciente de Prueba/ })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('option', { name: 'No se pudieron cargar los pacientes' }),
+    ).not.toBeInTheDocument()
   })
 })

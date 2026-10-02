@@ -59,6 +59,7 @@ export default function CalendarPage() {
     data: sessions,
     isLoading,
     isError,
+    isPlaceholderData,
     refetch,
   } = useCalendarSessions(grid.from, grid.to);
   const sessionsByDay = useMemo(() => groupByChileDay(sessions ?? []), [sessions]);
@@ -96,8 +97,10 @@ export default function CalendarPage() {
       </div>
 
       {/* Sin las sesiones del mes la grilla se vería vacía y se podría agendar
-          sobre sesiones existentes: mientras carga o si falla no se muestra la
-          grilla (y por lo tanto tampoco se puede abrir el detalle del día). */}
+          sobre sesiones existentes. Al navegar se conserva la grilla del mes
+          anterior (isPlaceholderData) sin permitir abrir el detalle del día; si
+          falla la carga del mes nuevo se reemplaza por el error. Un refetch
+          fallido con datos del mes en caché solo avisa. */}
       {isLoading ? (
         <div className="card flex items-center justify-center h-48">
           <p className="text-slate-500 text-sm">Cargando calendario...</p>
@@ -113,12 +116,26 @@ export default function CalendarPage() {
           onRetry={() => void refetch()}
         />
       ) : (
-        <MonthGrid
-          days={grid.days}
-          currentMonth={viewMonth.month}
-          sessionsByDay={sessionsByDay}
-          onDayClick={setSelectedDay}
-        />
+        <>
+          {isError && (
+            <ErrorBanner
+              icon
+              className="mb-4"
+              message="No se pudieron actualizar las sesiones de este mes."
+              onRetry={() => void refetch()}
+            />
+          )}
+          <div aria-busy={isPlaceholderData} className={isPlaceholderData ? 'opacity-60' : undefined}>
+            <MonthGrid
+              days={grid.days}
+              currentMonth={viewMonth.month}
+              sessionsByDay={sessionsByDay}
+              onDayClick={(day) => {
+                if (!isPlaceholderData) setSelectedDay(day);
+              }}
+            />
+          </div>
+        </>
       )}
 
       {selectedDay && sessions && (

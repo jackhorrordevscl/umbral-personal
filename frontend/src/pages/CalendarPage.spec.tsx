@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -74,13 +74,14 @@ function renderCalendarPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return render(
+  render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/calendar']}>
         <CalendarPage />
       </MemoryRouter>
     </QueryClientProvider>,
   )
+  return { queryClient }
 }
 
 describe('CalendarPage', () => {
@@ -143,6 +144,81 @@ describe('CalendarPage', () => {
     await user.click(screen.getByRole('button', { name: 'Reintentar' }))
 
     expect(await screen.findByTestId('day-cell-2026-09-10')).toBeInTheDocument()
+  })
+
+  // Issue #346: navegar de mes no desmonta la grilla, pero mientras los datos
+  // del mes nuevo son desconocidos no se puede abrir el día ni agendar.
+  it('al cambiar de mes conserva la grilla sin "Cargando calendario..." y bloquea el detalle del día hasta que llegan los datos', async () => {
+    mockGets([buildSession()])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    renderCalendarPage()
+    await screen.findByTestId('day-cell-2026-09-10')
+
+    let resolveOctober: (value: { data: CalendarSession[] }) => void = () => {}
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/consultations/range')
+        return new Promise((resolve) => {
+          resolveOctober = resolve
+        })
+      if (url === '/calendar-integration/status')
+        return Promise.resolve({ data: baseCalendarStatus() })
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+    await user.click(screen.getByRole('button', { name: 'Mes siguiente' }))
+
+    expect(screen.queryByText('Cargando calendario...')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('day-cell-2026-10-10'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveOctober({ data: [] })
+    })
+
+    await user.click(await screen.findByTestId('day-cell-2026-10-10'))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('si falla la carga del mes nuevo tras navegar muestra el error y no deja la grilla del mes anterior', async () => {
+    mockGets([buildSession()])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    renderCalendarPage()
+    await screen.findByTestId('day-cell-2026-09-10')
+
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/consultations/range') return Promise.reject(new Error('boom'))
+      if (url === '/calendar-integration/status')
+        return Promise.resolve({ data: baseCalendarStatus() })
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+    await user.click(screen.getByRole('button', { name: 'Mes siguiente' }))
+
+    expect(
+      await screen.findByText('No se pudieron cargar las sesiones de este mes.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Cargando calendario...')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('day-cell-2026-10-10')).not.toBeInTheDocument()
+  })
+
+  it('si un refetch falla con sesiones del mes en caché avisa pero mantiene la grilla', async () => {
+    mockGets([buildSession()])
+
+    const { queryClient } = renderCalendarPage()
+    await screen.findByTestId('day-cell-2026-09-10')
+
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/consultations/range') return Promise.reject(new Error('boom'))
+      if (url === '/calendar-integration/status')
+        return Promise.resolve({ data: baseCalendarStatus() })
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+    await act(() => queryClient.refetchQueries())
+
+    expect(
+      await screen.findByText('No se pudieron actualizar las sesiones de este mes.'),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('day-cell-2026-09-10')).toBeInTheDocument()
   })
 
   it('renderiza las celdas de spillover del mes adyacente (agosto y octubre)', async () => {

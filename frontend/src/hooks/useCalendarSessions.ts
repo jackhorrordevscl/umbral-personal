@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import * as consultationsApi from '../api/consultations';
 
 // PR4 (session-calendar-view, design.md "Data Flow"): queryKey anidado bajo
@@ -10,5 +10,8 @@ export function useCalendarSessions(from: string, to: string) {
   return useQuery({
     queryKey: ['consultations', 'range', from, to],
     queryFn: () => consultationsApi.listConsultationsByRange(from, to),
+    // Al cambiar de mes se conserva la grilla anterior (isPlaceholderData) en
+    // vez de desmontarla; la página bloquea el agendado mientras tanto.
+    placeholderData: keepPreviousData,
   });
 }
