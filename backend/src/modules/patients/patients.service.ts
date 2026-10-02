@@ -533,6 +533,18 @@ export class PatientsService {
       throw new ConflictException('No fue posible procesar la reserva.');
     }
 
+    // Issue #289: el DTO público valida solo la forma del RUT para que un
+    // paciente existente con un DV inválido guardado pueda autoagendarse (el
+    // match de arriba compara por RUT normalizado). El DV se exige solo al crear
+    // una ficha nueva. Mismo 409 uniforme que el resto del flujo: un 400 propio
+    // acá permitiría distinguir si un email está registrado (endpoint anónimo).
+    if (!isValidRut(dto.rut)) {
+      this.logger.warn(
+        `Reserva pública rechazada: RUT con dígito verificador inválido bajo therapistId=${therapistId}`,
+      );
+      throw new ConflictException('No fue posible procesar la reserva.');
+    }
+
     const rut = normalizeRut(dto.rut);
     const existingRut = await client.patient.findFirst({
       where: { therapistId, rut, deletedAt: null },

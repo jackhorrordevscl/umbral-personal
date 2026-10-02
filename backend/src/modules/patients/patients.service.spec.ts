@@ -788,6 +788,33 @@ describe('PatientsService', () => {
       expect(result).toEqual({ patient: existing, isNew: false });
     });
 
+    it('ficha existente con DV inválido guardado: el paciente puede autoagendarse con ese RUT (issue #289)', async () => {
+      const existing = buildPatient({
+        email: 'paciente@ejemplo.cl',
+        rut: '11111111-2',
+      });
+      prisma.patient.findMany.mockResolvedValue([existing]);
+
+      const result = await service.resolveForPublicBooking('therapist-1', {
+        ...dto,
+        rut: '11.111.111-2',
+      } as never);
+
+      expect(result).toEqual({ patient: existing, isNew: false });
+    });
+
+    it('paciente nuevo con DV inválido -> 409 uniforme y no crea la ficha (issue #289)', async () => {
+      prisma.patient.findMany.mockResolvedValue([]);
+
+      const attempt = service.resolveForPublicBooking('therapist-1', {
+        ...dto,
+        rut: '11.111.111-2',
+      } as never);
+
+      await expect(attempt).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.patient.create).not.toHaveBeenCalled();
+    });
+
     it('email existente con un RUT distinto -> 409 uniforme, sin devolver la ficha (issue #299)', async () => {
       prisma.patient.findMany.mockResolvedValue([
         buildPatient({ email: 'paciente@ejemplo.cl', rut: '22222222-2' }),

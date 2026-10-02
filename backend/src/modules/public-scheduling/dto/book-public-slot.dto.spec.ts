@@ -83,6 +83,15 @@ describe('BookPublicSlotDto', () => {
       },
     );
 
+    // Issue #289: el DTO público valida solo la forma; el dígito verificador lo
+    // exige el servicio al crear un paciente nuevo (una ficha existente puede
+    // tenerlo inválido y debe poder autoagendarse).
+    it('acepta un RUT con forma válida aunque el dígito verificador no coincida', async () => {
+      expect(
+        await patientErrorProps({ ...validPatient, rut: '12345678-9' }),
+      ).toEqual([]);
+    });
+
     it('rechaza fullName con más de 200 caracteres', async () => {
       expect(
         await patientErrorProps({ ...validPatient, fullName: 'x'.repeat(201) }),

@@ -1,6 +1,6 @@
 import { IsEmail, IsOptional, IsString, MaxLength } from 'class-validator';
 import { PersonName } from '../../../common/validators/person-name.decorator';
-import { IsRut } from '../../../common/validators/is-rut.decorator';
+import { IsRutFormat } from '../../../common/validators/is-rut.decorator';
 import { IsStrictDateString } from '../../../common/validators/is-strict-date-string.decorator';
 import type { PublicBookingPatientInput } from '../../patients/patients.service';
 
@@ -23,7 +23,10 @@ export class PublicBookingPatientDto implements PublicBookingPatientInput {
   @PersonName(200)
   fullName: string;
 
-  @IsRut()
+  // Issue #289: solo la forma. El dígito verificador lo exige
+  // PatientsService.resolveForPublicBooking únicamente al crear un paciente
+  // nuevo, para no bloquear a quien ya tiene una ficha con un DV inválido.
+  @IsRutFormat()
   rut: string;
 
   @IsStrictDateString()
