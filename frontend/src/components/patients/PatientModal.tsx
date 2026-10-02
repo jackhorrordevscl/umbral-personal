@@ -35,6 +35,11 @@ import { getPatientConsentStatus } from "../../api/patients";
 import { downloadPatientReport } from "../../api/reports";
 import { downloadBlob } from "../../utils/download";
 import { getApiErrorMessage } from "../../utils/api-error";
+import {
+  formatCalendarDate,
+  formatChileShortDate,
+  formatChileShortDateTime,
+} from "../../utils/datetime";
 
 type ModalTab = "detail" | "edit" | "history";
 
@@ -56,7 +61,9 @@ function formatFieldValue(key: string, val: unknown): string {
   if (typeof val === "boolean") return val ? "Sí" : "No";
   if (key === "birthDate" || key.toLowerCase().includes("date")) {
     try {
-      return new Date(val as string).toLocaleDateString("es-CL");
+      return key === "birthDate"
+        ? formatCalendarDate(val as string)
+        : formatChileShortDate(val as string);
     } catch {
       return String(val);
     }
@@ -308,7 +315,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
               <div className="space-y-2 text-sm text-slate-700">
                 <p>
                   <span className="font-medium">Nacimiento:</span>{" "}
-                  {new Date(selected.birthDate).toLocaleDateString("es-CL")}
+                  {formatCalendarDate(selected.birthDate)}
                 </p>
                 <p>
                   <span className="font-medium">Ocupación:</span> {selected.occupation || "—"}
@@ -405,7 +412,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                               {isVoided && (
                                 <p className="text-xs text-slate-500">
                                   Anulado el{" "}
-                                  {new Date(doc.voidedAt as string).toLocaleDateString("es-CL")}.
+                                  {formatChileShortDate(doc.voidedAt as string)}.
                                   Motivo: {doc.voidReason}
                                 </p>
                               )}
@@ -667,7 +674,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                           {entry.changedBy.name}
                         </p>
                         <p className="text-xs text-slate-500">
-                          {new Date(entry.changedAt).toLocaleString("es-CL")}
+                          {formatChileShortDateTime(entry.changedAt)}
                         </p>
                       </div>
                       <div className="bg-amber-50 rounded-lg px-3 py-2 mb-3">

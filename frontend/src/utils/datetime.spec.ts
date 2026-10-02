@@ -4,6 +4,11 @@ import {
   chileMonthGridRange,
   groupSlotsByChileDay,
   formatSlotTimeRange,
+  buildLocalISO,
+  formatCalendarDate,
+  formatChileShortDate,
+  formatChileShortDateTime,
+  formatChileTime,
 } from './datetime'
 
 // PR4 (session-calendar-view, tasks 5.1): estos helpers alimentan el
@@ -105,5 +110,39 @@ describe('formatSlotTimeRange', () => {
     expect(
       formatSlotTimeRange('2026-08-16T18:00:00.000Z', '2026-08-16T18:50:00.000Z'),
     ).toBe('14:00 - 14:50')
+  })
+})
+
+// Issue #296: buildLocalISO medía el offset en el instante fecha-hora tratado
+// como UTC, que cae al otro lado del cambio de horario.
+describe('buildLocalISO', () => {
+  it('usa -04:00 para la medianoche posterior al fall-back (2026-04-05T00:00 local)', () => {
+    expect(buildLocalISO('2026-04-05', '00:00')).toBe('2026-04-05T00:00:00-04:00')
+  })
+
+  it('usa -03:00 en pleno horario de verano y -04:00 en invierno', () => {
+    expect(buildLocalISO('2026-01-15', '10:30')).toBe('2026-01-15T10:30:00-03:00')
+    expect(buildLocalISO('2026-07-15', '10:30')).toBe('2026-07-15T10:30:00-04:00')
+  })
+
+  it('devuelve cadena vacía sin fecha', () => {
+    expect(buildLocalISO('', '10:00')).toBe('')
+  })
+})
+
+describe('formateo de fechas en zona fija', () => {
+  it('formatCalendarDate muestra la fecha de calendario sin retroceder un día', () => {
+    // Medianoche UTC: en zona Chile caería el 14/03.
+    expect(formatCalendarDate('1990-03-15T00:00:00.000Z')).toBe('15-03-1990')
+  })
+
+  it('formatChileShortDate usa el día de Chile', () => {
+    expect(formatChileShortDate('2026-08-16T02:30:00.000Z')).toBe('15-08-2026')
+  })
+
+  it('formatChileShortDateTime y formatChileTime nunca producen hora 24', () => {
+    // 2026-08-16T04:00:00Z es medianoche en Chile (-04:00).
+    expect(formatChileShortDateTime('2026-08-16T04:00:00.000Z')).toContain('00:00:00')
+    expect(formatChileTime('2026-08-16T04:00:00.000Z')).toBe('00:00')
   })
 })

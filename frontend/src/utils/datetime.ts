@@ -1,11 +1,5 @@
-// Construye un ISO string con offset de Chile (-03:00 o -04:00 según horario de verano).
-// Calcula el offset real de America/Santiago para esa fecha/hora en vez de usar
-// dt.getTimezoneOffset() (zona horaria del dispositivo) -- si el profesional usa
-// el sistema desde otro huso horario, las fechas de sesión clínica quedaban
-// desfasadas (issue #13).
-export function buildLocalISO(date: string, time: string): string {
-  if (!date) return '';
-  const asUTC = new Date(`${date}T${time}:00Z`);
+// Minutos detrás de UTC de America/Santiago en un instante dado (positivo en Chile).
+function santiagoOffsetMinutes(instantMs: number): number {
   const dtf = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Santiago',
     hourCycle: 'h23',
@@ -13,14 +7,29 @@ export function buildLocalISO(date: string, time: string): string {
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   });
   const parts: Record<string, string> = {};
-  for (const p of dtf.formatToParts(asUTC)) {
+  for (const p of dtf.formatToParts(new Date(instantMs))) {
     if (p.type !== 'literal') parts[p.type] = p.value;
   }
   const zonedAsUTC = Date.UTC(
     Number(parts.year), Number(parts.month) - 1, Number(parts.day),
     Number(parts.hour), Number(parts.minute), Number(parts.second),
   );
-  const offsetMin = (asUTC.getTime() - zonedAsUTC) / 60000; // minutos detrás de UTC (positivo en Chile)
+  return (instantMs - zonedAsUTC) / 60000;
+}
+
+// Construye un ISO string con offset de Chile (-03:00 o -04:00 según horario de verano).
+// Calcula el offset real de America/Santiago para esa fecha/hora en vez de usar
+// dt.getTimezoneOffset() (zona horaria del dispositivo) -- si el profesional usa
+// el sistema desde otro huso horario, las fechas de sesión clínica quedaban
+// desfasadas (issue #13).
+// El primer offset se mide en el instante fecha-hora tratado como UTC, que puede
+// caer al otro lado de un cambio de horario; una segunda medición en el instante
+// ya corregido da el offset vigente a esa hora local (issue #296).
+export function buildLocalISO(date: string, time: string): string {
+  if (!date) return '';
+  const asUTC = new Date(`${date}T${time}:00Z`).getTime();
+  const firstGuess = santiagoOffsetMinutes(asUTC);
+  const offsetMin = santiagoOffsetMinutes(asUTC + firstGuess * 60000);
   const sign = offsetMin <= 0 ? '+' : '-';
   const abs = Math.abs(offsetMin);
   const hh = String(Math.floor(abs / 60)).padStart(2, '0');
@@ -63,7 +72,34 @@ export function formatChileTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('es-CL', {
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false,
+    hourCycle: 'h23',
+    timeZone: 'America/Santiago',
+  });
+}
+
+// Fecha de calendario sin hora (ej. fecha de nacimiento): el backend la guarda
+// como medianoche UTC, así que se muestra en UTC; en zona Chile caería un día antes.
+export function formatCalendarDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('es-CL', { timeZone: 'UTC' });
+}
+
+// Instante mostrado como fecha corta en Chile.
+export function formatChileShortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
+}
+
+// Instante mostrado como fecha y hora cortas en Chile (hourCycle h23 evita "24:xx").
+export function formatChileShortDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('es-CL', {
+    timeZone: 'America/Santiago',
+    hourCycle: 'h23',
+  });
+}
+
+// Fecha larga con día de la semana, vista en Chile.
+export function formatChileLongDate(date: Date): string {
+  return date.toLocaleDateString('es-CL', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     timeZone: 'America/Santiago',
   });
 }

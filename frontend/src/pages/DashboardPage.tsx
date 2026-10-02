@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Users, ClipboardList, FileText, Calendar, AlertCircle } from "lucide-react";
 import { useAuth } from "../context/useAuth";
+import { formatChileLongDate } from "../utils/datetime";
 import { useNavigate } from "react-router";
 import { usePatients } from "../hooks/usePatients";
 import { getConsultationStats } from "../api/consultations";
@@ -123,12 +124,7 @@ export default function DashboardPage() {
         </h2>
         <p className="text-slate-500 text-sm mt-1">
           Bienvenida, {user?.name ?? user?.email} —{" "}
-          {new Date().toLocaleDateString("es-CL", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })}
+          {formatChileLongDate(new Date())}
         </p>
       </div>
 
