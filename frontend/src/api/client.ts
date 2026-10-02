@@ -47,7 +47,7 @@ export function setUnauthorizedHandler(handler: (() => void) | null) {
 // explícita y no un `includes('/auth/')`: mfa/generate, mfa/enable,
 // mfa/disable, logout-all e invitations también cuelgan de /auth/ pero exigen
 // sesión, y un 401 en ellos sí significa que la sesión expiró (issue #293).
-const PUBLIC_AUTH_PATHS = new Set([
+export const PUBLIC_AUTH_PATHS = new Set([
   '/auth/login',
   '/auth/mfa/verify',
   '/auth/signup',

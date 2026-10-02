@@ -393,6 +393,7 @@ export class MfaService {
     ipAddress?: string,
     userAgent?: string,
   ) {
+    // Issue #293: 400 y no 401 por la misma razón que en enableMfa.
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.mfaSecret) {
       throw new BadRequestException('MFA no está configurado');
