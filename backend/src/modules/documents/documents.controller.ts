@@ -9,6 +9,7 @@ import {
   UseInterceptors,
   UploadedFile,
   Body,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuditRead } from '../../common/decorators/audit-read.decorator';
@@ -52,7 +53,7 @@ export class DocumentsController {
           cb(null, true);
         } else {
           cb(
-            new Error(
+            new BadRequestException(
               'Solo se permiten archivos PDF, Word, Excel, ZIP e imágenes',
             ),
             false,
@@ -67,10 +68,15 @@ export class DocumentsController {
     }),
   )
   async upload(
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: Express.Multer.File | undefined,
     @Body() dto: UploadDocumentDto,
     @CurrentUser() user: RequestUser,
   ) {
+    if (!file) {
+      throw new BadRequestException(
+        'Debes adjuntar un archivo en el campo "file"',
+      );
+    }
     return this.documentsService.uploadDocument(
       dto.patientId,
       user.id,

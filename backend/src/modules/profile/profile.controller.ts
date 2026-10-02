@@ -8,6 +8,7 @@ import {
   UseGuards,
   UseInterceptors,
   UploadedFile,
+  BadRequestException,
   Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -91,7 +92,9 @@ export class ProfileController {
           cb(null, true);
         } else {
           cb(
-            new Error('Solo se permiten imágenes JPG, PNG, WEBP o GIF'),
+            new BadRequestException(
+              'Solo se permiten imágenes JPG, PNG, WEBP o GIF',
+            ),
             false,
           );
         }
@@ -100,9 +103,14 @@ export class ProfileController {
     }),
   )
   uploadAvatar(
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: Express.Multer.File | undefined,
     @CurrentUser() user: RequestUser,
   ) {
+    if (!file) {
+      throw new BadRequestException(
+        'Debes adjuntar una imagen en el campo "file"',
+      );
+    }
     return this.profileService.uploadAvatar(user.id, file);
   }
 
