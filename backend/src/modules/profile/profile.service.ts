@@ -126,6 +126,8 @@ export class ProfileService {
 
     const requiresStepUp = Boolean(dto.email || dto.password);
     if (requiresStepUp) {
+      // Issue #293: 400/403 y no 401, para que el frontend no lo trate como
+      // sesión expirada y cierre la sesión sin mostrar el error.
       if (!dto.currentPassword) {
         throw new BadRequestException(
           'Se requiere la contraseña actual para este cambio',

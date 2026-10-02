@@ -120,6 +120,8 @@ export class EmailChangeService {
    * confirmar ni un token superseded por una solicitud posterior sirven.
    */
   async confirm(token: string): Promise<{ message: string }> {
+    // Issue #293: todos los fallos de este método son 400 y no 401; un 401
+    // cerraría la sesión en el frontend sin mostrar el error de confirmación.
     let payload: EmailChangeTokenPayload;
     try {
       payload = this.jwtService.verify(token);

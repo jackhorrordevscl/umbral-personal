@@ -48,6 +48,14 @@ function buildUser(overrides: Partial<User> = {}): User {
   } as unknown as User;
 }
 
+// Issue #293: estos errores deben ser 400 (no 401) para que el frontend no
+// cierre la sesión; se verifica la clase de excepción además del mensaje.
+async function expectBadRequest(promise: Promise<unknown>, message: string) {
+  const error: unknown = await promise.catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(BadRequestException);
+  expect((error as BadRequestException).message).toContain(message);
+}
+
 describe('MfaService', () => {
   let service: MfaService;
   let prisma: {
@@ -630,7 +638,8 @@ describe('MfaService', () => {
     it('lanza 400 si no hay usuario o no tiene secreto generado', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
-      await expect(service.enableMfa('user-1', '123456')).rejects.toThrow(
+      await expectBadRequest(
+        service.enableMfa('user-1', '123456'),
         'Primero genera el secreto MFA',
       );
     });
@@ -641,7 +650,8 @@ describe('MfaService', () => {
       );
       mockTotp(null);
 
-      await expect(service.enableMfa('user-1', '000000')).rejects.toThrow(
+      await expectBadRequest(
+        service.enableMfa('user-1', '000000'),
         'Código inválido, intenta de nuevo',
       );
     });
@@ -653,7 +663,8 @@ describe('MfaService', () => {
       mockTotp(0);
       prisma.user.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.enableMfa('user-1', '123456')).rejects.toThrow(
+      await expectBadRequest(
+        service.enableMfa('user-1', '123456'),
         'Código inválido, intenta de nuevo',
       );
       expect(prisma.user.update).not.toHaveBeenCalled();
@@ -694,7 +705,8 @@ describe('MfaService', () => {
     it('lanza 400 si no hay usuario o no tiene secreto', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
-      await expect(service.disableMfa('user-1', '123456')).rejects.toThrow(
+      await expectBadRequest(
+        service.disableMfa('user-1', '123456'),
         'MFA no está configurado',
       );
     });
@@ -705,7 +717,8 @@ describe('MfaService', () => {
       );
       mockTotp(null);
 
-      await expect(service.disableMfa('user-1', '000000')).rejects.toThrow(
+      await expectBadRequest(
+        service.disableMfa('user-1', '000000'),
         'Código inválido',
       );
     });
@@ -732,7 +745,8 @@ describe('MfaService', () => {
       mockTotp(0);
       prisma.user.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.disableMfa('user-1', '123456')).rejects.toThrow(
+      await expectBadRequest(
+        service.disableMfa('user-1', '123456'),
         'Código inválido',
       );
       expect(prisma.user.update).not.toHaveBeenCalled();

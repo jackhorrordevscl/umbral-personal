@@ -335,6 +335,8 @@ export class MfaService {
     ipAddress?: string,
     userAgent?: string,
   ) {
+    // Issue #293: estos errores de entrada son 400 y no 401 a propósito; el
+    // frontend cierra la sesión ante cualquier 401 de un endpoint autenticado.
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.mfaSecret) {
       throw new BadRequestException('Primero genera el secreto MFA');

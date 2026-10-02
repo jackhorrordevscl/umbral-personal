@@ -75,8 +75,8 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const requestUrl = error.config?.url ?? '';
-    const isAuthRequest = isPublicAuthRequest(requestUrl);
-    if (error.response?.status === 401 && !isAuthRequest) {
+    const isPublicAuth = isPublicAuthRequest(requestUrl);
+    if (error.response?.status === 401 && !isPublicAuth) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       if (onUnauthorized) {
