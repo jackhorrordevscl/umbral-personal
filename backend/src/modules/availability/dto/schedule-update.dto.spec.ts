@@ -54,6 +54,32 @@ describe('ScheduleUpdateDto', () => {
     );
   });
 
+  // Issue #289: 1 minuto generaba ~86.000 slots por rango.
+  it.each([4, 241])(
+    'rechaza sessionDurationMinutes fuera de 5..240 (%i)',
+    async (minutos) => {
+      const dto = plainToInstance(
+        ScheduleUpdateDto,
+        buildPlain({ sessionDurationMinutes: minutos }),
+      );
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'sessionDurationMinutes')).toBe(
+        true,
+      );
+    },
+  );
+
+  it.each([5, 240])(
+    'acepta sessionDurationMinutes en el borde (%i)',
+    async (minutos) => {
+      const dto = plainToInstance(
+        ScheduleUpdateDto,
+        buildPlain({ sessionDurationMinutes: minutos }),
+      );
+      expect(await validate(dto)).toHaveLength(0);
+    },
+  );
+
   // Triangulación: distinto campo inválido (dayOfWeek fuera de 1..7), mismo mecanismo.
   it('rechaza dayOfWeek fuera de rango 1..7', async () => {
     const dto = plainToInstance(

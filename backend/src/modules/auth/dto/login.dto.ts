@@ -1,5 +1,5 @@
 import { NormalizedEmail } from '../../../common/validators/normalized-email.decorator';
-import { IsString, MinLength } from 'class-validator';
+import { IsString, MaxLength, MinLength } from 'class-validator';
 
 export class LoginDto {
   @NormalizedEmail()
@@ -7,5 +7,6 @@ export class LoginDto {
 
   @IsString()
   @MinLength(8)
+  @MaxLength(128)
   password: string;
 }

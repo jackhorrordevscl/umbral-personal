@@ -1,4 +1,26 @@
+import { BadRequestException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+
+// FileInterceptor captura sus opciones al decorar el controller; se reemplaza
+// para poder ejercer el fileFilter del avatar sin levantar multer.
+type FileFilter = (
+  req: unknown,
+  file: { mimetype: string },
+  cb: (error: Error | null, accept: boolean) => void,
+) => void;
+jest.mock('@nestjs/platform-express', () => {
+  const captured: { fileFilter?: FileFilter }[] = [];
+  return {
+    __captured: captured,
+    FileInterceptor: (_f: string, options: { fileFilter?: FileFilter }) => {
+      captured.push(options);
+      return class {};
+    },
+  };
+});
+const capturedOptions = jest.requireMock<{
+  __captured: { fileFilter?: FileFilter }[];
+}>('@nestjs/platform-express').__captured;
 import { ProfileController } from './profile.controller';
 import { ProfileService } from './profile.service';
 import type { RequestUser } from '../../common/decorators/current-user.decorator';
@@ -98,6 +120,33 @@ describe('ProfileController', () => {
     expect(result).toEqual({
       avatarUpdatedAt: expect.any(Date) as unknown as Date,
     });
+  });
+
+  // Issue #289: antes el fileFilter devolvía 500 y un body sin `file` explotaba
+  // con un TypeError dentro del servicio.
+  it('POST /avatar responde 400 si falta el archivo, sin llamar al servicio', () => {
+    expect(() => controller.uploadAvatar(undefined, user)).toThrow(
+      BadRequestException,
+    );
+    expect(profileService.uploadAvatar).not.toHaveBeenCalled();
+  });
+
+  it('el fileFilter del avatar rechaza un tipo no permitido con BadRequestException', () => {
+    const cb = jest.fn();
+
+    capturedOptions[0].fileFilter!({}, { mimetype: 'application/pdf' }, cb);
+
+    const [error, accept] = cb.mock.calls[0] as [unknown, boolean];
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect(accept).toBe(false);
+  });
+
+  it('el fileFilter del avatar acepta una imagen PNG', () => {
+    const cb = jest.fn();
+
+    capturedOptions[0].fileFilter!({}, { mimetype: 'image/png' }, cb);
+
+    expect(cb).toHaveBeenCalledWith(null, true);
   });
 
   it('GET /avatar delega en profileService.getAvatar y escribe el buffer con el Content-Type correcto', async () => {

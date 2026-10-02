@@ -29,6 +29,7 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsString()
   @MinLength(8)
+  @MaxLength(128)
   password?: string;
 
   // Issue #76: step-up auth. Obligatoria (chequeado en ProfileService, no acá
@@ -37,5 +38,6 @@ export class UpdateProfileDto {
   // updates de solo `name` no la necesitan.
   @IsOptional()
   @IsString()
+  @MaxLength(128)
   currentPassword?: string;
 }
