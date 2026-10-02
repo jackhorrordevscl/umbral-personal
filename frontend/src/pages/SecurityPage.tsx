@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { formatChileShortDateTime } from '../utils/datetime';
 import { ShieldCheck, ShieldOff, QrCode, Calendar, UserPlus, Copy } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import { getApiErrorMessage } from '../utils/api-error';
@@ -305,7 +306,7 @@ function InviteCard() {
           </div>
           <p className="text-xs text-slate-500">
             Expira el{' '}
-            {new Date(createInvitationMutation.data.expiresAt).toLocaleString('es-CL')}
+            {formatChileShortDateTime(createInvitationMutation.data.expiresAt)}
           </p>
           <button
             type="button"
@@ -442,7 +443,7 @@ export default function SecurityPage() {
                     {MFA_HISTORY_LABELS[entry.action] ?? entry.action}
                   </p>
                   <p className="text-slate-500 mt-0.5">
-                    {new Date(entry.createdAt).toLocaleString('es-CL')}
+                    {formatChileShortDateTime(entry.createdAt)}
                     {entry.ipAddress ? ` · ${entry.ipAddress}` : ''}
                   </p>
                   {entry.userAgent && (

@@ -276,7 +276,7 @@ export default function ConsultationsPage() {
     const sd = new Date(c.sessionDate);
     const nd = c.nextSessionDate ? new Date(c.nextSessionDate) : null;
     const toLocalDate = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
-    const toLocalTime = (d: Date) => d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Santiago' });
+    const toLocalTime = (d: Date) => d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'America/Santiago' });
     setEditForm({
       sessionDate: toLocalDate(sd),
       sessionTime: toLocalTime(sd),

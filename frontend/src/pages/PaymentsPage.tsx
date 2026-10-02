@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { formatChileShortDateTime } from '../utils/datetime';
 import {
   CreditCard,
   ShieldCheck,
@@ -377,7 +378,7 @@ export default function PaymentsPage() {
             </div>
             {account?.connectedAt && (
               <p className="text-xs text-slate-500">
-                Conectada el {new Date(account.connectedAt).toLocaleString('es-CL')}
+                Conectada el {formatChileShortDateTime(account.connectedAt)}
               </p>
             )}
             {account?.keyFingerprint && (
