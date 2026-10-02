@@ -148,6 +148,29 @@ describe('PatientsService', () => {
         }) as unknown,
       });
     });
+
+    it('quita ceros iniciales del RUT para evitar duplicados (issue #289)', async () => {
+      prisma.patient.findFirst.mockResolvedValue(null);
+      prisma.patient.create.mockResolvedValue(buildPatient());
+
+      await service.create(
+        {
+          fullName: 'Nuevo Paciente',
+          rut: '012345678-5',
+          birthDate: '1990-01-01',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.patient.findFirst).toHaveBeenCalledWith({
+        where: {
+          therapistId: 'therapist-1',
+          rut: '12345678-5',
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+    });
   });
 
   describe('findAll', () => {

@@ -17,6 +17,7 @@ import { BulkDeclareConsentDto } from './dto/bulk-declare-consent.dto';
 import { ConsentPurpose, Patient, Prisma } from '@prisma/client';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
+import { normalizeRut } from '../../common/utils/rut.util';
 
 // issue #157: origen de adquisición capturado en el frontend (referrer +
 // utm_source) y pasado por PublicSchedulingService.book() ->
@@ -45,10 +46,6 @@ function resolveAcquisitionSource(origin?: PublicBookingOriginInput): string {
   }
 
   return 'directo';
-}
-
-function normalizeRut(rut: string): string {
-  return rut.replace(/\./g, '').trim().toUpperCase();
 }
 
 function isDate(val: unknown): val is Date {

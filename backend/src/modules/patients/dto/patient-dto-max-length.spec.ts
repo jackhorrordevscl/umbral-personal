@@ -87,14 +87,17 @@ describe('límites de longitud en DTOs de patients', () => {
 describe('formato de rut en CreatePatientDto', () => {
   const base = { fullName: 'Ana Pérez', birthDate: '1990-01-01' };
 
-  it.each(['12345678-9', '12.345.678-9', '1234567-K', '9.876.543-k'])(
-    'acepta %s',
-    async (rut) => {
-      const dto = plainToInstance(CreatePatientDto, { ...base, rut });
+  it.each([
+    '12345678-5',
+    '12.345.678-5',
+    '10000013-K',
+    '10.000.013-k',
+    '9.876.543-3',
+  ])('acepta %s', async (rut) => {
+    const dto = plainToInstance(CreatePatientDto, { ...base, rut });
 
-      expect(await validate(dto)).toHaveLength(0);
-    },
-  );
+    expect(await validate(dto)).toHaveLength(0);
+  });
 
   it.each([
     '',
@@ -102,6 +105,7 @@ describe('formato de rut en CreatePatientDto', () => {
     'CRIT1234567',
     '12.34.5678-9',
     '12345678-99',
+    '12345678-9',
     '12345678-',
     ' 12345678-9',
   ])('rechaza "%s"', async (rut) => {

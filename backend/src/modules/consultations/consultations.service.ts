@@ -147,7 +147,8 @@ export class ConsultationsService {
       therapistId,
     );
 
-    const patientRut = dto.patientRut || patient.rut;
+    // Issue #289: el snapshot del RUT sale siempre de la ficha, nunca del cliente.
+    const patientRut = patient.rut;
 
     // Se genera el id de antemano para que groupId (el identificador de la
     // cadena de versiones) sea igual al id de esta primera versión.

@@ -67,7 +67,7 @@ describe('BookPublicSlotDto', () => {
       );
     }
 
-    it.each(['12345678-9', '12.345.678-9', '1.234.567-K', '7654321-k'])(
+    it.each(['12345678-5', '12.345.678-5', '1.234.567-4', '7654321-6'])(
       'acepta el RUT %s',
       async (rut) => {
         expect(await patientErrorProps({ ...validPatient, rut })).toEqual([]);

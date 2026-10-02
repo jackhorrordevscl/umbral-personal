@@ -1,4 +1,5 @@
-import { IsString, IsOptional, IsDateString, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsEnum } from 'class-validator';
+import { IsStrictDateString } from '../../../common/validators/is-strict-date-string.decorator';
 
 export enum SessionType {
   IN_PERSON = 'IN_PERSON',
@@ -9,7 +10,7 @@ export class CreateConsultationDto {
   @IsString()
   patientId: string;
 
-  @IsDateString()
+  @IsStrictDateString()
   sessionDate: string;
 
   @IsString()
@@ -23,7 +24,7 @@ export class CreateConsultationDto {
   agreements?: string;
 
   @IsOptional()
-  @IsDateString()
+  @IsStrictDateString()
   nextSessionDate?: string;
 
   @IsOptional()
@@ -31,10 +32,6 @@ export class CreateConsultationDto {
   sessionType?: SessionType;
 
   @IsOptional()
-  @IsDateString()
+  @IsStrictDateString()
   scheduledAt?: string;
-
-  @IsOptional()
-  @IsString()
-  patientRut?: string;
 }
