@@ -1109,7 +1109,7 @@ describe('ConsultationsService', () => {
     const slotStart = new Date('2026-09-01T13:00:00.000Z');
 
     it('crea la consulta y el BookedSlot cuando el slot está libre', async () => {
-      prisma.consultation.findFirst.mockResolvedValue(null);
+      prisma.consultation.findMany.mockResolvedValue([]);
       prisma.bookedSlot.create.mockResolvedValue({ id: 'booked-1' });
       const created = buildConsultation({ sessionDate: slotStart });
       prisma.consultation.create.mockResolvedValue(created);
@@ -1152,7 +1152,7 @@ describe('ConsultationsService', () => {
     // create()/correct() (calendar-sync spec.md "Publicly booked
     // consultation pushes a new event").
     it('dispara emitCalendarSync/emitPaymentCharge igual que create() (regresión calendar-sync)', async () => {
-      prisma.consultation.findFirst.mockResolvedValue(null);
+      prisma.consultation.findMany.mockResolvedValue([]);
       prisma.bookedSlot.create.mockResolvedValue({ id: 'booked-1' });
       const created = buildConsultation({
         id: 'group-public-1',
@@ -1176,7 +1176,7 @@ describe('ConsultationsService', () => {
     });
 
     it('la respuesta no expone datos del paciente ni de la fila completa (issue #299)', async () => {
-      prisma.consultation.findFirst.mockResolvedValue(null);
+      prisma.consultation.findMany.mockResolvedValue([]);
       prisma.bookedSlot.create.mockResolvedValue({ id: 'booked-1' });
       const created = buildConsultation({ sessionDate: slotStart });
       prisma.consultation.create.mockResolvedValue(created);
@@ -1201,7 +1201,7 @@ describe('ConsultationsService', () => {
     it('con client externo usa esa transacción y no dispara efectos post-commit', async () => {
       const tx = {
         consultation: {
-          findFirst: jest.fn().mockResolvedValue(null),
+          findMany: jest.fn().mockResolvedValue([]),
           create: jest
             .fn()
             .mockResolvedValue(buildConsultation({ sessionDate: slotStart })),
@@ -1227,7 +1227,7 @@ describe('ConsultationsService', () => {
     });
 
     it('invalida el cache de slots del terapeuta tras la reserva (issue #285)', async () => {
-      prisma.consultation.findFirst.mockResolvedValue(null);
+      prisma.consultation.findMany.mockResolvedValue([]);
       prisma.bookedSlot.create.mockResolvedValue({ id: 'booked-1' });
       prisma.consultation.create.mockResolvedValue(
         buildConsultation({ sessionDate: slotStart }),
@@ -1246,8 +1246,8 @@ describe('ConsultationsService', () => {
       );
     });
 
-    it('recheck por intervalo: considera sesiones que empiezan hasta una duración antes del slot (issue #285)', async () => {
-      prisma.consultation.findFirst.mockResolvedValue(null);
+    it('recheck por intervalo: trae candidatos hasta MAX_SESSION_MINUTES antes del slot (issue #285/#336)', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
       prisma.bookedSlot.create.mockResolvedValue({ id: 'booked-1' });
       prisma.consultation.create.mockResolvedValue(
         buildConsultation({ sessionDate: slotStart }),
@@ -1261,16 +1261,64 @@ describe('ConsultationsService', () => {
         50,
       );
 
-      expect(prisma.consultation.findFirst).toHaveBeenCalledWith(
+      expect(prisma.consultation.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             sessionDate: {
-              gt: new Date('2026-09-01T12:10:00.000Z'),
+              gt: new Date('2026-08-31T13:00:00.000Z'),
               lt: new Date('2026-09-01T13:50:00.000Z'),
             },
           }) as unknown,
         }),
       );
+    });
+
+    // issue #336: el solape se decide con la duración guardada en la consulta
+    // existente, no con la vigente del terapeuta.
+    it('el terapeuta bajó la duración de 60 a 45: la cola de la sesión existente sigue ocupada (issue #336)', async () => {
+      // Sesión existente 12:30-13:30 UTC (reservada con 60 min). Con la
+      // duración vigente (45) se habría asumido que termina 13:15 y el slot
+      // de las 13:15 habría quedado libre; con la guardada (60) sigue ocupado.
+      prisma.consultation.findMany.mockResolvedValue([
+        {
+          sessionDate: new Date('2026-09-01T12:30:00.000Z'),
+          durationMinutes: 60,
+        },
+      ]);
+
+      await expect(
+        service.createFromPublicBooking(
+          'therapist-1',
+          'patient-1',
+          '11111111-1',
+          new Date('2026-09-01T13:15:00.000Z'),
+          45,
+        ),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.bookedSlot.create).not.toHaveBeenCalled();
+    });
+
+    it('una sesión existente que termina justo al inicio del slot no conflictúa (half-open, issue #336)', async () => {
+      prisma.consultation.findMany.mockResolvedValue([
+        {
+          sessionDate: new Date('2026-09-01T12:30:00.000Z'),
+          durationMinutes: 60,
+        },
+      ]);
+      prisma.bookedSlot.create.mockResolvedValue({ id: 'booked-1' });
+      prisma.consultation.create.mockResolvedValue(
+        buildConsultation({ sessionDate: slotStart }),
+      );
+
+      await expect(
+        service.createFromPublicBooking(
+          'therapist-1',
+          'patient-1',
+          '11111111-1',
+          new Date('2026-09-01T13:30:00.000Z'),
+          45,
+        ),
+      ).resolves.toBeDefined();
     });
 
     it('si el paciente fue eliminado (lock sin filas) lanza 409 sin escribir', async () => {
@@ -1299,7 +1347,9 @@ describe('ConsultationsService', () => {
     });
 
     it('recheck: si ya existe una consulta vigente en ese horario, lanza 409 sin llegar a BookedSlot', async () => {
-      prisma.consultation.findFirst.mockResolvedValue({ id: 'existing' });
+      prisma.consultation.findMany.mockResolvedValue([
+        { sessionDate: slotStart, durationMinutes: 50 },
+      ]);
 
       await expect(
         service.createFromPublicBooking(
@@ -1319,7 +1369,7 @@ describe('ConsultationsService', () => {
     // cualquiera escribiera) -- P2002 de Prisma también debe traducirse a
     // 409, no propagar como 500.
     it('violación de unicidad en BookedSlot.create (P2002) se traduce a 409', async () => {
-      prisma.consultation.findFirst.mockResolvedValue(null);
+      prisma.consultation.findMany.mockResolvedValue([]);
       prisma.bookedSlot.create.mockRejectedValue(
         new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
           code: 'P2002',

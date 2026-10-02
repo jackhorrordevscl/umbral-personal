@@ -26,7 +26,10 @@ import { ConsultationRangeQueryDto } from './dto/consultation-range-query.dto';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 import { sanitizeClinicalNote } from '../../common/utils/clinical-note-sanitizer.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
-import { DEFAULT_SESSION_MINUTES } from '../calendar-integration/calendar-integration.constants';
+import {
+  DEFAULT_SESSION_MINUTES,
+  MAX_SESSION_MINUTES,
+} from '../calendar-integration/calendar-integration.constants';
 
 function parseDate(dateStr: string): Date {
   if (dateStr.includes('T') || dateStr.includes(' ')) {
@@ -610,22 +613,30 @@ export class ConsultationsService {
         );
       }
 
-      const conflicting = await tx.consultation.findFirst({
+      // issue #285/#336: solape de intervalos [sessionDate, +durationMinutes)
+      // de cada consulta existente contra [slotStart, slotEnd): una sesión que
+      // empezó antes pero termina después de slotStart también ocupa el
+      // horario. Cada fila trae su propia duración, así que se traen los
+      // candidatos de la ventana (hasta MAX_SESSION_MINUTES hacia atrás) y el
+      // solape exacto (existing.end > slotStart) se decide aquí.
+      const candidates = await tx.consultation.findMany({
         where: {
           therapistId,
           correctedBy: null,
           deletedAt: null,
           patient: { deletedAt: null },
-          // issue #285: solape de intervalos [sessionDate, +duración) contra
-          // [slotStart, slotEnd): una sesión que empezó antes pero termina
-          // después de slotStart también ocupa el horario.
           sessionDate: {
-            gt: new Date(slotStart.getTime() - sessionDurationMinutes * 60000),
+            gt: new Date(slotStart.getTime() - MAX_SESSION_MINUTES * 60000),
             lt: slotEnd,
           },
         },
-        select: { id: true },
+        select: { sessionDate: true, durationMinutes: true },
       });
+      const conflicting = candidates.some(
+        (c) =>
+          c.sessionDate.getTime() + c.durationMinutes * 60000 >
+          slotStart.getTime(),
+      );
       if (conflicting) {
         throw new ConflictException(
           'El horario seleccionado ya no está disponible.',
