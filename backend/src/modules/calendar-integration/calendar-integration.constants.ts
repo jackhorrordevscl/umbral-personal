@@ -23,6 +23,11 @@ export const MAX_RECONCILE_PAGES = 50;
 // body, fixed 50-minute duration") -- PR 2.
 export const DEFAULT_SESSION_MINUTES = 50;
 
+// issue #336: tope de duración de una sesión (24 h). Se valida al guardar
+// User.sessionDurationMinutes y acota hacia atrás las queries de ocupación,
+// porque cada Consultation guarda su propia durationMinutes.
+export const MAX_SESSION_MINUTES = 24 * 60;
+
 // design.md "The OAuth callback is unauthenticated; identity travels in a
 // signed, single-use state": ventana de validez del JWT de `state` (10
 // minutos), usada tanto para firmar el JWT como para el `stateExpiresAt`

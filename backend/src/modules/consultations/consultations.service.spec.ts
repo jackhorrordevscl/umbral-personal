@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Consultation, Prisma } from '@prisma/client';
+import { DEFAULT_SESSION_MINUTES } from '../calendar-integration/calendar-integration.constants';
 import { ConsultationsService } from './consultations.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
@@ -22,6 +23,7 @@ function buildConsultation(
     patientId: 'patient-1',
     therapistId: 'therapist-1',
     sessionDate: new Date('2026-01-10T12:00:00'),
+    durationMinutes: 50,
     consultReason: 'Motivo de consulta original',
     intervention: 'Intervención original',
     agreements: null,
@@ -51,6 +53,7 @@ describe('ConsultationsService', () => {
     payment: { findMany: jest.Mock };
     reminderDispatch: { findMany: jest.Mock };
     bookedSlot: { create: jest.Mock; updateMany: jest.Mock };
+    user: { findUnique: jest.Mock };
     $queryRaw: jest.Mock;
     $transaction: jest.Mock;
   };
@@ -89,6 +92,9 @@ describe('ConsultationsService', () => {
       bookedSlot: {
         create: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ sessionDurationMinutes: 50 }),
       },
       // Lock FOR SHARE del paciente en createFromPublicBooking: por defecto
       // el paciente existe y no está eliminado.
@@ -299,6 +305,52 @@ describe('ConsultationsService', () => {
 
       expect(paymentsService.ensureCharge).toHaveBeenCalledWith(
         'consultation-1',
+      );
+    });
+
+    it('guarda la duración vigente del terapeuta en la consulta (issue #336)', async () => {
+      prisma.user.findUnique.mockResolvedValue({ sessionDurationMinutes: 45 });
+      prisma.consultation.create.mockResolvedValue(buildConsultation());
+
+      await service.create(
+        {
+          patientId: 'patient-1',
+          sessionDate: '2026-01-10',
+          consultReason: 'Motivo',
+          intervention: 'Intervención',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.consultation.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ durationMinutes: 45 }) as unknown,
+        }),
+      );
+    });
+
+    it('sin duración configurada usa el default del sistema (issue #336)', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        sessionDurationMinutes: null,
+      });
+      prisma.consultation.create.mockResolvedValue(buildConsultation());
+
+      await service.create(
+        {
+          patientId: 'patient-1',
+          sessionDate: '2026-01-10',
+          consultReason: 'Motivo',
+          intervention: 'Intervención',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.consultation.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            durationMinutes: DEFAULT_SESSION_MINUTES,
+          }) as unknown,
+        }),
       );
     });
 
@@ -576,6 +628,30 @@ describe('ConsultationsService', () => {
         }),
       );
       expect(result.id).toBe('consultation-2');
+    });
+
+    it('la corrección conserva la duración de la consulta original (issue #336)', async () => {
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation({ durationMinutes: 40 }))
+        .mockResolvedValueOnce(null);
+      prisma.consultation.create.mockResolvedValue(
+        buildConsultation({
+          id: 'consultation-2',
+          correctsId: 'consultation-1',
+        }),
+      );
+
+      await service.correct(
+        'consultation-1',
+        { consultReason: 'Motivo corregido' } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.consultation.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ durationMinutes: 40 }) as unknown,
+        }),
+      );
     });
 
     // sdd/google-calendar-integration T5.6
@@ -1064,6 +1140,7 @@ describe('ConsultationsService', () => {
             patientId: 'patient-1',
             patientRut: '11111111-1',
             sessionDate: slotStart,
+            durationMinutes: 50,
           }) as unknown,
         }),
       );

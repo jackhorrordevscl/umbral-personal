@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsInt, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsInt, Max, Min, ValidateNested } from 'class-validator';
+import { MAX_SESSION_MINUTES } from '../../calendar-integration/calendar-integration.constants';
 import { ScheduleEntryDto } from './schedule-entry.dto';
 
 // sdd/patient-self-scheduling PR 2 (tasks.md 2.4/2.5, design.md Decision 8
@@ -9,6 +10,7 @@ import { ScheduleEntryDto } from './schedule-entry.dto';
 export class ScheduleUpdateDto {
   @IsInt()
   @Min(1)
+  @Max(MAX_SESSION_MINUTES)
   sessionDurationMinutes: number;
 
   @IsArray()

@@ -26,6 +26,7 @@ import { ConsultationRangeQueryDto } from './dto/consultation-range-query.dto';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 import { sanitizeClinicalNote } from '../../common/utils/clinical-note-sanitizer.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
+import { DEFAULT_SESSION_MINUTES } from '../calendar-integration/calendar-integration.constants';
 
 function parseDate(dateStr: string): Date {
   if (dateStr.includes('T') || dateStr.includes(' ')) {
@@ -146,6 +147,13 @@ export class ConsultationsService {
         );
       }
 
+      // issue #336: la sesión nace con la duración vigente del terapeuta y la
+      // conserva aunque después cambie su configuración.
+      const therapist = await tx.user.findUnique({
+        where: { id: therapistId },
+        select: { sessionDurationMinutes: true },
+      });
+
       return tx.consultation.create({
         data: {
           id,
@@ -153,6 +161,8 @@ export class ConsultationsService {
           patientId: dto.patientId,
           therapistId,
           sessionDate: parseDate(dto.sessionDate),
+          durationMinutes:
+            therapist?.sessionDurationMinutes ?? DEFAULT_SESSION_MINUTES,
           consultReason: sanitizeClinicalNote(dto.consultReason),
           intervention: sanitizeClinicalNote(dto.intervention),
           agreements: sanitizeClinicalNote(dto.agreements),
@@ -416,6 +426,8 @@ export class ConsultationsService {
           sessionDate: dto.sessionDate
             ? parseDate(dto.sessionDate)
             : original.sessionDate,
+          // issue #336: una corrección conserva la duración reservada.
+          durationMinutes: original.durationMinutes,
           consultReason: dto.consultReason
             ? sanitizeClinicalNote(dto.consultReason)
             : original.consultReason,
@@ -631,6 +643,7 @@ export class ConsultationsService {
           patientId,
           therapistId,
           sessionDate: slotStart,
+          durationMinutes: sessionDurationMinutes,
           consultReason: 'Reserva pública en línea',
           intervention: 'Pendiente de definir por el terapeuta',
           sessionType: 'IN_PERSON',
