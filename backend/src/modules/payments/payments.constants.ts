@@ -66,3 +66,8 @@ export const PAYMENT_CONFIRM_PATH = '/api/v1/payments/confirm';
 // PaymentReconciliationService (reconcilePendingPayments, markPaid via
 // PaymentsService) -- issue #137 extraction.
 export const CANCELLABLE_STATUSES = ['PENDING', 'LATE'] as const;
+
+// issue #289: tope de un monto en CLP. Los montos son Int de Postgres (máximo
+// 2147483647); sin tope, un valor mayor rompía la escritura con un 500. 100
+// millones de CLP queda muy por encima de cualquier sesión real.
+export const MAX_AMOUNT_CLP = 100_000_000;

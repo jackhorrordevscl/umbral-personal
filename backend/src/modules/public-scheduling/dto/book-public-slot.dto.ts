@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsOptional, ValidateNested } from 'class-validator';
+import { IsOptional, ValidateNested } from 'class-validator';
+import { IsStrictDateString } from '../../../common/validators/is-strict-date-string.decorator';
 import { PublicBookingPatientDto } from './public-booking-patient.dto';
 import { PublicBookingOriginDto } from './public-booking-origin.dto';
 
@@ -11,7 +12,7 @@ import { PublicBookingOriginDto } from './public-booking-origin.dto';
 // PublicScheduleThrottlerGuard lee patient.email para el tracker
 // (getPublicScheduleTracker).
 export class BookPublicSlotDto {
-  @IsDateString()
+  @IsStrictDateString()
   slotStart: string;
 
   @ValidateNested()

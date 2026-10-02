@@ -1,4 +1,5 @@
-import { IsInt, Min } from 'class-validator';
+import { IsInt, Max, Min } from 'class-validator';
+import { MAX_AMOUNT_CLP } from '../payments.constants';
 
 // design.md "REST" table: PATCH /payments/:groupId -- per-session amount
 // override while the charge is PENDING (payments.service.ts.updateAmount,
@@ -6,5 +7,6 @@ import { IsInt, Min } from 'class-validator';
 export class UpdatePaymentAmountDto {
   @IsInt()
   @Min(0)
+  @Max(MAX_AMOUNT_CLP)
   amount: number;
 }

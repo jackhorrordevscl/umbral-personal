@@ -1,13 +1,7 @@
-import {
-  IsDateString,
-  IsEmail,
-  IsOptional,
-  IsString,
-  Matches,
-  MaxLength,
-} from 'class-validator';
+import { IsEmail, IsOptional, IsString, MaxLength } from 'class-validator';
 import { PersonName } from '../../../common/validators/person-name.decorator';
-import { RUT_FORMAT } from '../../patients/dto/create-patient.dto';
+import { IsRutFormat } from '../../../common/validators/is-rut.decorator';
+import { IsStrictDateString } from '../../../common/validators/is-strict-date-string.decorator';
 import type { PublicBookingPatientInput } from '../../patients/patients.service';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.7, design.md "Identity
@@ -29,13 +23,13 @@ export class PublicBookingPatientDto implements PublicBookingPatientInput {
   @PersonName(200)
   fullName: string;
 
-  @IsString()
-  @Matches(RUT_FORMAT, {
-    message: 'El RUT debe tener formato chileno, ej: 12345678-9 o 12.345.678-9',
-  })
+  // Issue #289: solo la forma. El dígito verificador lo exige
+  // PatientsService.resolveForPublicBooking únicamente al crear un paciente
+  // nuevo, para no bloquear a quien ya tiene una ficha con un DV inválido.
+  @IsRutFormat()
   rut: string;
 
-  @IsDateString()
+  @IsStrictDateString()
   birthDate: string;
 
   @IsEmail()

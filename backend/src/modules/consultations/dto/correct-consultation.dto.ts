@@ -1,9 +1,10 @@
-import { IsString, IsOptional, IsDateString, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsEnum } from 'class-validator';
+import { IsStrictDateString } from '../../../common/validators/is-strict-date-string.decorator';
 import { SessionType } from './create-consultation.dto';
 
 export class CorrectConsultationDto {
   @IsOptional()
-  @IsDateString()
+  @IsStrictDateString()
   sessionDate?: string;
 
   @IsOptional()
@@ -19,7 +20,7 @@ export class CorrectConsultationDto {
   agreements?: string;
 
   @IsOptional()
-  @IsDateString()
+  @IsStrictDateString()
   nextSessionDate?: string;
 
   @IsOptional()

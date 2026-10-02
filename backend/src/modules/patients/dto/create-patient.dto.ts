@@ -3,30 +3,26 @@ import {
   IsString,
   IsEmail,
   IsOptional,
-  IsDateString,
+  Max,
   MaxLength,
   Min,
   ValidateIf,
-  Matches,
 } from 'class-validator';
 
 import { PersonName } from '../../../common/validators/person-name.decorator';
 
-// Issue #196: solo valida la forma (con o sin puntos, guion obligatorio, igual
-// que lo que persiste normalizeRut), no el dígito verificador.
-export const RUT_FORMAT = /^(\d{1,2}(\.\d{3}){2}|\d{7,8})-[\dkK]$/;
+import { IsRut } from '../../../common/validators/is-rut.decorator';
+import { IsStrictDateString } from '../../../common/validators/is-strict-date-string.decorator';
+import { MAX_AMOUNT_CLP } from '../../payments/payments.constants';
 
 export class CreatePatientDto {
   @PersonName(200)
   fullName: string;
 
-  @IsString()
-  @Matches(RUT_FORMAT, {
-    message: 'El RUT debe tener formato chileno, ej: 12345678-9 o 12.345.678-9',
-  })
+  @IsRut()
   rut: string;
 
-  @IsDateString()
+  @IsStrictDateString()
   birthDate: string;
 
   @IsOptional()
@@ -81,5 +77,6 @@ export class CreatePatientDto {
   @IsOptional()
   @IsInt()
   @Min(0)
+  @Max(MAX_AMOUNT_CLP)
   defaultSessionAmount?: number;
 }

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   HttpException,
   Injectable,
@@ -17,6 +18,7 @@ import { BulkDeclareConsentDto } from './dto/bulk-declare-consent.dto';
 import { ConsentPurpose, Patient, Prisma } from '@prisma/client';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
+import { isValidRut, normalizeRut } from '../../common/utils/rut.util';
 
 // issue #157: origen de adquisición capturado en el frontend (referrer +
 // utm_source) y pasado por PublicSchedulingService.book() ->
@@ -45,10 +47,6 @@ function resolveAcquisitionSource(origin?: PublicBookingOriginInput): string {
   }
 
   return 'directo';
-}
-
-function normalizeRut(rut: string): string {
-  return rut.replace(/\./g, '').trim().toUpperCase();
 }
 
 function isDate(val: unknown): val is Date {
@@ -260,6 +258,15 @@ export class PatientsService {
     // Sin cambios reales → no tocar la DB
     if (Object.keys(diff).length === 0) {
       return current;
+    }
+
+    // Issue #289: el DTO de edición solo valida la forma del RUT para no bloquear
+    // fichas existentes con un DV inválido; el dígito verificador se exige solo
+    // cuando el RUT realmente cambia.
+    if (diff.rut && !isValidRut(fields.rut)) {
+      throw new BadRequestException(
+        'El dígito verificador del RUT no es válido',
+      );
     }
 
     // Snapshot sin relaciones ni campos computados (consents es agregado en
@@ -522,6 +529,18 @@ export class PatientsService {
       // ya identifica al profesional sin exponer al paciente.
       this.logger.warn(
         `Reserva pública ambigua: más de un paciente coincide por email bajo therapistId=${therapistId}`,
+      );
+      throw new ConflictException('No fue posible procesar la reserva.');
+    }
+
+    // Issue #289: el DTO público valida solo la forma del RUT para que un
+    // paciente existente con un DV inválido guardado pueda autoagendarse (el
+    // match de arriba compara por RUT normalizado). El DV se exige solo al crear
+    // una ficha nueva. Mismo 409 uniforme que el resto del flujo: un 400 propio
+    // acá permitiría distinguir si un email está registrado (endpoint anónimo).
+    if (!isValidRut(dto.rut)) {
+      this.logger.warn(
+        `Reserva pública rechazada: RUT con dígito verificador inválido bajo therapistId=${therapistId}`,
       );
       throw new ConflictException('No fue posible procesar la reserva.');
     }

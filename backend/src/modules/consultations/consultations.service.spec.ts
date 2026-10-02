@@ -209,7 +209,7 @@ describe('ConsultationsService', () => {
       expect(prisma.consultation.create).toHaveBeenCalled();
     });
 
-    it('usa el rut del paciente cuando el DTO no trae patientRut', async () => {
+    it('usa el rut de la ficha del paciente', async () => {
       prisma.consultation.create.mockResolvedValue(buildConsultation());
 
       await service.create(
@@ -227,6 +227,27 @@ describe('ConsultationsService', () => {
           patientId: 'patient-1',
           patientRut: '11111111-1',
           therapistId: 'therapist-1',
+        }) as unknown,
+      });
+    });
+
+    it('ignora un patientRut enviado por el cliente (issue #289)', async () => {
+      prisma.consultation.create.mockResolvedValue(buildConsultation());
+
+      await service.create(
+        {
+          patientId: 'patient-1',
+          sessionDate: '2026-01-10',
+          consultReason: 'Motivo',
+          intervention: 'Intervención',
+          patientRut: '99999999-9',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.consultation.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          patientRut: '11111111-1',
         }) as unknown,
       });
     });

@@ -1,7 +1,8 @@
-// Issue #196: CreatePatientDto valida el formato del RUT, así que las
-// fixtures e2e ya no pueden usar strings arbitrarios. Patient.rut es único,
-// por eso cada llamada devuelve un valor distinto (formato válido, dígito
-// verificador no comprobado: el DTO solo valida forma).
+import { computeRutCheckDigit } from '../../src/common/utils/rut.util';
+
+// Issue #196/#289: CreatePatientDto valida forma y dígito verificador del RUT,
+// así que las fixtures e2e deben ser RUT válidos. Patient.rut es único por
+// terapeuta, por eso cada llamada devuelve un valor distinto.
 let counter = 0;
 
 export function uniqueTestRut(): string {
@@ -9,5 +10,5 @@ export function uniqueTestRut(): string {
   const body = String(
     10_000_000 + ((Date.now() + counter * 7919) % 89_999_999),
   );
-  return `${body}-${counter % 10}`;
+  return `${body}-${computeRutCheckDigit(body)}`;
 }
