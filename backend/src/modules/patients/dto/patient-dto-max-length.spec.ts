@@ -15,6 +15,40 @@ describe('límites de longitud en DTOs de patients', () => {
     birthDate: '1990-01-01',
   };
 
+  // Issue #289: el alta exige el DV (módulo 11); la edición solo valida la forma
+  // para no bloquear fichas existentes con un DV inválido (el servicio exige el
+  // DV solo cuando el RUT cambia).
+  it('CreatePatientDto rechaza un RUT con dígito verificador inválido', async () => {
+    const dto = plainToInstance(CreatePatientDto, {
+      ...validCreate,
+      rut: '12345678-9',
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors.map((e) => e.property)).toContain('rut');
+  });
+
+  it('UpdatePatientDto acepta un RUT con forma válida aunque el DV no coincida', async () => {
+    const dto = plainToInstance(UpdatePatientDto, {
+      rut: '12345678-9',
+      reason: 'Motivo de la modificación',
+    });
+
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('UpdatePatientDto rechaza un RUT con forma inválida', async () => {
+    const dto = plainToInstance(UpdatePatientDto, {
+      rut: 'no-es-un-rut',
+      reason: 'Motivo de la modificación',
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors.map((e) => e.property)).toContain('rut');
+  });
+
   it('acepta un paciente con valores dentro de los límites', async () => {
     const dto = plainToInstance(CreatePatientDto, validCreate);
 

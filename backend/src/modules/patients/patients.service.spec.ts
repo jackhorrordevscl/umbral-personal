@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Patient, Prisma } from '@prisma/client';
 import { PatientsService } from './patients.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -361,6 +365,45 @@ describe('PatientsService', () => {
         where: { id: 'patient-1' },
         data: expect.objectContaining({ rut: '22222222-2' }) as unknown,
       });
+    });
+
+    it('ficha con DV inválido guardado: reenviar el mismo RUT no bloquea la edición (issue #289)', async () => {
+      prisma.patient.findFirst.mockResolvedValue(
+        buildPatient({ rut: '11111111-2' }),
+      );
+      prisma.patientConsent.findMany.mockResolvedValue([]);
+      prisma.patient.update.mockResolvedValue(buildPatient());
+
+      await service.update(
+        'patient-1',
+        {
+          rut: '11.111.111-2',
+          fullName: 'Nombre Actualizado',
+          reason: 'Corrección del nombre del paciente',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.patient.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('cambiar el RUT a uno con DV inválido responde 400 y no escribe (issue #289)', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patientConsent.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.update(
+          'patient-1',
+          {
+            rut: '22222222-3',
+            reason: 'RUT ingresado con error de tipeo',
+          } as never,
+          'therapist-1',
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.patient.update).not.toHaveBeenCalled();
     });
 
     it('RUT ya usado por otro paciente del terapeuta: P2002 -> 409 (issue #317)', async () => {
