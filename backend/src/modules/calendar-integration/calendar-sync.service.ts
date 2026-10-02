@@ -21,7 +21,6 @@ import { patientLabel } from './patient-code.util';
 import {
   BACKFILL_WINDOW_DAYS,
   CALENDAR_TIME_ZONE,
-  DEFAULT_SESSION_MINUTES,
   MAX_RECONCILE_PAGES,
   RECONCILE_BATCH_LIMIT,
 } from './calendar-integration.constants';
@@ -42,6 +41,7 @@ interface SyncableConsultation {
   groupId: string;
   therapistId: string;
   sessionDate: Date;
+  durationMinutes: number;
   patient: PatientRef;
 }
 
@@ -628,22 +628,26 @@ export class CalendarSyncService {
     });
   }
 
-  // design.md "Minimized event body, fixed 50-minute duration": solo
-  // iniciales + código corto + deep link -- nunca rut, fullName completo,
-  // sessionType ni texto clínico (T6.3/T6.4). Consultation no tiene columna
-  // de duración, de ahí DEFAULT_SESSION_MINUTES.
+  // design.md "Minimized event body": solo iniciales + código corto + deep
+  // link -- nunca rut, fullName completo, sessionType ni texto clínico
+  // (T6.3/T6.4). El evento cubre [sessionDate, sessionDate + durationMinutes)
+  // con la duración propia de la consulta (#336). El deep link usa el id de
+  // la versión vigente (el que ConsultationsPage busca en su listado); cada
+  // correct() re-sincroniza el grupo y parchea el evento con el id nuevo.
   private buildEventBody(
     consultation: SyncableConsultation,
   ): GoogleCalendarEventBody {
     const start = consultation.sessionDate;
-    const end = new Date(start.getTime() + DEFAULT_SESSION_MINUTES * 60 * 1000);
+    const end = new Date(
+      start.getTime() + consultation.durationMinutes * 60 * 1000,
+    );
     const frontendUrl =
       this.config.get<string>('FRONTEND_URL') ?? DEFAULT_FRONTEND_URL;
     const label = patientLabel(consultation.patient);
 
     return {
       summary: `Sesión — ${label}`,
-      description: `${frontendUrl}/consultations/${consultation.id}\n\nGestionado por Umbral — los cambios hechos aquí no vuelven a Umbral.`,
+      description: `${frontendUrl}/consultations?patientId=${consultation.patient.id}&consultationId=${consultation.id}\n\nGestionado por Umbral — los cambios hechos aquí no vuelven a Umbral.`,
       start: { dateTime: start.toISOString(), timeZone: CALENDAR_TIME_ZONE },
       end: { dateTime: end.toISOString(), timeZone: CALENDAR_TIME_ZONE },
       extendedProperties: { private: { umbralGroupId: consultation.groupId } },
