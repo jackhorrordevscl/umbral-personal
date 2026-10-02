@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { useUpdateProfile, type Profile } from './useProfile'
 import { useEnableMfa, useDisableMfa } from './useMfa'
-import { useUpdatePatient, useDeletePatient } from './usePatients'
+import { useCreatePatient, useUpdatePatient, useDeletePatient } from './usePatients'
 import { useCreateConsultation, useCorrectConsultation } from './useConsultations'
 import { useUploadPatientDocument } from './usePatientDocuments'
 import api from '../api/client'
@@ -88,6 +88,20 @@ describe('cache invalidation (issue #292)', () => {
     )
 
     expect(invalidatedKeys(invalidate)).toContainEqual(['patient-history', 'p1'])
+  })
+
+  it('useCreatePatient invalidates the patients list and acquisition stats', async () => {
+    const { wrapper, invalidate } = setup()
+    vi.mocked(patientsApi.createPatient).mockResolvedValue({ id: 'p1' } as never)
+
+    const { result } = renderHook(() => useCreatePatient(), { wrapper })
+    await act(async () => {
+      await result.current.mutateAsync({ data: {} as never, consents: {} as never })
+    })
+
+    const keys = invalidatedKeys(invalidate)
+    expect(keys).toContainEqual(['patients'])
+    expect(keys).toContainEqual(['acquisition-stats'])
   })
 
   it('useDeletePatient invalidates dashboard stats', async () => {

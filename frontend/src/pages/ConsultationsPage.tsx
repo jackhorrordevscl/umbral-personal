@@ -313,28 +313,36 @@ export default function ConsultationsPage() {
   // referenciada por la notificación (?consultationId=) termina de cargar --
   // openedFromLinkRef evita reabrirlo si el usuario lo cierra manualmente.
   useEffect(() => {
-    if (!linkedConsultationId || openedFromLinkRef.current || !consultationsLoaded) return;
+    if (!linkedConsultationId || openedFromLinkRef.current) return;
     // Issue #292: con datos cacheados la consulta nueva puede no estar aún; se
     // espera a que termine el fetch en curso y, si sigue sin aparecer, se
-    // fuerza un refetch una vez antes de descartar el parámetro.
-    if (consultationsFetching) return;
+    // fuerza un refetch una vez antes de descartar el parámetro. El resultado
+    // del propio refetch decide el cierre (no un re-render): si los datos no
+    // cambian o el refetch falla, React Query no garantiza otro render y el
+    // efecto no volvería a correr.
+    if (!consultationsLoaded || consultationsFetching) return;
 
-    const target = consultations.find((c: Consultation) => c.id === linkedConsultationId);
+    const findTarget = (list: Consultation[] | undefined) =>
+      list?.find((c: Consultation) => c.id === linkedConsultationId);
+    const finish = (target: Consultation | undefined) => {
+      if (openedFromLinkRef.current) return;
+      openedFromLinkRef.current = true;
+      if (target) handleEditOpen(target);
+      setSearchParams(new URLSearchParams(), { replace: true });
+    };
+
+    const target = findTarget(consultations);
     if (!target && !linkedRefetchedRef.current) {
       linkedRefetchedRef.current = true;
-      void refetchConsultations();
+      void refetchConsultations().then((r) => finish(findTarget(r.data)));
       return;
     }
-    openedFromLinkRef.current = true;
 
     // react-hooks/set-state-in-effect: el cuerpo síncrono de un efecto no
     // puede llamar setState directo (fuerza un render en cascada) -- se
     // difiere en un timer, el patrón que la propia regla reconoce como
     // válido (no marca llamadas indirectas dentro de timers/callbacks).
-    setTimeout(() => {
-      if (target) handleEditOpen(target);
-      setSearchParams(new URLSearchParams(), { replace: true });
-    }, 0);
+    setTimeout(() => finish(target), 0);
   }, [consultations, consultationsLoaded, consultationsFetching, refetchConsultations, linkedConsultationId, handleEditOpen, setSearchParams]);
 
   const handleEditSubmit = (e: React.FormEvent) => {
