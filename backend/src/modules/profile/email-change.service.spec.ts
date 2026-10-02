@@ -1,4 +1,4 @@
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { User } from '@prisma/client';
@@ -176,25 +176,25 @@ describe('EmailChangeService', () => {
   });
 
   describe('confirm', () => {
-    it('lanza 401 si el token es inválido o expiró', async () => {
+    it('lanza 400 si el token es inválido o expiró', async () => {
       jwtService.verify.mockImplementation(() => {
         throw new Error('jwt expired');
       });
 
       await expect(service.confirm('bad-token')).rejects.toThrow(
-        UnauthorizedException,
+        BadRequestException,
       );
     });
 
-    it('lanza 401 si el purpose del token no es email-change', async () => {
+    it('lanza 400 si el purpose del token no es email-change', async () => {
       jwtService.verify.mockReturnValue({ sub: 'user-1', purpose: 'other' });
 
       await expect(service.confirm('token')).rejects.toThrow(
-        UnauthorizedException,
+        BadRequestException,
       );
     });
 
-    it('lanza 401 si el usuario no existe o está soft-deleted', async () => {
+    it('lanza 400 si el usuario no existe o está soft-deleted', async () => {
       jwtService.verify.mockReturnValue({
         sub: 'user-1',
         purpose: 'email-change',
@@ -204,11 +204,11 @@ describe('EmailChangeService', () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
       await expect(service.confirm('token')).rejects.toThrow(
-        UnauthorizedException,
+        BadRequestException,
       );
     });
 
-    it('lanza 401 (replay guard) si no hay ningún cambio pendiente (token ya usado)', async () => {
+    it('lanza 400 (replay guard) si no hay ningún cambio pendiente (token ya usado)', async () => {
       jwtService.verify.mockReturnValue({
         sub: 'user-1',
         purpose: 'email-change',
@@ -220,12 +220,12 @@ describe('EmailChangeService', () => {
       );
 
       await expect(service.confirm('token')).rejects.toThrow(
-        UnauthorizedException,
+        BadRequestException,
       );
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
 
-    it('lanza 401 (superseded) si un pedido posterior ya reemplazó este token', async () => {
+    it('lanza 400 (superseded) si un pedido posterior ya reemplazó este token', async () => {
       jwtService.verify.mockReturnValue({
         sub: 'user-1',
         purpose: 'email-change',
@@ -242,7 +242,7 @@ describe('EmailChangeService', () => {
       );
 
       await expect(service.confirm('token')).rejects.toThrow(
-        UnauthorizedException,
+        BadRequestException,
       );
       expect(prisma.user.update).not.toHaveBeenCalled();
     });

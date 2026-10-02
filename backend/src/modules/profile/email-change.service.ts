@@ -1,7 +1,7 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -124,20 +124,20 @@ export class EmailChangeService {
     try {
       payload = this.jwtService.verify(token);
     } catch {
-      throw new UnauthorizedException(
+      throw new BadRequestException(
         'Token de confirmación inválido o expirado',
       );
     }
 
     if (payload.purpose !== EMAIL_CHANGE_PURPOSE) {
-      throw new UnauthorizedException('Token de confirmación inválido');
+      throw new BadRequestException('Token de confirmación inválido');
     }
 
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
     });
     if (!user || user.deletedAt) {
-      throw new UnauthorizedException('Usuario no válido');
+      throw new BadRequestException('Usuario no válido');
     }
 
     if (
@@ -145,7 +145,7 @@ export class EmailChangeService {
       user.pendingEmailTokenIssuedAt.getTime() !== payload.changeIssuedAt ||
       user.pendingEmail !== payload.pendingEmail
     ) {
-      throw new UnauthorizedException(
+      throw new BadRequestException(
         'Token de confirmación inválido o ya utilizado',
       );
     }

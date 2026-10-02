@@ -1,4 +1,9 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -332,18 +337,18 @@ export class MfaService {
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.mfaSecret) {
-      throw new UnauthorizedException('Primero genera el secreto MFA');
+      throw new BadRequestException('Primero genera el secreto MFA');
     }
 
     const secret = this.revealSecret(userId, user.mfaSecret);
     if (!secret) {
-      throw new UnauthorizedException('Primero genera el secreto MFA');
+      throw new BadRequestException('Primero genera el secreto MFA');
     }
 
     const isValid = await this.consumeTotp(userId, secret, token);
 
     if (!isValid) {
-      throw new UnauthorizedException('Código inválido, intenta de nuevo');
+      throw new BadRequestException('Código inválido, intenta de nuevo');
     }
 
     await this.prisma.user.update({
@@ -388,18 +393,18 @@ export class MfaService {
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.mfaSecret) {
-      throw new UnauthorizedException('MFA no está configurado');
+      throw new BadRequestException('MFA no está configurado');
     }
 
     const secret = this.revealSecret(userId, user.mfaSecret);
     if (!secret) {
-      throw new UnauthorizedException('Código inválido');
+      throw new BadRequestException('Código inválido');
     }
 
     const isValid = await this.consumeTotp(userId, secret, token);
 
     if (!isValid) {
-      throw new UnauthorizedException('Código inválido');
+      throw new BadRequestException('Código inválido');
     }
 
     await this.prisma.user.update({
