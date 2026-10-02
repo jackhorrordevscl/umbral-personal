@@ -141,6 +141,46 @@ describe('ConsultationsPage', () => {
     expect(mockedApi.post).not.toHaveBeenCalled()
   })
 
+  it('mientras cargan las consultas muestra "Cargando consultas..." y no "Sin consultas registradas"', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url.startsWith('/consultations/patient/')) return new Promise(() => {})
+      return Promise.resolve({ data: [] })
+    })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByText('Cargando consultas...')).toBeInTheDocument()
+    expect(screen.queryByText('Sin consultas registradas')).not.toBeInTheDocument()
+  })
+
+  it('con la carga terminada y sin sesiones muestra "Sin consultas registradas"', async () => {
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByText('Sin consultas registradas')).toBeInTheDocument()
+    expect(screen.queryByText('Cargando consultas...')).not.toBeInTheDocument()
+  })
+
+  it('si falla la carga de consultas no muestra "Sin consultas registradas"', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url.startsWith('/consultations/patient/')) return Promise.reject(new Error('boom'))
+      return Promise.resolve({ data: [] })
+    })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByText(/No se pudieron cargar las consultas/)).toBeInTheDocument()
+    expect(screen.queryByText('Sin consultas registradas')).not.toBeInTheDocument()
+  })
+
   it('muestra el historial de consultas del paciente seleccionado', async () => {
     mockedApi.get.mockImplementation((url: string) => {
       if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
