@@ -41,16 +41,41 @@ export function setUnauthorizedHandler(handler: (() => void) | null) {
   };
 }
 
+// Endpoints de auth que se llaman SIN sesión (o con un token propio del flujo,
+// no el de sesión): un 401 ahí es un error esperado (credenciales, código o
+// token inválido) que cada pantalla muestra con su propio mensaje. Lista
+// explícita y no un `includes('/auth/')`: mfa/generate, mfa/enable,
+// mfa/disable, logout-all e invitations también cuelgan de /auth/ pero exigen
+// sesión, y un 401 en ellos sí significa que la sesión expiró (issue #293).
+const PUBLIC_AUTH_PATHS = new Set([
+  '/auth/login',
+  '/auth/mfa/verify',
+  '/auth/signup',
+  '/auth/verify-email',
+  '/auth/verify-email/resend',
+  '/auth/mfa/setup/begin',
+  '/auth/mfa/setup/confirm',
+  '/auth/password/change',
+  '/auth/password/forgot',
+  '/auth/password/reset',
+  '/auth/mfa/recover',
+  '/auth/logout',
+]);
+
+function isPublicAuthRequest(requestUrl: string): boolean {
+  const path = requestUrl.split(/[?#]/)[0].replace(/\/+$/, '');
+  return PUBLIC_AUTH_PATHS.has(path.startsWith('/') ? path : `/${path}`);
+}
+
 // Si el token de sesión expiró (401 en una llamada normal), redirige al login.
-// Excepción: los 401 del propio flujo de auth (login, mfa/verify, cambio de
-// contraseña, etc.) son errores esperados que cada pantalla maneja con su
-// propio mensaje. Redirigir en esos casos recargaría la página, borraría el
-// error de la UI (y del Network tab) y dejaría al usuario sin saber qué pasó.
+// Excepción: los 401 del flujo público de auth (ver PUBLIC_AUTH_PATHS).
+// Redirigir en esos casos recargaría la página, borraría el error de la UI (y
+// del Network tab) y dejaría al usuario sin saber qué pasó.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const requestUrl = error.config?.url ?? '';
-    const isAuthRequest = requestUrl.includes('/auth/');
+    const isAuthRequest = isPublicAuthRequest(requestUrl);
     if (error.response?.status === 401 && !isAuthRequest) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
