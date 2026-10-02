@@ -468,6 +468,7 @@ model Session {
   userAgent String?
 
   @@index([userId])
+  @@index([expiresAt])
 }
 
 model Notification {

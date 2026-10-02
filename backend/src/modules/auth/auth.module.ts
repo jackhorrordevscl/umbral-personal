@@ -6,6 +6,7 @@ import { ThrottlerModule, ThrottlerModuleOptions } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { MfaService } from './mfa.service';
 import { MfaSecretCryptoService } from './mfa-secret-crypto.service';
+import { SessionPurgeService } from './session-purge.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { MailModule } from '../mail/mail.module';
@@ -334,7 +335,13 @@ export function buildAuthThrottlerOptions(
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, MfaService, MfaSecretCryptoService, JwtStrategy],
+  providers: [
+    AuthService,
+    MfaService,
+    MfaSecretCryptoService,
+    SessionPurgeService,
+    JwtStrategy,
+  ],
   exports: [JwtModule],
 })
 export class AuthModule {}

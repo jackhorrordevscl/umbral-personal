@@ -398,6 +398,26 @@ describe('validateEnv', () => {
     expect(validateEnv(config)).toBe(config);
   });
 
+  // Issue #287: SESSION_PURGE_ENABLED es opcional (ausente = purga habilitada),
+  // pero un typo debe fallar rápido en el arranque.
+  it('rechaza un SESSION_PURGE_ENABLED que no es "true" ni "false"', () => {
+    const config = { NODE_ENV: 'test', SESSION_PURGE_ENABLED: 'nope' };
+
+    expect(() => validateEnv(config)).toThrow(/SESSION_PURGE_ENABLED inválido/);
+  });
+
+  it.each(['true', 'false'])('permite SESSION_PURGE_ENABLED="%s"', (value) => {
+    const config = { NODE_ENV: 'test', SESSION_PURGE_ENABLED: value };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
+  it('permite SESSION_PURGE_ENABLED ausente', () => {
+    const config = { NODE_ENV: 'test' };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
   // sdd/patient-self-scheduling PR 1 (tasks.md 1.3, design.md "Migration /
   // Rollout"): un solo flag gatea tanto el endpoint público de
   // disponibilidad como el de booking (PR 3) -- mismo criterio que

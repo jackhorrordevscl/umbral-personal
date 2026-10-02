@@ -145,6 +145,19 @@ function validateMainTsEnvVars(config: Record<string, unknown>): void {
     );
   }
 
+  // Issue #287: opcional, default true en SessionPurgeService (ausente = purga
+  // diaria habilitada) -- un typo debe fallar en el arranque en vez de
+  // desactivar la purga en silencio.
+  if (
+    config.SESSION_PURGE_ENABLED !== undefined &&
+    config.SESSION_PURGE_ENABLED !== 'true' &&
+    config.SESSION_PURGE_ENABLED !== 'false'
+  ) {
+    throw new Error(
+      `SESSION_PURGE_ENABLED inválido: "${describeValue(config.SESSION_PURGE_ENABLED)}" -- debe ser exactamente "true" o "false".`,
+    );
+  }
+
   // sdd/patient-self-scheduling PR 1 (tasks.md 1.3, design.md "Migration /
   // Rollout"): un solo flag gatea tanto GET .../availability como POST
   // .../availability/book (PR 3) -- mismo criterio de validación que
