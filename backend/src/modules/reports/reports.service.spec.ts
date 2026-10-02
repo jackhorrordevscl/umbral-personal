@@ -139,6 +139,37 @@ describe('ReportsService', () => {
     expect(buffer.length).toBeGreaterThan(0);
   });
 
+  it('consulta solo sesiones ya ocurridas, ordenadas por sessionDate y no por createdAt (issue #288)', async () => {
+    prisma.patient.findUnique.mockResolvedValue(
+      buildPatientWithConsultations(),
+    );
+    const before = Date.now();
+
+    await service.generatePatientReport('patient-1', 'therapist-1');
+
+    const args = prisma.patient.findUnique.mock.calls[0] as [
+      {
+        include: {
+          consultations: {
+            where: {
+              correctedBy: null;
+              deletedAt: null;
+              sessionDate: { lte: Date };
+            };
+            orderBy: unknown;
+          };
+        };
+      },
+    ];
+    const { where, orderBy } = args[0].include.consultations;
+    expect(orderBy).toEqual({ sessionDate: 'asc' });
+    expect(where.correctedBy).toBeNull();
+    expect(where.deletedAt).toBeNull();
+    // El tope es "ahora": las reservas futuras quedan fuera de la ficha.
+    expect(where.sessionDate.lte.getTime()).toBeGreaterThanOrEqual(before);
+    expect(where.sessionDate.lte.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
   it('funciona también sin consultas registradas', async () => {
     const patient = buildPatientWithConsultations();
     patient.consultations = [];

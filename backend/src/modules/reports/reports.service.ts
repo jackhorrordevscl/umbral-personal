@@ -40,8 +40,15 @@ export class ReportsService {
         // Solo la versión vigente de cada consulta (T2.3: corregir crea una
         // fila nueva, hay que excluir las versiones ya superadas)
         consultations: {
-          where: { correctedBy: null, deletedAt: null },
-          orderBy: { createdAt: 'asc' },
+          // Ficha oficial: solo sesiones ya ocurridas (las reservas futuras
+          // pendientes no son registro clínico) y numeradas por fecha clínica,
+          // no por createdAt (una sesión corregida tiene createdAt reciente).
+          where: {
+            correctedBy: null,
+            deletedAt: null,
+            sessionDate: { lte: new Date() },
+          },
+          orderBy: { sessionDate: 'asc' },
         },
         therapist: {
           select: { name: true, email: true },
