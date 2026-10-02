@@ -21,10 +21,21 @@ import {
   REMINDER_MAX_ATTEMPTS,
   REMINDER_PENDING_STALE_MS,
   REMINDER_RETRY_BACKOFF_MS,
+  RENDER_TIME_ZONE,
   RETRY_BATCH_LIMIT,
   SCAN_BATCH_LIMIT,
   SCAN_MAX_PAGES,
 } from './reminders.constants';
+
+// Zona fija de render (America/Santiago): el servidor puede correr en UTC y
+// el terapeuta debe ver la hora local de la sesión.
+const sessionDateFormatter = new Intl.DateTimeFormat('es-CL', {
+  timeZone: RENDER_TIME_ZONE,
+  dateStyle: 'full',
+  timeStyle: 'short',
+});
+const formatSessionDate = (date: Date): string =>
+  sessionDateFormatter.format(date);
 
 const EMAIL_NOT_CONFIRMED_ERROR =
   'El proveedor de email no confirmó el envío (sin API key o error de Resend)';
@@ -306,7 +317,7 @@ export class RemindersService {
           userId: consultation.therapistId,
           type: NotificationType.SESSION_REMINDER,
           title: `Recordatorio de sesión en ${offsetLabel}`,
-          body: `Tu sesión con ${consultation.patient.fullName} está programada para ${consultation.sessionDate.toISOString()} (en ${offsetLabel}).`,
+          body: `Tu sesión con ${consultation.patient.fullName} está programada para ${formatSessionDate(consultation.sessionDate)} (en ${offsetLabel}).`,
           // La ruta real (App.tsx) es /consultations sin :id -- el detalle
           // vive en query params que ConsultationsPage lee para
           // preseleccionar el paciente y abrir el modal de Corregir sesión.

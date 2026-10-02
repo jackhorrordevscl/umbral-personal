@@ -50,6 +50,7 @@ function buildConsultation(overrides: Partial<Record<string, unknown>> = {}) {
     patientId: 'patient-1',
     therapistId: 'therapist-1',
     sessionDate: new Date('2026-03-10T12:00:00.000Z'),
+    durationMinutes: 50,
     consultReason: 'Motivo clínico confidencial',
     intervention: 'Intervención clínica confidencial',
     agreements: 'Acuerdos clínicos confidenciales',
@@ -224,8 +225,65 @@ describe('CalendarSyncService', () => {
 
       expect(eventBody.summary).toContain('JM-');
       expect(eventBody.description).toContain(
-        'https://app.umbral.cl/consultations/consultation-1',
+        'https://app.umbral.cl/consultations?patientId=patient-1&consultationId=consultation-1',
       );
+      expect(eventBody.description).not.toContain('/consultations/');
+    });
+
+    it.each([45, 60])(
+      'el evento dura la durationMinutes de la consulta (%i min) al insertar',
+      async (durationMinutes) => {
+        prisma.consultation.findFirst.mockResolvedValue(
+          buildConsultation({ durationMinutes }),
+        );
+        prisma.googleCalendarConnection.findUnique.mockResolvedValue(
+          buildConnection(),
+        );
+        prisma.calendarEventLink.findUnique.mockResolvedValue(null);
+        googleCalendarClient.insertEvent.mockResolvedValue({
+          id: 'google-event-1',
+        });
+
+        await service.syncGroup('group-1');
+
+        const [, , eventBody] = googleCalendarClient.insertEvent.mock
+          .calls[0] as [
+          unknown,
+          unknown,
+          { start: { dateTime: string }; end: { dateTime: string } },
+        ];
+        const ms =
+          new Date(eventBody.end.dateTime).getTime() -
+          new Date(eventBody.start.dateTime).getTime();
+        expect(ms).toBe(durationMinutes * 60 * 1000);
+      },
+    );
+
+    it('al parchear un evento existente, el end refleja la durationMinutes vigente', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(
+        buildConsultation({ durationMinutes: 60 }),
+      );
+      prisma.googleCalendarConnection.findUnique.mockResolvedValue(
+        buildConnection(),
+      );
+      prisma.calendarEventLink.findUnique.mockResolvedValue({
+        id: 'link-1',
+        connectionId: 'connection-1',
+        groupId: 'group-1',
+        googleEventId: 'google-event-existing',
+        lastSessionDate: new Date('2026-03-10T12:00:00.000Z'),
+        syncStatus: 'SYNCED',
+        lastError: null,
+      });
+      googleCalendarClient.patchEvent.mockResolvedValue({
+        id: 'google-event-existing',
+      });
+
+      await service.syncGroup('group-1');
+
+      const [, , , eventBody] = googleCalendarClient.patchEvent.mock
+        .calls[0] as [unknown, unknown, unknown, { end: { dateTime: string } }];
+      expect(eventBody.end.dateTime).toBe('2026-03-10T13:00:00.000Z');
     });
 
     it('actualiza (patch) el mismo googleEventId cuando ya existe un link para ese groupId', async () => {

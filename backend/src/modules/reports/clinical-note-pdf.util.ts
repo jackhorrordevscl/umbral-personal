@@ -39,6 +39,9 @@ function decodeEntities(text: string): string {
   );
 }
 
+const TAG_SPLIT_REGEX = /(<\/?[a-zA-Z][a-zA-Z0-9]*(?:\s[^<>]*)?\/?>)/g;
+const TAG_TOKEN_REGEX = /^<\/?[a-zA-Z][a-zA-Z0-9]*(?:\s[^<>]*)?\/?>$/;
+
 /**
  * Convierte el HTML sanitizado de una nota clínica en líneas con runs de
  * texto con estilo, listas para volcar directo a pdfkit. Texto plano sin
@@ -63,10 +66,17 @@ export function parseClinicalNoteHtml(html: string): ClinicalNoteLine[] {
     currentBullet = undefined;
   };
 
-  const tokens = (html ?? '').split(/(<[^>]+>)/g).filter((t) => t.length > 0);
+  // Solo se reconocen como tag los patrones `<nombre ...>` / `</nombre>`. Un
+  // `<` o `>` suelto en texto plano heredado ("PHQ < 10", "a > b") no abre un
+  // tag, así que queda como texto en vez de descartarse. El HTML sanitizado
+  // del editor escapa esos caracteres como entidades, que decodeEntities
+  // restaura.
+  const tokens = (html ?? '')
+    .split(TAG_SPLIT_REGEX)
+    .filter((t) => t.length > 0);
 
   for (const token of tokens) {
-    if (token.startsWith('<')) {
+    if (TAG_TOKEN_REGEX.test(token)) {
       const tagMatch = /^<\/?\s*([a-zA-Z0-9]+)/.exec(token);
       if (!tagMatch) continue;
       const tag = tagMatch[1].toLowerCase();

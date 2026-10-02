@@ -23,6 +23,28 @@ describe('clinical-note-pdf.util', () => {
       ]);
     });
 
+    it('texto plano heredado con "<" o ">" sueltos conserva el texto en vez de tratarlo como tag (issue #288)', () => {
+      const lines = parseClinicalNoteHtml('PHQ-9 < 10 y GAD-7 > 5, a<b');
+
+      expect(lines).toHaveLength(1);
+      expect(lines[0].runs.map((r) => r.text).join('')).toBe(
+        'PHQ-9 < 10 y GAD-7 > 5, a<b',
+      );
+    });
+
+    it('HTML real con entidades escapadas sigue decodificándose y respeta los tags', () => {
+      const lines = parseClinicalNoteHtml(
+        '<p>Puntaje &lt; 10 con <strong>mejora</strong></p>',
+      );
+
+      expect(lines).toHaveLength(1);
+      expect(lines[0].runs.map((r) => r.text)).toEqual([
+        'Puntaje < 10 con ',
+        'mejora',
+      ]);
+      expect(lines[0].runs[1].bold).toBe(true);
+    });
+
     it('separa párrafos en líneas distintas', () => {
       const lines = parseClinicalNoteHtml('<p>Primero</p><p>Segundo</p>');
 

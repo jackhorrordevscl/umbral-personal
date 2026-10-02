@@ -233,6 +233,24 @@ describe('RemindersService.scan', () => {
     expect(prisma.consultation.findMany).toHaveBeenCalledTimes(1);
   });
 
+  it('la notificación in-app muestra la fecha de la sesión en hora de Santiago, no el ISO en UTC (issue #288)', async () => {
+    const consultation = buildConsultation();
+    prisma.consultation.findMany.mockResolvedValue([consultation]);
+
+    await service.scan();
+
+    const expectedWhen = new Intl.DateTimeFormat('es-CL', {
+      timeZone: 'America/Santiago',
+      dateStyle: 'full',
+      timeStyle: 'short',
+    }).format(consultation.sessionDate);
+    const [arg] = notificationsService.create.mock.calls[0] as [
+      { body: string },
+    ];
+    expect(arg.body).toContain(expectedWhen);
+    expect(arg.body).not.toContain(consultation.sessionDate.toISOString());
+  });
+
   it('corta en SCAN_MAX_PAGES aunque cada página venga llena', async () => {
     jest.replaceProperty(constants, 'SCAN_BATCH_LIMIT', 1);
     prisma.consultation.findMany.mockResolvedValue([
