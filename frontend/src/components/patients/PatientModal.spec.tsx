@@ -74,6 +74,21 @@ describe('PatientModal — anular documentos legales (#270)', () => {
     expect(screen.getByRole('button', { name: 'Descargar duplicado.pdf' })).toBeInTheDocument()
   })
 
+  it('si falla la carga de documentos muestra el error y no "Sin documentos subidos." (#294)', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/documents/patient/patient-1') return Promise.reject(new Error('boom'))
+      if (url === '/patients/patient-1/consents/status') {
+        return Promise.resolve({ data: { TREATMENT: false, TELEMEDICINE: false } })
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    renderModal()
+
+    expect(await screen.findByText(/No se pudieron cargar los documentos/)).toBeInTheDocument()
+    expect(screen.queryByText('Sin documentos subidos.')).not.toBeInTheDocument()
+  })
+
   it('exige un motivo de al menos 5 caracteres antes de llamar a la API', async () => {
     const user = userEvent.setup()
     renderModal()

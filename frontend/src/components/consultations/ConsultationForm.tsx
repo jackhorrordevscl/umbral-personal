@@ -54,7 +54,12 @@ export default function ConsultationForm({
   // lo accesorio nunca revierte ni bloquea lo clínico).
   const [pendingUploadGroupId, setPendingUploadGroupId] = useState<string | null>(null);
 
-  const { data: patients = [] } = usePatients();
+  const {
+    data: patients = [],
+    isLoading: patientsLoading,
+    isError: patientsError,
+    refetch: refetchPatients,
+  } = usePatients();
   const createMutation = useCreateConsultation();
   const uploadMutation = useUploadPatientDocument(form.patientId || undefined);
 
@@ -154,12 +159,27 @@ export default function ConsultationForm({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FormField id="consult-patientId" label="Paciente" required className="md:col-span-2">
           <select id="consult-patientId" className="input-field" value={form.patientId}
+            disabled={patientsLoading || patientsError}
             onChange={e => setForm({ ...form, patientId: e.target.value })}>
-            <option value="">Seleccionar paciente...</option>
+            <option value="">
+              {patientsLoading
+                ? 'Cargando pacientes...'
+                : patientsError
+                  ? 'No se pudieron cargar los pacientes'
+                  : 'Seleccionar paciente...'}
+            </option>
             {patients.map((p: Patient) => (
               <option key={p.id} value={p.id}>{p.fullName} — {p.rut}</option>
             ))}
           </select>
+          {patientsError && (
+            <ErrorBanner
+              icon
+              className="mt-2"
+              message="No se pudieron cargar los pacientes."
+              onRetry={() => void refetchPatients()}
+            />
+          )}
         </FormField>
         <FormField id="consult-sessionDate" label="Fecha de sesión" required>
           <input id="consult-sessionDate" type="date" className="input-field" value={form.sessionDate}
