@@ -138,7 +138,10 @@ describe('ProfilePage — account-settings Req: Profile Section Scope', () => {
   // dev. Este test confirma que la página lo arma y lo deja copiable.
   it('muestra el link de auto-agenda con el id del profesional y permite copiarlo', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.assign(navigator, { clipboard: { writeText } })
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    })
 
     renderProfilePage()
 
@@ -163,7 +166,10 @@ describe('ProfilePage — account-settings Req: Profile Section Scope', () => {
   // navegador denegaba el permiso de portapapeles.
   it('avisa al usuario cuando el navegador deniega copiar al portapapeles', async () => {
     const writeText = vi.fn().mockRejectedValue(new Error('denied'))
-    Object.assign(navigator, { clipboard: { writeText } })
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    })
 
     renderProfilePage()
 
