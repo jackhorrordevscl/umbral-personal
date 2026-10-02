@@ -78,6 +78,27 @@ const installShExampleMfaKey = extractExample(
 );
 const validMfaKey = Buffer.alloc(32, 17).toString('base64');
 
+// Issue #287: variables que en producción son obligatorias además de las
+// claves de cifrado (valores ficticios, sin forma de credencial real).
+const b2Vars = (prefix: string) => ({
+  [`${prefix}_ENDPOINT`]: 'https://s3.us-west-004.backblazeb2.com',
+  [`${prefix}_REGION`]: 'us-west-004',
+  [`${prefix}_BUCKET`]: 'bucket-de-prueba',
+  [`${prefix}_KEY_ID`]: 'key-id-de-prueba',
+  [`${prefix}_APPLICATION_KEY`]: 'application-key-de-prueba',
+});
+
+const productionRequiredVars: Record<string, string> = {
+  FRONTEND_URL: 'https://umbral.example.com',
+  DATABASE_URL: 'postgresql://usuario:clave@db.example.com:5432/umbral',
+  RESEND_API_KEY: 'resend-api-key-de-prueba',
+  RESEND_WEBHOOK_SECRET: 'webhook-secret-de-prueba',
+  MAIL_FROM: 'Umbral <no-reply@example.com>',
+  ...b2Vars('B2_AVATARS'),
+  ...b2Vars('B2_SHARED_FILES'),
+  ...b2Vars('B2_PATIENT_DOCUMENTS'),
+};
+
 describe('validateEnv', () => {
   it('permite un JWT_SECRET largo y no genérico en producción', () => {
     const config = {
@@ -87,6 +108,7 @@ describe('validateEnv', () => {
       GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
       PAYMENT_CREDENTIALS_ENCRYPTION_KEY: validPaymentKey,
       MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
+      ...productionRequiredVars,
     };
 
     expect(validateEnv(config)).toBe(config);
@@ -145,6 +167,7 @@ describe('validateEnv', () => {
       GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
       PAYMENT_CREDENTIALS_ENCRYPTION_KEY: validPaymentKey,
       MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
+      ...productionRequiredVars,
     };
 
     expect(validateEnv(config)).toBe(config);
@@ -205,6 +228,7 @@ describe('validateEnv', () => {
       GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
       PAYMENT_CREDENTIALS_ENCRYPTION_KEY: validPaymentKey,
       MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
+      ...productionRequiredVars,
     };
 
     expect(validateEnv(config)).toBe(config);
@@ -413,6 +437,7 @@ describe('validateEnv', () => {
       GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
       PAYMENT_CREDENTIALS_ENCRYPTION_KEY: validPaymentKey,
       MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
+      ...productionRequiredVars,
     };
 
     expect(validateEnv(config)).toBe(config);
@@ -507,8 +532,83 @@ describe('validateEnv', () => {
     const config = {
       ...productionBase,
       MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
+      ...productionRequiredVars,
     };
 
     expect(validateEnv(config)).toBe(config);
+  });
+
+  // Issue #287: variables obligatorias en producción.
+  describe('variables obligatorias en producción (issue #287)', () => {
+    const validProduction = {
+      ...productionBase,
+      MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
+      ...productionRequiredVars,
+    };
+
+    const without = (varName: string) => {
+      const config: Record<string, unknown> = { ...validProduction };
+      delete config[varName];
+      return config;
+    };
+
+    it('permite la configuración completa de producción', () => {
+      expect(validateEnv(validProduction)).toBe(validProduction);
+    });
+
+    it.each(Object.keys(productionRequiredVars))(
+      'rechaza %s ausente en producción',
+      (varName) => {
+        expect(() => validateEnv(without(varName))).toThrow(
+          new RegExp(`${varName} (requerida|inválida)`),
+        );
+      },
+    );
+
+    it.each(
+      Object.keys(productionRequiredVars).filter(
+        (name) => name !== 'FRONTEND_URL' && !name.endsWith('_ENDPOINT'),
+      ),
+    )('rechaza %s vacía en producción', (varName) => {
+      expect(() =>
+        validateEnv({ ...validProduction, [varName]: '   ' }),
+      ).toThrow(new RegExp(`${varName} requerida`));
+    });
+
+    it('rechaza un FRONTEND_URL que no es una URL en producción', () => {
+      expect(() =>
+        validateEnv({ ...validProduction, FRONTEND_URL: 'no-es-una-url' }),
+      ).toThrow(/FRONTEND_URL inválida/);
+    });
+
+    it('rechaza un FRONTEND_URL con esquema distinto de http/https en producción', () => {
+      expect(() =>
+        validateEnv({ ...validProduction, FRONTEND_URL: 'ftp://example.com' }),
+      ).toThrow(/FRONTEND_URL inválida/);
+    });
+
+    it.each(['B2_AVATARS', 'B2_SHARED_FILES', 'B2_PATIENT_DOCUMENTS'])(
+      'rechaza un %s_ENDPOINT sin esquema https:// en producción',
+      (prefix) => {
+        expect(() =>
+          validateEnv({
+            ...validProduction,
+            [`${prefix}_ENDPOINT`]: 's3.us-west-004.backblazeb2.com',
+          }),
+        ).toThrow(new RegExp(`${prefix}_ENDPOINT inválida`));
+        expect(() =>
+          validateEnv({
+            ...validProduction,
+            [`${prefix}_ENDPOINT`]: 'http://s3.example.com',
+          }),
+        ).toThrow(new RegExp(`${prefix}_ENDPOINT inválida`));
+      },
+    );
+
+    it('no exige estas variables fuera de producción', () => {
+      const config = { NODE_ENV: 'test' };
+
+      expect(validateEnv(config)).toBe(config);
+    });
   });
 });

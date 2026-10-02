@@ -161,6 +161,77 @@ function validateMainTsEnvVars(config: Record<string, unknown>): void {
   }
 }
 
+// Issue #287: variables sin las cuales la app arranca "sana" pero falla en
+// runtime (CORS roto, mails que no salen, "Invalid URL" en S3Client al subir
+// un archivo). En producción se exigen al arrancar; fuera de producción siguen
+// siendo opcionales (MailService y el storage degradan con un warning).
+const PRODUCTION_REQUIRED_STRING_VARS = [
+  'DATABASE_URL',
+  'RESEND_API_KEY',
+  'RESEND_WEBHOOK_SECRET',
+  'MAIL_FROM',
+] as const;
+
+const B2_BUCKET_PREFIXES = [
+  'B2_AVATARS',
+  'B2_SHARED_FILES',
+  'B2_PATIENT_DOCUMENTS',
+] as const;
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function isHttpUrl(value: string): boolean {
+  if (!isValidUrl(value)) {
+    return false;
+  }
+  const { protocol } = new URL(value);
+  return protocol === 'http:' || protocol === 'https:';
+}
+
+function validateProductionRequiredVars(config: Record<string, unknown>): void {
+  const frontendUrl = config.FRONTEND_URL;
+  if (!isNonEmptyString(frontendUrl) || !isHttpUrl(frontendUrl)) {
+    throw new Error(
+      `FRONTEND_URL inválida: en producción es obligatoria y debe ser una URL con esquema http:// o https:// (valor recibido: "${describeValue(frontendUrl)}").`,
+    );
+  }
+
+  for (const varName of PRODUCTION_REQUIRED_STRING_VARS) {
+    if (!isNonEmptyString(config[varName])) {
+      throw new Error(
+        `${varName} requerida: en producción debe estar definida y no puede estar vacía.`,
+      );
+    }
+  }
+
+  for (const prefix of B2_BUCKET_PREFIXES) {
+    for (const suffix of ['REGION', 'BUCKET', 'KEY_ID', 'APPLICATION_KEY']) {
+      const varName = `${prefix}_${suffix}`;
+      if (!isNonEmptyString(config[varName])) {
+        throw new Error(
+          `${varName} requerida: en producción debe estar definida y no puede estar vacía.`,
+        );
+      }
+    }
+
+    // Sin esquema, S3Client falla recién al subir/descargar con "Invalid URL".
+    const endpointName = `${prefix}_ENDPOINT`;
+    const endpoint = config[endpointName];
+    if (!isNonEmptyString(endpoint) || !endpoint.startsWith('https://')) {
+      throw new Error(
+        `${endpointName} inválida: en producción es obligatoria y debe ser una URL con esquema https:// (valor recibido: "${describeValue(endpoint)}").`,
+      );
+    }
+    if (!isValidUrl(endpoint)) {
+      throw new Error(
+        `${endpointName} inválida: "${endpoint}" no es una URL válida.`,
+      );
+    }
+  }
+}
+
 export function validateEnv(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -253,6 +324,8 @@ export function validateEnv(
         `MFA_SECRET_ENCRYPTION_KEY inválida: en producción debe decodificar a ${MFA_SECRET_ENCRYPTION_KEY_BYTE_LENGTH} bytes en base64 y no puede ser el valor de ejemplo de README.md/install.sh. Generala con: openssl rand -base64 32`,
       );
     }
+
+    validateProductionRequiredVars(config);
   }
 
   return config;
