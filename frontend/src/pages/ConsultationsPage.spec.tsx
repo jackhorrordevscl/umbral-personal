@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, useLocation } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ConsultationsPage from './ConsultationsPage'
 import api from '../api/client'
@@ -41,6 +41,10 @@ function buildConsultation(overrides: Partial<Consultation> = {}): Consultation 
   } as unknown as Consultation
 }
 
+function LocationProbe() {
+  return <span data-testid="location-search">{useLocation().search}</span>
+}
+
 function renderConsultationsPage(initialEntry = '/consultations') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -48,6 +52,7 @@ function renderConsultationsPage(initialEntry = '/consultations') {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
+        <LocationProbe />
         <ConsultationsPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -241,6 +246,54 @@ describe('ConsultationsPage', () => {
     expect(
       await screen.findByRole('heading', { name: 'Corregir Sesión' }),
     ).toBeInTheDocument()
+  })
+
+  describe('deep link con la consulta ausente del caché (#292)', () => {
+    const deepLink = '/consultations?patientId=patient-1&consultationId=consultation-1'
+    const consultationCalls = () =>
+      mockedApi.get.mock.calls.filter(([url]) => String(url).startsWith('/consultations/patient/'))
+
+    function mockConsultations(...responses: Array<Consultation[] | Error>) {
+      let call = 0
+      mockedApi.get.mockImplementation((url: string) => {
+        if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+        if (url.startsWith('/consultations/patient/')) {
+          const next = responses[Math.min(call++, responses.length - 1)]
+          return next instanceof Error ? Promise.reject(next) : Promise.resolve({ data: next })
+        }
+        return Promise.resolve({ data: [] })
+      })
+    }
+
+    it('refetchea una vez y abre el modal si la consulta aparece', async () => {
+      mockConsultations([], [buildConsultation()])
+
+      renderConsultationsPage(deepLink)
+
+      expect(await screen.findByRole('heading', { name: 'Corregir Sesión' })).toBeInTheDocument()
+      await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent(/^$/))
+      expect(consultationCalls()).toHaveLength(2)
+    })
+
+    it('si sigue ausente tras el refetch, limpia el parámetro sin entrar en bucle', async () => {
+      mockConsultations([])
+
+      renderConsultationsPage(deepLink)
+
+      await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent(/^$/))
+      expect(screen.queryByRole('heading', { name: 'Corregir Sesión' })).not.toBeInTheDocument()
+      expect(consultationCalls()).toHaveLength(2)
+    })
+
+    it('si el refetch falla, limpia el parámetro sin reintentar', async () => {
+      mockConsultations([], new Error('network'))
+
+      renderConsultationsPage(deepLink)
+
+      await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent(/^$/))
+      expect(screen.queryByRole('heading', { name: 'Corregir Sesión' })).not.toBeInTheDocument()
+      expect(consultationCalls()).toHaveLength(2)
+    })
   })
 
   // sdd/online-payment-integration PR 3 (T10.6): design.md REST table --

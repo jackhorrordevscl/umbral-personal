@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../api/client';
 
 export interface MfaHistoryEntry {
@@ -32,17 +32,28 @@ export function useGenerateMfa() {
   });
 }
 
+// Issue #292: activar/desactivar cambia profile.mfaEnabled; sin invalidar
+// ['profile'], MfaCard se remonta en el paso equivocado y el backend responde
+// 401 'MFA ya está activo'.
 export function useEnableMfa() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (token: string) =>
       api
         .post<{ recoveryCodes?: string[] }>('/auth/mfa/enable', { token })
         .then((r) => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    },
   });
 }
 
 export function useDisableMfa() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (token: string) => api.post('/auth/mfa/disable', { token }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    },
   });
 }

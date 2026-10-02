@@ -18,8 +18,11 @@ export function useUploadPatientDocument(patientId: string | undefined) {
   return useMutation({
     mutationFn: ({ file, type, consultationGroupId }: { file: File; type: string; consultationGroupId?: string }) =>
       documentsApi.uploadPatientDocument(patientId as string, file, type, consultationGroupId),
+    // Issue #292: subir un consentimiento registra un GRANT en el backend, así
+    // que también se refresca la lista de pacientes (estado de consentimiento).
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['patient-documents', patientId] });
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
     },
   });
 }

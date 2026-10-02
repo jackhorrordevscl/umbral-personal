@@ -19,6 +19,8 @@ export function useCreateConsultation() {
     mutationFn: consultationsApi.createConsultation,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['consultations'] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['acquisition-stats'] });
     },
   });
 }
@@ -30,6 +32,8 @@ export function useCorrectConsultation() {
       consultationsApi.correctConsultation(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['consultations'] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['acquisition-stats'] });
     },
   });
 }

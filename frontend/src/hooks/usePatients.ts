@@ -45,6 +45,7 @@ export function useCreatePatient() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['patients'] });
+      queryClient.invalidateQueries({ queryKey: ['acquisition-stats'] });
     },
   });
 }
@@ -77,8 +78,9 @@ export function useUpdatePatient() {
       const patient = await patientsApi.getPatient(id);
       return { patient, failed };
     },
-    onSuccess: () => {
+    onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['patients'] });
+      queryClient.invalidateQueries({ queryKey: ['patient-history', id] });
     },
   });
 }
@@ -108,6 +110,8 @@ export function useDeletePatient() {
     mutationFn: (id: string) => patientsApi.deletePatient(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['patients'] });
+      queryClient.invalidateQueries({ queryKey: ['acquisition-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['consultation-stats'] });
     },
   });
 }
