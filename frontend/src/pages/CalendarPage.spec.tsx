@@ -179,6 +179,28 @@ describe('CalendarPage', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
   })
 
+  it('si falla la carga del mes nuevo tras navegar muestra el error y no deja la grilla del mes anterior', async () => {
+    mockGets([buildSession()])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    renderCalendarPage()
+    await screen.findByTestId('day-cell-2026-09-10')
+
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/consultations/range') return Promise.reject(new Error('boom'))
+      if (url === '/calendar-integration/status')
+        return Promise.resolve({ data: baseCalendarStatus() })
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+    await user.click(screen.getByRole('button', { name: 'Mes siguiente' }))
+
+    expect(
+      await screen.findByText('No se pudieron cargar las sesiones de este mes.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Cargando calendario...')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('day-cell-2026-10-10')).not.toBeInTheDocument()
+  })
+
   it('si un refetch falla con sesiones del mes en caché avisa pero mantiene la grilla', async () => {
     mockGets([buildSession()])
 

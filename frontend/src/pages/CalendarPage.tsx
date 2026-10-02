@@ -105,7 +105,7 @@ export default function CalendarPage() {
         <div className="card flex items-center justify-center h-48">
           <p className="text-slate-500 text-sm">Cargando calendario...</p>
         </div>
-      ) : !sessions || (isPlaceholderData && isError) ? (
+      ) : !sessions ? (
         <ErrorBanner
           icon
           message={
