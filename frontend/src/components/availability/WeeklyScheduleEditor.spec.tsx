@@ -78,4 +78,23 @@ describe('WeeklyScheduleEditor — therapist-availability Req: Weekly Recurring 
     ).toBeInTheDocument()
     expect(mockedApi.put).not.toHaveBeenCalled()
   })
+
+  it('si falla la carga del horario no monta el formulario ni permite guardar, y reintenta', async () => {
+    mockedApi.get.mockRejectedValueOnce(new Error('boom'))
+    const user = userEvent.setup()
+    renderEditor()
+
+    expect(
+      await screen.findByText(/No se pudo cargar tu horario/),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Guardar horario' })).toBeNull()
+    expect(screen.queryByText('Sin horario')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'Guardar horario' }),
+    ).toBeInTheDocument()
+    expect(mockedApi.put).not.toHaveBeenCalled()
+  })
 })

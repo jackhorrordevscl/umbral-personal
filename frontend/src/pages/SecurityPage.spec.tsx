@@ -105,8 +105,32 @@ describe('SecurityPage — account-settings Req: Security Section Scope', () => 
 
     expect(await screen.findByText('Google Calendar')).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'Conectar con Google Calendar' }),
+      await screen.findByRole('button', { name: 'Conectar con Google Calendar' }),
     ).toBeInTheDocument()
+  })
+
+  it('si falla el estado de Google Calendar no ofrece "Conectar" y permite reintentar', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/profile') return Promise.resolve({ data: baseProfile() })
+      if (url === '/profile/mfa-history') return Promise.resolve({ data: [] })
+      if (url === '/calendar-integration/status') return Promise.reject(new Error('boom'))
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+
+    renderSecurityPage()
+
+    expect(
+      await screen.findByText('No se pudo verificar el estado de Google Calendar.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Conectar con Google Calendar' }),
+    ).not.toBeInTheDocument()
+
+    mockGets(baseProfile(), baseCalendarStatus({ status: 'CONNECTED' }))
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    expect(await screen.findByText('Conectado')).toBeInTheDocument()
   })
 
   it('con conexión CONNECTED, muestra el botón de desconectar (panel completo, no un badge de solo lectura)', async () => {

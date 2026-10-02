@@ -54,7 +54,7 @@ const scheduleFormSchema = z.object({
 type ScheduleFormValues = z.infer<typeof scheduleFormSchema>;
 
 export default function WeeklyScheduleEditor() {
-  const { data: schedule, isLoading } = useSchedule();
+  const { data: schedule, isLoading, isError, refetch } = useSchedule();
   const saveSchedule = useSaveSchedule();
   const [successMessage, setSuccessMessage] = useState('');
   const [submitError, setSubmitError] = useState('');
@@ -119,6 +119,18 @@ export default function WeeklyScheduleEditor() {
 
       {isLoading ? (
         <p className="text-sm text-slate-500">Cargando horario...</p>
+      ) : !schedule ? (
+        // Sin horario cargado (error) no se monta el form: guardar hace un PUT
+        // de reemplazo total y borraría el horario real con los valores por defecto.
+        <ErrorBanner
+          icon
+          message={
+            isError
+              ? 'No se pudo cargar tu horario. Reintenta para poder editarlo.'
+              : 'Tu horario no está disponible.'
+          }
+          onRetry={() => void refetch()}
+        />
       ) : (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           <div>

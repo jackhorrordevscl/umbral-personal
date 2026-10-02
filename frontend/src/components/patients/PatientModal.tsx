@@ -369,7 +369,10 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                 {documentsQuery.isLoading ? (
                   <p className="text-xs text-slate-500">Cargando...</p>
                 ) : documents.length === 0 ? (
-                  <p className="text-xs text-slate-500 mb-3">Sin documentos subidos.</p>
+                  // Con error de carga el vacío sería falso: ya se muestra el aviso.
+                  documentsQuery.isError ? null : (
+                    <p className="text-xs text-slate-500 mb-3">Sin documentos subidos.</p>
+                  )
                 ) : (
                   <div className="space-y-2 mb-3">
                     {documents.map((doc) => {

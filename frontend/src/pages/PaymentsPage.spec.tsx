@@ -227,6 +227,24 @@ describe('PaymentsPage — connection wizard (payments-multigateway-redesign)', 
   // usePaymentAccount.ts / PaymentsPage.tsx was already correct and
   // unchanged, only runtime coverage was missing.
 
+  it('si falla la carga de la cuenta no ofrece el asistente de conexión y permite reintentar', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockRejectedValueOnce(new Error('boom'))
+
+    renderPaymentsPage()
+
+    expect(
+      await screen.findByText(/No se pudo verificar el estado de tu cuenta de pagos/),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /comenzar/i })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    expect(
+      await screen.findByRole('button', { name: /comenzar/i }),
+    ).toBeInTheDocument()
+  })
+
   it('spec "Legacy account is flagged and blocked from silent charge creation": una cuenta RECONNECT_REQUIRED muestra el banner de reconexión', async () => {
     mockedApi.get.mockImplementation((url: string) => {
       if (url === '/payments/account') {

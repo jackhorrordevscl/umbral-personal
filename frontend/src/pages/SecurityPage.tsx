@@ -341,7 +341,11 @@ export default function SecurityPage() {
   // useCalendarStatus (GET /calendar-integration/status por separado del
   // GET /profile de abajo -- vive en su propio módulo,
   // CalendarIntegrationController, no en ProfileService).
-  const { data: calendarStatus } = useCalendarStatus();
+  const {
+    data: calendarStatus,
+    isLoading: calendarStatusLoading,
+    refetch: refetchCalendarStatus,
+  } = useCalendarStatus();
   const connectCalendarMutation = useConnectCalendar();
   const disconnectCalendarMutation = useDisconnectCalendar();
   const calendarLoading =
@@ -480,7 +484,17 @@ export default function SecurityPage() {
           )}
           {calendarError && <ErrorBanner message={calendarError} className="mb-4" />}
 
-          {calendarStatus?.status === 'CONNECTED' ? (
+          {calendarStatusLoading ? (
+            <p className="text-sm text-slate-500">Verificando estado de Google Calendar...</p>
+          ) : !calendarStatus ? (
+            // Sin conocer el estado real no se ofrece "Conectar": una cuenta ya
+            // conectada se vería como si no lo estuviera.
+            <ErrorBanner
+              icon
+              message="No se pudo verificar el estado de Google Calendar."
+              onRetry={() => void refetchCalendarStatus()}
+            />
+          ) : calendarStatus.status === 'CONNECTED' ? (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-emerald-600">
                 <ShieldCheck size={18} />

@@ -19,7 +19,7 @@ const STATUS_LABELS: Record<CalendarConnectionStatus['status'], string> = {
 // vive acá (esos quedan solo en el panel completo de SecurityPage,
 // tasks.md 5.7).
 export default function CalendarSyncBadge() {
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['calendar-integration-status'],
     queryFn: async (): Promise<CalendarConnectionStatus> => {
       const res = await api.get('/calendar-integration/status');
@@ -27,8 +27,21 @@ export default function CalendarSyncBadge() {
     },
   });
 
+  // Carga o error no son "sin configurar": se muestra un estado propio para
+  // no afirmar que una cuenta conectada no lo está (issue #294).
+  const unavailableLabel = isLoading
+    ? 'Verificando Google Calendar...'
+    : !data
+      ? 'Estado de Google Calendar no disponible'
+      : null;
   const status = data?.status ?? 'PENDING';
-  const Icon = status === 'CONNECTED' ? CalendarCheck : status === 'DISCONNECTED' ? CalendarOff : Calendar;
+  const Icon = unavailableLabel
+    ? Calendar
+    : status === 'CONNECTED'
+      ? CalendarCheck
+      : status === 'DISCONNECTED'
+        ? CalendarOff
+        : Calendar;
 
   return (
     <Link
@@ -38,7 +51,7 @@ export default function CalendarSyncBadge() {
       title="Ver estado de Google Calendar en Seguridad"
     >
       <Icon size={14} />
-      {STATUS_LABELS[status]}
+      {unavailableLabel ?? STATUS_LABELS[status]}
     </Link>
   );
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
 import DashboardPage from './DashboardPage'
@@ -39,6 +40,69 @@ function renderDashboard() {
     </QueryClientProvider>,
   )
 }
+
+describe('DashboardPage — issue #294 carga y error distintos de vacío', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('mientras cargan pacientes y estadísticas muestra skeletons y no "No hay pacientes registrados aún."', async () => {
+    mockedApi.get.mockImplementation(() => new Promise(() => {}))
+
+    renderDashboard()
+
+    expect(await screen.findByText('Cargando pacientes...')).toBeInTheDocument()
+    expect(screen.getAllByRole('status')).toHaveLength(4)
+    expect(screen.queryByText('No hay pacientes registrados aún.')).not.toBeInTheDocument()
+  })
+
+  it('si falla la carga de pacientes no muestra el vacío ni ceros, y permite reintentar', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.reject(new Error('boom'))
+      if (url === '/consultations/stats') {
+        return Promise.resolve({ data: { total: 7, upcoming: 2 } })
+      }
+      if (url === '/patients/stats/acquisition') return Promise.resolve({ data: [] })
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+
+    renderDashboard()
+
+    expect(await screen.findByText('No se pudieron cargar los pacientes.')).toBeInTheDocument()
+    expect(screen.queryByText('No hay pacientes registrados aún.')).not.toBeInTheDocument()
+    // Las tarjetas dependientes de pacientes muestran "—" en vez de 0.
+    expect(screen.getAllByText('—')).toHaveLength(2)
+    // Las de consultas siguen con su valor real.
+    expect(screen.getByText('7')).toBeInTheDocument()
+
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: [] })
+      if (url === '/consultations/stats') {
+        return Promise.resolve({ data: { total: 7, upcoming: 2 } })
+      }
+      if (url === '/patients/stats/acquisition') return Promise.resolve({ data: [] })
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    expect(await screen.findByText('No hay pacientes registrados aún.')).toBeInTheDocument()
+  })
+
+  it('si falla la carga de estadísticas de consultas muestra "—" en vez de 0', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: [] })
+      if (url === '/consultations/stats') return Promise.reject(new Error('boom'))
+      if (url === '/patients/stats/acquisition') return Promise.resolve({ data: [] })
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+
+    renderDashboard()
+
+    expect(await screen.findByText(/no se pudieron cargar algunas estadísticas/i)).toBeInTheDocument()
+    expect(screen.getAllByText('—')).toHaveLength(2)
+  })
+})
 
 describe('DashboardPage — issue #157 sección "Origen de pacientes"', () => {
   beforeEach(() => {

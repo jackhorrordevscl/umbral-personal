@@ -251,7 +251,7 @@ export default function ConsultationsPage() {
 
   const { data: patients = [], isError: patientsError } = usePatients();
 
-  const { data: consultations = [], isError: consultationsError, isSuccess: consultationsLoaded } =
+  const { data: consultations = [], isError: consultationsError, isSuccess: consultationsLoaded, isLoading: consultationsLoading } =
     useConsultations(selectedPatientId || undefined);
   const { data: patientDocuments = [] } = usePatientDocuments(selectedPatientId || undefined);
 
@@ -604,7 +604,11 @@ export default function ConsultationsPage() {
                 Selecciona un paciente para ver su historial
               </p>
             </div>
-          ) : consultations.length === 0 ? (
+          ) : consultationsLoading ? (
+            <div className="card flex items-center justify-center h-48">
+              <p className="text-slate-500 text-sm">Cargando consultas...</p>
+            </div>
+          ) : consultationsError ? null : consultations.length === 0 ? (
             <div className="card flex items-center justify-center h-48">
               <p className="text-slate-500 text-sm">Sin consultas registradas</p>
             </div>

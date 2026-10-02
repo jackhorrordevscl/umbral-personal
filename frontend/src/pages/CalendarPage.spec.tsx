@@ -109,6 +109,42 @@ describe('CalendarPage', () => {
     })
   })
 
+  it('mientras cargan las sesiones muestra el estado de carga y no la grilla (no se puede agendar)', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/consultations/range') return new Promise(() => {})
+      if (url === '/calendar-integration/status')
+        return Promise.resolve({ data: baseCalendarStatus() })
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+
+    renderCalendarPage()
+
+    expect(await screen.findByText('Cargando calendario...')).toBeInTheDocument()
+    expect(screen.queryByTestId('day-cell-2026-09-10')).not.toBeInTheDocument()
+  })
+
+  it('si falla la carga de sesiones muestra un banner con reintento y no la grilla', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/consultations/range') return Promise.reject(new Error('boom'))
+      if (url === '/calendar-integration/status')
+        return Promise.resolve({ data: baseCalendarStatus() })
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+
+    renderCalendarPage()
+
+    expect(
+      await screen.findByText('No se pudieron cargar las sesiones de este mes.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('day-cell-2026-09-10')).not.toBeInTheDocument()
+
+    mockGets([])
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    expect(await screen.findByTestId('day-cell-2026-09-10')).toBeInTheDocument()
+  })
+
   it('renderiza las celdas de spillover del mes adyacente (agosto y octubre)', async () => {
     renderCalendarPage()
 

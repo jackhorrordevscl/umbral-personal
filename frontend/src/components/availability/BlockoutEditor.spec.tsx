@@ -117,4 +117,21 @@ describe('BlockoutEditor — therapist-availability Req: Availability Blockouts'
       await screen.findByText('Sin bloqueos registrados.'),
     ).toBeInTheDocument()
   })
+
+  it('si falla el listado muestra el error con reintento y no "Sin bloqueos registrados."', async () => {
+    mockedApi.get.mockRejectedValueOnce(new Error('boom'))
+    const user = userEvent.setup()
+    renderEditor()
+
+    expect(
+      await screen.findByText('No se pudieron cargar tus bloqueos.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Sin bloqueos registrados.')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    expect(
+      await screen.findByText('Sin bloqueos registrados.'),
+    ).toBeInTheDocument()
+  })
 })

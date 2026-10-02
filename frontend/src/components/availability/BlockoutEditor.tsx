@@ -95,7 +95,7 @@ const blockoutFormSchema = z
 type BlockoutFormValues = z.infer<typeof blockoutFormSchema>;
 
 export default function BlockoutEditor() {
-  const { data: blockouts, isLoading } = useBlockouts();
+  const { data: blockouts, isLoading, refetch } = useBlockouts();
   const createBlockout = useCreateBlockout();
   const deleteBlockout = useDeleteBlockout();
   const [submitError, setSubmitError] = useState('');
@@ -285,7 +285,13 @@ export default function BlockoutEditor() {
 
       {isLoading ? (
         <p className="text-sm text-slate-500">Cargando bloqueos...</p>
-      ) : blockouts && blockouts.length > 0 ? (
+      ) : !blockouts ? (
+        <ErrorBanner
+          icon
+          message="No se pudieron cargar tus bloqueos."
+          onRetry={() => void refetch()}
+        />
+      ) : blockouts.length > 0 ? (
         <ul className="space-y-2">
           {blockouts.map((blockout) => (
             <li

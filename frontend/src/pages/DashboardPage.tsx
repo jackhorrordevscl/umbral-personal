@@ -7,6 +7,7 @@ import { getConsultationStats } from "../api/consultations";
 import { getAcquisitionStats } from "../api/patients";
 import { activateOnKey } from "../utils/activate-on-key";
 import EmptyState from "../components/ui/EmptyState";
+import ErrorBanner from "../components/ui/ErrorBanner";
 
 const ACQUISITION_COLORS = [
   "bg-sage-500",
@@ -21,13 +22,19 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const { data: patients = [], isError: patientsError } = usePatients();
+  const {
+    data: patients = [],
+    isLoading: patientsLoading,
+    isError: patientsError,
+    refetch: refetchPatients,
+  } = usePatients();
 
   // Issue #40: antes esto era un GET /consultations/patient/:id por cada
   // paciente vía Promise.all (N+1) solo para contar filas. El backend ahora
   // agrega el conteo en una sola consulta.
   const {
-    data: consultationStats = { total: 0, upcoming: 0 },
+    data: consultationStats,
+    isLoading: consultationsLoading,
     isError: consultationsError,
   } = useQuery({
     queryKey: ["consultation-stats"],
@@ -52,10 +59,20 @@ export default function DashboardPage() {
   });
   const acquisitionTotal = acquisitionStats.reduce((sum, s) => sum + s.count, 0);
 
+  // Carga/error se distinguen del valor real: nunca se muestra un 0 que en
+  // realidad es "todavía no llegó" o "falló" (issue #294).
+  const patientsState = patientsLoading ? "loading" : patientsError ? "error" : "ready";
+  const consultationsState = consultationsLoading
+    ? "loading"
+    : consultationsError
+      ? "error"
+      : "ready";
+
   const stats = [
     {
       label: "Pacientes activos",
       value: patients.length,
+      state: patientsState,
       icon: Users,
       color: "text-sage-600",
       bg: "bg-sage-50",
@@ -63,7 +80,8 @@ export default function DashboardPage() {
     },
     {
       label: "Consultas registradas",
-      value: consultationStats.total,
+      value: consultationStats?.total ?? 0,
+      state: consultationsState,
       icon: ClipboardList,
       color: "text-blue-600",
       bg: "bg-blue-50",
@@ -80,6 +98,7 @@ export default function DashboardPage() {
       // de los dos ya cuenta como "consentimiento firmado" (ver
       // PatientsPage.hasAnyConsent, mismo criterio).
       value: patients.filter((p) => p.consents?.TREATMENT || p.consents?.TELEMEDICINE).length,
+      state: patientsState,
       icon: FileText,
       color: "text-emerald-600",
       bg: "bg-emerald-50",
@@ -87,7 +106,8 @@ export default function DashboardPage() {
     },
     {
       label: "Próximas sesiones",
-      value: consultationStats.upcoming,
+      value: consultationStats?.upcoming ?? 0,
+      state: consultationsState,
       icon: Calendar,
       color: "text-amber-600",
       bg: "bg-amber-50",
@@ -136,9 +156,17 @@ export default function DashboardPage() {
                   <stat.icon size={18} className={stat.color} />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xl md:text-2xl font-display text-slate-900">
-                    {stat.value}
-                  </p>
+                  {stat.state === "loading" ? (
+                    <div
+                      role="status"
+                      aria-label={`Cargando ${stat.label}`}
+                      className="h-7 w-10 rounded bg-slate-200 animate-pulse"
+                    />
+                  ) : (
+                    <p className="text-xl md:text-2xl font-display text-slate-900">
+                      {stat.state === "error" ? "—" : stat.value}
+                    </p>
+                  )}
                   <p className="text-xs text-slate-500 truncate">{stat.label}</p>
                 </div>
               </div>
@@ -162,7 +190,17 @@ export default function DashboardPage() {
                 Ver todos →
               </button>
             </div>
-            {patients.length === 0 ? (
+            {patientsLoading ? (
+              <p className="text-slate-500 text-sm text-center py-8">
+                Cargando pacientes...
+              </p>
+            ) : patientsError ? (
+              <ErrorBanner
+                icon
+                message="No se pudieron cargar los pacientes."
+                onRetry={() => void refetchPatients()}
+              />
+            ) : patients.length === 0 ? (
               <EmptyState message="No hay pacientes registrados aún." />
             ) : (
               <div className="divide-y divide-slate-100">
