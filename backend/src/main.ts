@@ -3,8 +3,8 @@ import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
-import { exec, type ExecException } from 'child_process';
 import * as path from 'path';
+import { runMigrations } from './common/utils/run-migrations';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
@@ -52,15 +52,17 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api/v1');
 
-  const port = process.env.PORT || 3001;
-  await app.listen(port, '0.0.0.0');
-  console.log(`🚀 Servidor corriendo en puerto: ${port}`);
-  // Las migraciones corren DESPUÉS de que el servidor esté live: RUN_MIGRATIONS
-  // es el mecanismo permanente para entornos cuyo Start Command no las corre
-  // por su cuenta (ver comentario más abajo sobre por qué esto puede
-  // duplicarse con el Start Command de Render, y por qué eso es seguro).
+  // Cierre ordenado ante SIGTERM/SIGINT (Render envía SIGTERM en cada deploy):
+  // dispara OnModuleDestroy/OnApplicationShutdown, p. ej. desconectar Prisma.
+  app.enableShutdownHooks();
+
+  // RUN_MIGRATIONS es el mecanismo opt-in para entornos cuyo Start Command no
+  // corre las migraciones por su cuenta (ver comentario más abajo sobre por
+  // qué esto puede duplicarse con el Start Command de Render, y por qué eso es
+  // seguro). Corren ANTES de app.listen y se espera su resultado: si fallan no
+  // se sirve tráfico, para no atender requests con un esquema desactualizado.
   if (process.env.RUN_MIGRATIONS === 'true') {
-    console.log('🔄 Ejecutando migraciones Prisma (async)...');
+    console.log('🔄 Ejecutando migraciones Prisma...');
     const backendRoot = __dirname.includes('/dist/')
       ? path.join(__dirname, '..', '..')
       : path.join(__dirname, '..');
@@ -73,19 +75,24 @@ async function bootstrap() {
     // devDependencies asumiendo que es "solo una CLI de build", esto rompe en
     // producción si el entorno de deploy alguna vez podara devDependencies
     // antes del arranque.
-    exec(
-      'npx prisma migrate deploy',
-      { cwd: backendRoot },
-      (error: ExecException | null, stdout: string, stderr: string) => {
-        if (error) {
-          console.error('❌ Error en migraciones:', error.message);
-          console.error('stderr:', stderr);
-        } else {
-          console.log('✅ Migraciones completadas:', stdout);
-        }
-      },
-    );
+    try {
+      const { stdout } = await runMigrations(backendRoot);
+      console.log('✅ Migraciones completadas:', stdout);
+    } catch (error) {
+      console.error(
+        '❌ Error en migraciones, el servidor no arrancará:',
+        error instanceof Error ? error.message : error,
+      );
+      process.exit(1);
+    }
   }
+
+  const port = process.env.PORT || 3001;
+  await app.listen(port, '0.0.0.0');
+  console.log(`🚀 Servidor corriendo en puerto: ${port}`);
 }
 
-void bootstrap();
+bootstrap().catch((error: unknown) => {
+  console.error('❌ Error fatal al arrancar la aplicación:', error);
+  process.exit(1);
+});
