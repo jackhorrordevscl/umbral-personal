@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { useAuth } from '../context/useAuth';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
+import { getPostLoginPath } from '../utils/redirect';
 import RecoveryCodesReveal from '../components/RecoveryCodesReveal';
 import ErrorBanner from '../components/ui/ErrorBanner';
 
@@ -26,6 +27,9 @@ export default function LoginPage() {
   const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  // Issue #293: PrivateRoute y el handler de 401 pasan la ruta de origen en
+  // state.from para que enlaces de notificaciones/correos no pierdan su destino.
+  const postLoginPath = getPostLoginPath(location.state);
   // Issue #76 (PR B, follow-up): tras un cambio de contraseña exitoso en
   // /settings, la sesión actual queda invalidada de inmediato (sin token de
   // reemplazo) -- se redirige acá con un mensaje explicando por qué, en vez
@@ -88,7 +92,7 @@ export default function LoginPage() {
       void beginMfaSetup(data.setupToken ?? '');
     } else if (data.accessToken && data.user) {
       login(data.accessToken, data.user);
-      navigate('/dashboard');
+      navigate(postLoginPath);
     }
   };
 
@@ -171,7 +175,7 @@ export default function LoginPage() {
         token: mfaCode,
       });
       login(res.data.accessToken, res.data.user);
-      navigate('/dashboard');
+      navigate(postLoginPath);
     } catch (error) {
       setError(getApiErrorMessage(error, 'Código MFA inválido. Intenta de nuevo.'));
     } finally {
@@ -202,7 +206,7 @@ export default function LoginPage() {
         setRecoveryCodes(res.data.recoveryCodes);
       } else {
         login(res.data.accessToken, res.data.user);
-        navigate('/dashboard');
+        navigate(postLoginPath);
       }
     } catch (error) {
       setError(getApiErrorMessage(error, 'Código MFA inválido. Intenta de nuevo.'));
@@ -214,7 +218,7 @@ export default function LoginPage() {
   // Con una sesión activa (token restaurado de localStorage) el login no
   // tiene sentido y dejaba activo el aviso de inactividad sobre esta página.
   if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={postLoginPath} replace />;
   }
 
   if (recoveryCodes && pendingAuth) {
@@ -226,7 +230,7 @@ export default function LoginPage() {
             continueLabel="Ya guardé mis códigos, continuar"
             onContinue={() => {
               login(pendingAuth.accessToken, pendingAuth.user);
-              navigate('/dashboard');
+              navigate(postLoginPath);
             }}
           />
         </div>

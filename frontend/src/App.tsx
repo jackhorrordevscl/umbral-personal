@@ -4,12 +4,14 @@ import {
   Routes,
   Route,
   Navigate,
+  useLocation,
   useNavigate,
 } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "./context/AuthContext";
 import { useAuth } from "./context/useAuth";
 import { setUnauthorizedHandler } from "./api/client";
+import { toFromPath } from "./utils/redirect";
 import IdleManager from "./components/IdleManager";
 import Layout from "./components/Layout";
 
@@ -58,7 +60,13 @@ const queryClient = new QueryClient({
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" />;
+  const location = useLocation();
+  // Issue #293: se recuerda el destino para volver a él tras iniciar sesión.
+  return isAuthenticated ? (
+    <>{children}</>
+  ) : (
+    <Navigate to="/login" state={{ from: toFromPath(location) }} />
+  );
 }
 
 // Issue #203: un 401 en una llamada normal cierra la sesión vía AuthContext y
@@ -66,14 +74,16 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 function SessionExpiredHandler() {
   const { logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = toFromPath(location);
 
   useEffect(
     () =>
       setUnauthorizedHandler(() => {
         logout();
-        navigate("/login");
+        navigate("/login", { state: { from } });
       }),
-    [logout, navigate],
+    [logout, navigate, from],
   );
 
   return null;
