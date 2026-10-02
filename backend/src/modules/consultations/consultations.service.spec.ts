@@ -1321,6 +1321,33 @@ describe('ConsultationsService', () => {
       ).resolves.toBeDefined();
     });
 
+    // issue #336: orden de locks User -> Patient.
+    it('toma el lock FOR UPDATE del terapeuta antes del FOR SHARE del paciente', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+      prisma.bookedSlot.create.mockResolvedValue({ id: 'booked-1' });
+      prisma.consultation.create.mockResolvedValue(
+        buildConsultation({ sessionDate: slotStart }),
+      );
+
+      await service.createFromPublicBooking(
+        'therapist-1',
+        'patient-1',
+        '11111111-1',
+        slotStart,
+        50,
+      );
+
+      const calls = prisma.$queryRaw.mock.calls as unknown[][];
+      const sql = calls.map((call) =>
+        (call[0] as TemplateStringsArray).join('?'),
+      );
+      expect(sql).toHaveLength(2);
+      expect(sql[0]).toContain('"User"');
+      expect(sql[0]).toContain('FOR UPDATE');
+      expect(sql[1]).toContain('"Patient"');
+      expect(sql[1]).toContain('FOR SHARE');
+    });
+
     it('si el paciente fue eliminado (lock sin filas) lanza 409 sin escribir', async () => {
       prisma.$queryRaw.mockResolvedValue([]);
 

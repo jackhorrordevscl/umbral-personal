@@ -115,6 +115,28 @@ export class ConsultationsService {
     });
   }
 
+  // issue #336: lock por terapeuta que serializa toda escritura que decide o
+  // altera la ocupación de su agenda (reserva pública, create(), correct() con
+  // cambio de fecha). Se mantiene hasta el commit de la transacción: una
+  // reserva que espere el lock ve, en su recheck, las consultas ya confirmadas
+  // por la anterior -- incluso con inicios distintos pero intervalos
+  // solapados, que el @@unique de BookedSlot no detecta.
+  //
+  // ORDEN DE LOCKS (evita deadlocks): siempre User ANTES que Patient. Quien
+  // necesite ambos (createFromPublicBooking) toma primero este lock y recién
+  // después el FOR SHARE del paciente; PatientsService.softDelete solo toma
+  // Patient FOR UPDATE, así que no cierra un ciclo. Cualquier camino que
+  // inserte un Patient dentro de la misma transacción (FK -> KEY SHARE sobre
+  // la fila del User) debe llamar a este método ANTES de ese insert, o dos
+  // transacciones concurrentes podrían quedar esperándose al escalar a FOR
+  // UPDATE.
+  async lockTherapistSchedule(
+    tx: Prisma.TransactionClient,
+    therapistId: string,
+  ): Promise<void> {
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${therapistId} FOR UPDATE`;
+  }
+
   async create(dto: CreateConsultationDto, therapistId: string) {
     // assertAccess lanza NotFoundException si el paciente no existe o no
     // pertenece al profesional autenticado -- sin este chequeo, cualquier
@@ -139,6 +161,7 @@ export class ConsultationsService {
     // telemedicina) habilita la consulta, sin importar el sessionType de
     // esta sesión puntual.
     const consultation = await this.prisma.$transaction(async (tx) => {
+      await this.lockTherapistSchedule(tx, therapistId);
       const consentStatus = await this.patientsService.getConsentStatusMap(
         [dto.patientId],
         tx,
@@ -396,6 +419,15 @@ export class ConsultationsService {
       // que create(). Corre dentro de la misma transacción que la
       // escritura -- misma razón que en create(), cierra la ventana de
       // carrera entre el chequeo y el insert.
+      //
+      // issue #336: si la sesión cambia de fecha, la corrección altera la
+      // ocupación de la agenda -> mismo lock por terapeuta que la reserva.
+      if (
+        dto.sessionDate &&
+        parseDate(dto.sessionDate).getTime() !== original.sessionDate.getTime()
+      ) {
+        await this.lockTherapistSchedule(tx, original.therapistId);
+      }
       const consentStatus = await this.patientsService.getConsentStatusMap(
         [original.patientId],
         tx,
@@ -599,6 +631,11 @@ export class ConsultationsService {
     const id = randomUUID();
 
     const write = async (tx: Prisma.TransactionClient) => {
+      // issue #336: primero el lock del terapeuta (serializa reservas con
+      // inicios distintos pero intervalos solapados; reentrante si el llamador
+      // ya lo tomó), después el del paciente: orden User -> Patient.
+      await this.lockTherapistSchedule(tx, therapistId);
+
       // issue #285: lock compartido sobre el paciente, contrapartida del FOR
       // UPDATE de PatientsService.softDelete -- evita que un soft-delete
       // concurrente deje un BookedSlot huérfano. Si el paciente ya fue
