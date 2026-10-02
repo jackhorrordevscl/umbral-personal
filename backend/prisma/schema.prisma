@@ -260,6 +260,10 @@ model Consultation {
   therapistId     String
   therapist       User        @relation(fields: [therapistId], references: [id])
   sessionDate     DateTime
+  // Duración reservada de esta sesión (issue #336): la ocupación del horario es
+  // [sessionDate, sessionDate + durationMinutes), independiente de cambios
+  // posteriores en User.sessionDurationMinutes.
+  durationMinutes Int
   consultReason   String
   intervention    String
   agreements      String?

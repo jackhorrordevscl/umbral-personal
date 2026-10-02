@@ -186,6 +186,11 @@ export class PublicSchedulingService {
     // notificación y los efectos post-reserva corren recién tras el commit.
     const { patient, isNew, consultation } = await this.prisma.$transaction(
       async (tx) => {
+        // issue #336: lock del terapeuta ANTES de resolveForPublicBooking --
+        // si éste inserta un Patient toma KEY SHARE sobre la fila del User, y
+        // escalar luego a FOR UPDATE podría deadlockear con otra reserva.
+        // Orden de locks: User -> Patient.
+        await this.consultationsService.lockTherapistSchedule(tx, therapistId);
         const resolved = await this.patientsService.resolveForPublicBooking(
           therapistId,
           dto.patient,

@@ -63,6 +63,7 @@ describe('CalendarSyncService (integration, real Prisma)', () => {
         patientId,
         therapistId,
         sessionDate,
+        durationMinutes: 50,
         consultReason: 'Motivo de integración',
         intervention: 'Intervención de integración',
         scheduledAt: sessionDate,

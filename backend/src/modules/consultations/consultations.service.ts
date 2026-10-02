@@ -26,6 +26,10 @@ import { ConsultationRangeQueryDto } from './dto/consultation-range-query.dto';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 import { sanitizeClinicalNote } from '../../common/utils/clinical-note-sanitizer.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
+import {
+  DEFAULT_SESSION_MINUTES,
+  MAX_SESSION_MINUTES,
+} from '../calendar-integration/calendar-integration.constants';
 
 function parseDate(dateStr: string): Date {
   if (dateStr.includes('T') || dateStr.includes(' ')) {
@@ -111,6 +115,28 @@ export class ConsultationsService {
     });
   }
 
+  // issue #336: lock por terapeuta que serializa toda escritura que decide o
+  // altera la ocupación de su agenda (reserva pública, create(), correct() con
+  // cambio de fecha). Se mantiene hasta el commit de la transacción: una
+  // reserva que espere el lock ve, en su recheck, las consultas ya confirmadas
+  // por la anterior -- incluso con inicios distintos pero intervalos
+  // solapados, que el @@unique de BookedSlot no detecta.
+  //
+  // ORDEN DE LOCKS (evita deadlocks): siempre User ANTES que Patient. Quien
+  // necesite ambos (createFromPublicBooking) toma primero este lock y recién
+  // después el FOR SHARE del paciente; PatientsService.softDelete solo toma
+  // Patient FOR UPDATE, así que no cierra un ciclo. Cualquier camino que
+  // inserte un Patient dentro de la misma transacción (FK -> KEY SHARE sobre
+  // la fila del User) debe llamar a este método ANTES de ese insert, o dos
+  // transacciones concurrentes podrían quedar esperándose al escalar a FOR
+  // UPDATE.
+  async lockTherapistSchedule(
+    tx: Prisma.TransactionClient,
+    therapistId: string,
+  ): Promise<void> {
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${therapistId} FOR UPDATE`;
+  }
+
   async create(dto: CreateConsultationDto, therapistId: string) {
     // assertAccess lanza NotFoundException si el paciente no existe o no
     // pertenece al profesional autenticado -- sin este chequeo, cualquier
@@ -135,6 +161,7 @@ export class ConsultationsService {
     // telemedicina) habilita la consulta, sin importar el sessionType de
     // esta sesión puntual.
     const consultation = await this.prisma.$transaction(async (tx) => {
+      await this.lockTherapistSchedule(tx, therapistId);
       const consentStatus = await this.patientsService.getConsentStatusMap(
         [dto.patientId],
         tx,
@@ -146,6 +173,13 @@ export class ConsultationsService {
         );
       }
 
+      // issue #336: la sesión nace con la duración vigente del terapeuta y la
+      // conserva aunque después cambie su configuración.
+      const therapist = await tx.user.findUnique({
+        where: { id: therapistId },
+        select: { sessionDurationMinutes: true },
+      });
+
       return tx.consultation.create({
         data: {
           id,
@@ -153,6 +187,8 @@ export class ConsultationsService {
           patientId: dto.patientId,
           therapistId,
           sessionDate: parseDate(dto.sessionDate),
+          durationMinutes:
+            therapist?.sessionDurationMinutes ?? DEFAULT_SESSION_MINUTES,
           consultReason: sanitizeClinicalNote(dto.consultReason),
           intervention: sanitizeClinicalNote(dto.intervention),
           agreements: sanitizeClinicalNote(dto.agreements),
@@ -383,6 +419,15 @@ export class ConsultationsService {
       // que create(). Corre dentro de la misma transacción que la
       // escritura -- misma razón que en create(), cierra la ventana de
       // carrera entre el chequeo y el insert.
+      //
+      // issue #336: si la sesión cambia de fecha, la corrección altera la
+      // ocupación de la agenda -> mismo lock por terapeuta que la reserva.
+      if (
+        dto.sessionDate &&
+        parseDate(dto.sessionDate).getTime() !== original.sessionDate.getTime()
+      ) {
+        await this.lockTherapistSchedule(tx, original.therapistId);
+      }
       const consentStatus = await this.patientsService.getConsentStatusMap(
         [original.patientId],
         tx,
@@ -416,6 +461,8 @@ export class ConsultationsService {
           sessionDate: dto.sessionDate
             ? parseDate(dto.sessionDate)
             : original.sessionDate,
+          // issue #336: una corrección conserva la duración reservada.
+          durationMinutes: original.durationMinutes,
           consultReason: dto.consultReason
             ? sanitizeClinicalNote(dto.consultReason)
             : original.consultReason,
@@ -584,6 +631,11 @@ export class ConsultationsService {
     const id = randomUUID();
 
     const write = async (tx: Prisma.TransactionClient) => {
+      // issue #336: primero el lock del terapeuta (serializa reservas con
+      // inicios distintos pero intervalos solapados; reentrante si el llamador
+      // ya lo tomó), después el del paciente: orden User -> Patient.
+      await this.lockTherapistSchedule(tx, therapistId);
+
       // issue #285: lock compartido sobre el paciente, contrapartida del FOR
       // UPDATE de PatientsService.softDelete -- evita que un soft-delete
       // concurrente deje un BookedSlot huérfano. Si el paciente ya fue
@@ -598,22 +650,30 @@ export class ConsultationsService {
         );
       }
 
-      const conflicting = await tx.consultation.findFirst({
+      // issue #285/#336: solape de intervalos [sessionDate, +durationMinutes)
+      // de cada consulta existente contra [slotStart, slotEnd): una sesión que
+      // empezó antes pero termina después de slotStart también ocupa el
+      // horario. Cada fila trae su propia duración, así que se traen los
+      // candidatos de la ventana (hasta MAX_SESSION_MINUTES hacia atrás) y el
+      // solape exacto (existing.end > slotStart) se decide aquí.
+      const candidates = await tx.consultation.findMany({
         where: {
           therapistId,
           correctedBy: null,
           deletedAt: null,
           patient: { deletedAt: null },
-          // issue #285: solape de intervalos [sessionDate, +duración) contra
-          // [slotStart, slotEnd): una sesión que empezó antes pero termina
-          // después de slotStart también ocupa el horario.
           sessionDate: {
-            gt: new Date(slotStart.getTime() - sessionDurationMinutes * 60000),
+            gt: new Date(slotStart.getTime() - MAX_SESSION_MINUTES * 60000),
             lt: slotEnd,
           },
         },
-        select: { id: true },
+        select: { sessionDate: true, durationMinutes: true },
       });
+      const conflicting = candidates.some(
+        (c) =>
+          c.sessionDate.getTime() + c.durationMinutes * 60000 >
+          slotStart.getTime(),
+      );
       if (conflicting) {
         throw new ConflictException(
           'El horario seleccionado ya no está disponible.',
@@ -631,6 +691,7 @@ export class ConsultationsService {
           patientId,
           therapistId,
           sessionDate: slotStart,
+          durationMinutes: sessionDurationMinutes,
           consultReason: 'Reserva pública en línea',
           intervention: 'Pendiente de definir por el terapeuta',
           sessionType: 'IN_PERSON',

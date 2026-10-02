@@ -8,6 +8,7 @@ import { AvailabilityBlockout, CalendarBusyBlock } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   DEFAULT_SESSION_MINUTES,
+  MAX_SESSION_MINUTES,
   OVERLAY_STALENESS_MS,
 } from '../calendar-integration/calendar-integration.constants';
 import {
@@ -47,8 +48,11 @@ export interface BlockoutInput {
   endsAt: Date;
 }
 
+// issue #336: cada consulta ocupa [sessionDate, sessionDate + durationMinutes)
+// con la duración con la que fue reservada, no con la vigente del terapeuta.
 export interface OccupiedConsultationInput {
   sessionDate: Date;
+  durationMinutes: number;
 }
 
 export interface ComputeAvailableSlotsInput {
@@ -113,12 +117,24 @@ export function computeAvailableSlots(
   const sortedBlockouts = [...blockouts].sort(
     (a, b) => a.startsAt.getTime() - b.startsAt.getTime(),
   );
-  const sortedOccupied = [...occupiedConsultations].sort(
-    (a, b) => a.sessionDate.getTime() - b.sessionDate.getTime(),
-  );
+  const sortedOccupied = occupiedConsultations
+    .map((c) => ({
+      startMs: c.sessionDate.getTime(),
+      endMs: c.sessionDate.getTime() + c.durationMinutes * 60000,
+    }))
+    .sort((a, b) => a.startMs - b.startMs);
+  // issue #336: las duraciones varían por consulta, así que el fin ya no es
+  // monótono con el inicio. prefixMaxEnd[i] = mayor fin entre las consultas
+  // 0..i: si es <= al inicio del slot, ninguna de ellas puede solapar este
+  // slot ni los siguientes y el puntero avanza de forma permanente.
+  const prefixMaxEnd: number[] = [];
+  for (const o of sortedOccupied) {
+    prefixMaxEnd.push(
+      Math.max(prefixMaxEnd[prefixMaxEnd.length - 1] ?? -Infinity, o.endMs),
+    );
+  }
   let blockoutIdx = 0;
   let occupiedIdx = 0;
-  const durationMs = sessionDurationMinutes * 60000;
 
   const slots: AvailableSlot[] = [];
   const lastDayKey = chileDayKeyFromInstant(new Date(to.getTime() - 1));
@@ -178,20 +194,27 @@ export function computeAvailableSlots(
         if (isBlocked) continue;
 
         // Mismo criterio: descarta permanentemente las consultas ocupadas
-        // cuyo intervalo [sessionDate, sessionDate + duración) ya terminó.
-        // issue #285: se compara el intervalo completo (todas las consultas
-        // comparten la duración vigente del terapeuta), así una sesión a las
-        // 10:30 también bloquea el slot de las 11:00.
+        // cuyo intervalo [sessionDate, sessionDate + durationMinutes) ya terminó.
+        // issue #285/#336: se compara el intervalo completo con la duración
+        // propia de cada consulta, así una sesión a las 10:30 también bloquea
+        // el slot de las 11:00 aunque el terapeuta haya cambiado su duración.
         while (
           occupiedIdx < sortedOccupied.length &&
-          sortedOccupied[occupiedIdx].sessionDate.getTime() + durationMs <=
-            startMs
+          prefixMaxEnd[occupiedIdx] <= startMs
         ) {
           occupiedIdx++;
         }
-        const isOccupied =
-          occupiedIdx < sortedOccupied.length &&
-          sortedOccupied[occupiedIdx].sessionDate.getTime() < endMs;
+        let isOccupied = false;
+        for (
+          let j = occupiedIdx;
+          j < sortedOccupied.length && sortedOccupied[j].startMs < endMs;
+          j++
+        ) {
+          if (sortedOccupied[j].endMs > startMs) {
+            isOccupied = true;
+            break;
+          }
+        }
         if (isOccupied) continue;
 
         slots.push({ start: start.toISOString(), end: end.toISOString() });
@@ -339,8 +362,8 @@ export class AvailabilityService {
       }
     }
 
-    // issue #285: la duración se lee antes porque amplía el rango de la query
-    // de ocupación (sesiones que empiezan antes de `from` pero lo solapan).
+    // Duración vigente del terapeuta: solo define la grilla de slots nuevos
+    // (la ocupación usa la duración guardada en cada consulta, issue #336).
     const therapist = await this.prisma.user.findUnique({
       where: { id: therapistId },
       select: { sessionDurationMinutes: true },
@@ -379,11 +402,14 @@ export class AvailabilityService {
           // issue #285: las consultas de pacientes eliminados no ocupan slots.
           patient: { deletedAt: null },
           sessionDate: {
-            gte: new Date(from.getTime() - sessionDurationMinutes * 60000),
+            // Cada consulta trae su propia duración (hasta
+            // MAX_SESSION_MINUTES): se mira ese máximo hacia atrás y el
+            // sweep de computeAvailableSlots descarta las que no solapan.
+            gte: new Date(from.getTime() - MAX_SESSION_MINUTES * 60000),
             lt: to,
           },
         },
-        select: { sessionDate: true },
+        select: { sessionDate: true, durationMinutes: true },
       }),
       busyBlocksQuery,
     ]);

@@ -595,7 +595,9 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
   }, 30000);
 
   it('dos inserts concurrentes sobre el mismo slot producen exactamente una consulta y un 409', async () => {
-    const slotStart = new Date('2026-11-02T13:00:00.000Z');
+    // Relativo a hoy (un día fijo choca con los futureUtcDay de otros tests
+    // según la fecha de ejecución).
+    const slotStart = futureUtcDay(40, 13);
 
     const results = await Promise.allSettled([
       consultationsService.createFromPublicBooking(
@@ -868,6 +870,153 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
         50,
       ),
     ).resolves.toBeDefined();
+  }, 20000);
+
+  // issue #336: el @@unique de BookedSlot solo frena inicios idénticos. Dos
+  // reservas con inicios distintos pero intervalos solapados deben serializarse
+  // por el lock del terapeuta: una confirma y la otra recibe 409.
+  it('dos reservas concurrentes con inicios distintos y solape producen exactamente una consulta y un 409 (issue #336)', async () => {
+    const first = futureUtcDay(41, 13);
+    const second = new Date(first.getTime() + 30 * 60000); // solapa 30 de 60
+
+    const results = await Promise.allSettled([
+      consultationsService.createFromPublicBooking(
+        therapistId,
+        patientId,
+        '11111111-1',
+        first,
+        60,
+      ),
+      consultationsService.createFromPublicBooking(
+        therapistId,
+        patientId,
+        '11111111-1',
+        second,
+        60,
+      ),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].reason).toBeInstanceOf(ConflictException);
+
+    const persisted = await prisma.consultation.findMany({
+      where: { therapistId, sessionDate: { in: [first, second] } },
+    });
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].durationMinutes).toBe(60);
+  }, 20000);
+
+  it('bajar la duración del terapeuta no libera la cola de una sesión ya reservada (issue #336)', async () => {
+    const original = await prisma.user.findUniqueOrThrow({
+      where: { id: therapistId },
+      select: { sessionDurationMinutes: true },
+    });
+    const booked = futureUtcDay(42, 13);
+    try {
+      await consultationsService.createFromPublicBooking(
+        therapistId,
+        patientId,
+        '11111111-1',
+        booked,
+        60,
+      );
+
+      // El terapeuta baja su duración a 45: la sesión reservada (13:00-14:00)
+      // conserva sus 60 minutos y el slot de las 13:45 sigue ocupado.
+      await prisma.user.update({
+        where: { id: therapistId },
+        data: { sessionDurationMinutes: 45 },
+      });
+      await expect(
+        consultationsService.createFromPublicBooking(
+          therapistId,
+          patientId,
+          '11111111-1',
+          new Date(booked.getTime() + 45 * 60000),
+          45,
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      // Y justo al terminar (14:00) ya es reservable (intervalo half-open).
+      await expect(
+        consultationsService.createFromPublicBooking(
+          therapistId,
+          patientId,
+          '11111111-1',
+          new Date(booked.getTime() + 60 * 60000),
+          45,
+        ),
+      ).resolves.toBeDefined();
+
+      const row = await prisma.consultation.findFirstOrThrow({
+        where: { therapistId, sessionDate: booked },
+      });
+      expect(row.durationMinutes).toBe(60);
+    } finally {
+      await prisma.user.update({
+        where: { id: therapistId },
+        data: { sessionDurationMinutes: original.sessionDurationMinutes },
+      });
+    }
+  }, 20000);
+
+  it('la disponibilidad excluye slots usando la duración guardada de cada consulta (issue #336)', async () => {
+    const original = await prisma.user.findUniqueOrThrow({
+      where: { id: therapistId },
+      select: { sessionDurationMinutes: true },
+    });
+    const day = futureUtcDay(43, 0);
+    const booked = new Date(day.getTime() + 13 * 3600000);
+    try {
+      await consultationsService.createFromPublicBooking(
+        therapistId,
+        patientId,
+        '11111111-1',
+        booked,
+        60,
+      );
+      await prisma.user.update({
+        where: { id: therapistId },
+        data: { sessionDurationMinutes: 45 },
+      });
+      await prisma.therapistAvailability.create({
+        data: {
+          therapistId,
+          dayOfWeek: ((day.getUTCDay() + 6) % 7) + 1,
+          // 08:00-23:00 hora de Chile cubre 13:00-15:00 UTC en cualquier
+          // época del año.
+          startMinute: 8 * 60,
+          endMinute: 23 * 60,
+        },
+      });
+
+      const slots = await buildAvailabilityService(prisma).computeSlots(
+        therapistId,
+        new Date(day.getTime() + 12 * 3600000),
+        new Date(day.getTime() + 18 * 3600000),
+        new Date(),
+        { bypassCache: true },
+      );
+
+      expect(slots.length).toBeGreaterThan(0);
+      // Ningún slot de 45 min puede solapar [13:00Z, 14:00Z).
+      for (const slot of slots) {
+        const start = new Date(slot.start).getTime();
+        const end = new Date(slot.end).getTime();
+        expect(
+          start < booked.getTime() + 60 * 60000 && end > booked.getTime(),
+        ).toBe(false);
+      }
+    } finally {
+      await prisma.therapistAvailability.deleteMany({ where: { therapistId } });
+      await prisma.user.update({
+        where: { id: therapistId },
+        data: { sessionDurationMinutes: original.sessionDurationMinutes },
+      });
+    }
   }, 20000);
 });
 

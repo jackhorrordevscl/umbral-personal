@@ -5,7 +5,10 @@ import {
   computeAvailableSlots,
 } from './availability.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { DEFAULT_SESSION_MINUTES } from '../calendar-integration/calendar-integration.constants';
+import {
+  DEFAULT_SESSION_MINUTES,
+  MAX_SESSION_MINUTES,
+} from '../calendar-integration/calendar-integration.constants';
 
 // sdd/public-booking-payment-calendar PR 2 (tasks.md 2.4): config mock que
 // deja CALENDAR_AVAILABILITY_OVERLAY_ENABLED apagado por default -- los
@@ -147,7 +150,10 @@ describe('computeAvailableSlots (pure)', () => {
           { dayOfWeek: 1, startMinute: 9 * 60, endMinute: 13 * 60 },
         ],
         occupiedConsultations: [
-          { sessionDate: new Date('2026-06-01T13:30:00.000Z') },
+          {
+            sessionDate: new Date('2026-06-01T13:30:00.000Z'),
+            durationMinutes: 50,
+          },
         ],
         now: new Date('2026-05-01T00:00:00.000Z'),
       }),
@@ -166,12 +172,64 @@ describe('computeAvailableSlots (pure)', () => {
           { dayOfWeek: 1, startMinute: 9 * 60, endMinute: 13 * 60 },
         ],
         occupiedConsultations: [
-          { sessionDate: new Date('2026-06-01T13:00:00.000Z') },
+          {
+            sessionDate: new Date('2026-06-01T13:00:00.000Z'),
+            durationMinutes: 50,
+          },
         ],
         now: new Date('2026-05-01T00:00:00.000Z'),
       }),
     );
     expect(result.map((s) => s.start)).toContain('2026-06-01T13:50:00.000Z');
+  });
+
+  // issue #336: la ocupación usa la duración guardada en cada consulta, no la
+  // vigente del terapeuta.
+  it('usa la duración guardada de la consulta aunque el terapeuta ahora use una menor', () => {
+    // Grilla actual de 45 min desde 13:00 UTC: 13:00, 13:45, 14:30. La sesión
+    // de 13:00 se reservó con 60 min (hasta 14:00): bloquea 13:00 y 13:45,
+    // pero no 14:30. Con la duración vigente (45) habría dejado libre 13:45.
+    const result = computeAvailableSlots(
+      baseInput({
+        sessionDurationMinutes: 45,
+        weeklyRules: [
+          { dayOfWeek: 1, startMinute: 9 * 60, endMinute: 11 * 60 + 15 },
+        ],
+        occupiedConsultations: [
+          {
+            sessionDate: new Date('2026-06-01T13:00:00.000Z'),
+            durationMinutes: 60,
+          },
+        ],
+        now: new Date('2026-05-01T00:00:00.000Z'),
+      }),
+    );
+    expect(result.map((s) => s.start)).toEqual(['2026-06-01T14:30:00.000Z']);
+  });
+
+  it('una consulta larga sigue bloqueando aunque otra más corta empiece después (fin no monótono)', () => {
+    // A: 13:00 + 120 min (hasta 15:00). B: 13:30 + 10 min. Grilla de 45 min:
+    // 13:00, 13:45, 14:30 quedan bloqueadas por A; 15:15 queda libre.
+    const result = computeAvailableSlots(
+      baseInput({
+        sessionDurationMinutes: 45,
+        weeklyRules: [
+          { dayOfWeek: 1, startMinute: 9 * 60, endMinute: 12 * 60 + 15 },
+        ],
+        occupiedConsultations: [
+          {
+            sessionDate: new Date('2026-06-01T13:30:00.000Z'),
+            durationMinutes: 10,
+          },
+          {
+            sessionDate: new Date('2026-06-01T13:00:00.000Z'),
+            durationMinutes: 120,
+          },
+        ],
+        now: new Date('2026-05-01T00:00:00.000Z'),
+      }),
+    );
+    expect(result.map((s) => s.start)).toEqual(['2026-06-01T15:15:00.000Z']);
   });
 
   it('una consulta existente elimina el slot que ocupa', () => {
@@ -182,7 +240,10 @@ describe('computeAvailableSlots (pure)', () => {
         ],
         // sessionDate = 09:00 Chile = 13:00 UTC -> ocupa el primer slot.
         occupiedConsultations: [
-          { sessionDate: new Date('2026-06-01T13:00:00.000Z') },
+          {
+            sessionDate: new Date('2026-06-01T13:00:00.000Z'),
+            durationMinutes: 50,
+          },
         ],
         now: new Date('2026-05-01T00:00:00.000Z'),
       }),
@@ -355,8 +416,14 @@ describe('computeAvailableSlots (pure)', () => {
           ],
           // Desordenadas a propósito: la de S3 aparece antes que la de S1.
           occupiedConsultations: [
-            { sessionDate: new Date('2026-06-01T15:30:00.000Z') }, // ocupa S3
-            { sessionDate: new Date('2026-06-01T13:50:00.000Z') }, // ocupa S1
+            {
+              sessionDate: new Date('2026-06-01T15:30:00.000Z'),
+              durationMinutes: 50,
+            }, // ocupa S3
+            {
+              sessionDate: new Date('2026-06-01T13:50:00.000Z'),
+              durationMinutes: 50,
+            }, // ocupa S1
           ],
           now: new Date('2026-05-01T00:00:00.000Z'),
         }),
@@ -414,8 +481,14 @@ describe('computeAvailableSlots (pure)', () => {
         },
       ];
       const occupiedConsultations = [
-        { sessionDate: new Date('2026-06-01T15:30:00.000Z') },
-        { sessionDate: new Date('2026-06-01T13:50:00.000Z') },
+        {
+          sessionDate: new Date('2026-06-01T15:30:00.000Z'),
+          durationMinutes: 50,
+        },
+        {
+          sessionDate: new Date('2026-06-01T13:50:00.000Z'),
+          durationMinutes: 50,
+        },
       ];
       const blockoutsBefore = [...blockouts];
       const occupiedBefore = [...occupiedConsultations];
@@ -539,14 +612,14 @@ describe('AvailabilityService (cache)', () => {
     expect(prisma.therapistAvailability.findMany).toHaveBeenCalledTimes(2);
   });
 
-  it('la lectura de ocupación se amplía una duración antes de `from` para ver sesiones que lo solapan', async () => {
+  it('la lectura de ocupación se amplía MAX_SESSION_MINUTES antes de `from` para ver sesiones que lo solapan (cada consulta trae su duración)', async () => {
     await service.computeSlots('therapist-1', from, to, now);
 
     expect(prisma.consultation.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           sessionDate: {
-            gte: new Date(from.getTime() - 50 * 60000),
+            gte: new Date(from.getTime() - MAX_SESSION_MINUTES * 60000),
             lt: to,
           },
         }) as unknown,

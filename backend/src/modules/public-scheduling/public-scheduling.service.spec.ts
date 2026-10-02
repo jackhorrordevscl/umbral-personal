@@ -36,6 +36,7 @@ describe('PublicSchedulingService', () => {
   let patientsService: { resolveForPublicBooking: jest.Mock };
   let consultationsService: {
     createFromPublicBooking: jest.Mock;
+    lockTherapistSchedule: jest.Mock;
     afterPublicBookingCommit: jest.Mock;
   };
   let notificationsService: {
@@ -78,6 +79,7 @@ describe('PublicSchedulingService', () => {
     patientsService = { resolveForPublicBooking: jest.fn() };
     consultationsService = {
       createFromPublicBooking: jest.fn(),
+      lockTherapistSchedule: jest.fn().mockResolvedValue(undefined),
       afterPublicBookingCommit: jest.fn(),
     };
     notificationsService = {
