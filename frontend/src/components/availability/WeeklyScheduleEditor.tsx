@@ -43,7 +43,11 @@ const scheduleEntrySchema = z
   });
 
 const scheduleFormSchema = z.object({
-  sessionDurationMinutes: z.number().int().min(1, 'Debe ser al menos 1 minuto'),
+  sessionDurationMinutes: z
+    .number()
+    .int()
+    .min(5, 'Debe ser al menos 5 minutos')
+    .max(240, 'No puede superar los 240 minutos'),
   entries: z.array(scheduleEntrySchema),
 });
 
