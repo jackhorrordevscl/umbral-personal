@@ -251,8 +251,15 @@ export default function ConsultationsPage() {
 
   const { data: patients = [], isError: patientsError } = usePatients();
 
-  const { data: consultations = [], isError: consultationsError, isSuccess: consultationsLoaded, isLoading: consultationsLoading } =
-    useConsultations(selectedPatientId || undefined);
+  const {
+    data: consultations = [],
+    isError: consultationsError,
+    isSuccess: consultationsLoaded,
+    isLoading: consultationsLoading,
+    isFetching: consultationsFetching,
+    refetch: refetchConsultations,
+  } = useConsultations(selectedPatientId || undefined);
+  const linkedRefetchedRef = useRef(false);
   const { data: patientDocuments = [] } = usePatientDocuments(selectedPatientId || undefined);
 
   const correctMutation = useCorrectConsultation();
@@ -307,8 +314,17 @@ export default function ConsultationsPage() {
   // openedFromLinkRef evita reabrirlo si el usuario lo cierra manualmente.
   useEffect(() => {
     if (!linkedConsultationId || openedFromLinkRef.current || !consultationsLoaded) return;
+    // Issue #292: con datos cacheados la consulta nueva puede no estar aún; se
+    // espera a que termine el fetch en curso y, si sigue sin aparecer, se
+    // fuerza un refetch una vez antes de descartar el parámetro.
+    if (consultationsFetching) return;
 
     const target = consultations.find((c: Consultation) => c.id === linkedConsultationId);
+    if (!target && !linkedRefetchedRef.current) {
+      linkedRefetchedRef.current = true;
+      void refetchConsultations();
+      return;
+    }
     openedFromLinkRef.current = true;
 
     // react-hooks/set-state-in-effect: el cuerpo síncrono de un efecto no
@@ -319,7 +335,7 @@ export default function ConsultationsPage() {
       if (target) handleEditOpen(target);
       setSearchParams(new URLSearchParams(), { replace: true });
     }, 0);
-  }, [consultations, consultationsLoaded, linkedConsultationId, handleEditOpen, setSearchParams]);
+  }, [consultations, consultationsLoaded, consultationsFetching, refetchConsultations, linkedConsultationId, handleEditOpen, setSearchParams]);
 
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();

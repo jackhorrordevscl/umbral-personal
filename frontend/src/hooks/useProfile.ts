@@ -56,9 +56,19 @@ export type UpdateProfilePayload = Partial<{
 }>;
 
 export function useUpdateProfile() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: UpdateProfilePayload) =>
       api.patch<Partial<Profile>>('/profile', payload).then((r) => r.data),
+    // Issue #292: sin esto, NameCard/PublicProfileCard/EmailCard se remontan
+    // con el valor viejo del caché y el cambio parece perdido. Se mezcla la
+    // respuesta en el caché y se invalida para traer el estado real.
+    onSuccess: (data) => {
+      queryClient.setQueryData<Profile | undefined>(['profile'], (prev) =>
+        prev ? { ...prev, ...data } : prev,
+      );
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    },
   });
 }
 
