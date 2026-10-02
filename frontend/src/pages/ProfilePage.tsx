@@ -534,7 +534,7 @@ function AvatarCard({ profile }: { profile: Profile | undefined }) {
 }
 
 export default function ProfilePage() {
-  const { data: profile, isLoading: checkingStatus } = useProfile();
+  const { data: profile, isLoading: checkingStatus, isError, refetch } = useProfile();
 
   return (
     <div className="p-8">
@@ -561,6 +561,21 @@ export default function ProfilePage() {
         {checkingStatus ? (
           <div className="card mb-6 break-inside-avoid">
             <p className="text-sm text-slate-500">Cargando datos de la cuenta...</p>
+          </div>
+        ) : !profile ? (
+          // Las cards inicializan su estado desde el perfil: montadas sin él
+          // quedarían vacías y guardar solo la bio enviaría specialty '' y
+          // borraría la guardada.
+          <div className="card mb-6 break-inside-avoid">
+            <ErrorBanner
+              icon
+              message={
+                isError
+                  ? 'No se pudieron cargar los datos de tu cuenta.'
+                  : 'Los datos de tu cuenta no están disponibles.'
+              }
+              onRetry={() => void refetch()}
+            />
           </div>
         ) : (
           <>

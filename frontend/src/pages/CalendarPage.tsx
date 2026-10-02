@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import MonthGrid from '../components/calendar/MonthGrid';
 import DayDetailModal from '../components/calendar/DayDetailModal';
 import CalendarSyncBadge from '../components/calendar/CalendarSyncBadge';
+import ErrorBanner from '../components/ui/ErrorBanner';
 import { useCalendarSessions } from '../hooks/useCalendarSessions';
 import { chileMonthGridRange, toChileDayKey } from '../utils/datetime';
 import type { CalendarSession } from '../api/consultations';
@@ -54,8 +55,13 @@ export default function CalendarPage() {
     [viewMonth],
   );
 
-  const { data: sessions = [] } = useCalendarSessions(grid.from, grid.to);
-  const sessionsByDay = useMemo(() => groupByChileDay(sessions), [sessions]);
+  const {
+    data: sessions,
+    isLoading,
+    isError,
+    refetch,
+  } = useCalendarSessions(grid.from, grid.to);
+  const sessionsByDay = useMemo(() => groupByChileDay(sessions ?? []), [sessions]);
 
   return (
     <div className="p-4 md:p-8">
@@ -89,14 +95,33 @@ export default function CalendarPage() {
         </button>
       </div>
 
-      <MonthGrid
-        days={grid.days}
-        currentMonth={viewMonth.month}
-        sessionsByDay={sessionsByDay}
-        onDayClick={setSelectedDay}
-      />
+      {/* Sin las sesiones del mes la grilla se vería vacía y se podría agendar
+          sobre sesiones existentes: mientras carga o si falla no se muestra la
+          grilla (y por lo tanto tampoco se puede abrir el detalle del día). */}
+      {isLoading ? (
+        <div className="card flex items-center justify-center h-48">
+          <p className="text-slate-500 text-sm">Cargando calendario...</p>
+        </div>
+      ) : !sessions ? (
+        <ErrorBanner
+          icon
+          message={
+            isError
+              ? 'No se pudieron cargar las sesiones de este mes.'
+              : 'Las sesiones de este mes no están disponibles.'
+          }
+          onRetry={() => void refetch()}
+        />
+      ) : (
+        <MonthGrid
+          days={grid.days}
+          currentMonth={viewMonth.month}
+          sessionsByDay={sessionsByDay}
+          onDayClick={setSelectedDay}
+        />
+      )}
 
-      {selectedDay && (
+      {selectedDay && sessions && (
         <DayDetailModal
           day={selectedDay}
           sessions={sessionsByDay[selectedDay] ?? []}

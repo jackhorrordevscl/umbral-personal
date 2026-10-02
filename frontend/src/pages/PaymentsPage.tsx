@@ -314,7 +314,7 @@ function ConnectionWizard({ reconnect }: { reconnect: boolean }) {
 // Legacy-Invalidated Accounts") muestra el mismo asistente con un banner
 // explicando por qué debe reconectarse.
 export default function PaymentsPage() {
-  const { data: account, isLoading } = usePaymentAccount();
+  const { data: account, isLoading, isError, refetch } = usePaymentAccount();
   const disconnectMutation = useDisconnectPaymentAccount();
 
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
@@ -358,6 +358,14 @@ export default function PaymentsPage() {
 
         {isLoading ? (
           <p className="text-sm text-slate-500">Verificando estado de la cuenta...</p>
+        ) : isError && !account ? (
+          // Sin conocer el estado real no se ofrece el asistente de conexión:
+          // un terapeuta con Flow conectado podría sobrescribir sus credenciales.
+          <ErrorBanner
+            icon
+            message="No se pudo verificar el estado de tu cuenta de pagos."
+            onRetry={() => void refetch()}
+          />
         ) : isConnected ? (
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-emerald-600">

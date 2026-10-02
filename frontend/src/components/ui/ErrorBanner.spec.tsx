@@ -16,6 +16,18 @@ describe('ErrorBanner', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cerrar aviso' }));
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
+
+  it('no muestra "Reintentar" sin onRetry', () => {
+    render(<ErrorBanner message="Falló" />);
+    expect(screen.queryByRole('button', { name: 'Reintentar' })).toBeNull();
+  });
+
+  it('llama a onRetry al pulsar "Reintentar"', () => {
+    const onRetry = vi.fn();
+    render(<ErrorBanner message="Falló" onRetry={onRetry} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('EmptyState', () => {

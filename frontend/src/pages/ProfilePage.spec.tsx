@@ -95,6 +95,30 @@ describe('ProfilePage — account-settings Req: Profile Section Scope', () => {
     ).toBeInTheDocument()
   })
 
+  // Issue #294: con el perfil fallido las cards se montaban vacías y guardar
+  // solo la bio enviaba specialty '' (borrando la guardada).
+  it('si falla la carga del perfil no monta las cards editables y permite reintentar', async () => {
+    const user = userEvent.setup()
+    const defaultGet = mockedApi.get.getMockImplementation()!
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/profile') return Promise.reject(new Error('boom'))
+      return defaultGet(url)
+    })
+
+    renderProfilePage()
+
+    expect(
+      await screen.findByText('No se pudieron cargar los datos de tu cuenta.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText('Nombre')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Guardar perfil público' })).not.toBeInTheDocument()
+
+    mockedApi.get.mockImplementation(defaultGet)
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    expect(await screen.findByLabelText('Nombre')).toBeInTheDocument()
+  })
+
   // sdd/patient-self-scheduling PR 4 (tasks.md 4.3): confirma que el editor
   // de horario semanal y el de bloqueos quedan wireados en ProfilePage --
   // el detalle de su comportamiento (guardar/rechazar horario, agregar/

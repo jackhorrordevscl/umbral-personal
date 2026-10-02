@@ -9,6 +9,11 @@ interface ErrorBannerProps {
   className?: string;
   /** Si se pasa, muestra un botón para cerrar el banner. */
   onDismiss?: () => void;
+  /**
+   * Si se pasa, muestra un botón "Reintentar". Pensado para fallos de carga
+   * (useQuery): `onRetry={() => query.refetch()}`.
+   */
+  onRetry?: () => void;
 }
 
 const VARIANT_STYLES = {
@@ -35,15 +40,25 @@ export default function ErrorBanner({
   icon = false,
   className = "",
   onDismiss,
+  onRetry,
 }: ErrorBannerProps) {
   const styles = VARIANT_STYLES[variant];
 
   return (
     <div
-      className={`${styles.bg} border ${styles.border} rounded-lg p-3 ${icon ? "flex items-center gap-2" : ""} ${className}`}
+      className={`${styles.bg} border ${styles.border} rounded-lg p-3 ${icon || onRetry ? "flex items-center gap-2" : ""} ${className}`}
     >
       {icon && <AlertCircle size={14} className={`${styles.icon} shrink-0`} />}
       <p className={`${styles.text} text-sm`}>{message}</p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className={`ml-auto shrink-0 text-sm font-medium underline ${styles.text}`}
+        >
+          Reintentar
+        </button>
+      )}
       {onDismiss && (
         <button
           type="button"
