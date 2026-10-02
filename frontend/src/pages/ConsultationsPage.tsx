@@ -632,7 +632,7 @@ export default function ConsultationsPage() {
             <div className="card flex items-center justify-center h-48">
               <p className="text-slate-500 text-sm">Cargando consultas...</p>
             </div>
-          ) : consultationsError ? null : consultations.length === 0 ? (
+          ) : consultationsError && consultations.length === 0 ? null : consultations.length === 0 ? (
             <div className="card flex items-center justify-center h-48">
               <p className="text-slate-500 text-sm">Sin consultas registradas</p>
             </div>
