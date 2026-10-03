@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { AlertTriangle } from "lucide-react";
+import { useDialogA11y } from "./ui/useDialogA11y";
 
 const WARNING_SECONDS = 120;
 
@@ -20,6 +21,8 @@ export default function IdleWarningModal({
   const [seconds, setSeconds] = useState(WARNING_SECONDS);
   const extendRef = useRef<HTMLButtonElement>(null);
   const logoutRef = useRef<HTMLButtonElement>(null);
+
+  useDialogA11y();
 
   // Un solo interval creado al montar (antes se recreaba cada segundo por
   // depender de `seconds`); el logout al llegar a 0 se dispara en un efecto
@@ -73,7 +76,8 @@ export default function IdleWarningModal({
         aria-modal="true"
         aria-labelledby="idle-warning-title"
         aria-describedby="idle-warning-desc"
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center"
+        tabIndex={-1}
+        className="bg-white rounded-2xl shadow-2xl w-full focus:outline-none max-w-sm p-6 text-center"
       >
         <div className="flex items-center justify-center w-12 h-12 bg-amber-100 rounded-full mx-auto mb-4">
           <AlertTriangle size={24} className="text-amber-500" />

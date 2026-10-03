@@ -1,4 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useDialogA11y } from "./useDialogA11y";
 
 interface ModalProps {
   onClose: () => void;
@@ -36,10 +37,13 @@ export default function Modal({
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
+  useDialogA11y();
+
   useEffect(() => {
     const target =
       initialFocusRef?.current ??
-      dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+      dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ??
+      dialogRef.current;
     target?.focus();
     // Solo al montar: no queremos robar el foco de nuevo si el contenido
     // cambia mientras el modal sigue abierto (ej. cambiar de tab).
@@ -81,7 +85,8 @@ export default function Modal({
         aria-modal="true"
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
-        className={`bg-white rounded-2xl shadow-xl w-full ${className}`}
+        tabIndex={-1}
+        className={`bg-white rounded-2xl shadow-xl w-full focus:outline-none ${className}`}
       >
         {children}
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { AlertTriangle } from "lucide-react";
+import { useDialogA11y } from "./useDialogA11y";
 
 interface ConfirmDialogProps {
   title: string;
@@ -23,6 +24,8 @@ export default function ConfirmDialog({
 }: ConfirmDialogProps) {
   const confirmRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+
+  useDialogA11y();
 
   useEffect(() => {
     cancelRef.current?.focus();
@@ -53,7 +56,8 @@ export default function ConfirmDialog({
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
         aria-describedby="confirm-dialog-desc"
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center"
+        tabIndex={-1}
+        className="bg-white rounded-2xl shadow-2xl w-full focus:outline-none max-w-sm p-6 text-center"
       >
         <div className="flex items-center justify-center w-12 h-12 bg-red-100 rounded-full mx-auto mb-4">
           <AlertTriangle size={24} className="text-red-500" />
