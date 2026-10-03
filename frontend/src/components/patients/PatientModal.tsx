@@ -47,6 +47,7 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   INFORMED_CONSENT: "Consentimiento informado",
   INFORMED_ASSENT: "Asentimiento informado",
   TELEMED_AGREEMENT: "Acuerdo telemedicina",
+  SESSION_SUMMARY: "Registro de sesión",
   OTHER: "Otro",
 };
 
@@ -113,6 +114,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
   const updateMutation = useUpdatePatient();
 
   const handleOpenEdit = () => {
+    if (modalTab === "edit") return;
     setEditForm({
       fullName: selected.fullName,
       phone: selected.phone,
@@ -158,8 +160,6 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
       {
         onSuccess: ({ patient: refreshed, failed }) => {
           setSelected(refreshed);
-          setEditForm({});
-          setEditReason("");
           if (failed.length > 0) {
             // Se queda en la pestaña de edición para que el mensaje sea
             // visible y el usuario pueda reintentar los que fallaron.
@@ -169,6 +169,8 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                 .join(", ")}. Vuelve a intentarlo.`,
             );
           } else {
+            setEditForm({});
+            setEditReason("");
             setModalTab("detail");
             setEditError("");
           }
@@ -194,6 +196,9 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
     uploadDocument.mutate(
       { file, type: docType },
       {
+        onSettled: () => {
+          if (fileInputRef.current) fileInputRef.current.value = "";
+        },
         onError: (err) => {
           setDocError(getApiErrorMessage(err, "No se pudo subir el documento"));
         },
@@ -459,12 +464,14 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                     type="file"
                     accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,image/*"
                     className="hidden"
+                    disabled={uploadDocument.isPending}
                     onChange={(e) => {
                       if (e.target.files?.[0]) handleUpload(e.target.files[0]);
                     }}
                   />
                   <button
                     onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadDocument.isPending}
                     className="btn-secondary text-xs py-1.5 flex items-center gap-1 shrink-0"
                   >
                     <UploadIcon size={13} /> Subir
