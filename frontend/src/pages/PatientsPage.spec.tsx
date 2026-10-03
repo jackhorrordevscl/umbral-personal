@@ -127,6 +127,37 @@ describe('PatientsPage', () => {
     expect(mockedApi.get).toHaveBeenCalledTimes(2)
   })
 
+  it('issue #295: si falla un consentimiento del alta, el aviso queda visible tras cerrar el formulario y se limpia al reabrirlo', async () => {
+    const user = userEvent.setup()
+    mockedApi.post.mockResolvedValueOnce({ data: buildPatient({ id: 'new-patient' }) })
+    mockedApi.post.mockRejectedValueOnce(new Error('boom')) // POST .../consents
+
+    renderPatientsPage()
+    await user.click(screen.getByRole('button', { name: /nuevo paciente/i }))
+    await fillMinimalRequiredFields(user)
+    await user.click(screen.getByLabelText(/presencial/i))
+    await user.click(screen.getByRole('button', { name: /guardar ficha/i }))
+
+    expect(
+      await screen.findByText(/no se pudo registrar el consentimiento de 1 finalidad/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /guardar ficha/i })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /nuevo paciente/i }))
+    expect(screen.queryByText(/no se pudo registrar el consentimiento/i)).not.toBeInTheDocument()
+  })
+
+  it('issue #295: cancelar el alta reinicia el formulario', async () => {
+    const user = userEvent.setup()
+    renderPatientsPage()
+    await user.click(screen.getByRole('button', { name: /nuevo paciente/i }))
+    await user.type(screen.getByLabelText(/nombre completo/i), 'Nombre a medias')
+    await user.click(screen.getByRole('button', { name: /cancelar/i }))
+
+    await user.click(screen.getByRole('button', { name: /nuevo paciente/i }))
+    expect(screen.getByLabelText(/nombre completo/i)).toHaveValue('')
+  })
+
   it('RUT inválido bloquea el envío sin llamar a la API', async () => {
     const user = userEvent.setup()
     renderPatientsPage()
@@ -218,6 +249,43 @@ describe('PatientsPage', () => {
         expect(
           screen.queryByRole('button', { name: /^declarar$/i }),
         ).not.toBeInTheDocument()
+      })
+    })
+
+    it('issue #295: solo declara a los pacientes seleccionados que siguen visibles tras filtrar con el buscador', async () => {
+      const user = userEvent.setup()
+      const pending1 = buildPatient({
+        id: 'pending-1',
+        fullName: 'Ana Pendiente',
+        rut: '22222222-2',
+        consents: { TREATMENT: false, TELEMEDICINE: false },
+      })
+      const pending2 = buildPatient({
+        id: 'pending-2',
+        fullName: 'Beto Pendiente',
+        rut: '33333333-3',
+        consents: { TREATMENT: false, TELEMEDICINE: false },
+      })
+      mockedApi.get.mockResolvedValueOnce({ data: [pending1, pending2] })
+      mockedApi.post.mockResolvedValueOnce({ data: [{ patientId: 'pending-2', ok: true }] })
+
+      renderPatientsPage()
+      await screen.findAllByText('Ana Pendiente')
+
+      await user.click(screen.getAllByLabelText(/retroactivo de ana pendiente/i)[0])
+      await user.click(screen.getAllByLabelText(/retroactivo de beto pendiente/i)[0])
+      await user.type(screen.getByPlaceholderText(/buscar por nombre/i), 'Beto')
+
+      expect(screen.getByText(/retroactivo para 1 paciente/i)).toBeInTheDocument()
+      await user.type(screen.getByPlaceholderText(/evidencia/i), 'Consentimiento en papel del expediente')
+      await user.click(screen.getByRole('button', { name: /^declarar$/i }))
+
+      await waitFor(() => {
+        expect(mockedApi.post).toHaveBeenCalledWith('/patients/consents/bulk-declare', {
+          patientIds: ['pending-2'],
+          purpose: 'TREATMENT',
+          evidence: 'Consentimiento en papel del expediente',
+        })
       })
     })
 

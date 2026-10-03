@@ -141,3 +141,54 @@ describe('PatientModal — anular documentos legales (#270)', () => {
     expect(screen.getByRole('heading', { name: 'Anular documento' })).toBeInTheDocument()
   })
 })
+
+describe('PatientModal — formularios (#295)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients/patient-1') return Promise.resolve({ data: patient })
+      if (url === '/documents/patient/patient-1') {
+        return Promise.resolve({
+          data: [{ ...activeDoc, id: 'doc-3', fileName: 'sesion.pdf', type: 'SESSION_SUMMARY' }],
+        })
+      }
+      return Promise.resolve({ data: [] })
+    })
+  })
+
+  it('muestra la etiqueta del registro de sesión y no el código crudo', async () => {
+    renderModal()
+
+    expect(await screen.findByText('Registro de sesión')).toBeInTheDocument()
+    expect(screen.queryByText('SESSION_SUMMARY')).not.toBeInTheDocument()
+  })
+
+  it('tras un fallo parcial de consentimiento conserva los datos y el motivo del formulario', async () => {
+    mockedApi.patch.mockResolvedValue({ data: {} })
+    mockedApi.post.mockRejectedValue(new Error('boom'))
+    const user = userEvent.setup()
+    renderModal()
+
+    await user.click(await screen.findByRole('button', { name: 'Editar' }))
+    await user.click(screen.getByLabelText('Presencial'))
+    await user.type(screen.getByLabelText(/motivo de la modificación/i), 'Corrección de datos de contacto')
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+
+    expect(await screen.findByText(/no se pudo registrar el consentimiento/i)).toBeInTheDocument()
+    expect(screen.getByLabelText('Nombre completo')).toHaveValue('Paciente Prueba')
+    expect(screen.getByLabelText(/motivo de la modificación/i)).toHaveValue(
+      'Corrección de datos de contacto',
+    )
+  })
+
+  it('hacer clic en la pestaña Editar ya activa no reinicia lo escrito', async () => {
+    const user = userEvent.setup()
+    renderModal()
+
+    await user.click(await screen.findByRole('button', { name: 'Editar' }))
+    await user.type(screen.getByLabelText('Teléfono'), '999')
+    await user.click(screen.getByRole('button', { name: 'Editar' }))
+
+    expect(screen.getByLabelText('Teléfono')).toHaveValue('999')
+  })
+})

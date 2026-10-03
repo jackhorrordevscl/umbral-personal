@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -319,6 +319,72 @@ describe('ConsultationsPage', () => {
       await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent(/^$/))
       expect(screen.queryByRole('heading', { name: 'Corregir Sesión' })).not.toBeInTheDocument()
       expect(consultationCalls()).toHaveLength(2)
+    })
+  })
+
+  describe('Corregir sesión: validación y próxima sesión', () => {
+    async function openCorrectModal(overrides: Partial<Consultation> = {}) {
+      mockedApi.get.mockImplementation((url: string) => {
+        if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+        if (url.startsWith('/consultations/patient/'))
+          return Promise.resolve({ data: [buildConsultation(overrides)] })
+        return Promise.resolve({ data: [] })
+      })
+      mockedApi.patch.mockResolvedValue({ data: buildConsultation() })
+      const user = userEvent.setup()
+      renderConsultationsPage()
+      await selectFirstPatient(user)
+      await user.click(await screen.findByTitle('Corregir sesión'))
+      await screen.findByRole('heading', { name: 'Corregir Sesión' })
+      return user
+    }
+
+    function clearField(id: string) {
+      fireEvent.change(document.getElementById(id) as HTMLInputElement, {
+        target: { value: '' },
+      })
+    }
+
+    it('con la hora de sesión vacía muestra un mensaje claro y no envía', async () => {
+      const user = await openCorrectModal()
+      clearField('correct-sessionTime')
+      await user.click(screen.getByRole('button', { name: 'Guardar corrección' }))
+
+      expect(await screen.findByText('La hora de la sesión no es válida')).toBeInTheDocument()
+      expect(mockedApi.patch).not.toHaveBeenCalled()
+    })
+
+    it('sin fecha de sesión no envía y avisa que es obligatoria', async () => {
+      const user = await openCorrectModal()
+      clearField('correct-sessionDate')
+      await user.click(screen.getByRole('button', { name: 'Guardar corrección' }))
+
+      expect(await screen.findByText('La fecha de sesión es obligatoria')).toBeInTheDocument()
+      expect(mockedApi.patch).not.toHaveBeenCalled()
+    })
+
+    it('con la hora de la próxima sesión vacía no envía', async () => {
+      const user = await openCorrectModal({ nextSessionDate: '2026-06-01T13:00:00-04:00' })
+      clearField('correct-nextSessionTime')
+      await user.click(screen.getByRole('button', { name: 'Guardar corrección' }))
+
+      expect(
+        await screen.findByText('La hora de la próxima sesión no es válida'),
+      ).toBeInTheDocument()
+      expect(mockedApi.patch).not.toHaveBeenCalled()
+    })
+
+    it('vaciar la fecha de la próxima sesión envía nextSessionDate null', async () => {
+      const user = await openCorrectModal({ nextSessionDate: '2026-06-01T13:00:00-04:00' })
+      clearField('correct-nextSessionDate')
+      await user.click(screen.getByRole('button', { name: 'Guardar corrección' }))
+
+      await waitFor(() => {
+        expect(mockedApi.patch).toHaveBeenCalledWith(
+          '/consultations/consultation-1/correct',
+          expect.objectContaining({ nextSessionDate: null }),
+        )
+      })
     })
   })
 

@@ -7,9 +7,15 @@ import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
 import ErrorBanner from '../components/ui/ErrorBanner';
 
-const resetPasswordSchema = z.object({
-  newPassword: z.string().min(8, 'Mínimo 8 caracteres'),
-});
+const resetPasswordSchema = z
+  .object({
+    newPassword: z.string().min(8, 'Mínimo 8 caracteres'),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: 'Las contraseñas no coinciden',
+    path: ['confirmPassword'],
+  });
 
 type ResetPasswordForm = z.infer<typeof resetPasswordSchema>;
 
@@ -102,6 +108,22 @@ export default function ResetPasswordPage() {
             />
             {errors.newPassword && (
               <p className="text-red-500 text-xs mt-1">{errors.newPassword.message}</p>
+            )}
+          </div>
+
+          <div>
+            <label htmlFor="reset-password-confirmPassword" className="block text-sm font-medium text-slate-700 mb-1">
+              Confirmar nueva contraseña
+            </label>
+            <input
+              {...register('confirmPassword')}
+              id="reset-password-confirmPassword"
+              type="password"
+              placeholder="••••••••"
+              className="input-field"
+            />
+            {errors.confirmPassword && (
+              <p className="text-red-500 text-xs mt-1">{errors.confirmPassword.message}</p>
             )}
           </div>
 

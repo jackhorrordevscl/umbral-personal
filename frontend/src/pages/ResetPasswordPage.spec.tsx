@@ -26,6 +26,7 @@ describe('ResetPasswordPage', () => {
       </MemoryRouter>,
     )
     await user.type(screen.getByLabelText('Nueva contraseña'), 'NuevaPass123!')
+    await user.type(screen.getByLabelText('Confirmar nueva contraseña'), 'NuevaPass123!')
     await user.click(screen.getByRole('button', { name: /actualizar contraseña/i }))
 
     expect(await screen.findByText('Contraseña actualizada')).toBeInTheDocument()
@@ -33,6 +34,22 @@ describe('ResetPasswordPage', () => {
       resetToken: 'reset-abc',
       newPassword: 'NuevaPass123!',
     })
+  })
+
+  it('si las contraseñas no coinciden muestra el error y no llama a la API', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <MemoryRouter initialEntries={['/reset-password?token=reset-abc']}>
+        <ResetPasswordPage />
+      </MemoryRouter>,
+    )
+    await user.type(screen.getByLabelText('Nueva contraseña'), 'NuevaPass123!')
+    await user.type(screen.getByLabelText('Confirmar nueva contraseña'), 'Distinta123!')
+    await user.click(screen.getByRole('button', { name: /actualizar contraseña/i }))
+
+    expect(await screen.findByText('Las contraseñas no coinciden')).toBeInTheDocument()
+    expect(mockedApi.post).not.toHaveBeenCalled()
   })
 
   it('sin token muestra enlace inválido y no llama a la API', () => {

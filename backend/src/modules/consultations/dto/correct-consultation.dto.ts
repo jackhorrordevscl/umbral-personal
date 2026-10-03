@@ -21,7 +21,7 @@ export class CorrectConsultationDto {
 
   @IsOptional()
   @IsStrictDateString()
-  nextSessionDate?: string;
+  nextSessionDate?: string | null;
 
   @IsOptional()
   @IsEnum(SessionType)

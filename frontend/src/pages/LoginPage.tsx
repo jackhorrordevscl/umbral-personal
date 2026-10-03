@@ -7,6 +7,7 @@ import { useAuth } from '../context/useAuth';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
 import { getPostLoginPath } from '../utils/redirect';
+import { normalizeMfaCode } from '../utils/mfa-code';
 import RecoveryCodesReveal from '../components/RecoveryCodesReveal';
 import ErrorBanner from '../components/ui/ErrorBanner';
 
@@ -54,6 +55,8 @@ export default function LoginPage() {
   const [passwordChangeRequired, setPasswordChangeRequired] = useState(false);
   const [passwordChangeToken, setPasswordChangeToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [setupBeginLoading, setSetupBeginLoading] = useState(false);
   // Issue #50: mfa/setup/confirm entrega accessToken + recoveryCodes en la
   // misma respuesta, pero los códigos solo se muestran una vez -- se retiene
   // el login hasta que el usuario confirma haberlos guardado, en vez de
@@ -150,6 +153,10 @@ export default function LoginPage() {
 
   const onPasswordChangeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setError('Las contraseñas no coinciden.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -184,12 +191,24 @@ export default function LoginPage() {
   };
 
   const beginMfaSetup = async (token: string) => {
+    setSetupBeginLoading(true);
+    setError('');
     try {
       const res = await api.post('/auth/mfa/setup/begin', { setupToken: token });
       setSetupQrCode(res.data.qrCode);
     } catch (error) {
       setError(getApiErrorMessage(error, 'No se pudo iniciar la configuración de MFA.'));
+    } finally {
+      setSetupBeginLoading(false);
     }
+  };
+
+  const backToLogin = () => {
+    setMfaSetupRequired(false);
+    setSetupToken('');
+    setSetupQrCode('');
+    setSetupMfaCode('');
+    setError('');
   };
 
   const onMfaSetupSubmit = async (e: React.FormEvent) => {
@@ -256,10 +275,19 @@ export default function LoginPage() {
               onChange={e => setNewPassword(e.target.value)}
               className="input-field mb-4"
             />
+            <input
+              type="password"
+              aria-label="Confirmar nueva contraseña"
+              placeholder="Confirmar nueva contraseña"
+              minLength={8}
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+              className="input-field mb-4"
+            />
             {error && <ErrorBanner message={error} className="mb-4" />}
             <button
               type="submit"
-              disabled={loading || newPassword.length < 8}
+              disabled={loading || newPassword.length < 8 || confirmPassword.length === 0}
               className="btn-primary w-full py-3 text-base disabled:opacity-50"
             >
               {loading ? 'Cambiando...' : 'Cambiar contraseña y continuar'}
@@ -288,10 +316,11 @@ export default function LoginPage() {
             <input
               type="text"
               aria-label="Código de verificación MFA de 6 dígitos"
-              maxLength={6}
+              inputMode="numeric"
+              autoComplete="one-time-code"
               placeholder="000000"
               value={setupMfaCode}
-              onChange={e => setSetupMfaCode(e.target.value)}
+              onChange={e => setSetupMfaCode(normalizeMfaCode(e.target.value))}
               className="input-field text-center text-2xl tracking-widest mb-4"
             />
             {error && <ErrorBanner message={error} className="mb-4" />}
@@ -303,6 +332,23 @@ export default function LoginPage() {
               {loading ? 'Verificando...' : 'Activar y continuar'}
             </button>
           </form>
+          {!setupQrCode && (
+            <button
+              type="button"
+              onClick={() => void beginMfaSetup(setupToken)}
+              disabled={setupBeginLoading}
+              className="btn-secondary w-full py-3 text-base mt-3 disabled:opacity-50"
+            >
+              {setupBeginLoading ? 'Cargando código QR...' : 'Reintentar'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={backToLogin}
+            className="w-full text-center text-sm text-slate-500 mt-4 hover:underline"
+          >
+            Volver al inicio de sesión
+          </button>
         </div>
       </div>
     );
@@ -320,10 +366,11 @@ export default function LoginPage() {
             <input
               type="text"
               aria-label="Código de verificación MFA de 6 dígitos"
-              maxLength={6}
+              inputMode="numeric"
+              autoComplete="one-time-code"
               placeholder="000000"
               value={mfaCode}
-              onChange={e => setMfaCode(e.target.value)}
+              onChange={e => setMfaCode(normalizeMfaCode(e.target.value))}
               className="input-field text-center text-2xl tracking-widest mb-4"
             />
             {error && <ErrorBanner message={error} className="mb-4" />}

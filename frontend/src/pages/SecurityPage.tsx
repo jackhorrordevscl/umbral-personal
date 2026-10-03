@@ -4,6 +4,7 @@ import { formatChileShortDateTime } from '../utils/datetime';
 import { ShieldCheck, ShieldOff, QrCode, Calendar, UserPlus, Copy } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import { getApiErrorMessage } from '../utils/api-error';
+import { normalizeMfaCode } from '../utils/mfa-code';
 import RecoveryCodesReveal from '../components/RecoveryCodesReveal';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import { useProfile, type Profile } from '../hooks/useProfile';
@@ -102,6 +103,7 @@ function MfaCard({
       onSuccess: (data) => {
         setRecoveryCodes(data.recoveryCodes ?? null);
         setMessage('MFA activado correctamente. Tu cuenta ahora requiere doble factor.');
+        setToken('');
         setStep('done');
         onMfaChanged();
       },
@@ -180,10 +182,11 @@ function MfaCard({
           <input
             type="text"
             aria-label="Código de verificación MFA de 6 dígitos"
-            maxLength={6}
+            inputMode="numeric"
+            autoComplete="one-time-code"
             placeholder="000000"
             value={token}
-            onChange={e => setToken(e.target.value)}
+            onChange={e => setToken(normalizeMfaCode(e.target.value))}
             className="input-field text-center text-2xl tracking-widest"
           />
           <button
@@ -218,10 +221,11 @@ function MfaCard({
             <input
               type="text"
               aria-label="Código de verificación MFA de 6 dígitos para desactivar"
-              maxLength={6}
+              inputMode="numeric"
+              autoComplete="one-time-code"
               placeholder="000000"
               value={token}
-              onChange={e => setToken(e.target.value)}
+              onChange={e => setToken(normalizeMfaCode(e.target.value))}
               className="input-field text-center text-2xl tracking-widest"
             />
             <button

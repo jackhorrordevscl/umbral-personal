@@ -148,6 +148,30 @@ describe('PublicBookingPage — public-scheduling Req: Public Availability Read 
     )
   })
 
+  it('al cambiar de mes se reinicia el día y el horario seleccionados', async () => {
+    const slot = futureSlotOnChileDay(5, 13)
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === `/public/therapists/therapist-1/availability`) {
+        return Promise.resolve({ data: [slot] })
+      }
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(
+      await screen.findByRole('button', { name: `Ver horarios del ${slot.dayKey}` }),
+    )
+    const grid = await screen.findByRole('group', { name: 'Horarios disponibles' })
+    await user.click(within(grid).getAllByRole('button')[0])
+    expect(screen.getByLabelText(/nombre completo/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Mes siguiente' }))
+
+    expect(screen.queryByRole('group', { name: 'Horarios disponibles' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/nombre completo/i)).not.toBeInTheDocument()
+  })
+
   // issue #157: utm_source de la URL se deriva UNA vez al montar y se manda
   // dentro de `origin` en el payload de reserva -- jsdom no navega desde un
   // referrer real, así que acá solo se prueba la parte de utm_source
@@ -251,6 +275,7 @@ describe('PublicBookingPage — public-scheduling Req: Booking Confirmation Surf
       // Todavía no arrancó el primer tick del poll (CHECKOUT_POLL_INTERVAL_MS)
       // -- el CTA no debe existir antes de eso.
       expect(screen.queryByRole('link', { name: 'Pagar ahora' })).not.toBeInTheDocument()
+      expect(screen.getByText(/preparando tu pago/i)).toBeInTheDocument()
 
       const link = await screen.findByRole(
         'link',

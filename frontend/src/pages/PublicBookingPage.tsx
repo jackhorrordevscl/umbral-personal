@@ -132,6 +132,13 @@ export default function PublicBookingPage() {
     return { source, referrer };
   });
 
+  const changeMonth = (delta: number) => {
+    setViewMonth((prev) => addMonths(prev, delta));
+    setSelectedDay(null);
+    setSelectedSlot(null);
+    setTakenMessage('');
+  };
+
   const grid = useMemo(
     () => chileMonthGridRange(viewMonth.year, viewMonth.month),
     [viewMonth],
@@ -216,6 +223,11 @@ export default function PublicBookingPage() {
               </a>
             </div>
           )}
+          {checkoutStatus === 'PENDING' && !checkoutUrl && !checkoutPollExhausted && (
+            <p className="text-slate-500 text-xs mt-4" role="status">
+              Preparando tu pago...
+            </p>
+          )}
           {checkoutStatus === 'PENDING' && !checkoutUrl && checkoutPollExhausted && (
             <p className="text-slate-500 text-xs mt-4">
               Te vamos a enviar el link de pago a tu email.
@@ -264,7 +276,7 @@ export default function PublicBookingPage() {
         <div className="flex items-center justify-between mb-4">
           <button
             type="button"
-            onClick={() => setViewMonth((prev) => addMonths(prev, -1))}
+            onClick={() => changeMonth(-1)}
             aria-label="Mes anterior"
             className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500"
           >
@@ -275,7 +287,7 @@ export default function PublicBookingPage() {
           </p>
           <button
             type="button"
-            onClick={() => setViewMonth((prev) => addMonths(prev, 1))}
+            onClick={() => changeMonth(1)}
             aria-label="Mes siguiente"
             className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500"
           >
@@ -305,6 +317,7 @@ export default function PublicBookingPage() {
                 onClick={() => {
                   setSelectedDay(day);
                   setSelectedSlot(null);
+                  setTakenMessage('');
                 }}
                 aria-label={`Ver horarios del ${day}`}
                 aria-pressed={selectedDay === day}
@@ -338,7 +351,10 @@ export default function PublicBookingPage() {
                   <button
                     key={slot.start}
                     type="button"
-                    onClick={() => setSelectedSlot(slot)}
+                    onClick={() => {
+                      setSelectedSlot(slot);
+                      setTakenMessage('');
+                    }}
                     aria-pressed={selectedSlot?.start === slot.start}
                     className={[
                       'text-xs px-3 py-1.5 rounded-lg border',

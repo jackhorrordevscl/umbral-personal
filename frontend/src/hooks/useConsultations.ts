@@ -28,7 +28,7 @@ export function useCreateConsultation() {
 export function useCorrectConsultation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: consultationsApi.ConsultationPayload }) =>
+    mutationFn: ({ id, data }: { id: string; data: consultationsApi.CorrectConsultationPayload }) =>
       consultationsApi.correctConsultation(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['consultations'] });

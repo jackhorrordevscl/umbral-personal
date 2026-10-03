@@ -249,6 +249,7 @@ export default function PatientsPage() {
   const [formConsents, setFormConsents] = useState<ConsentStatus>(EMPTY_CONSENTS);
   const [rutError, setRutError] = useState("");
   const [formError, setFormError] = useState("");
+  const [createNotice, setCreateNotice] = useState("");
   const [stagedDocuments, setStagedDocuments] = useState<StagedDocument[]>([]);
 
   const {
@@ -268,6 +269,24 @@ export default function PatientsPage() {
   const [bulkError, setBulkError] = useState("");
   const bulkConsentMutation = useBulkDeclareConsent();
 
+  const filtered = useMemo(() => filterPatients(patients, search), [patients, search]);
+
+  // La selección solo vale para filas visibles: las ocultas por el buscador o
+  // eliminadas no deben recibir una declaración que el terapeuta no ve.
+  const visibleSelectedIds = useMemo(
+    () => filtered.filter((p) => selectedForConsent.has(p.id) && !hasAnyConsent(p)).map((p) => p.id),
+    [filtered, selectedForConsent],
+  );
+  const visibleSelected = useMemo(() => new Set(visibleSelectedIds), [visibleSelectedIds]);
+
+  const resetCreateForm = () => {
+    setForm(emptyForm);
+    setFormConsents(EMPTY_CONSENTS);
+    setRutError("");
+    setFormError("");
+    setStagedDocuments([]);
+  };
+
   const toggleConsentSelection = (patientId: string) => {
     setSelectedForConsent((prev) => {
       const next = new Set(prev);
@@ -284,7 +303,7 @@ export default function PatientsPage() {
     }
     setBulkError("");
     bulkConsentMutation.mutate(
-      { patientIds: Array.from(selectedForConsent), purpose: bulkPurpose, evidence: bulkEvidence.trim() },
+      { patientIds: visibleSelectedIds, purpose: bulkPurpose, evidence: bulkEvidence.trim() },
       {
         onSuccess: (results) => {
           const failed = results.filter((r) => !r.ok);
@@ -329,6 +348,7 @@ export default function PatientsPage() {
       return;
     }
     setFormError("");
+    setCreateNotice("");
     // sdd/online-payment-integration PR 3 (T9.7): el input queda vacío por
     // default ("Sin cobro automático") -- string vacío nunca se envía como
     // 0, se omite del payload (mismo criterio que defaultSessionAmount
@@ -344,9 +364,7 @@ export default function PatientsPage() {
       {
         onSuccess: async ({ patient, failedPurposes }) => {
           setShowForm(false);
-          setForm(emptyForm);
-          setFormConsents(EMPTY_CONSENTS);
-          setRutError("");
+          resetCreateForm();
 
           const messages: string[] = [];
           if (failedPurposes.length > 0) {
@@ -365,7 +383,6 @@ export default function PatientsPage() {
               ),
             );
             const failedDocs = stagedDocuments.filter((_, i) => results[i].status === "rejected");
-            setStagedDocuments([]);
             if (failedDocs.length > 0) {
               messages.push(
                 `No se pudieron subir ${failedDocs.length} documento(s): ${failedDocs
@@ -375,13 +392,19 @@ export default function PatientsPage() {
             }
           }
 
-          setFormError(messages.join(" "));
+          setCreateNotice(messages.join(" "));
         },
         onError: (err) => {
           setFormError(getApiErrorMessage(err, "Error al guardar paciente"));
         },
       },
     );
+  };
+
+  const handleToggleForm = () => {
+    setCreateNotice("");
+    if (showForm) resetCreateForm();
+    setShowForm(!showForm);
   };
 
   const handleConfirmDelete = () => {
@@ -402,8 +425,6 @@ export default function PatientsPage() {
     }
   };
 
-  const filtered = useMemo(() => filterPatients(patients, search), [patients, search]);
-
   const patientRowKey = useCallback(
     (index: number, data: PatientRowSharedProps) => data.items[index].id,
     [],
@@ -411,7 +432,7 @@ export default function PatientsPage() {
 
   const sharedRowProps: PatientRowSharedProps = {
     items: filtered,
-    selectedForConsent,
+    selectedForConsent: visibleSelected,
     onToggleConsent: toggleConsentSelection,
     onView: (p) => setModalIntent({ patient: p, tab: "detail" }),
     onEdit: (p) => setModalIntent({ patient: p, tab: "edit" }),
@@ -428,7 +449,7 @@ export default function PatientsPage() {
             {patientsLoading ? "Cargando..." : `${patients.length} pacientes registrados`}
           </p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="btn-primary flex items-center gap-2">
+        <button onClick={handleToggleForm} className="btn-primary flex items-center gap-2">
           <UserPlus size={16} />
           <span className="hidden sm:inline">Nuevo paciente</span>
           <span className="sm:hidden">Nuevo</span>
@@ -443,6 +464,8 @@ export default function PatientsPage() {
         />
       )}
 
+      {createNotice && <ErrorBanner icon className="mb-4" message={createNotice} />}
+
       {showForm && (
         <PatientForm
           form={form}
@@ -456,7 +479,7 @@ export default function PatientsPage() {
           onSubmit={handleSubmit}
           onCancel={() => {
             setShowForm(false);
-            setStagedDocuments([]);
+            resetCreateForm();
           }}
           stagedDocuments={stagedDocuments}
           onStagedDocumentsChange={setStagedDocuments}
@@ -485,10 +508,10 @@ export default function PatientsPage() {
         </div>
       )}
 
-      {selectedForConsent.size > 0 && (
+      {visibleSelectedIds.length > 0 && (
         <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
           <p className="text-sm font-medium text-amber-900 mb-1">
-            Declarar consentimiento retroactivo para {selectedForConsent.size} paciente(s)
+            Declarar consentimiento retroactivo para {visibleSelectedIds.length} paciente(s)
           </p>
           <p className="text-sm text-amber-800 mb-1">
             <span className="font-medium">¿Por qué aparece esto?</span> El sistema exige un consentimiento

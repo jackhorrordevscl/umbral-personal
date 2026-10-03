@@ -101,6 +101,38 @@ describe('PaymentsPage — connection wizard (payments-multigateway-redesign)', 
     expect(mockedApi.post).not.toHaveBeenCalled()
   })
 
+  it('ignora espacios alrededor de las credenciales pegadas y valida con los valores recortados', async () => {
+    const user = userEvent.setup()
+    mockedApi.post.mockResolvedValueOnce({ data: { keyFingerprint: 'fp-1' } })
+
+    renderPaymentsPage()
+    await navigateToPasteStep(user)
+    await fillCredentials(user, ` ${VALID_API_KEY} `, `${VALID_SECRET_KEY} `)
+    await user.click(screen.getByRole('button', { name: /validar credenciales/i }))
+
+    await screen.findByText('Flow validó tus credenciales')
+    expect(mockedApi.post).toHaveBeenCalledWith(
+      expect.any(String),
+      { apiKey: VALID_API_KEY, secretKey: VALID_SECRET_KEY },
+    )
+  })
+
+  it('el error de formato de un campo desaparece al editarlo', async () => {
+    const user = userEvent.setup()
+    renderPaymentsPage()
+    await navigateToPasteStep(user)
+
+    await user.type(screen.getByLabelText(/^api key/i), 'short')
+    await user.click(screen.getByRole('button', { name: /validar credenciales/i }))
+    await screen.findByText('La API Key no tiene el formato esperado por Flow.')
+
+    await user.type(screen.getByLabelText(/^api key/i), 'x')
+
+    expect(
+      screen.queryByText('La API Key no tiene el formato esperado por Flow.'),
+    ).not.toBeInTheDocument()
+  })
+
   it('el paso de confirmación muestra el nombre de comercio que devuelve Flow', async () => {
     const user = userEvent.setup()
     mockedApi.post.mockResolvedValueOnce({

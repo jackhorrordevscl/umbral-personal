@@ -6,6 +6,7 @@ import { useCreateConsultation } from '../../hooks/useConsultations';
 import { useUploadPatientDocument } from '../../hooks/usePatientDocuments';
 import type { Patient } from '../../types/patient';
 import { buildLocalISO } from '../../utils/datetime';
+import { isValidTimeString } from '../../utils/availability';
 import { getApiErrorMessage } from '../../utils/api-error';
 import { activateOnKey } from '../../utils/activate-on-key';
 import { ALLOWED_SUMMARY_EXTENSIONS } from '../../utils/consultation-summary';
@@ -97,8 +98,13 @@ export default function ConsultationForm({
 
     if (!form.patientId) { setFormError('Selecciona un paciente'); return; }
     if (!form.sessionDate) { setFormError('La fecha de sesión es obligatoria'); return; }
+    if (!isValidTimeString(form.sessionTime)) { setFormError('La hora de la sesión no es válida'); return; }
     if (!form.consultReason.trim()) { setFormError('El motivo de consulta es obligatorio'); return; }
     if (!form.intervention.trim()) { setFormError('La intervención es obligatoria'); return; }
+    if (form.nextSessionDate && !isValidTimeString(form.nextSessionTime)) {
+      setFormError('La hora de la próxima sesión no es válida');
+      return;
+    }
     setFormError('');
 
     try {
