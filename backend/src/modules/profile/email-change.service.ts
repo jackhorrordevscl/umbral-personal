@@ -1,7 +1,7 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -120,24 +120,26 @@ export class EmailChangeService {
    * confirmar ni un token superseded por una solicitud posterior sirven.
    */
   async confirm(token: string): Promise<{ message: string }> {
+    // Issue #293: todos los fallos de este método son 400 y no 401; un 401
+    // cerraría la sesión en el frontend sin mostrar el error de confirmación.
     let payload: EmailChangeTokenPayload;
     try {
       payload = this.jwtService.verify(token);
     } catch {
-      throw new UnauthorizedException(
+      throw new BadRequestException(
         'Token de confirmación inválido o expirado',
       );
     }
 
     if (payload.purpose !== EMAIL_CHANGE_PURPOSE) {
-      throw new UnauthorizedException('Token de confirmación inválido');
+      throw new BadRequestException('Token de confirmación inválido');
     }
 
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
     });
     if (!user || user.deletedAt) {
-      throw new UnauthorizedException('Usuario no válido');
+      throw new BadRequestException('Usuario no válido');
     }
 
     if (
@@ -145,7 +147,7 @@ export class EmailChangeService {
       user.pendingEmailTokenIssuedAt.getTime() !== payload.changeIssuedAt ||
       user.pendingEmail !== payload.pendingEmail
     ) {
-      throw new UnauthorizedException(
+      throw new BadRequestException(
         'Token de confirmación inválido o ya utilizado',
       );
     }

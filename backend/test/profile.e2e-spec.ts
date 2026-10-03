@@ -187,26 +187,26 @@ describe('ProfileModule (e2e)', () => {
       expect((res.body as Record<string, unknown>).email).toBe(userAEmail);
     });
 
-    it('rechaza un cambio de email sin currentPassword (401), sin tocar pendingEmail', async () => {
+    it('rechaza un cambio de email sin currentPassword (400), sin tocar pendingEmail', async () => {
       await request(app.getHttpServer())
         .patch('/api/v1/profile')
         .set('Authorization', `Bearer ${userAToken}`)
         .send({ email: `no-deberia-aplicar.${runId}@umbral.cl` })
-        .expect(401);
+        .expect(400);
 
       const user = await prisma.user.findUnique({ where: { id: userAId } });
       expect(user!.pendingEmail).toBeNull();
     });
 
-    it('rechaza un cambio de password sin currentPassword (401)', () => {
+    it('rechaza un cambio de password sin currentPassword (400)', () => {
       return request(app.getHttpServer())
         .patch('/api/v1/profile')
         .set('Authorization', `Bearer ${userAToken}`)
         .send({ password: 'OtraPassword999!' })
-        .expect(401);
+        .expect(400);
     });
 
-    it('currentPassword incorrecta rechaza el request completo (401), sin cambiar ni siquiera name', async () => {
+    it('currentPassword incorrecta rechaza el request completo (403), sin cambiar ni siquiera name', async () => {
       const res = await request(app.getHttpServer())
         .patch('/api/v1/profile')
         .set('Authorization', `Bearer ${userAToken}`)
@@ -215,7 +215,7 @@ describe('ProfileModule (e2e)', () => {
           email: `no-deberia-aplicar.${runId}@umbral.cl`,
           currentPassword: 'contraseña-incorrecta',
         })
-        .expect(401);
+        .expect(403);
       expect(res.body).toBeDefined();
 
       const profile = await request(app.getHttpServer())
@@ -376,14 +376,14 @@ describe('ProfileModule (e2e)', () => {
       await request(app.getHttpServer())
         .post('/api/v1/profile/email-change/confirm')
         .send({ token: staleToken })
-        .expect(401);
+        .expect(400);
 
       const user = await prisma.user.findUnique({ where: { id: userD.id } });
       expect(user!.pendingEmail).toBe(secondEmail);
       expect(user!.email).not.toBe(firstEmail);
     });
 
-    it('un token de confirmación expirado no activa el cambio pendiente (401)', async () => {
+    it('un token de confirmación expirado no activa el cambio pendiente (400)', async () => {
       const userE = await createProfessionalAndLogin(
         `profile.e.${runId}@umbral.cl`,
         'Profile Test E',
@@ -408,7 +408,7 @@ describe('ProfileModule (e2e)', () => {
       await request(app.getHttpServer())
         .post('/api/v1/profile/email-change/confirm')
         .send({ token: expiredToken })
-        .expect(401);
+        .expect(400);
 
       const user = await prisma.user.findUnique({ where: { id: userE.id } });
       expect(user!.email).not.toBe(newEmail);
@@ -555,13 +555,13 @@ describe('Rate limiting en PATCH /profile (e2e)', () => {
     await app.close();
   });
 
-  it(`permite hasta ${TEST_LIMIT} intentos (currentPassword incorrecta, 401)`, async () => {
+  it(`permite hasta ${TEST_LIMIT} intentos (currentPassword incorrecta, 403)`, async () => {
     for (let i = 0; i < TEST_LIMIT; i++) {
       await request(app.getHttpServer())
         .patch('/api/v1/profile')
         .set('Authorization', `Bearer ${token}`)
         .send({ password: 'OtraPassword999!', currentPassword: 'incorrecta' })
-        .expect(401);
+        .expect(403);
     }
   });
 

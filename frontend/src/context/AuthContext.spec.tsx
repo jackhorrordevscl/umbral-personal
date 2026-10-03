@@ -148,6 +148,79 @@ describe('AuthProvider / useAuth', () => {
     expect(api.post).not.toHaveBeenCalled()
   })
 
+  describe('multi-tab sync via the storage event (issue #293)', () => {
+    const otherUser: User = { ...user, id: 'u2', email: 'other@example.com' }
+
+    // Simula lo que hace otra pestaña: cambia localStorage y el navegador
+    // dispara `storage` solo en las demás.
+    function changeFromOtherTab(token: string | null, nextUser: User | null) {
+      if (token) localStorage.setItem('token', token)
+      else localStorage.removeItem('token')
+      if (nextUser) localStorage.setItem('user', JSON.stringify(nextUser))
+      else localStorage.removeItem('user')
+      act(() => {
+        window.dispatchEvent(new StorageEvent('storage', { key: 'token' }))
+      })
+    }
+
+    it('adopts the account another tab logged into and clears the cache', () => {
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      act(() => result.current.login('token-a', user))
+      queryClient.setQueryData(['patients'], [{ id: 'p-of-a' }])
+
+      changeFromOtherTab('token-b', otherUser)
+
+      expect(result.current.user).toEqual(otherUser)
+      expect(result.current.token).toBe('token-b')
+      expect(queryClient.getQueryCache().getAll()).toHaveLength(0)
+    })
+
+    it('logs out when another tab logs out, without calling the API again', () => {
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      act(() => result.current.login('token-a', user))
+      queryClient.setQueryData(['patients'], [{ id: 'p1' }])
+
+      changeFromOtherTab(null, null)
+
+      expect(result.current.isAuthenticated).toBe(false)
+      expect(result.current.user).toBeNull()
+      expect(queryClient.getQueryCache().getAll()).toHaveLength(0)
+      expect(api.post).not.toHaveBeenCalled()
+    })
+
+    it('logs in when another tab logs in while this one has no session', () => {
+      const { result } = renderHook(() => useAuth(), { wrapper })
+
+      changeFromOtherTab('token-b', otherUser)
+
+      expect(result.current.isAuthenticated).toBe(true)
+      expect(result.current.user).toEqual(otherUser)
+    })
+
+    it('keeps the cache when the same account only refreshed its token', () => {
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      act(() => result.current.login('token-a', user))
+      queryClient.setQueryData(['patients'], [{ id: 'p1' }])
+
+      changeFromOtherTab('token-a2', user)
+
+      expect(result.current.token).toBe('token-a2')
+      expect(queryClient.getQueryData(['patients'])).toEqual([{ id: 'p1' }])
+    })
+
+    it('ignores storage events for unrelated keys', () => {
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      act(() => result.current.login('token-a', user))
+      localStorage.removeItem('token')
+
+      act(() => {
+        window.dispatchEvent(new StorageEvent('storage', { key: 'other' }))
+      })
+
+      expect(result.current.isAuthenticated).toBe(true)
+    })
+  })
+
   it('throws when used outside an AuthProvider', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 

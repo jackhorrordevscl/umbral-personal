@@ -202,6 +202,74 @@ describe('LoginPage', () => {
     localStorage.clear()
   })
 
+  describe('destino tras el login (state.from, issue #293)', () => {
+    const loginResponse = {
+      data: {
+        accessToken: 'token-abc',
+        user: { id: 'u1', email: 'user@umbral.cl', role: 'PROFESSIONAL', name: 'Test User' },
+      },
+    }
+
+    function renderWithFrom(from: unknown) {
+      return render(
+        <MemoryRouter initialEntries={[{ pathname: '/login', state: { from } }]}>
+          <TestProviders>
+            <LoginPage />
+          </TestProviders>
+        </MemoryRouter>,
+      )
+    }
+
+    it('navega a state.from si es una ruta interna', async () => {
+      mockedApi.post.mockResolvedValueOnce(loginResponse)
+
+      renderWithFrom('/patients/p1?tab=notas')
+      await fillCredentials()
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/patients/p1?tab=notas')
+      })
+      expect(mockNavigate).not.toHaveBeenCalledWith('/dashboard')
+    })
+
+    it.each(['https://evil.example/', '//evil.example/', 'patients'])(
+      'ignora un from no interno (%s) y va al dashboard',
+      async (from) => {
+        mockedApi.post.mockResolvedValueOnce(loginResponse)
+
+        renderWithFrom(from)
+        await fillCredentials()
+
+        await waitFor(() => {
+          expect(mockNavigate).toHaveBeenCalledWith('/dashboard')
+        })
+      },
+    )
+
+    it('con una sesión restaurada redirige a state.from en vez de al dashboard', () => {
+      localStorage.setItem('token', 'token-previo')
+      localStorage.setItem(
+        'user',
+        JSON.stringify({ id: 'u1', email: 'user@umbral.cl', role: 'PROFESSIONAL', name: 'Test User' }),
+      )
+
+      render(
+        <MemoryRouter initialEntries={[{ pathname: '/login', state: { from: '/calendar' } }]}>
+          <TestProviders>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/calendar" element={<p>Agenda</p>} />
+              <Route path="/dashboard" element={<p>Panel</p>} />
+            </Routes>
+          </TestProviders>
+        </MemoryRouter>,
+      )
+
+      expect(screen.getByText('Agenda')).toBeInTheDocument()
+      localStorage.clear()
+    })
+  })
+
   it('requiresPasswordChange pide la nueva contraseña antes de continuar', async () => {
     mockedApi.post.mockResolvedValueOnce({
       data: {

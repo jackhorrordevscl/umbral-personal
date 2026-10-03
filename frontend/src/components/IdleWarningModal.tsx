@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { AlertTriangle } from "lucide-react";
 
+const WARNING_SECONDS = 120;
+
 interface IdleWarningModalProps {
   onExtend: () => void;
   onLogout: () => void;
@@ -10,7 +12,12 @@ export default function IdleWarningModal({
   onExtend,
   onLogout,
 }: IdleWarningModalProps) {
-  const [seconds, setSeconds] = useState(119);
+  // Deadline absoluto en vez de contar ticks: setInterval se estrangula en
+  // pestañas ocultas y se detiene al suspender el equipo, así que restar 1 por
+  // tick podía alargar mucho los 2 min (issue #293). Cada tick (y cada vez que
+  // la pestaña vuelve a ser visible) recalcula lo que queda con Date.now().
+  const [deadline] = useState(() => Date.now() + WARNING_SECONDS * 1000);
+  const [seconds, setSeconds] = useState(WARNING_SECONDS);
   const extendRef = useRef<HTMLButtonElement>(null);
   const logoutRef = useRef<HTMLButtonElement>(null);
 
@@ -18,11 +25,18 @@ export default function IdleWarningModal({
   // depender de `seconds`); el logout al llegar a 0 se dispara en un efecto
   // aparte que observa el estado, no desde dentro del updater (issue #16).
   useEffect(() => {
-    const interval = setInterval(() => {
-      setSeconds((s) => Math.max(0, s - 1));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
+    const tick = () =>
+      setSeconds(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    const interval = setInterval(tick, 1000);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [deadline]);
 
   useEffect(() => {
     if (seconds === 0) onLogout();

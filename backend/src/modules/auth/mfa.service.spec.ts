@@ -1,4 +1,8 @@
-import { Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
@@ -42,6 +46,14 @@ function buildUser(overrides: Partial<User> = {}): User {
     updatedAt: new Date(),
     ...overrides,
   } as unknown as User;
+}
+
+// Issue #293: estos errores deben ser 400 (no 401) para que el frontend no
+// cierre la sesión; se verifica la clase de excepción además del mensaje.
+async function expectBadRequest(promise: Promise<unknown>, message: string) {
+  const error: unknown = await promise.catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(BadRequestException);
+  expect((error as BadRequestException).message).toContain(message);
 }
 
 describe('MfaService', () => {
@@ -557,16 +569,16 @@ describe('MfaService', () => {
       );
     });
 
-    it('enableMfa y disableMfa rechazan con 401 un secreto ilegible', async () => {
+    it('enableMfa y disableMfa rechazan con 400 un secreto ilegible', async () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ mfaSecret: 'enc:v1:garbage' }),
       );
 
       await expect(service.enableMfa('user-1', '123456')).rejects.toThrow(
-        UnauthorizedException,
+        BadRequestException,
       );
       await expect(service.disableMfa('user-1', '123456')).rejects.toThrow(
-        UnauthorizedException,
+        BadRequestException,
       );
       expect(mockSpeakeasy.totp.verifyDelta).not.toHaveBeenCalled();
     });
@@ -623,33 +635,36 @@ describe('MfaService', () => {
   });
 
   describe('enableMfa', () => {
-    it('lanza 401 si no hay usuario o no tiene secreto generado', async () => {
+    it('lanza 400 si no hay usuario o no tiene secreto generado', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
-      await expect(service.enableMfa('user-1', '123456')).rejects.toThrow(
+      await expectBadRequest(
+        service.enableMfa('user-1', '123456'),
         'Primero genera el secreto MFA',
       );
     });
 
-    it('lanza 401 si el TOTP es inválido', async () => {
+    it('lanza 400 si el TOTP es inválido', async () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ mfaSecret: 'BASE32SECRET' }),
       );
       mockTotp(null);
 
-      await expect(service.enableMfa('user-1', '000000')).rejects.toThrow(
+      await expectBadRequest(
+        service.enableMfa('user-1', '000000'),
         'Código inválido, intenta de nuevo',
       );
     });
 
-    it('lanza 401 si el TOTP ya fue usado en este paso (replay)', async () => {
+    it('lanza 400 si el TOTP ya fue usado en este paso (replay)', async () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ mfaSecret: 'BASE32SECRET' }),
       );
       mockTotp(0);
       prisma.user.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.enableMfa('user-1', '123456')).rejects.toThrow(
+      await expectBadRequest(
+        service.enableMfa('user-1', '123456'),
         'Código inválido, intenta de nuevo',
       );
       expect(prisma.user.update).not.toHaveBeenCalled();
@@ -687,21 +702,23 @@ describe('MfaService', () => {
   });
 
   describe('disableMfa', () => {
-    it('lanza 401 si no hay usuario o no tiene secreto', async () => {
+    it('lanza 400 si no hay usuario o no tiene secreto', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
-      await expect(service.disableMfa('user-1', '123456')).rejects.toThrow(
+      await expectBadRequest(
+        service.disableMfa('user-1', '123456'),
         'MFA no está configurado',
       );
     });
 
-    it('lanza 401 si el TOTP es inválido', async () => {
+    it('lanza 400 si el TOTP es inválido', async () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ mfaSecret: 'BASE32SECRET' }),
       );
       mockTotp(null);
 
-      await expect(service.disableMfa('user-1', '000000')).rejects.toThrow(
+      await expectBadRequest(
+        service.disableMfa('user-1', '000000'),
         'Código inválido',
       );
     });
@@ -721,14 +738,15 @@ describe('MfaService', () => {
       expect(result).toEqual({ message: 'MFA desactivado correctamente' });
     });
 
-    it('lanza 401 si el TOTP ya fue usado en este paso (replay)', async () => {
+    it('lanza 400 si el TOTP ya fue usado en este paso (replay)', async () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
       );
       mockTotp(0);
       prisma.user.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.disableMfa('user-1', '123456')).rejects.toThrow(
+      await expectBadRequest(
+        service.disableMfa('user-1', '123456'),
         'Código inválido',
       );
       expect(prisma.user.update).not.toHaveBeenCalled();

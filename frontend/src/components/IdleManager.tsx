@@ -25,8 +25,13 @@ export default function IdleManager() {
     navigate("/login");
   }, [logout, navigate]);
 
+  // Si otra pestaña está activa, el usuario sigue presente: se descarta el
+  // aviso para que su cuenta atrás no cierre la sesión compartida.
+  const handleRemoteActivity = useCallback(() => setShowWarning(false), []);
+
   const { extend } = useIdleTimeout({
     onWarn: handleWarn,
+    onRemoteActivity: handleRemoteActivity,
   });
 
   const handleExtend = useCallback(() => {

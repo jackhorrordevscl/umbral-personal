@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { AxiosError, type InternalAxiosRequestConfig } from 'axios'
-import api, { setUnauthorizedHandler } from './client'
+import api, { PUBLIC_AUTH_PATHS, setUnauthorizedHandler } from './client'
 
 const originalAdapter = api.defaults.adapter
 const originalLocation = window.location
@@ -82,13 +82,29 @@ describe('api client', () => {
     expect(window.location.href).toBe('/dashboard')
   })
 
-  it('does not redirect on a 401 from an /auth/ endpoint', async () => {
+  // Derivada de la lista real para que un endpoint público nuevo quede cubierto.
+  it.each([...PUBLIC_AUTH_PATHS, '/auth/login?next=1'])('does not close the session on a 401 from the public endpoint %s', async (url) => {
     failWith(401)
 
-    await expect(api.post('/auth/login', {})).rejects.toBeInstanceOf(AxiosError)
+    await expect(api.post(url, {})).rejects.toBeInstanceOf(AxiosError)
 
     expect(localStorage.getItem('token')).toBe('stored-token')
     expect(window.location.href).toBe('/dashboard')
+  })
+
+  it.each([
+    ['post', '/auth/mfa/generate'],
+    ['post', '/auth/mfa/enable'],
+    ['post', '/auth/mfa/disable'],
+    ['post', '/auth/logout-all'],
+    ['post', '/auth/invitations'],
+  ] as const)('closes the session on a 401 from the authenticated endpoint %s %s', async (method, url) => {
+    failWith(401)
+
+    await expect(api[method](url, {})).rejects.toBeInstanceOf(AxiosError)
+
+    expect(localStorage.getItem('token')).toBeNull()
+    expect(window.location.href).toBe('/login')
   })
 
   it('does not clear the session on non-401 errors', async () => {

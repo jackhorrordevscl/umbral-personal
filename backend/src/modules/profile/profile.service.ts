@@ -1,8 +1,9 @@
 import {
-  Injectable,
+  BadRequestException,
   ConflictException,
+  ForbiddenException,
+  Injectable,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -125,8 +126,10 @@ export class ProfileService {
 
     const requiresStepUp = Boolean(dto.email || dto.password);
     if (requiresStepUp) {
+      // Issue #293: 400/403 y no 401, para que el frontend no lo trate como
+      // sesión expirada y cierre la sesión sin mostrar el error.
       if (!dto.currentPassword) {
-        throw new UnauthorizedException(
+        throw new BadRequestException(
           'Se requiere la contraseña actual para este cambio',
         );
       }
@@ -135,7 +138,7 @@ export class ProfileService {
         dto.currentPassword,
       );
       if (!currentPasswordValid) {
-        throw new UnauthorizedException('Contraseña actual incorrecta');
+        throw new ForbiddenException('Contraseña actual incorrecta');
       }
     }
 

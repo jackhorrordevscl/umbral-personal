@@ -1,7 +1,8 @@
 import {
+  BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
@@ -174,26 +175,26 @@ describe('ProfileService', () => {
   });
 
   describe('update — step-up auth', () => {
-    it('lanza 401 si falta currentPassword y viene email', async () => {
+    it('lanza 400 si falta currentPassword y viene email', async () => {
       prisma.user.findFirst.mockResolvedValue(buildUser());
 
       await expect(
         service.update('user-1', { email: 'new@example.com' }),
-      ).rejects.toThrow(UnauthorizedException);
+      ).rejects.toThrow(BadRequestException);
       expect(prisma.user.update).not.toHaveBeenCalled();
       expect(emailChangeService.requestChange).not.toHaveBeenCalled();
     });
 
-    it('lanza 401 si falta currentPassword y viene password', async () => {
+    it('lanza 400 si falta currentPassword y viene password', async () => {
       prisma.user.findFirst.mockResolvedValue(buildUser());
 
       await expect(
         service.update('user-1', { password: 'NuevaPassword789!' }),
-      ).rejects.toThrow(UnauthorizedException);
+      ).rejects.toThrow(BadRequestException);
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
 
-    it('lanza 401 si currentPassword es incorrecta, y no cambia ni siquiera name', async () => {
+    it('lanza 403 si currentPassword es incorrecta, y no cambia ni siquiera name', async () => {
       prisma.user.findFirst.mockResolvedValue(buildUser());
       mockArgon2.verify.mockResolvedValue(false as never);
 
@@ -203,7 +204,7 @@ describe('ProfileService', () => {
           email: 'new@example.com',
           currentPassword: 'wrong-password',
         }),
-      ).rejects.toThrow(UnauthorizedException);
+      ).rejects.toThrow(ForbiddenException);
       expect(mockArgon2.verify).toHaveBeenCalledWith(
         'hashed-password',
         'wrong-password',

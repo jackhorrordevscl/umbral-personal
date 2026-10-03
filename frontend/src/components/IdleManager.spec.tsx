@@ -7,9 +7,17 @@ const auth = { isAuthenticated: true, logout: vi.fn() }
 vi.mock('../context/useAuth', () => ({ useAuth: () => auth }))
 
 let warn: () => void = () => {}
+let remoteActivity: () => void = () => {}
 vi.mock('../hooks/useIdleTimeout', () => ({
-  useIdleTimeout: ({ onWarn }: { onWarn: () => void }) => {
+  useIdleTimeout: ({
+    onWarn,
+    onRemoteActivity,
+  }: {
+    onWarn: () => void
+    onRemoteActivity: () => void
+  }) => {
     warn = onWarn
+    remoteActivity = onRemoteActivity
     return { extend: vi.fn() }
   },
 }))
@@ -33,6 +41,16 @@ describe('IdleManager', () => {
     act(() => warn())
 
     expect(screen.getByText('Sesión por expirar')).toBeInTheDocument()
+  })
+
+  it('descarta el aviso si otra pestaña registra actividad', () => {
+    renderManager()
+    act(() => warn())
+    expect(screen.getByText('Sesión por expirar')).toBeInTheDocument()
+
+    act(() => remoteActivity())
+
+    expect(screen.queryByText('Sesión por expirar')).not.toBeInTheDocument()
   })
 
   it('no muestra el aviso si no hay sesión', () => {
