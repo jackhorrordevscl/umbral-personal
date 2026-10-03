@@ -404,7 +404,7 @@ export default function SecurityPage() {
   };
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <div className="mb-8">
         <h2 className="font-display text-3xl text-slate-900">Seguridad</h2>
         <p className="text-slate-500 text-sm mt-1">

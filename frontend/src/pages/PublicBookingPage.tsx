@@ -9,6 +9,7 @@ import {
   buildLocalISO,
   chileMonthGridRange,
   formatChileDate,
+  formatChileLongDate,
   formatSlotTimeRange,
   groupSlotsByChileDay,
   toChileDayKey,
@@ -319,7 +320,7 @@ export default function PublicBookingPage() {
                   setSelectedSlot(null);
                   setTakenMessage('');
                 }}
-                aria-label={`Ver horarios del ${day}`}
+                aria-label={`Ver horarios del ${formatChileLongDate(new Date(buildLocalISO(day, '12:00')))}`}
                 aria-pressed={selectedDay === day}
                 className={[
                   'text-xs rounded-lg py-2',

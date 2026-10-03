@@ -1,5 +1,12 @@
 import { AlertCircle } from "lucide-react";
-import type { ReactNode } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useId,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 
 interface FormFieldProps {
   id: string;
@@ -9,6 +16,12 @@ interface FormFieldProps {
   /** Clases del wrapper (ej. "md:col-span-2" para campos anchos). */
   className?: string;
   children: ReactNode;
+}
+
+interface ControlProps {
+  id?: string;
+  "aria-invalid"?: boolean;
+  "aria-describedby"?: string;
 }
 
 // #73 (punto 5): el par label+input (misma clase de label, mismo layout de
@@ -23,15 +36,40 @@ export default function FormField({
   className = "",
   children,
 }: FormFieldProps) {
+  const errorId = `${useId()}-error`;
+
+  // #298: enlaza el control (el hijo cuyo id coincide) con su mensaje de error
+  // mediante aria-invalid + aria-describedby, sin que cada uso lo cablee a mano.
+  // Children.map se usa siempre (también sin error) para que las keys de los
+  // hijos no cambien al aparecer/desaparecer el error: si cambiaran, el input
+  // se remontaría y perdería el foco mientras el usuario escribe.
+  const content = Children.map(children, (child) => {
+    if (!error || !isValidElement<ControlProps>(child) || child.props.id !== id)
+      return child;
+    const describedBy = [child.props["aria-describedby"], errorId]
+      .filter(Boolean)
+      .join(" ");
+    return cloneElement(child as ReactElement<ControlProps>, {
+      "aria-invalid": true,
+      "aria-describedby": describedBy,
+    });
+  });
+
   return (
     <div className={className}>
-      <label htmlFor={id} className="block text-xs font-medium text-slate-600 mb-1">
+      <label
+        htmlFor={id}
+        className="block text-xs font-medium text-slate-600 mb-1"
+      >
         {label}
         {required && " *"}
       </label>
-      {children}
+      {content}
       {error && (
-        <p className="text-red-500 text-xs mt-1 flex items-center gap-1">
+        <p
+          id={errorId}
+          className="text-red-500 text-xs mt-1 flex items-center gap-1"
+        >
           <AlertCircle size={11} /> {error}
         </p>
       )}
