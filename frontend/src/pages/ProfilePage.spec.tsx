@@ -95,6 +95,43 @@ describe('ProfilePage — account-settings Req: Profile Section Scope', () => {
     ).toBeInTheDocument()
   })
 
+  it('la nueva contraseña exige confirmación: si no coincide avisa y no permite guardar', async () => {
+    const user = userEvent.setup()
+    renderProfilePage()
+
+    await user.type(await screen.findByLabelText('Nueva contraseña'), 'NuevaPass123!')
+    await user.type(screen.getByLabelText('Confirmar nueva contraseña'), 'Distinta123!')
+    await user.type(
+      screen.getByLabelText('Contraseña actual para cambiar contraseña'),
+      'Actual123!',
+    )
+
+    expect(screen.getByText('Las contraseñas no coinciden.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cambiar contraseña' })).toBeDisabled()
+
+    await user.clear(screen.getByLabelText('Confirmar nueva contraseña'))
+    await user.type(screen.getByLabelText('Confirmar nueva contraseña'), 'NuevaPass123!')
+
+    expect(screen.queryByText('Las contraseñas no coinciden.')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cambiar contraseña' })).toBeEnabled()
+  })
+
+  it('el mensaje de éxito del nombre desaparece al volver a editarlo', async () => {
+    mockedApi.patch.mockResolvedValueOnce({ data: baseProfile({ name: 'Nuevo Nombre' }) })
+    const user = userEvent.setup()
+    renderProfilePage()
+
+    const input = await screen.findByLabelText('Nombre')
+    await user.clear(input)
+    await user.type(input, 'Nuevo Nombre')
+    await user.click(screen.getByRole('button', { name: 'Guardar nombre' }))
+    expect(await screen.findByText('Nombre actualizado correctamente.')).toBeInTheDocument()
+
+    await user.type(input, 'x')
+
+    expect(screen.queryByText('Nombre actualizado correctamente.')).not.toBeInTheDocument()
+  })
+
   // Issue #294: con el perfil fallido las cards se montaban vacías y guardar
   // solo la bio enviaba specialty '' (borrando la guardada).
   it('si falla la carga del perfil no monta las cards editables y permite reintentar', async () => {

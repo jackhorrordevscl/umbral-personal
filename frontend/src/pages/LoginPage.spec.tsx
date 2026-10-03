@@ -285,4 +285,66 @@ describe('LoginPage', () => {
       await screen.findByText('Cambio de contraseña requerido'),
     ).toBeInTheDocument()
   })
+
+  it('el cambio de contraseña inicial exige confirmar la nueva contraseña', async () => {
+    mockedApi.post.mockResolvedValueOnce({
+      data: { requiresPasswordChange: true, passwordChangeToken: 'change-token' },
+    })
+
+    renderLoginPage()
+    const user = await fillCredentials()
+    await screen.findByText('Cambio de contraseña requerido')
+
+    await user.type(screen.getByLabelText('Nueva contraseña'), 'NuevaPass123!')
+    await user.type(screen.getByLabelText('Confirmar nueva contraseña'), 'OtraPass123!')
+    await user.click(screen.getByRole('button', { name: /cambiar contraseña y continuar/i }))
+
+    expect(await screen.findByText('Las contraseñas no coinciden.')).toBeInTheDocument()
+    expect(mockedApi.post).not.toHaveBeenCalledWith(
+      '/auth/password/change',
+      expect.anything(),
+    )
+  })
+
+  it('normaliza el código MFA pegado con espacios', async () => {
+    mockedApi.post.mockResolvedValueOnce({
+      data: { requiresMfa: true, mfaToken: 'mfa-challenge-token' },
+    })
+
+    renderLoginPage()
+    const user = await fillCredentials()
+    await screen.findByText('Verificación MFA')
+
+    const input = screen.getByLabelText('Código de verificación MFA de 6 dígitos')
+    await user.click(input)
+    await user.paste('123 456')
+
+    expect(input).toHaveValue('123456')
+    expect(input).toHaveAttribute('inputmode', 'numeric')
+  })
+
+  it('si falla el inicio del enrolamiento MFA permite reintentar y volver', async () => {
+    mockedApi.post.mockResolvedValueOnce({
+      data: { requiresMfaSetup: true, setupToken: 'setup-token' },
+    })
+    mockedApi.post.mockRejectedValueOnce({
+      isAxiosError: true,
+      response: { data: { message: 'Servicio no disponible' } },
+    })
+    mockedApi.post.mockResolvedValueOnce({
+      data: { qrCode: 'data:image/png;base64,fake-qr' },
+    })
+
+    renderLoginPage()
+    const user = await fillCredentials()
+
+    expect(await screen.findByText('Servicio no disponible')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /reintentar/i }))
+
+    expect(await screen.findByAltText('Código QR para configurar MFA')).toBeInTheDocument()
+    expect(screen.queryByText('Servicio no disponible')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /volver al inicio de sesión/i }))
+    expect(screen.getByRole('button', { name: /^ingresar$/i })).toBeInTheDocument()
+  })
 })

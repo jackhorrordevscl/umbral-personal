@@ -127,7 +127,10 @@ function NameCard({ profile }: { profile: Profile | undefined }) {
           type="text"
           aria-label="Nombre"
           value={nameInput}
-          onChange={e => setNameInput(e.target.value)}
+          onChange={e => {
+            setNameInput(e.target.value);
+            if (!nameMutation.isIdle) nameMutation.reset();
+          }}
           className="input-field"
         />
         {nameMessage && <ErrorBanner message={nameMessage} variant="success" />}
@@ -194,7 +197,10 @@ function PublicProfileCard({ profile }: { profile: Profile | undefined }) {
             placeholder="Especialidad (ej. Psicología clínica)"
             maxLength={120}
             value={specialtyInput}
-            onChange={(e) => setSpecialtyInput(e.target.value)}
+            onChange={(e) => {
+              setSpecialtyInput(e.target.value);
+              if (!profileMutation.isIdle) profileMutation.reset();
+            }}
             className="input-field"
           />
         </div>
@@ -205,7 +211,10 @@ function PublicProfileCard({ profile }: { profile: Profile | undefined }) {
             maxLength={500}
             rows={3}
             value={bioInput}
-            onChange={(e) => setBioInput(e.target.value)}
+            onChange={(e) => {
+              setBioInput(e.target.value);
+              if (!profileMutation.isIdle) profileMutation.reset();
+            }}
             className="input-field resize-none"
           />
           <p className="text-xs text-slate-400 mt-1 text-right">
@@ -280,7 +289,10 @@ function EmailCard({ profile }: { profile: Profile | undefined }) {
           aria-label="Nuevo email"
           placeholder="nuevo@email.com"
           value={emailInput}
-          onChange={e => setEmailInput(e.target.value)}
+          onChange={e => {
+            setEmailInput(e.target.value);
+            if (emailMutation.isError) emailMutation.reset();
+          }}
           className="input-field"
         />
         <input
@@ -288,7 +300,10 @@ function EmailCard({ profile }: { profile: Profile | undefined }) {
           aria-label="Contraseña actual para cambiar email"
           placeholder="Contraseña actual"
           value={emailCurrentPassword}
-          onChange={e => setEmailCurrentPassword(e.target.value)}
+          onChange={e => {
+            setEmailCurrentPassword(e.target.value);
+            if (emailMutation.isError) emailMutation.reset();
+          }}
           className="input-field"
         />
         {emailError && <ErrorBanner message={emailError} />}
@@ -308,13 +323,20 @@ function PasswordCard() {
   const { logout } = useAuth();
   const navigate = useNavigate();
   const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordCurrentPassword, setPasswordCurrentPassword] = useState('');
 
   const passwordMutation = useUpdateProfile();
   const passwordSaving = passwordMutation.isPending;
+  const passwordMismatch = confirmPassword.length > 0 && confirmPassword !== newPassword;
   const passwordError = passwordMutation.isError
     ? getApiErrorMessage(passwordMutation.error, 'No se pudo actualizar la contraseña.')
-    : '';
+    : passwordMismatch
+      ? 'Las contraseñas no coinciden.'
+      : '';
+  const clearPasswordError = () => {
+    if (passwordMutation.isError) passwordMutation.reset();
+  };
 
   // Issue #76 (PR B): un cambio de password exitoso NO entrega un token de
   // reemplazo -- el token actual queda inválido en el próximo request
@@ -353,7 +375,21 @@ function PasswordCard() {
           placeholder="Nueva contraseña"
           minLength={8}
           value={newPassword}
-          onChange={e => setNewPassword(e.target.value)}
+          onChange={e => {
+            setNewPassword(e.target.value);
+            clearPasswordError();
+          }}
+          className="input-field"
+        />
+        <input
+          type="password"
+          aria-label="Confirmar nueva contraseña"
+          placeholder="Confirmar nueva contraseña"
+          value={confirmPassword}
+          onChange={e => {
+            setConfirmPassword(e.target.value);
+            clearPasswordError();
+          }}
           className="input-field"
         />
         <input
@@ -361,14 +397,20 @@ function PasswordCard() {
           aria-label="Contraseña actual para cambiar contraseña"
           placeholder="Contraseña actual"
           value={passwordCurrentPassword}
-          onChange={e => setPasswordCurrentPassword(e.target.value)}
+          onChange={e => {
+            setPasswordCurrentPassword(e.target.value);
+            clearPasswordError();
+          }}
           className="input-field"
         />
         {passwordError && <ErrorBanner message={passwordError} />}
         <button
           type="submit"
           disabled={
-            passwordSaving || newPassword.length < 8 || !passwordCurrentPassword
+            passwordSaving ||
+            newPassword.length < 8 ||
+            newPassword !== confirmPassword ||
+            !passwordCurrentPassword
           }
           className="btn-primary disabled:opacity-50"
         >

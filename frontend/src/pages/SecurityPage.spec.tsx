@@ -98,6 +98,37 @@ describe('SecurityPage — account-settings Req: Security Section Scope', () => 
     expect(screen.getByText('MFA activo')).toBeInTheDocument()
   })
 
+  it('normaliza el código MFA pegado con espacios', async () => {
+    const user = userEvent.setup()
+    renderSecurityPage()
+
+    const input = await screen.findByLabelText(/para desactivar/i)
+    await user.click(input)
+    await user.paste('123 456')
+
+    expect(input).toHaveValue('123456')
+  })
+
+  it('tras activar MFA el formulario de desactivar no queda precargado con el código usado', async () => {
+    mockGets(baseProfile({ mfaEnabled: false }))
+    mockedApi.post.mockImplementation((url: string) => {
+      if (url === '/auth/mfa/generate') {
+        return Promise.resolve({ data: { qrCode: 'data:image/png;base64,x', secret: 'SECRET' } })
+      }
+      if (url === '/auth/mfa/enable') return Promise.resolve({ data: {} })
+      return Promise.reject(new Error(`POST inesperado: ${url}`))
+    })
+    const user = userEvent.setup()
+    renderSecurityPage()
+
+    await user.click(await screen.findByRole('button', { name: /generar código qr/i }))
+    await user.click(await screen.findByRole('button', { name: /ya escaneé el qr/i }))
+    await user.type(screen.getByLabelText(/código de verificación mfa/i), '123456')
+    await user.click(screen.getByRole('button', { name: /activar mfa/i }))
+
+    expect(await screen.findByLabelText(/para desactivar/i)).toHaveValue('')
+  })
+
   it('renderiza el panel completo de Google Calendar (conectar/desconectar/estado), sola', async () => {
     mockGets(baseProfile(), baseCalendarStatus({ status: 'PENDING' }))
 
