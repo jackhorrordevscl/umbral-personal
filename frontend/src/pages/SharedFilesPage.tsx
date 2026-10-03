@@ -47,6 +47,10 @@ const formatSize = (bytes: number) => {
 const isPreviewable = (mimetype: string) =>
   ['application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimetype);
 
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const PREVIEW_URL_TTL_MS = 60_000;
+const EMPTY_FORM = { name: '', description: '', category: 'GENERAL', file: null as File | null };
+
 interface SharedFile {
   id: string;
   name: string;
@@ -70,12 +74,7 @@ export default function SharedFilesPage() {
   const [fileToDelete, setFileToDelete] = useState<SharedFile | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [form, setForm] = useState({
-    name: '',
-    description: '',
-    category: 'GENERAL',
-    file: null as File | null,
-  });
+  const [form, setForm] = useState(EMPTY_FORM);
 
   // Edit modal state
   const [editingFile, setEditingFile] = useState<SharedFile | null>(null);
@@ -93,10 +92,26 @@ export default function SharedFilesPage() {
   // el mismo banner que ya usan las acciones de descarga/borrado (issue #23).
   const displayError = error || (filesError ? 'No se pudo cargar el repositorio de archivos. Reintenta más tarde.' : '');
 
+  const closeUpload = () => {
+    setShowUpload(false);
+    setForm(EMPTY_FORM);
+    setUploadError('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     setUploadError('');
     if (!form.file) { setUploadError('Selecciona un archivo'); return; }
+    const extension = form.file.name.split('.').pop()?.toUpperCase() ?? '';
+    if (!ALLOWED_EXTENSIONS.includes(extension)) {
+      setUploadError('Formato no admitido. Revisa los formatos permitidos.');
+      return;
+    }
+    if (form.file.size > MAX_FILE_SIZE) {
+      setUploadError('El archivo supera el máximo de 50 MB');
+      return;
+    }
     if (!form.name.trim()) { setUploadError('Ingresa un nombre'); return; }
 
     const fd = new FormData();
@@ -110,8 +125,7 @@ export default function SharedFilesPage() {
       await api.post('/shared-files/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setShowUpload(false);
-      setForm({ name: '', description: '', category: 'GENERAL', file: null });
+      closeUpload();
       queryClient.invalidateQueries({ queryKey: ['shared-files'] });
     } catch (e) {
       setUploadError(getApiErrorMessage(e, 'Error al subir el archivo. Intenta nuevamente.'));
@@ -121,16 +135,19 @@ export default function SharedFilesPage() {
   };
 
   const handlePreview = async (file: SharedFile) => {
+    if (!isPreviewable(file.mimetype)) {
+      await handleDownload(file);
+      return;
+    }
     try {
       const res = await api.get(`/shared-files/${file.id}/download`, {
         responseType: 'blob',
       });
       const blob = new Blob([res.data], { type: file.mimetype });
       const url = window.URL.createObjectURL(blob);
-      // No se revoca acá: la pestaña nueva sigue necesitando el blob URL
-      // después de este punto (a diferencia de handleDownload, que dispara
-      // la descarga y termina en el mismo tick).
+      // La pestaña nueva necesita el blob URL un rato; se revoca después.
       window.open(url, '_blank');
+      setTimeout(() => window.URL.revokeObjectURL(url), PREVIEW_URL_TTL_MS);
     } catch (e) {
       setError(getApiErrorMessage(e, 'Error al abrir el archivo'));
     }
@@ -266,7 +283,7 @@ export default function SharedFilesPage() {
                     handlePreview(file);
                   }
                 }}
-                title="Clic para abrir en nueva pestaña"
+                title={isPreviewable(file.mimetype) ? 'Clic para abrir en nueva pestaña' : 'Clic para descargar'}
               >
                 <p className="font-medium text-slate-800 truncate hover:text-sage-600 transition-colors flex items-center gap-1">
                   {file.name}
@@ -309,7 +326,7 @@ export default function SharedFilesPage() {
       {/* Modal subir archivo */}
       {showUpload && (
         <Modal
-          onClose={() => setShowUpload(false)}
+          onClose={closeUpload}
           labelledBy="upload-file-title"
           className="max-w-md p-6"
         >
@@ -317,7 +334,7 @@ export default function SharedFilesPage() {
               <h2 id="upload-file-title" className="text-lg font-semibold text-slate-800">
                 Subir archivo
               </h2>
-              <button onClick={() => setShowUpload(false)} aria-label="Cerrar">
+              <button onClick={closeUpload} aria-label="Cerrar">
                 <X className="w-5 h-5 text-slate-400 hover:text-slate-600" />
               </button>
             </div>
@@ -411,7 +428,7 @@ export default function SharedFilesPage() {
             <div className="flex gap-3 mt-5">
               <button
                 type="button"
-                onClick={() => setShowUpload(false)}
+                onClick={closeUpload}
                 className="btn-secondary flex-1"
               >
                 Cancelar

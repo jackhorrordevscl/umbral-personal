@@ -68,11 +68,15 @@ function ConnectionWizard({ reconnect }: { reconnect: boolean }) {
 
   const handlePasteSubmit = (e: FormEvent) => {
     e.preventDefault();
+    const trimmed = {
+      apiKey: credentials.apiKey.trim(),
+      secretKey: credentials.secretKey.trim(),
+    };
     const errors: { apiKey?: string; secretKey?: string } = {};
-    if (!CREDENTIAL_FORMAT.test(credentials.apiKey)) {
+    if (!CREDENTIAL_FORMAT.test(trimmed.apiKey)) {
       errors.apiKey = 'La API Key no tiene el formato esperado por Flow.';
     }
-    if (!CREDENTIAL_FORMAT.test(credentials.secretKey)) {
+    if (!CREDENTIAL_FORMAT.test(trimmed.secretKey)) {
       errors.secretKey = 'La Secret Key no tiene el formato esperado por Flow.';
     }
     setFieldErrors(errors);
@@ -83,7 +87,8 @@ function ConnectionWizard({ reconnect }: { reconnect: boolean }) {
     }
 
     setValidateError('');
-    validateMutation.mutate(credentials, {
+    setCredentials(trimmed);
+    validateMutation.mutate(trimmed, {
       onSuccess: (result) => {
         setValidation(result);
         setStep('confirmation');
@@ -214,9 +219,11 @@ function ConnectionWizard({ reconnect }: { reconnect: boolean }) {
               className="input-field"
               autoComplete="off"
               value={credentials.apiKey}
-              onChange={(e) =>
-                setCredentials({ ...credentials, apiKey: e.target.value })
-              }
+              onChange={(e) => {
+                setCredentials({ ...credentials, apiKey: e.target.value });
+                setValidateError('');
+                setFieldErrors((prev) => ({ ...prev, apiKey: undefined }));
+              }}
             />
           </FormField>
           <FormField
@@ -231,9 +238,11 @@ function ConnectionWizard({ reconnect }: { reconnect: boolean }) {
               className="input-field"
               autoComplete="off"
               value={credentials.secretKey}
-              onChange={(e) =>
-                setCredentials({ ...credentials, secretKey: e.target.value })
-              }
+              onChange={(e) => {
+                setCredentials({ ...credentials, secretKey: e.target.value });
+                setValidateError('');
+                setFieldErrors((prev) => ({ ...prev, secretKey: undefined }));
+              }}
             />
           </FormField>
           <div className="flex gap-3 pt-2">
@@ -326,6 +335,7 @@ export default function PaymentsPage() {
 
   const handleConfirmDisconnect = () => {
     setShowDisconnectConfirm(false);
+    setDisconnectError('');
     disconnectMutation.mutate(undefined, {
       onError: (err) => {
         setDisconnectError(
