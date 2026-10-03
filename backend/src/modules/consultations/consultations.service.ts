@@ -474,9 +474,12 @@ export class ConsultationsService {
             dto.agreements !== undefined
               ? sanitizeClinicalNote(dto.agreements)
               : original.agreements,
-          nextSessionDate: dto.nextSessionDate
-            ? parseDate(dto.nextSessionDate)
-            : original.nextSessionDate,
+          nextSessionDate:
+            dto.nextSessionDate === null
+              ? null
+              : dto.nextSessionDate
+                ? parseDate(dto.nextSessionDate)
+                : original.nextSessionDate,
           sessionType: dto.sessionType ?? original.sessionType,
           scheduledAt: original.scheduledAt,
           patientRut: original.patientRut,

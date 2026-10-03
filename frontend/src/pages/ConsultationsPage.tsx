@@ -17,6 +17,7 @@ import { downloadDocument } from '../api/documents';
 import { downloadBlob } from '../utils/download';
 import type { Consultation, ConsultationHistory, Patient } from '../types/patient';
 import { buildLocalISO, formatChileDateTime, formatChileDate } from '../utils/datetime';
+import { isValidTimeString } from '../utils/availability';
 import { filterPatients } from '../utils/patient-search';
 import { getApiErrorMessage } from '../utils/api-error';
 import { activateOnKey } from '../utils/activate-on-key';
@@ -355,6 +356,16 @@ export default function ConsultationsPage() {
       return;
     }
 
+    if (!editForm.sessionDate) { setEditError('La fecha de sesión es obligatoria'); return; }
+    if (!isValidTimeString(editForm.sessionTime)) { setEditError('La hora de la sesión no es válida'); return; }
+    if (editForm.nextSessionDate && !isValidTimeString(editForm.nextSessionTime)) {
+      setEditError('La hora de la próxima sesión no es válida');
+      return;
+    }
+    if (!editForm.consultReason.trim()) { setEditError('El motivo de consulta es obligatorio'); return; }
+    if (!editForm.intervention.trim()) { setEditError('La intervención es obligatoria'); return; }
+    setEditError('');
+
     correctMutation.mutate(
       {
         id: editingConsultation.id,
@@ -365,7 +376,7 @@ export default function ConsultationsPage() {
           agreements: editForm.agreements,
           nextSessionDate: editForm.nextSessionDate
             ? buildLocalISO(editForm.nextSessionDate, editForm.nextSessionTime)
-            : undefined,
+            : null,
           sessionType: editForm.sessionType,
         },
       },

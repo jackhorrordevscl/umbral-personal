@@ -651,6 +651,44 @@ describe('ConsultationsService', () => {
       expect(result.id).toBe('consultation-2');
     });
 
+    it('nextSessionDate null limpia la próxima sesión; omitido la conserva (issue #295)', async () => {
+      const withNext = buildConsultation({
+        nextSessionDate: new Date('2026-06-01T13:00:00Z'),
+      });
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(withNext)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(withNext)
+        .mockResolvedValueOnce(null);
+      prisma.consultation.create.mockResolvedValue(
+        buildConsultation({ id: 'consultation-2' }),
+      );
+
+      await service.correct(
+        'consultation-1',
+        { nextSessionDate: null } as never,
+        'therapist-1',
+      );
+      expect(prisma.consultation.create).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ nextSessionDate: null }) as unknown,
+        }),
+      );
+
+      await service.correct(
+        'consultation-1',
+        { consultReason: 'Otro' } as never,
+        'therapist-1',
+      );
+      expect(prisma.consultation.create).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            nextSessionDate: withNext.nextSessionDate,
+          }) as unknown,
+        }),
+      );
+    });
+
     it('la corrección conserva la duración de la consulta original (issue #336)', async () => {
       prisma.consultation.findFirst
         .mockResolvedValueOnce(buildConsultation({ durationMinutes: 40 }))

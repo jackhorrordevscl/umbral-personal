@@ -19,6 +19,11 @@ export interface ConsultationPayload {
   sessionType: string;
 }
 
+export interface CorrectConsultationPayload
+  extends Omit<ConsultationPayload, 'nextSessionDate'> {
+  nextSessionDate?: string | null;
+}
+
 export interface CreateConsultationPayload extends ConsultationPayload {
   patientId: string;
 }
@@ -33,7 +38,7 @@ export function createConsultation(data: CreateConsultationPayload) {
   return api.post<Consultation>('/consultations', data).then((r) => r.data);
 }
 
-export function correctConsultation(id: string, data: ConsultationPayload) {
+export function correctConsultation(id: string, data: CorrectConsultationPayload) {
   return api
     .patch<Consultation>(`/consultations/${id}/correct`, data)
     .then((r) => r.data);
