@@ -57,7 +57,9 @@ describe('SharedFilesPage — formularios y vista previa (#295)', () => {
 
     await user.click(await screen.findByText('Plantilla'))
 
-    await waitFor(() => expect(window.URL.revokeObjectURL).toHaveBeenCalled())
+    // Issue #297: downloadBlob revoca la URL con retraso, así que se verifica
+    // la creación del blob (ruta de descarga) en vez de la revocación.
+    await waitFor(() => expect(window.URL.createObjectURL).toHaveBeenCalled())
     expect(openSpy).not.toHaveBeenCalled()
     openSpy.mockRestore()
   })
