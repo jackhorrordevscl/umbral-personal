@@ -83,3 +83,48 @@ describe('ConsultationForm — select de pacientes', () => {
     ).not.toBeInTheDocument()
   })
 })
+
+describe('ConsultationForm — validación de horas', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApi.get.mockResolvedValue({ data: [patient] })
+  })
+
+  async function fillRequiredFields(user: ReturnType<typeof userEvent.setup>) {
+    await screen.findByRole('option', { name: /Paciente de Prueba/ })
+    await user.selectOptions(screen.getByLabelText(/Paciente/), 'patient-1')
+    await user.type(screen.getByLabelText(/Fecha de sesión/), '2026-10-05')
+    await user.type(screen.getByRole('textbox', { name: 'Motivo de consulta' }), 'Ansiedad')
+    await user.type(
+      screen.getByRole('textbox', { name: 'Intervención realizada / Registro de evolución clínica' }),
+      'Respiración',
+    )
+  }
+
+  it('una hora de sesión inválida muestra el mensaje y no envía', async () => {
+    const user = userEvent.setup()
+    renderForm()
+    await fillRequiredFields(user)
+
+    await user.clear(screen.getByLabelText(/Hora de sesión/))
+    await user.click(screen.getByRole('button', { name: 'Guardar sesión' }))
+
+    expect(await screen.findByText('La hora de la sesión no es válida')).toBeInTheDocument()
+    expect(mockedApi.post).not.toHaveBeenCalled()
+  })
+
+  it('una hora de próxima sesión inválida muestra el mensaje y no envía', async () => {
+    const user = userEvent.setup()
+    renderForm()
+    await fillRequiredFields(user)
+
+    await user.type(screen.getByLabelText(/Próxima sesión — Fecha/), '2026-10-12')
+    await user.clear(screen.getByLabelText(/Próxima sesión — Hora/))
+    await user.click(screen.getByRole('button', { name: 'Guardar sesión' }))
+
+    expect(
+      await screen.findByText('La hora de la próxima sesión no es válida'),
+    ).toBeInTheDocument()
+    expect(mockedApi.post).not.toHaveBeenCalled()
+  })
+})

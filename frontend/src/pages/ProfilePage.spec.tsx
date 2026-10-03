@@ -132,6 +132,26 @@ describe('ProfilePage — account-settings Req: Profile Section Scope', () => {
     expect(screen.queryByText('Nombre actualizado correctamente.')).not.toBeInTheDocument()
   })
 
+  it('tipear mientras el guardado del nombre está pendiente no descarta su resultado', async () => {
+    let resolveSave: (value: unknown) => void = () => {}
+    mockedApi.patch.mockImplementationOnce(
+      () => new Promise(resolve => { resolveSave = resolve }),
+    )
+    const user = userEvent.setup()
+    renderProfilePage()
+
+    const input = await screen.findByLabelText('Nombre')
+    await user.clear(input)
+    await user.type(input, 'Nuevo Nombre')
+    await user.click(screen.getByRole('button', { name: 'Guardar nombre' }))
+    expect(await screen.findByRole('button', { name: 'Guardando...' })).toBeDisabled()
+
+    await user.type(input, 'x')
+    resolveSave({ data: baseProfile({ name: 'Nuevo Nombre' }) })
+
+    expect(await screen.findByText('Nombre actualizado correctamente.')).toBeInTheDocument()
+  })
+
   // Issue #294: con el perfil fallido las cards se montaban vacías y guardar
   // solo la bio enviaba specialty '' (borrando la guardada).
   it('si falla la carga del perfil no monta las cards editables y permite reintentar', async () => {

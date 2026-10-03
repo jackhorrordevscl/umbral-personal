@@ -88,6 +88,40 @@ describe('SharedFilesPage — formularios y vista previa (#295)', () => {
     expect(await screen.findByText(/formato no admitido/i)).toBeInTheDocument()
     expect(mockedApi.post).not.toHaveBeenCalled()
   })
+
+  it.each(['a.pdf', 'a.PDF'])('una extensión permitida (%s) llega a la API de subida', async (fileName) => {
+    mockedApi.get.mockResolvedValue({ data: [] })
+    mockedApi.post.mockResolvedValue({ data: {} })
+    const user = userEvent.setup({ applyAccept: false })
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: /^subir archivo$/i }))
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    await user.upload(input, new File(['x'], fileName, { type: 'application/pdf' }))
+    await user.type(screen.getByLabelText(/nombre del archivo/i), 'Documento')
+    await user.click(document.querySelector('button[type="submit"]') as HTMLButtonElement)
+
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalledTimes(1))
+    expect(mockedApi.post.mock.calls[0][0]).toBe('/shared-files/upload')
+    expect(screen.queryByText(/formato no admitido/i)).not.toBeInTheDocument()
+  })
+
+  it('rechaza en el cliente un archivo mayor a 50 MB sin llamar a la API', async () => {
+    mockedApi.get.mockResolvedValue({ data: [] })
+    const user = userEvent.setup({ applyAccept: false })
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: /^subir archivo$/i }))
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    const bigFile = new File(['x'], 'grande.pdf', { type: 'application/pdf' })
+    Object.defineProperty(bigFile, 'size', { value: 50 * 1024 * 1024 + 1 })
+    await user.upload(input, bigFile)
+    await user.type(screen.getByLabelText(/nombre del archivo/i), 'Grande')
+    await user.click(document.querySelector('button[type="submit"]') as HTMLButtonElement)
+
+    expect(await screen.findByText('El archivo supera el máximo de 50 MB')).toBeInTheDocument()
+    expect(mockedApi.post).not.toHaveBeenCalled()
+  })
 })
 
 describe('SharedFilesPage — upload dropzone keyboard access (#186)', () => {

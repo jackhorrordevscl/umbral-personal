@@ -129,7 +129,7 @@ function NameCard({ profile }: { profile: Profile | undefined }) {
           value={nameInput}
           onChange={e => {
             setNameInput(e.target.value);
-            if (!nameMutation.isIdle) nameMutation.reset();
+            if (nameMutation.isSuccess || nameMutation.isError) nameMutation.reset();
           }}
           className="input-field"
         />
@@ -199,7 +199,7 @@ function PublicProfileCard({ profile }: { profile: Profile | undefined }) {
             value={specialtyInput}
             onChange={(e) => {
               setSpecialtyInput(e.target.value);
-              if (!profileMutation.isIdle) profileMutation.reset();
+              if (profileMutation.isSuccess || profileMutation.isError) profileMutation.reset();
             }}
             className="input-field"
           />
@@ -213,7 +213,7 @@ function PublicProfileCard({ profile }: { profile: Profile | undefined }) {
             value={bioInput}
             onChange={(e) => {
               setBioInput(e.target.value);
-              if (!profileMutation.isIdle) profileMutation.reset();
+              if (profileMutation.isSuccess || profileMutation.isError) profileMutation.reset();
             }}
             className="input-field resize-none"
           />
