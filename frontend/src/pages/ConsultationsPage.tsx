@@ -197,6 +197,7 @@ function ExpandableText({ text }: { text: string }) {
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
           className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 mt-1"
         >
           {expanded ? (
@@ -420,7 +421,7 @@ export default function ConsultationsPage() {
           <h2 className="font-display text-2xl md:text-3xl text-slate-900">Consultas</h2>
           <p className="text-slate-500 text-sm mt-1">Registro clínico de sesiones</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="btn-primary flex items-center gap-2">
+        <button onClick={() => setShowForm(!showForm)} aria-expanded={showForm} className="btn-primary flex items-center gap-2">
           <ClipboardPlus size={16} />
           <span className="hidden sm:inline">Nueva consulta</span>
           <span className="sm:hidden">Nueva</span>
@@ -469,6 +470,7 @@ export default function ConsultationsPage() {
               </div>
               <button
                 onClick={closeEditModal}
+                aria-label="Cerrar"
                 className="text-slate-400 hover:text-slate-600"
               >
                 <X size={20} />
@@ -597,6 +599,7 @@ export default function ConsultationsPage() {
         <div className="card p-0 overflow-hidden">
           <button
             onClick={() => setShowPatientList(!showPatientList)}
+            aria-expanded={showPatientList}
             className="w-full p-4 border-b border-slate-100 flex items-center justify-between text-left"
           >
             <p className="font-medium text-slate-700 text-sm">
@@ -696,7 +699,8 @@ export default function ConsultationsPage() {
                       </div>
                       <button onClick={() => handleEditOpen(c)}
                         className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
-                        title="Corregir sesión">
+                        title="Corregir sesión"
+                        aria-label={`Corregir sesión del ${formatChileDateTime(c.sessionDate)}`}>
                         <Pencil size={14} />
                       </button>
                     </div>
@@ -731,6 +735,7 @@ export default function ConsultationsPage() {
                     {c.history.length > 0 && (
                       <button
                         onClick={() => toggleHistory(c.id)}
+                        aria-expanded={isExpanded}
                         className="mt-3 pt-3 border-t border-slate-100 w-full flex items-center gap-1 text-xs text-slate-500 hover:text-slate-600 transition-colors"
                       >
                         {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}

@@ -209,7 +209,7 @@ export default function SharedFilesPage() {
   );
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Repositorio de Archivos</h1>
@@ -247,6 +247,7 @@ export default function SharedFilesPage() {
             <button
               key={c.value}
               onClick={() => setCategory(c.value)}
+              aria-pressed={category === c.value}
               className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
                 category === c.value
                   ? 'bg-sage-600 text-white border-sage-600'
@@ -265,7 +266,11 @@ export default function SharedFilesPage() {
         <EmptyState
           className="py-16"
           icon={<File className="w-12 h-12 opacity-30" />}
-          message="No hay archivos en esta categoría"
+          message={
+            search.trim()
+              ? `Sin resultados para "${search.trim()}"`
+              : 'No hay archivos en esta categoría'
+          }
         />
       ) : (
         <div className="grid gap-3">

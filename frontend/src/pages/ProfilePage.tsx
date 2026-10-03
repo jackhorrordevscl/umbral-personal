@@ -51,7 +51,7 @@ function PublicBookingLinkCard({ profile }: { profile: Profile | undefined }) {
         <div>
           <h3 className="font-medium text-slate-800">Link de auto-agenda</h3>
           <p className="text-xs text-slate-500">
-            Compartilo con tus pacientes para que reserven sesiones directamente
+            Comparte este enlace con tus pacientes para que reserven sesiones directamente
           </p>
         </div>
       </div>
@@ -579,7 +579,7 @@ export default function ProfilePage() {
   const { data: profile, isLoading: checkingStatus, isError, refetch } = useProfile();
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <div className="mb-8">
         <h2 className="font-display text-3xl text-slate-900">Perfil</h2>
         <p className="text-slate-500 text-sm mt-1">

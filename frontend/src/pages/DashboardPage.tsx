@@ -123,7 +123,7 @@ export default function DashboardPage() {
           Dashboard
         </h2>
         <p className="text-slate-500 text-sm mt-1">
-          Bienvenida, {user?.name ?? user?.email} —{" "}
+          Hola, {user?.name ?? user?.email} —{" "}
           {formatChileLongDate(new Date())}
         </p>
       </div>
