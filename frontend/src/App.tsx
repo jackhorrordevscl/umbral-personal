@@ -1,4 +1,4 @@
-import { useEffect, lazy, Suspense } from "react";
+import { useEffect, Suspense } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -14,29 +14,30 @@ import { setUnauthorizedHandler } from "./api/client";
 import { toFromPath } from "./utils/redirect";
 import IdleManager from "./components/IdleManager";
 import Layout from "./components/Layout";
+import { lazyWithRetry } from "./utils/lazy-with-retry";
 
 // Issue #43: code-splitting por ruta -- sin esto, las 9 páginas (incluidas
 // login/signup/verify, que se ven una sola vez) iban todas en el bundle
 // inicial.
-const LoginPage = lazy(() => import("./pages/LoginPage"));
-const SignupPage = lazy(() => import("./pages/SignupPage"));
-const VerifyEmailPage = lazy(() => import("./pages/VerifyEmailPage"));
-const ConfirmEmailChangePage = lazy(
+const LoginPage = lazyWithRetry(() => import("./pages/LoginPage"));
+const SignupPage = lazyWithRetry(() => import("./pages/SignupPage"));
+const VerifyEmailPage = lazyWithRetry(() => import("./pages/VerifyEmailPage"));
+const ConfirmEmailChangePage = lazyWithRetry(
   () => import("./pages/ConfirmEmailChangePage"),
 );
-const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
-const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
-const MfaRecoverPage = lazy(() => import("./pages/MfaRecoverPage"));
-const PaymentReturnPage = lazy(() => import("./pages/PaymentReturnPage"));
-const PublicBookingPage = lazy(() => import("./pages/PublicBookingPage"));
-const DashboardPage = lazy(() => import("./pages/DashboardPage"));
-const PatientsPage = lazy(() => import("./pages/PatientsPage"));
-const ConsultationsPage = lazy(() => import("./pages/ConsultationsPage"));
-const CalendarPage = lazy(() => import("./pages/CalendarPage"));
-const PaymentsPage = lazy(() => import("./pages/PaymentsPage"));
-const ProfilePage = lazy(() => import("./pages/ProfilePage"));
-const SecurityPage = lazy(() => import("./pages/SecurityPage"));
-const SharedFilesPage = lazy(() => import("./pages/SharedFilesPage"));
+const ForgotPasswordPage = lazyWithRetry(() => import("./pages/ForgotPasswordPage"));
+const ResetPasswordPage = lazyWithRetry(() => import("./pages/ResetPasswordPage"));
+const MfaRecoverPage = lazyWithRetry(() => import("./pages/MfaRecoverPage"));
+const PaymentReturnPage = lazyWithRetry(() => import("./pages/PaymentReturnPage"));
+const PublicBookingPage = lazyWithRetry(() => import("./pages/PublicBookingPage"));
+const DashboardPage = lazyWithRetry(() => import("./pages/DashboardPage"));
+const PatientsPage = lazyWithRetry(() => import("./pages/PatientsPage"));
+const ConsultationsPage = lazyWithRetry(() => import("./pages/ConsultationsPage"));
+const CalendarPage = lazyWithRetry(() => import("./pages/CalendarPage"));
+const PaymentsPage = lazyWithRetry(() => import("./pages/PaymentsPage"));
+const ProfilePage = lazyWithRetry(() => import("./pages/ProfilePage"));
+const SecurityPage = lazyWithRetry(() => import("./pages/SecurityPage"));
+const SharedFilesPage = lazyWithRetry(() => import("./pages/SharedFilesPage"));
 
 function RouteFallback() {
   return (

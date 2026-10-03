@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 interface RecoveryCodesRevealProps {
   codes: string[];
   onContinue: () => void;
@@ -14,8 +16,18 @@ export default function RecoveryCodesReveal({
   onContinue,
   continueLabel,
 }: RecoveryCodesRevealProps) {
-  const handleCopyAll = () => {
-    void navigator.clipboard.writeText(codes.join('\n'));
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'ok' | 'error'>('idle');
+
+  // Issue #297: antes el resultado del portapapeles se ignoraba; sin permiso
+  // o sin contexto seguro el usuario creía haber copiado los códigos. El
+  // estado se mantiene hasta el siguiente clic.
+  const handleCopyAll = async () => {
+    try {
+      await navigator.clipboard.writeText(codes.join('\n'));
+      setCopyStatus('ok');
+    } catch {
+      setCopyStatus('error');
+    }
   };
 
   return (
@@ -36,9 +48,24 @@ export default function RecoveryCodesReveal({
         ))}
       </div>
 
-      <button onClick={handleCopyAll} className="btn-secondary w-full mb-4">
+      <button
+        onClick={() => void handleCopyAll()}
+        className="btn-secondary w-full mb-2"
+      >
         Copiar todos los códigos
       </button>
+      <div className="mb-4 min-h-5 text-sm">
+        {copyStatus === 'ok' && (
+          <p role="status" className="text-emerald-700">
+            Códigos copiados
+          </p>
+        )}
+        {copyStatus === 'error' && (
+          <p role="alert" className="text-red-600">
+            No se pudo copiar. Selecciona los códigos y cópialos manualmente.
+          </p>
+        )}
+      </div>
 
       <button onClick={onContinue} className="btn-primary w-full py-3 text-base">
         {continueLabel}

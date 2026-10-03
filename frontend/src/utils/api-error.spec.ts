@@ -31,6 +31,22 @@ describe('getApiErrorMessage', () => {
     expect(getApiErrorMessage(error, 'fallback')).toBe('fallback')
   })
 
+  it('une los mensajes cuando el backend devuelve un arreglo (ValidationPipe)', () => {
+    const error = buildAxiosError({
+      data: { message: ['email inválido', 'password muy corta'] },
+    })
+    expect(getApiErrorMessage(error, 'fallback')).toBe(
+      'email inválido password muy corta',
+    )
+  })
+
+  it('un arreglo vacío, con ítems vacíos o no string usa el fallback', () => {
+    for (const message of [[], ['ok', ''], ['ok', 3], ['  ']]) {
+      const error = buildAxiosError({ data: { message } })
+      expect(getApiErrorMessage(error, 'fallback')).toBe('fallback')
+    }
+  })
+
   it('sin response (error de red) devuelve un mensaje de conexión', () => {
     const error = buildAxiosError({ noResponse: true })
     expect(getApiErrorMessage(error, 'fallback')).toBe(
