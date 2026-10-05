@@ -20,6 +20,7 @@ import {
   useDisconnectPaymentAccount,
   type CredentialValidation,
 } from '../hooks/usePaymentAccount';
+import PasswordInput from "../components/ui/PasswordInput";
 
 // design.md "PaymentAccountService.assertWellFormed" / DTO
 // ValidateCredentialsDto: mismo formato que el backend exige (16-128
@@ -232,9 +233,8 @@ function ConnectionWizard({ reconnect }: { reconnect: boolean }) {
             required
             error={fieldErrors.secretKey}
           >
-            <input
+            <PasswordInput
               id="payment-secret-key"
-              type="password"
               className="input-field"
               autoComplete="off"
               value={credentials.secretKey}

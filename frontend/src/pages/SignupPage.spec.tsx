@@ -28,6 +28,7 @@ describe('SignupPage', () => {
     await user.type(screen.getByLabelText('Nombre completo'), 'Ana Pérez')
     await user.type(screen.getByLabelText('Email'), 'ana@umbral.cl')
     await user.type(screen.getByLabelText('Contraseña'), 'Password123!')
+    await user.type(screen.getByLabelText('Confirmar contraseña'), 'Password123!')
     await user.type(screen.getByLabelText('Código de invitación'), 'INV-123')
     await user.click(screen.getByRole('button', { name: /crear cuenta/i }))
 
@@ -38,5 +39,24 @@ describe('SignupPage', () => {
       password: 'Password123!',
       inviteCode: 'INV-123',
     })
+  })
+
+  it('no envía el registro y muestra error si las contraseñas no coinciden', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <MemoryRouter>
+        <SignupPage />
+      </MemoryRouter>,
+    )
+    await user.type(screen.getByLabelText('Nombre completo'), 'Ana Pérez')
+    await user.type(screen.getByLabelText('Email'), 'ana@umbral.cl')
+    await user.type(screen.getByLabelText('Contraseña'), 'Password123!')
+    await user.type(screen.getByLabelText('Confirmar contraseña'), 'Distinta123!')
+    await user.type(screen.getByLabelText('Código de invitación'), 'INV-123')
+    await user.click(screen.getByRole('button', { name: /crear cuenta/i }))
+
+    expect(await screen.findByText('Las contraseñas no coinciden')).toBeInTheDocument()
+    expect(mockedApi.post).not.toHaveBeenCalled()
   })
 })

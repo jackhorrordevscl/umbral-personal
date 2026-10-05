@@ -6,6 +6,7 @@ import { z } from 'zod';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
 import ErrorBanner from '../components/ui/ErrorBanner';
+import PasswordInput from "../components/ui/PasswordInput";
 
 const mfaRecoverSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -87,10 +88,9 @@ export default function MfaRecoverPage() {
 
           <div>
             <label htmlFor="mfa-recover-password" className="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
-            <input
+            <PasswordInput
               {...register('password')}
               id="mfa-recover-password"
-              type="password"
               placeholder="••••••••"
               className="input-field"
             />

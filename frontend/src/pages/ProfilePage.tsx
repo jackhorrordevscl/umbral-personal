@@ -14,6 +14,7 @@ import {
 } from '../hooks/useProfile';
 import WeeklyScheduleEditor from '../components/availability/WeeklyScheduleEditor';
 import BlockoutEditor from '../components/availability/BlockoutEditor';
+import PasswordInput from "../components/ui/PasswordInput";
 
 // El terapeuta comparte este link con sus pacientes -- antes había que armar
 // la URL a mano con el propio id de usuario (un UUID), que no es trivial de
@@ -295,8 +296,7 @@ function EmailCard({ profile }: { profile: Profile | undefined }) {
           }}
           className="input-field"
         />
-        <input
-          type="password"
+        <PasswordInput
           aria-label="Contraseña actual para cambiar email"
           placeholder="Contraseña actual"
           value={emailCurrentPassword}
@@ -369,8 +369,7 @@ function PasswordCard() {
         <p className="text-xs text-slate-500">Cerrarás sesión al cambiarla, por seguridad</p>
       </div>
       <form onSubmit={handleUpdatePassword} className="space-y-3">
-        <input
-          type="password"
+        <PasswordInput
           aria-label="Nueva contraseña"
           placeholder="Nueva contraseña"
           minLength={8}
@@ -381,8 +380,7 @@ function PasswordCard() {
           }}
           className="input-field"
         />
-        <input
-          type="password"
+        <PasswordInput
           aria-label="Confirmar nueva contraseña"
           placeholder="Confirmar nueva contraseña"
           value={confirmPassword}
@@ -392,8 +390,7 @@ function PasswordCard() {
           }}
           className="input-field"
         />
-        <input
-          type="password"
+        <PasswordInput
           aria-label="Contraseña actual para cambiar contraseña"
           placeholder="Contraseña actual"
           value={passwordCurrentPassword}
