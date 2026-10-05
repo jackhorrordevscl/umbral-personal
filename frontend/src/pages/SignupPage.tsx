@@ -11,15 +11,21 @@ import ErrorBanner from '../components/ui/ErrorBanner';
 // institucional las cuentas las creaba un ADMIN (POST /users, eliminado tras
 // el colapso de roles); sin jerarquía, cada profesional se registra solo y
 // verifica su email antes de poder loguear (ver AuthService.signup/login).
-const signupSchema = z.object({
-  name: z.string().min(1, 'El nombre es obligatorio'),
-  email: z.string().email('Email inválido'),
-  password: z.string().min(8, 'Mínimo 8 caracteres'),
-  // Issue #124: sin jerarquía de roles, el registro público requiere un
-  // código de invitación emitido por el profesional autorizado (ver
-  // POST /auth/invitations en SecurityPage) para poder crear la cuenta.
-  inviteCode: z.string().min(1, 'El código de invitación es obligatorio'),
-});
+const signupSchema = z
+  .object({
+    name: z.string().min(1, 'El nombre es obligatorio'),
+    email: z.string().email('Email inválido'),
+    password: z.string().min(8, 'Mínimo 8 caracteres'),
+    confirmPassword: z.string(),
+    // Issue #124: sin jerarquía de roles, el registro público requiere un
+    // código de invitación emitido por el profesional autorizado (ver
+    // POST /auth/invitations en SecurityPage) para poder crear la cuenta.
+    inviteCode: z.string().min(1, 'El código de invitación es obligatorio'),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Las contraseñas no coinciden',
+    path: ['confirmPassword'],
+  });
 
 type SignupForm = z.infer<typeof signupSchema>;
 
@@ -36,7 +42,13 @@ export default function SignupPage() {
     setLoading(true);
     setError('');
     try {
-      await api.post('/auth/signup', data);
+      // La confirmación es solo de UI: no forma parte del DTO del backend.
+      await api.post('/auth/signup', {
+        name: data.name,
+        email: data.email,
+        password: data.password,
+        inviteCode: data.inviteCode,
+      });
       setDone(true);
     } catch (err) {
       setError(getApiErrorMessage(err, 'No se pudo crear la cuenta.'));
@@ -101,6 +113,20 @@ export default function SignupPage() {
             />
             {errors.password && (
               <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>
+            )}
+          </div>
+
+          <div>
+            <label htmlFor="signup-confirm-password" className="block text-sm font-medium text-slate-700 mb-1">Confirmar contraseña</label>
+            <input
+              {...register('confirmPassword')}
+              id="signup-confirm-password"
+              type="password"
+              placeholder="••••••••"
+              className="input-field"
+            />
+            {errors.confirmPassword && (
+              <p className="text-red-500 text-xs mt-1">{errors.confirmPassword.message}</p>
             )}
           </div>
 
