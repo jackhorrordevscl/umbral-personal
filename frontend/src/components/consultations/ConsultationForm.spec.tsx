@@ -46,7 +46,7 @@ describe('ConsultationForm — select de pacientes', () => {
   it('si falla la carga deshabilita el select, muestra el error y permite reintentar', async () => {
     const user = userEvent.setup()
     mockedApi.get.mockRejectedValueOnce(new Error('boom'))
-    mockedApi.get.mockResolvedValue({ data: [patient] })
+    mockedApi.get.mockResolvedValue({ data: { data: [patient], total: 1, page: 1, pageSize: 100 } })
 
     renderForm()
 
@@ -65,7 +65,7 @@ describe('ConsultationForm — select de pacientes', () => {
 
   // Issue #346: un refetch fallido conserva `data`; la lista ya cargada sirve.
   it('si un refetch falla con pacientes en caché avisa pero mantiene la lista y el select habilitado', async () => {
-    mockedApi.get.mockResolvedValue({ data: [patient] })
+    mockedApi.get.mockResolvedValue({ data: { data: [patient], total: 1, page: 1, pageSize: 100 } })
 
     const { queryClient } = renderForm()
 
@@ -87,7 +87,7 @@ describe('ConsultationForm — select de pacientes', () => {
 describe('ConsultationForm — validación de horas', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockedApi.get.mockResolvedValue({ data: [patient] })
+    mockedApi.get.mockResolvedValue({ data: { data: [patient], total: 1, page: 1, pageSize: 100 } })
   })
 
   async function fillRequiredFields(user: ReturnType<typeof userEvent.setup>) {

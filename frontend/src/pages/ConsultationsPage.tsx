@@ -251,7 +251,8 @@ export default function ConsultationsPage() {
   const [editPendingUploadGroupId, setEditPendingUploadGroupId] = useState<string | null>(null);
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
 
-  const { data: patients = [], isError: patientsError } = usePatients();
+  const { data: patientsPage, isError: patientsError } = usePatients({ page: 1, pageSize: 100 });
+  const patients = useMemo(() => patientsPage?.data ?? [], [patientsPage]);
 
   const {
     data: consultations = [],

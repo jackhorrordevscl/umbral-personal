@@ -3,7 +3,7 @@ import { Users, ClipboardList, FileText, Calendar, AlertCircle } from "lucide-re
 import { useAuth } from "../context/useAuth";
 import { formatChileLongDate } from "../utils/datetime";
 import { useNavigate } from "react-router";
-import { usePatients } from "../hooks/usePatients";
+import { usePatients, usePatientsSummary } from "../hooks/usePatients";
 import { getConsultationStats } from "../api/consultations";
 import { getAcquisitionStats } from "../api/patients";
 import { activateOnKey } from "../utils/activate-on-key";
@@ -19,16 +19,30 @@ const ACQUISITION_COLORS = [
   "bg-rose-500",
 ];
 
+const RECENT_PATIENTS_PARAMS = { page: 1, pageSize: 5 };
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  // issue #290: los contadores vienen de GET /patients/summary (el backend ya
+  // no entrega la lista completa) y los recientes son una página de 5.
   const {
-    data: patients = [],
-    isLoading: patientsLoading,
-    isError: patientsError,
-    refetch: refetchPatients,
-  } = usePatients();
+    data: summary,
+    isLoading: summaryLoading,
+    isError: summaryError,
+    refetch: refetchSummary,
+  } = usePatientsSummary();
+  const {
+    data: recentPage,
+    isLoading: recentLoading,
+    isError: recentError,
+    refetch: refetchRecent,
+  } = usePatients(RECENT_PATIENTS_PARAMS);
+  const recentPatients = recentPage?.data ?? [];
+  const patientsLoading = summaryLoading || recentLoading;
+  const patientsError = summaryError || recentError;
+  const refetchPatients = () => Promise.all([refetchSummary(), refetchRecent()]);
 
   // Issue #40: antes esto era un GET /consultations/patient/:id por cada
   // paciente vía Promise.all (N+1) solo para contar filas. El backend ahora
@@ -72,7 +86,7 @@ export default function DashboardPage() {
   const stats = [
     {
       label: "Pacientes activos",
-      value: patients.length,
+      value: summary?.total ?? 0,
       state: patientsState,
       icon: Users,
       color: "text-sage-600",
@@ -89,16 +103,15 @@ export default function DashboardPage() {
       route: "/consultations",
     },
     {
-      // T6.1 (issue #27): consentSigned ya no existe como columna; el
-      // backend agrega `consents` (estado vigente por finalidad, derivado
-      // del ledger PatientConsent) en la misma respuesta de GET /patients,
-      // así que este stat sigue sin necesitar llamadas extra.
+      // T6.1 (issue #27): consentSigned ya no existe como columna; el estado
+      // vigente por finalidad se deriva del ledger PatientConsent y el backend
+      // lo cuenta en GET /patients/summary (issue #290).
       label: "Consentimientos firmados",
       // Bug reportado por usuarios: el consentimiento de telemedicina es
       // igual de válido que el presencial, así que un paciente con solo uno
       // de los dos ya cuenta como "consentimiento firmado" (ver
       // PatientsPage.hasAnyConsent, mismo criterio).
-      value: patients.filter((p) => p.consents?.TREATMENT || p.consents?.TELEMEDICINE).length,
+      value: summary?.withConsent ?? 0,
       state: patientsState,
       icon: FileText,
       color: "text-emerald-600",
@@ -196,11 +209,11 @@ export default function DashboardPage() {
                 message="No se pudieron cargar los pacientes."
                 onRetry={() => void refetchPatients()}
               />
-            ) : patients.length === 0 ? (
+            ) : recentPatients.length === 0 ? (
               <EmptyState message="No hay pacientes registrados aún." />
             ) : (
               <div className="divide-y divide-slate-100">
-                {patients.slice(0, 5).map((p) => (
+                {recentPatients.map((p) => (
                   <div
                     key={p.id}
                     role="button"

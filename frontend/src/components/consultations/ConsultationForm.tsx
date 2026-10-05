@@ -56,11 +56,12 @@ export default function ConsultationForm({
   const [pendingUploadGroupId, setPendingUploadGroupId] = useState<string | null>(null);
 
   const {
-    data: patients = [],
+    data: patientsPage,
     isLoading: patientsLoading,
     isError: patientsError,
     refetch: refetchPatients,
-  } = usePatients();
+  } = usePatients({ page: 1, pageSize: 100 });
+  const patients = patientsPage?.data ?? [];
   // Un refetch fallido conserva la lista ya cargada: solo se bloquea el select
   // cuando no hay pacientes que mostrar (issue #346).
   const patientsUnavailable = patientsError && patients.length === 0;

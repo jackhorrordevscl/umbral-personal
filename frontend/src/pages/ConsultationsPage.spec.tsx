@@ -68,7 +68,7 @@ describe('ConsultationsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
       if (url.startsWith('/consultations/patient/'))
         return Promise.resolve({ data: [] })
       return Promise.resolve({ data: [] })
@@ -149,7 +149,7 @@ describe('ConsultationsPage', () => {
 
   it('mientras cargan las consultas muestra "Cargando consultas..." y no "Sin consultas registradas"', async () => {
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
       if (url.startsWith('/consultations/patient/')) return new Promise(() => {})
       return Promise.resolve({ data: [] })
     })
@@ -174,7 +174,7 @@ describe('ConsultationsPage', () => {
 
   it('si falla la carga de consultas no muestra "Sin consultas registradas"', async () => {
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
       if (url.startsWith('/consultations/patient/')) return Promise.reject(new Error('boom'))
       return Promise.resolve({ data: [] })
     })
@@ -191,7 +191,7 @@ describe('ConsultationsPage', () => {
   it('si un refetch falla con consultas en caché avisa pero mantiene el historial visible', async () => {
     let consultationsFail = false
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
       if (url.startsWith('/consultations/patient/'))
         return consultationsFail
           ? Promise.reject(new Error('boom'))
@@ -214,7 +214,7 @@ describe('ConsultationsPage', () => {
 
   it('muestra el historial de consultas del paciente seleccionado', async () => {
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
       if (url.startsWith('/consultations/patient/'))
         return Promise.resolve({ data: [buildConsultation()] })
       return Promise.resolve({ data: [] })
@@ -235,7 +235,7 @@ describe('ConsultationsPage', () => {
   // acceso directo a la DB, bug futuro en el backend).
   it('sanitiza el HTML de las notas clínicas antes de renderizarlas (defensa en profundidad)', async () => {
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
       if (url.startsWith('/consultations/patient/'))
         return Promise.resolve({
           data: [
@@ -261,7 +261,7 @@ describe('ConsultationsPage', () => {
 
   it('con ?patientId y consultationId en la URL, preselecciona el paciente y abre el modal de Corregir sesión (deep link desde una notificación)', async () => {
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
       if (url.startsWith('/consultations/patient/'))
         return Promise.resolve({ data: [buildConsultation()] })
       return Promise.resolve({ data: [] })
@@ -282,7 +282,7 @@ describe('ConsultationsPage', () => {
     function mockConsultations(...responses: Array<Consultation[] | Error>) {
       let call = 0
       mockedApi.get.mockImplementation((url: string) => {
-        if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+        if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
         if (url.startsWith('/consultations/patient/')) {
           const next = responses[Math.min(call++, responses.length - 1)]
           return next instanceof Error ? Promise.reject(next) : Promise.resolve({ data: next })
@@ -325,7 +325,7 @@ describe('ConsultationsPage', () => {
   describe('Corregir sesión: validación y próxima sesión', () => {
     async function openCorrectModal(overrides: Partial<Consultation> = {}) {
       mockedApi.get.mockImplementation((url: string) => {
-        if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+        if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
         if (url.startsWith('/consultations/patient/'))
           return Promise.resolve({ data: [buildConsultation(overrides)] })
         return Promise.resolve({ data: [] })
@@ -394,7 +394,7 @@ describe('ConsultationsPage', () => {
   // separado (PaymentsPage / control dedicado), nunca desde este modal.
   it('el modal de Corregir sesión no tiene ningún control de monto de cobro', async () => {
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
       if (url.startsWith('/consultations/patient/'))
         return Promise.resolve({
           data: [
@@ -431,7 +431,7 @@ describe('ConsultationsPage', () => {
   // nada (mismo comportamiento que PaymentStatusBadge con payment=null).
   it('muestra el badge de estado de cobro y el control de copiar link cuando la sesión tiene un cargo con link emitido', async () => {
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
       if (url.startsWith('/consultations/patient/'))
         return Promise.resolve({
           data: [
@@ -465,7 +465,7 @@ describe('ConsultationsPage', () => {
 
   it('reenviar link de pago llama a POST /payments/:groupId/resend-link y muestra confirmación', async () => {
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
       if (url.startsWith('/consultations/patient/'))
         return Promise.resolve({
           data: [
@@ -501,7 +501,7 @@ describe('ConsultationsPage', () => {
 
   it('no muestra badge de cobro ni control de copiar link cuando la sesión no tiene cargo asociado', async () => {
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
       if (url.startsWith('/consultations/patient/'))
         return Promise.resolve({ data: [buildConsultation({ payment: null })] })
       return Promise.resolve({ data: [] })
@@ -523,7 +523,7 @@ describe('ConsultationsPage', () => {
   // Issue #271: cobro rechazado por la pasarela (paymentUrl null + lastError).
   function mockPayment(payment: Record<string, unknown> | null) {
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+      if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
       if (url.startsWith('/consultations/patient/'))
         return Promise.resolve({
           data: [

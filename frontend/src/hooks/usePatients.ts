@@ -1,12 +1,55 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import * as patientsApi from '../api/patients';
 import type { ConsentPurpose, ConsentStatus } from '../types/patient';
 
-export function usePatients() {
+// issue #290: las claves cuelgan todas del prefijo ['patients'] para que las
+// mutaciones (crear/editar/eliminar/consentimientos/documentos) refresquen con
+// un solo invalidateQueries({ queryKey: ['patients'] }) las listas paginadas,
+// el resumen del dashboard y el detalle.
+export const patientKeys = {
+  all: ['patients'] as const,
+  list: (params: patientsApi.ListPatientsParams) => ['patients', 'list', params] as const,
+  summary: ['patients', 'summary'] as const,
+  detail: (id: string) => ['patients', 'detail', id] as const,
+};
+
+// Lista paginada con búsqueda en el servidor. keepPreviousData mantiene la
+// página anterior mientras llega la nueva (buscar o paginar no parpadea).
+export function usePatients(params: patientsApi.ListPatientsParams = {}) {
   return useQuery({
-    queryKey: ['patients'],
-    queryFn: patientsApi.listPatients,
+    queryKey: patientKeys.list(params),
+    queryFn: () => patientsApi.listPatients(params),
+    placeholderData: keepPreviousData,
   });
+}
+
+// Contadores del dashboard (total y con consentimiento vigente).
+export function usePatientsSummary() {
+  return useQuery({
+    queryKey: patientKeys.summary,
+    queryFn: patientsApi.getPatientsSummary,
+  });
+}
+
+// Paciente puntual por id, para resolverlo cuando no está en la página cargada.
+export function usePatient(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: patientKeys.detail(id ?? ''),
+    queryFn: () => patientsApi.getPatient(id as string),
+    enabled: !!id && enabled,
+  });
+}
+
+// Valor que se actualiza `delay` ms después del último cambio: evita una
+// petición por cada tecla en los buscadores con búsqueda en el servidor.
+export function useDebouncedValue<T>(value: T, delay = 300): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
 }
 
 export function useCreatePatient() {
@@ -44,7 +87,7 @@ export function useCreatePatient() {
       return { patient, failedPurposes };
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['patients'] });
+      queryClient.invalidateQueries({ queryKey: patientKeys.all });
       queryClient.invalidateQueries({ queryKey: ['acquisition-stats'] });
     },
   });
@@ -79,7 +122,7 @@ export function useUpdatePatient() {
       return { patient, failed };
     },
     onSuccess: (_data, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ['patients'] });
+      queryClient.invalidateQueries({ queryKey: patientKeys.all });
       queryClient.invalidateQueries({ queryKey: ['patient-history', id] });
     },
   });
@@ -99,7 +142,7 @@ export function useBulkDeclareConsent() {
       evidence: string;
     }) => patientsApi.bulkDeclarePatientConsent(patientIds, purpose, evidence),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['patients'] });
+      queryClient.invalidateQueries({ queryKey: patientKeys.all });
     },
   });
 }
@@ -109,7 +152,7 @@ export function useDeletePatient() {
   return useMutation({
     mutationFn: (id: string) => patientsApi.deletePatient(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['patients'] });
+      queryClient.invalidateQueries({ queryKey: patientKeys.all });
       queryClient.invalidateQueries({ queryKey: ['acquisition-stats'] });
       queryClient.invalidateQueries({ queryKey: ['consultation-stats'] });
     },
