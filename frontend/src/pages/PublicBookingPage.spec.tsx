@@ -8,16 +8,20 @@ import PublicBookingPage, {
   CHECKOUT_POLL_TIMEOUT_MS,
 } from './PublicBookingPage'
 import api from '../api/client'
-import {
-  buildLocalISO,
-  chileMonthGridRange,
-  formatChileLongDate,
-  toChileDayKey,
-} from '../utils/datetime'
+import { chileMonthGridRange, toChileDayKey } from '../utils/datetime'
 
-// #298: el aria-label de cada día muestra una fecha legible, no la ISO.
+// #298: el aria-label de cada día muestra una fecha legible, no la ISO. Se
+// calcula de forma independiente al componente (mediodía UTC, zona UTC) para
+// detectar una fecha equivocada; abajo se fija un literal de referencia.
 const dayLabel = (dayKey: string) =>
-  formatChileLongDate(new Date(buildLocalISO(dayKey, '12:00')))
+  new Date(`${dayKey}T12:00:00Z`).toLocaleDateString('es-CL', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    timeZone: 'UTC',
+  })
+
+it('dayLabel produce el literal esperado para una fecha fija', () => {
+  expect(dayLabel('2026-10-05')).toBe('lunes, 5 de octubre de 2026')
+})
 
 // sdd/patient-self-scheduling PR 5 (tasks.md 5.2/5.4, public-scheduling Req:
 // "Public Availability Read Endpoint" + "Double-Booking Protection"): página
