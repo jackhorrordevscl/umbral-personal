@@ -193,6 +193,61 @@ describe('PatientsPage', () => {
 
   // Issue #131 (review R3-002): declaración retroactiva en bloque para
   // pacientes existentes sin PatientConsent -- no tenía ningún test.
+  describe('Vista de tarjetas móvil (#356)', () => {
+    it('renderiza las filas con todas sus acciones y la altura medida, sin recortarlas', async () => {
+      const original = globalThis.ResizeObserver
+      class FakeResizeObserver {
+        private cb: ResizeObserverCallback
+        constructor(cb: ResizeObserverCallback) {
+          this.cb = cb
+        }
+        observe(target: Element) {
+          // Card alta (nombre envuelto en varias líneas): 320px en vez de los 208px estimados.
+          this.cb(
+            [
+              {
+                target,
+                borderBoxSize: [{ blockSize: 320, inlineSize: 300 }],
+                contentRect: { height: 320, width: 300 },
+              } as unknown as ResizeObserverEntry,
+            ],
+            this as unknown as ResizeObserver,
+          )
+        }
+        unobserve() {}
+        disconnect() {}
+      }
+      globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver
+      try {
+        mockedApi.get.mockResolvedValueOnce({
+          data: [
+            buildPatient({ fullName: 'Paciente Tarjeta', email: 'tarjeta@example.com' }),
+            buildPatient({ id: 'patient-2', fullName: 'Otro Paciente', rut: '22222222-2' }),
+          ],
+        })
+
+        const { container } = renderPatientsPage()
+        const cards = container.querySelector('[class~="md:hidden"]') as HTMLElement
+        expect(await within(cards).findByText('Paciente Tarjeta')).toBeInTheDocument()
+
+        expect(within(cards).getAllByRole('button', { name: /^ver$/i })).toHaveLength(2)
+        expect(within(cards).getAllByRole('button', { name: /^editar$/i })).toHaveLength(2)
+        expect(within(cards).getAllByRole('button', { name: /^pdf$/i })).toHaveLength(2)
+        expect(
+          within(cards).getByRole('button', { name: 'Eliminar paciente Paciente Tarjeta' }),
+        ).toBeInTheDocument()
+
+        const row = within(cards).getByText('Paciente Tarjeta').closest('div[style]') as HTMLElement
+        expect(row.style.transform).toBe('translateY(0px)')
+        const second = within(cards).getByText('Otro Paciente').closest('div[style]') as HTMLElement
+        // La segunda fila se posiciona según la altura medida, no la estimada (208px).
+        expect(second.style.transform).toBe('translateY(320px)')
+      } finally {
+        globalThis.ResizeObserver = original
+      }
+    })
+  })
+
   describe('Declaración retroactiva de consentimiento (issue #131)', () => {
     it('declara consentimiento en bloque para los pacientes seleccionados y limpia la selección', async () => {
       const user = userEvent.setup()
