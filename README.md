@@ -695,7 +695,8 @@ DELETE /api/v1/profile/avatar                 🔒
 ### Pacientes
 ```
 POST   /api/v1/patients                        🔒
-GET    /api/v1/patients                        🔒
+GET    /api/v1/patients                        🔒 (paginado: ?search=&page=&pageSize=, devuelve total)
+GET    /api/v1/patients/summary                🔒 (total de pacientes y con consentimiento vigente)
 GET    /api/v1/patients/stats/acquisition      🔒 (desglose por canal de origen, issue #157/#165)
 GET    /api/v1/patients/:id/history            🔒
 GET    /api/v1/patients/:id                    🔒
@@ -1080,6 +1081,9 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `GOOGLE_REDIRECT_URI` | Redirect URI del handshake OAuth, registrada en Google Cloud Console | `http://localhost:3001/api/v1/calendar-integration/callback` |
 | `GOOGLE_CALENDAR_SYNC_ENABLED` | Si es `false`, desactiva el cron de reconciliación y los intents de sync sin necesitar un deploy/revert | `false` en CI/e2e |
 | `SESSION_PURGE_ENABLED` | Si es `false`, desactiva el cron diario (04:00, hora del servidor) que borra sesiones expiradas o revocadas hace más de 7 días (`SessionPurgeService`, issue #287). Debe ser exactamente `true` o `false` | Habilitado si no se define |
+| `NOTIFICATIONS_PURGE_ENABLED` | Si es `false`, desactiva el cron diario (04:30, hora del servidor) que borra notificaciones leídas con más de `NOTIFICATIONS_PURGE_RETENTION_DAYS` días (`NotificationsPurgeService`, issue #290). Debe ser exactamente `true` o `false` | Habilitado si no se define |
+| `NOTIFICATIONS_PURGE_RETENTION_DAYS` | Días que se conserva una notificación leída antes de purgarla. Entero positivo | `30` |
+| `NOTIFICATIONS_PURGE_MAX_BATCHES` | Máximo de lotes de 1000 filas por corrida de la purga de notificaciones. Entero positivo | `100` |
 | `REMINDERS_ENABLED` | Si es `false`, desactiva el cron de recordatorios de sesión (`RemindersService`, cada 5 min) sin necesitar un deploy/revert | `false` en CI/e2e |
 | `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar la credencial del merchant Flow de cada terapeuta en reposo — distinta de `DOCUMENT_ENCRYPTION_KEY`/`GOOGLE_TOKEN_ENCRYPTION_KEY` (sdd/online-payment-integration) | Generar con `openssl rand -base64 32` |
 | `MFA_SECRET_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar el secreto TOTP de cada usuario (`User.mfaSecret`) en reposo — distinta de las demás claves de cifrado (issue #302). Los secretos guardados en texto plano antes de este cambio siguen funcionando y se re-cifran solos en el siguiente login con MFA. **No rotar sin re-cifrar**: cambiarla deja ilegibles los secretos ya cifrados | Generar con `openssl rand -base64 32` |
