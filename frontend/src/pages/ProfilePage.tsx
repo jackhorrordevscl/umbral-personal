@@ -27,7 +27,9 @@ function PublicBookingLinkCard({ profile }: { profile: Profile | undefined }) {
 
   if (!profile) return null;
 
-  const bookingUrl = `${window.location.origin}/book/${profile.id}`;
+  // El link usa el slug del nombre; si la cuenta aún no tiene uno, el id
+  // (UUID) sigue siendo una referencia válida para el backend.
+  const bookingUrl = `${window.location.origin}/book/${profile.slug ?? profile.id}`;
 
   const handleCopy = async () => {
     setCopyFailed(false);

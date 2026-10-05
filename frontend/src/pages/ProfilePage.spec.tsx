@@ -193,7 +193,7 @@ describe('ProfilePage — account-settings Req: Profile Section Scope', () => {
   // El link antes había que armarlo a mano con el propio UUID de usuario --
   // complicado de conseguir para un terapeuta sin acceso a herramientas de
   // dev. Este test confirma que la página lo arma y lo deja copiable.
-  it('muestra el link de auto-agenda con el id del profesional y permite copiarlo', async () => {
+  it('muestra el link de auto-agenda con el id del profesional si no tiene slug y permite copiarlo', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText },
@@ -217,6 +217,22 @@ describe('ProfilePage — account-settings Req: Profile Section Scope', () => {
         screen.getByRole('button', { name: /copiado/i }),
       ).toBeInTheDocument(),
     )
+  })
+
+  it('arma el link de auto-agenda con el slug del profesional cuando existe', async () => {
+    const defaultGet = mockedApi.get.getMockImplementation()!
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/profile') {
+        return Promise.resolve({ data: baseProfile({ slug: 'test-user' }) })
+      }
+      return defaultGet(url)
+    })
+
+    renderProfilePage()
+
+    expect(
+      await screen.findByDisplayValue(`${window.location.origin}/book/test-user`),
+    ).toBeInTheDocument()
   })
 
   // Issue #215: antes el catch estaba vacío y el usuario no se enteraba si el

@@ -22,6 +22,9 @@ export interface Profile {
   // completó, igual criterio que avatarUpdatedAt.
   bio: string | null;
   specialty: string | null;
+  // Slug público del nombre (link /book/<slug>). null en cuentas anteriores a
+  // la migración que lo introdujo; el link cae al id en ese caso.
+  slug: string | null;
 }
 
 // PR2a (session-calendar-view, design.md "Decision: useProfile react-query

@@ -117,6 +117,28 @@ describe('PublicBookingPage — public-scheduling Req: Public Availability Read 
     expect(within(grid).getAllByRole('button')).toHaveLength(1)
   })
 
+  it('acepta un slug en la ruta y lo usa como referencia en perfil y disponibilidad', async () => {
+    const slot = futureSlotOnChileDay(5, 13)
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === `/public/therapists/ana-perez/availability`) {
+        return Promise.resolve({ data: [slot] })
+      }
+      if (url === `/public/therapists/ana-perez/profile`) {
+        return Promise.resolve({
+          data: { name: 'Ana Pérez', bio: null, specialty: null, hasAvatar: false },
+        })
+      }
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+
+    renderPage('/book/ana-perez')
+
+    expect(await screen.findByText('Ana Pérez')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: `Ver horarios del ${dayLabel(slot.dayKey)}` }),
+    ).toBeInTheDocument()
+  })
+
   it('un 409 al confirmar la reserva refresca la disponibilidad y avisa que el horario ya no está libre', async () => {
     const slot = futureSlotOnChileDay(6, 13)
     mockedApi.get.mockImplementation((url: string) => {
