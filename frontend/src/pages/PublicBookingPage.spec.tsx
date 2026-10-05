@@ -8,7 +8,16 @@ import PublicBookingPage, {
   CHECKOUT_POLL_TIMEOUT_MS,
 } from './PublicBookingPage'
 import api from '../api/client'
-import { chileMonthGridRange, toChileDayKey } from '../utils/datetime'
+import {
+  buildLocalISO,
+  chileMonthGridRange,
+  formatChileLongDate,
+  toChileDayKey,
+} from '../utils/datetime'
+
+// #298: el aria-label de cada día muestra una fecha legible, no la ISO.
+const dayLabel = (dayKey: string) =>
+  formatChileLongDate(new Date(buildLocalISO(dayKey, '12:00')))
 
 // sdd/patient-self-scheduling PR 5 (tasks.md 5.2/5.4, public-scheduling Req:
 // "Public Availability Read Endpoint" + "Double-Booking Protection"): página
@@ -65,7 +74,7 @@ async function bookSlotUntilConfirmed(
   slot: { dayKey: string },
 ) {
   await user.click(
-    await screen.findByRole('button', { name: `Ver horarios del ${slot.dayKey}` }),
+    await screen.findByRole('button', { name: `Ver horarios del ${dayLabel(slot.dayKey)}` }),
   )
   const grid = await screen.findByRole('group', { name: 'Horarios disponibles' })
   await user.click(within(grid).getAllByRole('button')[0])
@@ -96,7 +105,7 @@ describe('PublicBookingPage — public-scheduling Req: Public Availability Read 
     renderPage()
 
     const dayButton = await screen.findByRole('button', {
-      name: `Ver horarios del ${slot.dayKey}`,
+      name: `Ver horarios del ${dayLabel(slot.dayKey)}`,
     })
     await userEvent.setup().click(dayButton)
 
@@ -121,7 +130,7 @@ describe('PublicBookingPage — public-scheduling Req: Public Availability Read 
     renderPage()
 
     await user.click(
-      await screen.findByRole('button', { name: `Ver horarios del ${slot.dayKey}` }),
+      await screen.findByRole('button', { name: `Ver horarios del ${dayLabel(slot.dayKey)}` }),
     )
 
     const grid = await screen.findByRole('group', { name: 'Horarios disponibles' })
@@ -160,7 +169,7 @@ describe('PublicBookingPage — public-scheduling Req: Public Availability Read 
     const user = userEvent.setup()
     renderPage()
     await user.click(
-      await screen.findByRole('button', { name: `Ver horarios del ${slot.dayKey}` }),
+      await screen.findByRole('button', { name: `Ver horarios del ${dayLabel(slot.dayKey)}` }),
     )
     const grid = await screen.findByRole('group', { name: 'Horarios disponibles' })
     await user.click(within(grid).getAllByRole('button')[0])
@@ -192,7 +201,7 @@ describe('PublicBookingPage — public-scheduling Req: Public Availability Read 
     renderPage(`/book/therapist-1?utm_source=instagram`)
 
     await user.click(
-      await screen.findByRole('button', { name: `Ver horarios del ${slot.dayKey}` }),
+      await screen.findByRole('button', { name: `Ver horarios del ${dayLabel(slot.dayKey)}` }),
     )
     const grid = await screen.findByRole('group', { name: 'Horarios disponibles' })
     await user.click(within(grid).getAllByRole('button')[0])

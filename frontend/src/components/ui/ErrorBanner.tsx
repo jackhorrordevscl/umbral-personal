@@ -46,6 +46,7 @@ export default function ErrorBanner({
 
   return (
     <div
+      role="alert"
       className={`${styles.bg} border ${styles.border} rounded-lg p-3 ${icon || onRetry ? "flex items-center gap-2" : ""} ${className}`}
     >
       {icon && <AlertCircle size={14} className={`${styles.icon} shrink-0`} />}

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { List, type RowComponentProps } from "react-window";
+import { List, useDynamicRowHeight, type RowComponentProps } from "react-window";
 import { UserPlus, Search, Download, Trash2, Eye, Pencil, AlertCircle } from "lucide-react";
 import { normalizeRut, formatRut, validateRut } from "../utils/rut";
 import { filterPatients } from "../utils/patient-search";
@@ -64,10 +64,9 @@ const hasAnyConsent = (p: Patient) => Boolean(p.consents?.TREATMENT || p.consent
 // inline (una sola fuente de verdad) con roles ARIA de tabla.
 const PATIENT_TABLE_COLUMNS = "minmax(200px,2fr) 130px minmax(140px,1fr) 150px 110px 150px";
 const PATIENT_TABLE_ROW_HEIGHT = 76;
-// Altura pensada para la variante más alta de card (con el checkbox de
-// consentimiento retroactivo); las cards sin esa línea quedan con un poco
-// de espacio de sobra en vez de recortarse -- se prefiere eso a un
-// VariableSizeList por la complejidad extra que no se justifica acá.
+// Altura estimada inicial de una card; la altura real se mide por fila
+// (useDynamicRowHeight) porque un valor fijo recortaba los botones de acción
+// cuando el nombre/email envolvía a varias líneas o con zoom de texto (#298).
 const PATIENT_CARD_ROW_HEIGHT = 208;
 const PATIENT_LIST_HEIGHT = 560;
 
@@ -228,6 +227,7 @@ function PatientCardRow({
           </button>
           <button
             onClick={() => onDelete(p)}
+            aria-label={`Eliminar paciente ${p.fullName}`}
             className="text-xs py-1 px-2 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 flex items-center gap-1"
           >
             <Trash2 size={13} />
@@ -257,6 +257,7 @@ export default function PatientsPage() {
     isLoading: patientsLoading,
     isError: patientsError,
   } = usePatients();
+  const cardRowHeight = useDynamicRowHeight({ defaultRowHeight: PATIENT_CARD_ROW_HEIGHT });
   const createMutation = useCreatePatient();
   const deleteMutation = useDeletePatient();
 
@@ -449,7 +450,7 @@ export default function PatientsPage() {
             {patientsLoading ? "Cargando..." : `${patients.length} pacientes registrados`}
           </p>
         </div>
-        <button onClick={handleToggleForm} className="btn-primary flex items-center gap-2">
+        <button onClick={handleToggleForm} aria-expanded={showForm} className="btn-primary flex items-center gap-2">
           <UserPlus size={16} />
           <span className="hidden sm:inline">Nuevo paciente</span>
           <span className="sm:hidden">Nuevo</span>
@@ -612,7 +613,7 @@ export default function PatientsPage() {
           <List
             rowComponent={PatientCardRow}
             rowCount={filtered.length}
-            rowHeight={PATIENT_CARD_ROW_HEIGHT}
+            rowHeight={cardRowHeight}
             rowProps={sharedRowProps}
             rowKey={patientRowKey}
             overscanCount={4}

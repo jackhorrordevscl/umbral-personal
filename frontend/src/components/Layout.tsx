@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router';
 import {
   LayoutDashboard, Users, ClipboardList, CalendarDays,
@@ -11,6 +11,21 @@ export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // #298: en móvil el aside cerrado está fuera de pantalla pero seguía
+  // siendo tabulable; en escritorio (lg) siempre es visible.
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window.matchMedia === 'function'
+      ? window.matchMedia('(min-width: 1024px)').matches
+      : true,
+  );
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  const asideHidden = !isDesktop && !sidebarOpen;
 
   const handleLogout = () => {
     logout();
@@ -40,19 +55,24 @@ export default function Layout() {
           onClick={() => setSidebarOpen(false)}
         />
       )}
-      <aside className={`
+      <aside
+        inert={asideHidden}
+        aria-hidden={asideHidden || undefined}
+        className={`
         fixed lg:static inset-y-0 left-0 z-30
         w-64 bg-slate-900 flex flex-col
         transform transition-transform duration-300
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         lg:translate-x-0
-      `}>
+      `}
+      >
         <div className="px-6 py-8 border-b border-slate-800 flex items-center justify-between">
           <div className="flex-1 flex justify-center">
             <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-[83px] w-auto" />
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
+            aria-label="Cerrar menú"
             className="lg:hidden text-slate-400 hover:text-white"
           >
             <X size={20} />
@@ -94,6 +114,8 @@ export default function Layout() {
         <header className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-3">
           <button
             onClick={() => setSidebarOpen(true)}
+            aria-label="Abrir menú"
+            aria-expanded={sidebarOpen}
             className="lg:hidden text-slate-600 hover:text-slate-900"
           >
             <Menu size={22} />
