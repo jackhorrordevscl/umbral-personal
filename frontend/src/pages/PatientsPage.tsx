@@ -2,11 +2,11 @@ import { useCallback, useMemo, useState } from "react";
 import { List, useDynamicRowHeight, type RowComponentProps } from "react-window";
 import { UserPlus, Search, Download, Trash2, Eye, Pencil, AlertCircle } from "lucide-react";
 import { normalizeRut, formatRut, validateRut } from "../utils/rut";
-import { filterPatients } from "../utils/patient-search";
 import { getApiErrorMessage } from "../utils/api-error";
 import { downloadPatientReport } from "../api/reports";
 import { downloadBlob } from "../utils/download";
 import {
+  useDebouncedValue,
   usePatients,
   useCreatePatient,
   useDeletePatient,
@@ -15,6 +15,7 @@ import {
 import * as documentsApi from "../api/documents";
 import PatientForm, { type PatientFormValues, type StagedDocument } from "../components/patients/PatientForm";
 import PatientModal from "../components/patients/PatientModal";
+import PatientsPagination from "../components/patients/PatientsPagination";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import EmptyState from "../components/ui/EmptyState";
 import ErrorBanner from "../components/ui/ErrorBanner";
@@ -25,6 +26,10 @@ import {
   type ConsentStatus,
   type Patient,
 } from "../types/patient";
+
+// issue #290: la lista se pagina y se busca en el servidor.
+const PATIENTS_PAGE_SIZE = 50;
+const SEARCH_DEBOUNCE_MS = 300;
 
 const emptyForm: PatientFormValues = {
   fullName: "",
@@ -252,11 +257,15 @@ export default function PatientsPage() {
   const [createNotice, setCreateNotice] = useState("");
   const [stagedDocuments, setStagedDocuments] = useState<StagedDocument[]>([]);
 
+  const [page, setPage] = useState(1);
+  const debouncedSearch = useDebouncedValue(search.trim(), SEARCH_DEBOUNCE_MS);
   const {
-    data: patients = [],
+    data: patientsPage,
     isLoading: patientsLoading,
     isError: patientsError,
-  } = usePatients();
+  } = usePatients({ page, pageSize: PATIENTS_PAGE_SIZE, search: debouncedSearch });
+  const filtered = useMemo(() => patientsPage?.data ?? [], [patientsPage]);
+  const totalPatients = patientsPage?.total ?? 0;
   const cardRowHeight = useDynamicRowHeight({ defaultRowHeight: PATIENT_CARD_ROW_HEIGHT });
   const createMutation = useCreatePatient();
   const deleteMutation = useDeletePatient();
@@ -270,8 +279,6 @@ export default function PatientsPage() {
   const [bulkError, setBulkError] = useState("");
   const bulkConsentMutation = useBulkDeclareConsent();
 
-  const filtered = useMemo(() => filterPatients(patients, search), [patients, search]);
-
   // La selección solo vale para filas visibles: las ocultas por el buscador o
   // eliminadas no deben recibir una declaración que el terapeuta no ve.
   const visibleSelectedIds = useMemo(
@@ -279,6 +286,17 @@ export default function PatientsPage() {
     [filtered, selectedForConsent],
   );
   const visibleSelected = useMemo(() => new Set(visibleSelectedIds), [visibleSelectedIds]);
+
+  // Si tras eliminar quedó vacía la última página, vuelve a la última con
+  // datos (ajuste de estado durante el render, patrón recomendado por React).
+  if (patientsPage && patientsPage.data.length === 0 && page > 1) {
+    setPage(Math.max(1, Math.ceil(patientsPage.total / PATIENTS_PAGE_SIZE)));
+  }
+
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    setPage(1);
+  };
 
   const resetCreateForm = () => {
     setForm(emptyForm);
@@ -447,7 +465,11 @@ export default function PatientsPage() {
         <div>
           <h2 className="font-display text-2xl md:text-3xl text-slate-900">Pacientes</h2>
           <p className="text-slate-500 text-sm mt-1">
-            {patientsLoading ? "Cargando..." : `${patients.length} pacientes registrados`}
+            {patientsLoading
+              ? "Cargando..."
+              : debouncedSearch
+                ? `${totalPatients} ${totalPatients === 1 ? "resultado" : "resultados"} para la búsqueda`
+                : `${totalPatients} pacientes registrados`}
           </p>
         </div>
         <button onClick={handleToggleForm} aria-expanded={showForm} className="btn-primary flex items-center gap-2">
@@ -492,8 +514,9 @@ export default function PatientsPage() {
         <input
           className="input-field pl-9"
           placeholder="Buscar por nombre o RUT..."
+          aria-label="Buscar pacientes por nombre o RUT"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => handleSearchChange(e.target.value)}
         />
       </div>
 
@@ -621,6 +644,13 @@ export default function PatientsPage() {
           />
         )}
       </div>
+
+      <PatientsPagination
+        page={page}
+        pageSize={PATIENTS_PAGE_SIZE}
+        total={totalPatients}
+        onPageChange={setPage}
+      />
 
       {modalIntent && (
         <PatientModal

@@ -28,6 +28,8 @@ vi.mock('../context/useAuth', () => ({
 
 const mockedApi = vi.mocked(api)
 
+const EMPTY_PAGE = { data: [], total: 0, page: 1, pageSize: 5 }
+
 function renderDashboard() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -60,6 +62,7 @@ describe('DashboardPage — issue #294 carga y error distintos de vacío', () =>
     const user = userEvent.setup()
     mockedApi.get.mockImplementation((url: string) => {
       if (url === '/patients') return Promise.reject(new Error('boom'))
+      if (url === '/patients/summary') return Promise.reject(new Error('boom'))
       if (url === '/consultations/stats') {
         return Promise.resolve({ data: { total: 7, upcoming: 2 } })
       }
@@ -77,7 +80,8 @@ describe('DashboardPage — issue #294 carga y error distintos de vacío', () =>
     expect(screen.getByText('7')).toBeInTheDocument()
 
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [] })
+      if (url === '/patients') return Promise.resolve({ data: EMPTY_PAGE })
+      if (url === '/patients/summary') return Promise.resolve({ data: { total: 0, withConsent: 0 } })
       if (url === '/consultations/stats') {
         return Promise.resolve({ data: { total: 7, upcoming: 2 } })
       }
@@ -91,7 +95,8 @@ describe('DashboardPage — issue #294 carga y error distintos de vacío', () =>
 
   it('si falla la carga de estadísticas de consultas muestra "—" en vez de 0', async () => {
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [] })
+      if (url === '/patients') return Promise.resolve({ data: EMPTY_PAGE })
+      if (url === '/patients/summary') return Promise.resolve({ data: { total: 0, withConsent: 0 } })
       if (url === '/consultations/stats') return Promise.reject(new Error('boom'))
       if (url === '/patients/stats/acquisition') return Promise.resolve({ data: [] })
       return Promise.reject(new Error(`GET inesperado: ${url}`))
@@ -111,7 +116,8 @@ describe('DashboardPage — issue #157 sección "Origen de pacientes"', () => {
 
   it('muestra el desglose por canal en el orden que devuelve el backend', async () => {
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [] })
+      if (url === '/patients') return Promise.resolve({ data: EMPTY_PAGE })
+      if (url === '/patients/summary') return Promise.resolve({ data: { total: 0, withConsent: 0 } })
       if (url === '/consultations/stats') {
         return Promise.resolve({ data: { total: 0, upcoming: 0 } })
       }
@@ -136,7 +142,8 @@ describe('DashboardPage — issue #157 sección "Origen de pacientes"', () => {
 
   it('sin datos de origen todavía, muestra el mensaje de estado vacío', async () => {
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [] })
+      if (url === '/patients') return Promise.resolve({ data: EMPTY_PAGE })
+      if (url === '/patients/summary') return Promise.resolve({ data: { total: 0, withConsent: 0 } })
       if (url === '/consultations/stats') {
         return Promise.resolve({ data: { total: 0, upcoming: 0 } })
       }
@@ -151,7 +158,8 @@ describe('DashboardPage — issue #157 sección "Origen de pacientes"', () => {
 
   it('un error al cargar el origen no rompe el resto del dashboard', async () => {
     mockedApi.get.mockImplementation((url: string) => {
-      if (url === '/patients') return Promise.resolve({ data: [] })
+      if (url === '/patients') return Promise.resolve({ data: EMPTY_PAGE })
+      if (url === '/patients/summary') return Promise.resolve({ data: { total: 0, withConsent: 0 } })
       if (url === '/consultations/stats') {
         return Promise.resolve({ data: { total: 0, upcoming: 0 } })
       }
@@ -168,3 +176,40 @@ describe('DashboardPage — issue #157 sección "Origen de pacientes"', () => {
     expect(screen.getByText('Pacientes recientes')).toBeInTheDocument()
   })
 })
+
+describe('DashboardPage — issue #290 contadores y recientes desde el servidor', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('los contadores salen de /patients/summary (no de contar la lista) y los recientes piden solo 5', async () => {
+    const recent = [
+      { id: 'p1', fullName: 'Reciente Uno', rut: '11111111-1', consents: { TREATMENT: true, TELEMEDICINE: false } },
+      { id: 'p2', fullName: 'Reciente Dos', rut: '22222222-2', consents: { TREATMENT: false, TELEMEDICINE: false } },
+    ]
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') {
+        return Promise.resolve({ data: { data: recent, total: 731, page: 1, pageSize: 5 } })
+      }
+      if (url === '/patients/summary') {
+        return Promise.resolve({ data: { total: 731, withConsent: 612 } })
+      }
+      if (url === '/consultations/stats') {
+        return Promise.resolve({ data: { total: 0, upcoming: 0 } })
+      }
+      if (url === '/patients/stats/acquisition') return Promise.resolve({ data: [] })
+      return Promise.reject(new Error(`GET inesperado: ${url}`))
+    })
+
+    renderDashboard()
+
+    expect(await screen.findByText('731')).toBeInTheDocument()
+    expect(screen.getByText('612')).toBeInTheDocument()
+    expect(screen.getByText('Reciente Uno')).toBeInTheDocument()
+    expect(screen.getByText('Reciente Dos')).toBeInTheDocument()
+    expect(mockedApi.get).toHaveBeenCalledWith('/patients', {
+      params: { page: 1, pageSize: 5, search: undefined },
+    })
+  })
+})
+

@@ -418,6 +418,45 @@ describe('validateEnv', () => {
     expect(validateEnv(config)).toBe(config);
   });
 
+  // Issue #290: las variables de la purga de notificaciones son opcionales
+  // (ausente = default), pero un valor inválido debe fallar en el arranque.
+  it('rechaza un NOTIFICATIONS_PURGE_ENABLED que no es "true" ni "false"', () => {
+    const config = { NODE_ENV: 'test', NOTIFICATIONS_PURGE_ENABLED: 'nope' };
+
+    expect(() => validateEnv(config)).toThrow(
+      /NOTIFICATIONS_PURGE_ENABLED inválido/,
+    );
+  });
+
+  it.each(['true', 'false'])(
+    'permite NOTIFICATIONS_PURGE_ENABLED="%s"',
+    (value) => {
+      const config = { NODE_ENV: 'test', NOTIFICATIONS_PURGE_ENABLED: value };
+
+      expect(validateEnv(config)).toBe(config);
+    },
+  );
+
+  it.each([
+    'NOTIFICATIONS_PURGE_RETENTION_DAYS',
+    'NOTIFICATIONS_PURGE_MAX_BATCHES',
+  ])('rechaza un %s que no es un entero positivo', (name) => {
+    for (const value of ['abc', '0', '-5', '1.5', '']) {
+      const config = { NODE_ENV: 'test', [name]: value };
+
+      expect(() => validateEnv(config)).toThrow(new RegExp(`${name} inválido`));
+    }
+  });
+
+  it.each([
+    'NOTIFICATIONS_PURGE_RETENTION_DAYS',
+    'NOTIFICATIONS_PURGE_MAX_BATCHES',
+  ])('permite %s como entero positivo', (name) => {
+    const config = { NODE_ENV: 'test', [name]: '45' };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
   // sdd/patient-self-scheduling PR 1 (tasks.md 1.3, design.md "Migration /
   // Rollout"): un solo flag gatea tanto el endpoint público de
   // disponibilidad como el de booking (PR 3) -- mismo criterio que

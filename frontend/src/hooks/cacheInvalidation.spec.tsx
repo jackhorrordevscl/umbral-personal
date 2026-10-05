@@ -104,6 +104,40 @@ describe('cache invalidation (issue #292)', () => {
     expect(keys).toContainEqual(['acquisition-stats'])
   })
 
+  it('issue #290: crear, editar y eliminar un paciente invalidan listas paginadas, resumen y detalle (prefijo patients)', async () => {
+    const { queryClient, wrapper } = setup()
+    vi.mocked(patientsApi.createPatient).mockResolvedValue({ id: 'p1' } as never)
+    vi.mocked(patientsApi.deletePatient).mockResolvedValue(undefined as never)
+    vi.mocked(patientsApi.updatePatient).mockResolvedValue({} as never)
+    vi.mocked(patientsApi.getPatient).mockResolvedValue({ id: 'p1' } as never)
+    const keys = [
+      ['patients', 'list', { page: 2, pageSize: 50, search: 'ana' }],
+      ['patients', 'summary'],
+      ['patients', 'detail', 'p1'],
+    ]
+    const seed = () => keys.forEach((key) => queryClient.setQueryData(key, { stale: false }))
+    const allInvalidated = () => keys.every((key) => queryClient.getQueryState(key)?.isInvalidated)
+
+    const create = renderHook(() => useCreatePatient(), { wrapper })
+    seed()
+    await act(async () => {
+      await create.result.current.mutateAsync({ data: {} as never, consents: {} as never })
+    })
+    expect(allInvalidated()).toBe(true)
+
+    const update = renderHook(() => useUpdatePatient(), { wrapper })
+    seed()
+    await act(() =>
+      update.result.current.mutateAsync({ id: 'p1', data: { reason: 'x' }, consentChanges: [] }),
+    )
+    expect(allInvalidated()).toBe(true)
+
+    const remove = renderHook(() => useDeletePatient(), { wrapper })
+    seed()
+    await act(() => remove.result.current.mutateAsync('p1'))
+    expect(allInvalidated()).toBe(true)
+  })
+
   it('useDeletePatient invalidates dashboard stats', async () => {
     const { wrapper, invalidate } = setup()
     vi.mocked(patientsApi.deletePatient).mockResolvedValue(undefined as never)

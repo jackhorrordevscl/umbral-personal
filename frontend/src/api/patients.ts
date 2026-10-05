@@ -19,8 +19,39 @@ export interface CreatePatientPayload {
   defaultSessionAmount?: number;
 }
 
-export function listPatients() {
-  return api.get<Patient[]>('/patients').then((r) => r.data);
+// issue #290: GET /patients siempre responde paginado ({ data, total, page,
+// pageSize }) y filtra por nombre/RUT en el servidor con `search`. Sin
+// page/pageSize el backend usa página 1 de 50.
+export interface ListPatientsParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+}
+
+export interface PatientsPage {
+  data: Patient[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export function listPatients(params: ListPatientsParams = {}) {
+  const search = params.search?.trim();
+  return api
+    .get<PatientsPage>('/patients', {
+      params: { page: params.page, pageSize: params.pageSize, search: search || undefined },
+    })
+    .then((r) => r.data);
+}
+
+// issue #290: contadores del dashboard sin traer la lista.
+export interface PatientsSummary {
+  total: number;
+  withConsent: number;
+}
+
+export function getPatientsSummary() {
+  return api.get<PatientsSummary>('/patients/summary').then((r) => r.data);
 }
 
 export function getPatient(id: string) {

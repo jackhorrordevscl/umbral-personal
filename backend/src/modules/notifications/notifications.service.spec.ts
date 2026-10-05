@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { Notification } from '@prisma/client';
 import { NotificationsService } from './notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 
 function buildNotification(
   overrides: Partial<Notification> = {},
@@ -82,6 +83,7 @@ describe('NotificationsService', () => {
       expect(prisma.notification.findMany).toHaveBeenCalledWith({
         where: { userId: 'therapist-a' },
         orderBy: { createdAt: 'desc' },
+        take: UNPAGINATED_SAFETY_LIMIT,
       });
       expect(result).toBe(notifications);
     });

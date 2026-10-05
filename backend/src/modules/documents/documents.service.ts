@@ -15,6 +15,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { VoidDocumentDto } from './dto/void-document.dto';
 import { DocumentEncryptionService } from './document-encryption.service';
+import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { assertFileContentMatchesMimetype } from '../../common/utils/file-signature.util';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
@@ -158,6 +159,7 @@ export class DocumentsService {
     return this.prisma.patientDocument.findMany({
       where: { patientId },
       orderBy: { uploadedAt: 'desc' },
+      take: UNPAGINATED_SAFETY_LIMIT,
     });
   }
 

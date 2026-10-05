@@ -31,6 +31,11 @@ function buildPatient(overrides: Partial<Patient> = {}): Patient {
   } as unknown as Patient
 }
 
+// issue #290: GET /patients responde { data, total, page, pageSize }.
+function patientsPage(items: Patient[], total = items.length) {
+  return { data: { data: items, total, page: 1, pageSize: 50 } }
+}
+
 function renderPatientsPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -52,11 +57,11 @@ async function fillMinimalRequiredFields(user: ReturnType<typeof userEvent.setup
 describe('PatientsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockedApi.get.mockResolvedValue({ data: [] })
+    mockedApi.get.mockResolvedValue(patientsPage([]))
   })
 
   it('lista los pacientes que devuelve el backend', async () => {
-    mockedApi.get.mockResolvedValueOnce({ data: [buildPatient()] })
+    mockedApi.get.mockResolvedValueOnce(patientsPage([buildPatient()]))
 
     renderPatientsPage()
 
@@ -66,7 +71,7 @@ describe('PatientsPage', () => {
   })
 
   it('issue #188: mientras carga muestra "cargando", no el estado vacío ni "0 pacientes"', async () => {
-    let resolveList!: (value: { data: Patient[] }) => void
+    let resolveList!: (value: ReturnType<typeof patientsPage>) => void
     mockedApi.get.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveList = resolve
@@ -79,7 +84,7 @@ describe('PatientsPage', () => {
     expect(screen.queryByText(/no se encontraron pacientes/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/0 pacientes registrados/i)).not.toBeInTheDocument()
 
-    resolveList({ data: [] })
+    resolveList(patientsPage([]))
 
     expect((await screen.findAllByText(/no se encontraron pacientes/i)).length).toBeGreaterThan(0)
     expect(screen.getByText(/0 pacientes registrados/i)).toBeInTheDocument()
@@ -88,7 +93,7 @@ describe('PatientsPage', () => {
 
   it('alta de paciente: crea el paciente, otorga los consentimientos marcados y refresca la lista', async () => {
     const user = userEvent.setup()
-    mockedApi.get.mockResolvedValueOnce({ data: [] })
+    mockedApi.get.mockResolvedValueOnce(patientsPage([]))
     mockedApi.post.mockResolvedValueOnce({
       data: buildPatient({ id: 'new-patient' }),
     })
@@ -219,12 +224,12 @@ describe('PatientsPage', () => {
       }
       globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver
       try {
-        mockedApi.get.mockResolvedValueOnce({
-          data: [
+        mockedApi.get.mockResolvedValueOnce(
+          patientsPage([
             buildPatient({ fullName: 'Paciente Tarjeta', email: 'tarjeta@example.com' }),
             buildPatient({ id: 'patient-2', fullName: 'Otro Paciente', rut: '22222222-2' }),
-          ],
-        })
+          ]),
+        )
 
         const { container } = renderPatientsPage()
         const cards = container.querySelector('[class~="md:hidden"]') as HTMLElement
@@ -263,7 +268,7 @@ describe('PatientsPage', () => {
         rut: '33333333-3',
         consents: { TREATMENT: false, TELEMEDICINE: false },
       })
-      mockedApi.get.mockResolvedValueOnce({ data: [pending1, pending2] })
+      mockedApi.get.mockResolvedValueOnce(patientsPage([pending1, pending2]))
       mockedApi.post.mockResolvedValueOnce({
         data: [
           { patientId: 'pending-1', ok: true },
@@ -321,7 +326,14 @@ describe('PatientsPage', () => {
         rut: '33333333-3',
         consents: { TREATMENT: false, TELEMEDICINE: false },
       })
-      mockedApi.get.mockResolvedValueOnce({ data: [pending1, pending2] })
+      // issue #290: el buscador filtra en el servidor.
+      mockedApi.get.mockImplementation((_url, config) =>
+        Promise.resolve(
+          (config?.params as { search?: string } | undefined)?.search === 'Beto'
+            ? patientsPage([pending2])
+            : patientsPage([pending1, pending2]),
+        ),
+      )
       mockedApi.post.mockResolvedValueOnce({ data: [{ patientId: 'pending-2', ok: true }] })
 
       renderPatientsPage()
@@ -331,7 +343,7 @@ describe('PatientsPage', () => {
       await user.click(screen.getAllByLabelText(/retroactivo de beto pendiente/i)[0])
       await user.type(screen.getByPlaceholderText(/buscar por nombre/i), 'Beto')
 
-      expect(screen.getByText(/retroactivo para 1 paciente/i)).toBeInTheDocument()
+      expect(await screen.findByText(/retroactivo para 1 paciente/i)).toBeInTheDocument()
       await user.type(screen.getByPlaceholderText(/evidencia/i), 'Consentimiento en papel del expediente')
       await user.click(screen.getByRole('button', { name: /^declarar$/i }))
 
@@ -352,7 +364,7 @@ describe('PatientsPage', () => {
         rut: '22222222-2',
         consents: { TREATMENT: false, TELEMEDICINE: false },
       })
-      mockedApi.get.mockResolvedValueOnce({ data: [pending1] })
+      mockedApi.get.mockResolvedValueOnce(patientsPage([pending1]))
       mockedApi.post.mockResolvedValueOnce({
         data: [{ patientId: 'pending-1', ok: false, error: 'Paciente no encontrado' }],
       })
@@ -389,7 +401,7 @@ describe('PatientsPage', () => {
         rut: '22222222-2',
         consents: { TREATMENT: false, TELEMEDICINE: false },
       })
-      mockedApi.get.mockResolvedValueOnce({ data: [pending1] })
+      mockedApi.get.mockResolvedValueOnce(patientsPage([pending1]))
 
       renderPatientsPage()
       await screen.findAllByText('Paciente Pendiente Uno')
@@ -410,7 +422,7 @@ describe('PatientsPage', () => {
 
   it('eliminar paciente pide confirmación y llama al DELETE recién al confirmar', async () => {
     const user = userEvent.setup()
-    mockedApi.get.mockResolvedValueOnce({ data: [buildPatient()] })
+    mockedApi.get.mockResolvedValueOnce(patientsPage([buildPatient()]))
     mockedApi.delete.mockResolvedValueOnce({ data: undefined })
 
     renderPatientsPage()
@@ -426,4 +438,95 @@ describe('PatientsPage', () => {
       expect(mockedApi.delete).toHaveBeenCalledWith('/patients/patient-1')
     })
   })
+
+  it('issue #290: el contador usa el total del servidor, no los pacientes cargados', async () => {
+    mockedApi.get.mockResolvedValueOnce(patientsPage([buildPatient()], 731))
+
+    renderPatientsPage()
+
+    expect(await screen.findByText('731 pacientes registrados')).toBeInTheDocument()
+  })
+
+  it('issue #290: buscar pide al servidor (con espera) y vuelve a la página 1', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockImplementation((_url, config) => {
+      const params = config?.params as { page?: number; search?: string } | undefined
+      if (params?.search === 'Ana') {
+        return Promise.resolve(patientsPage([buildPatient({ id: 'ana', fullName: 'Ana Buscada' })], 1))
+      }
+      return Promise.resolve(patientsPage([buildPatient()], 120))
+    })
+
+    renderPatientsPage()
+    await screen.findAllByText('Paciente Existente')
+    await user.click(screen.getByRole('button', { name: /siguiente/i }))
+    await waitFor(() =>
+      expect(mockedApi.get).toHaveBeenCalledWith('/patients', {
+        params: { page: 2, pageSize: 50, search: undefined },
+      }),
+    )
+
+    await user.type(screen.getByRole('textbox', { name: /buscar pacientes/i }), 'Ana')
+
+    expect((await screen.findAllByText('Ana Buscada'))[0]).toBeInTheDocument()
+    expect(mockedApi.get).toHaveBeenCalledWith('/patients', {
+      params: { page: 1, pageSize: 50, search: 'Ana' },
+    })
+    expect(screen.getByText('1 resultado para la búsqueda')).toBeInTheDocument()
+    // No se pidió una consulta por cada tecla.
+    const searchCalls = mockedApi.get.mock.calls.filter(
+      ([, c]) => (c?.params as { search?: string } | undefined)?.search,
+    )
+    expect(searchCalls).toHaveLength(1)
+  })
+
+  it('issue #290: pagina con Anterior/Siguiente usando el total del servidor', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockResolvedValue(patientsPage([buildPatient()], 120))
+
+    renderPatientsPage()
+    await screen.findAllByText('Paciente Existente')
+
+    const nav = screen.getByRole('navigation', { name: /paginación de pacientes/i })
+    expect(within(nav).getByText(/página 1 de 3/i)).toBeInTheDocument()
+    expect(within(nav).getByRole('button', { name: /anterior/i })).toBeDisabled()
+
+    await user.click(within(nav).getByRole('button', { name: /siguiente/i }))
+
+    await waitFor(() =>
+      expect(mockedApi.get).toHaveBeenCalledWith('/patients', {
+        params: { page: 2, pageSize: 50, search: undefined },
+      }),
+    )
+  })
+
+  it('issue #290: sin más de una página no muestra controles de paginación', async () => {
+    mockedApi.get.mockResolvedValue(patientsPage([buildPatient()], 1))
+
+    renderPatientsPage()
+    await screen.findAllByText('Paciente Existente')
+
+    expect(screen.queryByRole('navigation', { name: /paginación de pacientes/i })).not.toBeInTheDocument()
+  })
+
+  it('issue #290: si la página actual queda vacía (p. ej. tras eliminar) vuelve a la última con datos', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockImplementation((_url, config) => {
+      const params = config?.params as { page?: number } | undefined
+      return Promise.resolve(
+        params?.page === 2 ? patientsPage([], 50) : patientsPage([buildPatient()], 120),
+      )
+    })
+
+    renderPatientsPage()
+    await screen.findAllByText('Paciente Existente')
+    await user.click(screen.getByRole('button', { name: /siguiente/i }))
+
+    await waitFor(() => {
+      const pages = mockedApi.get.mock.calls.map(([, c]) => (c?.params as { page?: number }).page)
+      expect(pages.slice(-1)[0]).toBe(1)
+      expect(pages).toContain(2)
+    })
+  })
 })
+

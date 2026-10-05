@@ -19,7 +19,7 @@ import {
   CurrentUser,
   type RequestUser,
 } from '../../common/decorators/current-user.decorator';
-import { PaginationQueryDto } from '../../common/dto/pagination.dto';
+import { PatientsQueryDto } from './dto/patients-query.dto';
 
 @Controller('patients')
 @UseGuards(JwtAuthGuard)
@@ -32,11 +32,15 @@ export class PatientsController {
   }
 
   @Get()
-  findAll(
-    @CurrentUser() user: RequestUser,
-    @Query() query: PaginationQueryDto,
-  ) {
+  findAll(@CurrentUser() user: RequestUser, @Query() query: PatientsQueryDto) {
     return this.patientsService.findAll(user.id, query);
+  }
+
+  // issue #290: contadores del dashboard (total y con consentimiento vigente).
+  // Antes de :id por el mismo hazard de wildcard que stats/acquisition.
+  @Get('summary')
+  getSummary(@CurrentUser() user: RequestUser) {
+    return this.patientsService.getSummary(user.id);
   }
 
   // issue #157: agregación de origen de pacientes para el dashboard. Debe

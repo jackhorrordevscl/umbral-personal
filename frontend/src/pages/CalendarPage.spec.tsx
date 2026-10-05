@@ -65,7 +65,7 @@ function mockGets(
     if (url === '/consultations/range') return Promise.resolve({ data: sessions })
     if (url === '/calendar-integration/status')
       return Promise.resolve({ data: calendarStatus })
-    if (url === '/patients') return Promise.resolve({ data: [buildPatient()] })
+    if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
     return Promise.reject(new Error(`GET inesperado: ${url}`))
   })
 }

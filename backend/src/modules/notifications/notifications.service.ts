@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 
 // sdd/session-reminders PR 1: modelo genérico de notificaciones in-app,
 // consumido en este PR solo por su propio CRUD dueño-scoped. `create` queda
@@ -49,12 +50,18 @@ export class NotificationsService {
     const where = { userId };
     const { page, pageSize } = pagination ?? {};
     const isPaginated = !!page && !!pageSize;
+    // issue #290: sin paginar, el cap es solo una red de seguridad (la purga
+    // de leídas mantiene la tabla acotada); la respuesta sigue siendo un
+    // arreglo plano para el frontend.
+    const take = isPaginated ? pageSize : UNPAGINATED_SAFETY_LIMIT;
+    const skip = isPaginated ? (page - 1) * pageSize : undefined;
 
     const [data, total] = await Promise.all([
       this.prisma.notification.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        ...(isPaginated ? { take: pageSize, skip: (page - 1) * pageSize } : {}),
+        take,
+        ...(skip !== undefined ? { skip } : {}),
       }),
       isPaginated
         ? this.prisma.notification.count({ where })

@@ -11,6 +11,7 @@ import { CalendarSyncService } from '../calendar-integration/calendar-sync.servi
 import { PaymentsService } from '../payments/payments.service';
 import { AvailabilityService } from '../availability/availability.service';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
+import { DEFAULT_PATIENTS_PAGE_SIZE } from './dto/patients-query.dto';
 
 function buildPatient(overrides: Partial<Patient> = {}): Patient {
   return {
@@ -178,37 +179,33 @@ describe('PatientsService', () => {
   });
 
   describe('findAll', () => {
-    it('sin pagination devuelve la lista completa con consents agregados', async () => {
+    // issue #290: la respuesta siempre es { data, total, page, pageSize }; sin
+    // page/pageSize se aplica un tamaño por defecto, nunca un corte silencioso.
+    it('sin pagination devuelve la forma paginada con defaults y consents agregados', async () => {
       prisma.patient.findMany.mockResolvedValue([buildPatient()]);
+      prisma.patient.count.mockResolvedValue(1);
       prisma.patientConsent.findMany.mockResolvedValue([]);
 
       const result = await service.findAll('therapist-1');
 
-      expect(Array.isArray(result)).toBe(true);
-      expect((result as { consents: unknown }[])[0].consents).toEqual({
-        TREATMENT: false,
-        TELEMEDICINE: false,
+      expect(result).toEqual({
+        data: [
+          expect.objectContaining({
+            consents: { TREATMENT: false, TELEMEDICINE: false },
+          }),
+        ],
+        total: 1,
+        page: 1,
+        pageSize: DEFAULT_PATIENTS_PAGE_SIZE,
       });
-      expect(prisma.patient.count).not.toHaveBeenCalled();
-    });
-
-    // issue #140: sin page/pageSize sigue devolviendo el array plano (no
-    // { data, total, ... }), pero ya no dispara un findMany() sin ningún
-    // límite -- aplica el cap de seguridad UNPAGINATED_SAFETY_LIMIT.
-    it('sin pagination aplica el cap de seguridad en vez de un findMany() sin límite', async () => {
-      prisma.patient.findMany.mockResolvedValue([]);
-      prisma.patientConsent.findMany.mockResolvedValue([]);
-
-      await service.findAll('therapist-1');
-
       expect(prisma.patient.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ take: UNPAGINATED_SAFETY_LIMIT }),
+        expect.objectContaining({ take: DEFAULT_PATIENTS_PAGE_SIZE, skip: 0 }),
       );
     });
 
     it('con page/pageSize pagina con take/skip y devuelve total', async () => {
       prisma.patient.findMany.mockResolvedValue([buildPatient()]);
-      prisma.patient.count.mockResolvedValue(1);
+      prisma.patient.count.mockResolvedValue(21);
       prisma.patientConsent.findMany.mockResolvedValue([]);
 
       const result = await service.findAll('therapist-1', {
@@ -220,8 +217,57 @@ describe('PatientsService', () => {
         expect.objectContaining({ take: 10, skip: 10 }),
       );
       expect(result).toEqual(
-        expect.objectContaining({ total: 1, page: 2, pageSize: 10 }),
+        expect.objectContaining({ total: 21, page: 2, pageSize: 10 }),
       );
+    });
+
+    it('search filtra por nombre y RUT (insensible a mayúsculas) y el total usa el mismo filtro', async () => {
+      prisma.patient.findMany.mockResolvedValue([]);
+      prisma.patient.count.mockResolvedValue(0);
+      prisma.patientConsent.findMany.mockResolvedValue([]);
+
+      await service.findAll('therapist-1', { search: '  12.345.678-k ' });
+
+      const expectedWhere = {
+        therapistId: 'therapist-1',
+        deletedAt: null,
+        OR: [
+          { fullName: { contains: '12.345.678-k', mode: 'insensitive' } },
+          { rut: { contains: '12345678-K' } },
+        ],
+      };
+      expect(prisma.patient.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expectedWhere }),
+      );
+      expect(prisma.patient.count).toHaveBeenCalledWith({
+        where: expectedWhere,
+      });
+    });
+
+    it('search vacío o solo espacios no agrega filtro', async () => {
+      prisma.patient.findMany.mockResolvedValue([]);
+      prisma.patient.count.mockResolvedValue(0);
+      prisma.patientConsent.findMany.mockResolvedValue([]);
+
+      await service.findAll('therapist-1', { search: '   ' });
+
+      expect(prisma.patient.count).toHaveBeenCalledWith({
+        where: { therapistId: 'therapist-1', deletedAt: null },
+      });
+    });
+  });
+
+  describe('getSummary', () => {
+    it('devuelve total y withConsent acotados al terapeuta', async () => {
+      prisma.patient.count.mockResolvedValue(7);
+      prisma.$queryRaw.mockResolvedValue([{ count: BigInt(3) }]);
+
+      const result = await service.getSummary('therapist-1');
+
+      expect(result).toEqual({ total: 7, withConsent: 3 });
+      expect(prisma.patient.count).toHaveBeenCalledWith({
+        where: { therapistId: 'therapist-1', deletedAt: null },
+      });
     });
   });
 
@@ -255,6 +301,23 @@ describe('PatientsService', () => {
       );
     });
 
+    it('acota los documentos con el cap de seguridad (issue #290)', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+
+      await service.findOne('patient-1', 'therapist-1');
+
+      expect(prisma.patient.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            documents: {
+              orderBy: { uploadedAt: 'desc' },
+              take: UNPAGINATED_SAFETY_LIMIT,
+            },
+          }) as unknown,
+        }),
+      );
+    });
+
     it('devuelve el paciente con el estado de consentimiento vigente', async () => {
       prisma.patient.findFirst.mockResolvedValue(buildPatient());
       prisma.patientConsent.findMany.mockResolvedValue([
@@ -275,6 +338,34 @@ describe('PatientsService', () => {
   });
 
   describe('update', () => {
+    it('lee solo columnas escalares del paciente (sin consultas, documentos ni consentimientos) (issue #290)', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+
+      await service.update(
+        'patient-1',
+        { fullName: 'Paciente de Prueba', reason: 'Sin cambios' } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.patient.findFirst).toHaveBeenCalledWith({
+        where: { id: 'patient-1', therapistId: 'therapist-1', deletedAt: null },
+      });
+      expect(prisma.patientConsent.findMany).not.toHaveBeenCalled();
+    });
+
+    it('lanza 404 si el paciente no existe o es de otro terapeuta', async () => {
+      prisma.patient.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.update(
+          'patient-1',
+          { fullName: 'X', reason: 'Motivo cualquiera' } as never,
+          'therapist-1',
+        ),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.patient.update).not.toHaveBeenCalled();
+    });
+
     it('sin cambios reales no toca la DB y devuelve el paciente actual', async () => {
       prisma.patient.findFirst.mockResolvedValue(buildPatient());
       prisma.patientConsent.findMany.mockResolvedValue([]);

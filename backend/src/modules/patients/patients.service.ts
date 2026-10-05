@@ -18,6 +18,7 @@ import { BulkDeclareConsentDto } from './dto/bulk-declare-consent.dto';
 import { ConsentPurpose, Patient, Prisma } from '@prisma/client';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
+import { DEFAULT_PATIENTS_PAGE_SIZE } from './dto/patients-query.dto';
 import { isValidRut, normalizeRut } from '../../common/utils/rut.util';
 
 // issue #157: origen de adquisición capturado en el frontend (referrer +
@@ -155,30 +156,39 @@ export class PatientsService {
     return map;
   }
 
-  // Sin page/pageSize devuelve la lista completa (retrocompatible); con
-  // ambos, pagina con take/skip (issue #48).
+  // issue #290: siempre devuelve { data, total, page, pageSize }. Sin
+  // page/pageSize usa la página 1 con DEFAULT_PATIENTS_PAGE_SIZE (el cliente
+  // ve `total` y pagina; ya no hay corte silencioso). `search` filtra por
+  // nombre y RUT en el servidor; el total respeta el mismo filtro.
   async findAll(
     userId: string,
-    pagination?: { page?: number; pageSize?: number },
+    query?: { page?: number; pageSize?: number; search?: string },
   ) {
-    const where = { therapistId: userId, deletedAt: null };
-    const { page, pageSize } = pagination ?? {};
-    const isPaginated = !!page && !!pageSize;
-    // issue #140: sin pagination, take usa el cap de seguridad en vez de
-    // quedar sin límite (ver UNPAGINATED_SAFETY_LIMIT).
-    const take = isPaginated ? pageSize : UNPAGINATED_SAFETY_LIMIT;
-    const skip = isPaginated ? (page - 1) * pageSize : undefined;
+    const page = query?.page ?? 1;
+    const pageSize = query?.pageSize ?? DEFAULT_PATIENTS_PAGE_SIZE;
+    const where: Prisma.PatientWhereInput = {
+      therapistId: userId,
+      deletedAt: null,
+    };
+
+    const term = query?.search?.trim();
+    if (term) {
+      // El RUT se guarda normalizado (sin puntos, DV en mayúscula): se busca
+      // con el término normalizado igual que en el alta.
+      where.OR = [
+        { fullName: { contains: term, mode: 'insensitive' } },
+        { rut: { contains: normalizeRut(term) } },
+      ];
+    }
 
     const [patients, total] = await Promise.all([
       this.prisma.patient.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        take,
-        skip,
+        take: pageSize,
+        skip: (page - 1) * pageSize,
       }),
-      isPaginated
-        ? this.prisma.patient.count({ where })
-        : Promise.resolve(undefined),
+      this.prisma.patient.count({ where }),
     ]);
 
     const consentMap = await this.getConsentStatusMap(
@@ -189,7 +199,34 @@ export class PatientsService {
       consents: consentMap.get(p.id) ?? emptyConsentStatus(),
     }));
 
-    return isPaginated ? { data, total, page, pageSize } : data;
+    return { data, total, page, pageSize };
+  }
+
+  // issue #290: contadores del dashboard sin traer la lista. withConsent =
+  // pacientes activos cuyo último evento vigente es GRANT para TREATMENT o
+  // TELEMEDICINE (misma regla que getConsentStatusMap: última fila por
+  // (patientId, purpose) según recordedAt).
+  async getSummary(
+    userId: string,
+  ): Promise<{ total: number; withConsent: number }> {
+    const [total, rows] = await Promise.all([
+      this.prisma.patient.count({
+        where: { therapistId: userId, deletedAt: null },
+      }),
+      this.prisma.$queryRaw<{ count: bigint }[]>`
+        SELECT COUNT(DISTINCT latest."patientId") AS count
+        FROM (
+          SELECT DISTINCT ON (pc."patientId", pc."purpose")
+            pc."patientId", pc."action"
+          FROM "PatientConsent" pc
+          JOIN "Patient" p ON p."id" = pc."patientId"
+          WHERE p."therapistId" = ${userId} AND p."deletedAt" IS NULL
+          ORDER BY pc."patientId", pc."purpose", pc."recordedAt" DESC
+        ) latest
+        WHERE latest."action" = 'GRANT'
+      `,
+    ]);
+    return { total, withConsent: Number(rows[0]?.count ?? 0) };
   }
 
   // Guard de autorización liviano: solo confirma que `id` existe y pertenece
@@ -225,7 +262,12 @@ export class PatientsService {
           where: { correctedBy: null, deletedAt: null },
           orderBy: { createdAt: 'desc' },
         },
-        documents: true,
+        // issue #290: acotado con el cap de seguridad (las consultas no se
+        // acotan: truncar el historial clínico en silencio sería peor)
+        documents: {
+          orderBy: { uploadedAt: 'desc' },
+          take: UNPAGINATED_SAFETY_LIMIT,
+        },
       },
     });
     if (!patient) throw new NotFoundException('Paciente no encontrado');
@@ -236,7 +278,13 @@ export class PatientsService {
   }
 
   async update(id: string, dto: UpdatePatientDto, userId: string) {
-    const current = await this.findOne(id, userId);
+    // issue #290: solo columnas escalares de Patient (no consultas,
+    // documentos ni consentimientos); el filtro de ownership es el mismo de
+    // assertAccess/findOne y lanza el mismo 404 uniforme.
+    const current = await this.prisma.patient.findFirst({
+      where: { id, therapistId: userId, deletedAt: null },
+    });
+    if (!current) throw new NotFoundException('Paciente no encontrado');
 
     const { reason, ...fields } = dto;
 
@@ -269,11 +317,6 @@ export class PatientsService {
       );
     }
 
-    // Snapshot sin relaciones ni campos computados (consents es agregado en
-    // findOne desde el ledger PatientConsent, no una columna real de Patient)
-    const { therapist, consultations, documents, consents, ...snapshot } =
-      current;
-
     const updated = await this.prisma
       .$transaction(async (tx) => {
         await tx.patientHistory.create({
@@ -281,7 +324,7 @@ export class PatientsService {
             patientId: id,
             changedById: userId,
             reason,
-            snapshot: toJsonSnapshot(snapshot),
+            snapshot: toJsonSnapshot(current),
             diff: toJsonSnapshot(diff),
           },
         });

@@ -3,6 +3,7 @@ import { DocumentsService } from './documents.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { DocumentEncryptionService } from './document-encryption.service';
+import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { assertFileContentMatchesMimetype } from '../../common/utils/file-signature.util';
 import * as patientDocumentStorage from '../../common/utils/patient-document-storage.util';
 
@@ -101,6 +102,24 @@ describe('DocumentsService', () => {
       patientsService as unknown as PatientsService,
       encryption as unknown as DocumentEncryptionService,
     );
+  });
+
+  describe('findByPatient', () => {
+    it('acota la lista con el cap de seguridad (issue #290)', async () => {
+      prisma.patientDocument.findMany.mockResolvedValue([]);
+
+      await service.findByPatient('patient-1', 'therapist-1');
+
+      expect(patientsService.assertAccess).toHaveBeenCalledWith(
+        'patient-1',
+        'therapist-1',
+      );
+      expect(prisma.patientDocument.findMany).toHaveBeenCalledWith({
+        where: { patientId: 'patient-1' },
+        orderBy: { uploadedAt: 'desc' },
+        take: UNPAGINATED_SAFETY_LIMIT,
+      });
+    });
   });
 
   describe('uploadDocument', () => {
