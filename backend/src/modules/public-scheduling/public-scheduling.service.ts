@@ -21,6 +21,7 @@ import { DEFAULT_SESSION_MINUTES } from '../calendar-integration/calendar-integr
 import { PublicAvailabilityQueryDto } from './dto/public-availability-query.dto';
 import { BookPublicSlotDto } from './dto/book-public-slot.dto';
 import { parsePositiveInt } from './public-schedule-throttler.guard';
+import { PublicTherapistResolverService } from './public-therapist-resolver.service';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.6): mismo tope que
 // consultations.service.ts findByRange (62 días, con margen para el grid
@@ -62,6 +63,7 @@ export class PublicSchedulingService {
     private readonly patientsService: PatientsService,
     private readonly consultationsService: ConsultationsService,
     private readonly notificationsService: NotificationsService,
+    private readonly therapistResolver: PublicTherapistResolverService,
   ) {
     this.enabled =
       this.config.get<string>('PUBLIC_SCHEDULING_ENABLED') === 'true';
@@ -97,7 +99,7 @@ export class PublicSchedulingService {
   }
 
   async getAvailability(
-    therapistId: string,
+    therapistRef: string,
     query: PublicAvailabilityQueryDto,
   ): Promise<AvailableSlot[]> {
     this.assertEnabled();
@@ -115,11 +117,20 @@ export class PublicSchedulingService {
       );
     }
 
+    // Un slug desconocido se comporta como un id desconocido: sin slots.
+    const therapistId = await this.therapistResolver.resolveId(therapistRef);
+    if (!therapistId) return [];
+
     return this.availabilityService.computeSlots(therapistId, from, to);
   }
 
-  async book(therapistId: string, dto: BookPublicSlotDto) {
+  async book(therapistRef: string, dto: BookPublicSlotDto) {
     this.assertEnabled();
+
+    const therapistId = await this.therapistResolver.resolveId(therapistRef);
+    if (!therapistId) {
+      throw new NotFoundException('Terapeuta no encontrado.');
+    }
 
     const therapist = await this.prisma.user.findUnique({
       where: { id: therapistId },

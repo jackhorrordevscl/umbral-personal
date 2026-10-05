@@ -349,9 +349,11 @@ sesión directamente, sin que tengas que agendarlos tú a mano.
   (un día completo, un rango de horas, o un rango de fechas — por ejemplo
   tus vacaciones) para que esos horarios no aparezcan disponibles.
 - **Copia tu link.** En la misma pantalla de Perfil hay una tarjeta con tu
-  link público de agenda y un botón para copiarlo — no hace falta que
-  busques ni construyas ningún ID técnico, ya viene armado y listo para
+  link público de agenda y un botón para copiarlo — ya viene armado con tu
+  nombre (por ejemplo, `.../book/juan-jose-martinez`) y listo para
   compartir por el canal que uses con tus pacientes (WhatsApp, email, etc.).
+  Si cambias tu nombre en "Ajustes", el link cambia con él: vuelve a copiarlo
+  y compártelo de nuevo, porque el anterior deja de funcionar.
 - **Qué ve el paciente.** Antes del calendario, ve tu foto de perfil (o tus
   iniciales si no subiste una), tu especialidad y tu bio, si los cargaste
   desde "Ajustes" (ver sección 10). Después, entra sin necesidad de crear

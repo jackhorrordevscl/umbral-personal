@@ -21,6 +21,7 @@ import * as crypto from 'crypto';
 import { Prisma, User } from '@prisma/client';
 import { MFA_SETUP_PURPOSE, MFA_VERIFY_PURPOSE } from './mfa.service';
 import { normalizeEmail } from '../../common/utils/normalize-email.util';
+import { generateUniqueSlug } from '../../common/utils/slug.util';
 import { getDummyPasswordHash } from './dummy-password-hash.util';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 
@@ -66,6 +67,14 @@ const INVITATION_EXPIRES_IN_MS = 7 * 24 * 60 * 60 * 1000;
 // Issue #303: único rechazo de signup (invitación inválida/usada/expirada o
 // email ya registrado); mismo status y mensaje para no habilitar enumeración.
 const SIGNUP_REJECTED_MESSAGE = 'Código de invitación inválido o expirado';
+
+// Prisma informa el campo del índice único en meta.target (arreglo o texto).
+function isSlugConflict(err: Prisma.PrismaClientKnownRequestError): boolean {
+  const target = err.meta?.target;
+  return Array.isArray(target)
+    ? target.includes('slug')
+    : typeof target === 'string' && target.includes('slug');
+}
 
 @Injectable()
 export class AuthService {
@@ -145,6 +154,7 @@ export class AuthService {
             email: normalizeEmail(dto.email),
             passwordHash,
             name: dto.name,
+            slug: await generateUniqueSlug(tx, dto.name),
             emailVerified: false,
           },
         });
@@ -160,7 +170,10 @@ export class AuthService {
       .catch((err: unknown) => {
         if (
           err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2002'
+          err.code === 'P2002' &&
+          // Un choque en el slug (alta simultánea con el mismo nombre) no es
+          // un email repetido: se propaga como error real, no se enmascara.
+          !isSlugConflict(err)
         ) {
           this.rejectSignup('EMAIL_TAKEN_RACE', ipAddress, userAgent);
         }

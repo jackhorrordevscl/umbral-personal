@@ -185,6 +185,11 @@ describe('ProfileModule (e2e)', () => {
         'Nombre Actualizado',
       );
       expect((res.body as Record<string, unknown>).email).toBe(userAEmail);
+      // El slug público sigue al nombre (base 'nombre-actualizado', con sufijo
+      // numérico si otro usuario ya lo tiene).
+      expect((res.body as Record<string, unknown>).slug).toMatch(
+        /^nombre-actualizado(-\d+)?$/,
+      );
     });
 
     it('rechaza un cambio de email sin currentPassword (400), sin tocar pendingEmail', async () => {

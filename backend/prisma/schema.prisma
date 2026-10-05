@@ -90,6 +90,11 @@ model User {
   // para evitar abuso (ver UpdateProfileDto).
   bio                        String?
   specialty                  String?
+  // Slug público del terapeuta para el link de la agenda (/book/<slug>).
+  // Se regenera cuando cambia el nombre (sin historial: el link viejo deja de
+  // resolver, el UUID sigue funcionando). Nullable solo por compatibilidad con
+  // filas previas a la migración; ver slug.util.ts.
+  slug                       String?   @unique
 
   patients              Patient[]
   consultations         Consultation[]

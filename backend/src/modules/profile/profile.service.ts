@@ -18,6 +18,7 @@ import {
   deleteAvatarObject,
   isAvatarNotFoundError,
 } from '../../common/utils/avatar-storage.util';
+import { generateUniqueSlug } from '../../common/utils/slug.util';
 import * as argon2 from 'argon2';
 
 const PROFILE_SELECT = {
@@ -32,6 +33,8 @@ const PROFILE_SELECT = {
   // campos que persiste `update` más abajo.
   bio: true,
   specialty: true,
+  // Slug público: el frontend arma el link de la agenda (/book/<slug>).
+  slug: true,
 } as const;
 
 @Injectable()
@@ -58,6 +61,7 @@ export class ProfileService {
         // necesita verlo acá para precargar el form.
         bio: true,
         specialty: true,
+        slug: true,
       },
     });
 
@@ -156,6 +160,7 @@ export class ProfileService {
 
     const data: {
       name?: string;
+      slug?: string;
       bio?: string;
       specialty?: string;
       passwordHash?: string;
@@ -163,7 +168,14 @@ export class ProfileService {
       pendingEmail?: null;
       pendingEmailTokenIssuedAt?: null;
     } = {};
-    if (dto.name) data.name = dto.name;
+    if (dto.name) {
+      data.name = dto.name;
+      // El slug público sigue al nombre (sin historial: el link anterior deja
+      // de resolver). También se completa si la cuenta aún no tiene uno.
+      if (dto.name !== user.name || !user.slug) {
+        data.slug = await generateUniqueSlug(this.prisma, dto.name, id);
+      }
+    }
     // Issue #155: a diferencia de `name` (chequeo truthy, nunca se puede
     // vaciar por este endpoint), bio/specialty sí aceptan '' para que el
     // profesional pueda borrar lo que ya había cargado -- por eso se chequea

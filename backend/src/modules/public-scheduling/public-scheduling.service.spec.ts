@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { NotificationType } from '@prisma/client';
 import { ThrottlerException } from '@nestjs/throttler';
 import { PublicSchedulingService } from './public-scheduling.service';
+import { PublicTherapistResolverService } from './public-therapist-resolver.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../availability/availability.service';
 import { PatientsService } from '../patients/patients.service';
@@ -42,6 +43,9 @@ describe('PublicSchedulingService', () => {
   let notificationsService: {
     create: jest.Mock<Promise<unknown>, [CreateNotificationData]>;
   };
+  // Por defecto actúa como identidad (la referencia ya es el id); los tests de
+  // slug lo reconfiguran.
+  let resolver: { resolveId: jest.Mock };
 
   function buildService(
     enabled = true,
@@ -63,6 +67,7 @@ describe('PublicSchedulingService', () => {
       patientsService as unknown as PatientsService,
       consultationsService as unknown as ConsultationsService,
       notificationsService as unknown as NotificationsService,
+      resolver as unknown as PublicTherapistResolverService,
     );
   }
 
@@ -87,7 +92,78 @@ describe('PublicSchedulingService', () => {
         .fn<Promise<unknown>, [CreateNotificationData]>()
         .mockResolvedValue({}),
     };
+    resolver = {
+      resolveId: jest.fn((ref: string) => Promise.resolve<string | null>(ref)),
+    };
     service = buildService(true);
+  });
+
+  describe('referencia por slug', () => {
+    it('getAvailability resuelve el slug al id antes de calcular slots', async () => {
+      resolver.resolveId.mockResolvedValue('uuid-1');
+      availabilityService.computeSlots.mockResolvedValue([]);
+
+      await service.getAvailability('ana-perez', {
+        from: '2026-09-01T00:00:00-04:00',
+        to: '2026-09-05T00:00:00-04:00',
+      });
+
+      expect(resolver.resolveId).toHaveBeenCalledWith('ana-perez');
+      expect(availabilityService.computeSlots).toHaveBeenCalledWith(
+        'uuid-1',
+        expect.any(Date),
+        expect.any(Date),
+      );
+    });
+
+    it('getAvailability devuelve [] si el slug no existe, como un id desconocido', async () => {
+      resolver.resolveId.mockResolvedValue(null);
+
+      await expect(
+        service.getAvailability('no-existe', {
+          from: '2026-09-01T00:00:00-04:00',
+          to: '2026-09-05T00:00:00-04:00',
+        }),
+      ).resolves.toEqual([]);
+      expect(availabilityService.computeSlots).not.toHaveBeenCalled();
+    });
+
+    it('book lanza 404 si el slug no existe', async () => {
+      resolver.resolveId.mockResolvedValue(null);
+
+      await expect(
+        service.book('no-existe', {
+          slotStart: '2026-09-05T13:00:00.000Z',
+          patient: {},
+        } as never),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('book opera con el id resuelto desde el slug', async () => {
+      resolver.resolveId.mockResolvedValue('uuid-1');
+      prisma.user.findUnique.mockResolvedValue({ sessionDurationMinutes: 50 });
+      availabilityService.computeSlots.mockResolvedValue([]);
+
+      await expect(
+        service.book('ana-perez', {
+          slotStart: '2026-09-05T13:00:00.000Z',
+          patient: {},
+        } as never),
+      ).rejects.toThrow(ConflictException);
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { id: 'uuid-1' },
+        select: { sessionDurationMinutes: true },
+      });
+      expect(availabilityService.computeSlots).toHaveBeenCalledWith(
+        'uuid-1',
+        expect.any(Date),
+        expect.any(Date),
+        expect.any(Date),
+        { bypassCache: true },
+      );
+    });
   });
 
   describe('gate PUBLIC_SCHEDULING_ENABLED', () => {
