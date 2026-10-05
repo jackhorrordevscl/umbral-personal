@@ -10,7 +10,7 @@ import ConsultationForm from '../components/consultations/ConsultationForm';
 import PaymentStatusBadge from '../components/payments/PaymentStatusBadge';
 import ReminderEmailStatusBadge from '../components/reminders/ReminderEmailStatusBadge';
 import api from '../api/client';
-import { usePatients } from '../hooks/usePatients';
+import { useDebouncedValue, usePatient, usePatients } from '../hooks/usePatients';
 import { useConsultations, useCorrectConsultation, useRetryCharge } from '../hooks/useConsultations';
 import { usePatientDocuments, useUploadPatientDocument } from '../hooks/usePatientDocuments';
 import { downloadDocument } from '../api/documents';
@@ -18,7 +18,6 @@ import { downloadBlob } from '../utils/download';
 import type { Consultation, ConsultationHistory, Patient } from '../types/patient';
 import { buildLocalISO, formatChileDateTime, formatChileDate } from '../utils/datetime';
 import { isValidTimeString } from '../utils/availability';
-import { filterPatients } from '../utils/patient-search';
 import { getApiErrorMessage } from '../utils/api-error';
 import { activateOnKey } from '../utils/activate-on-key';
 import { ALLOWED_SUMMARY_EXTENSIONS } from '../utils/consultation-summary';
@@ -166,6 +165,10 @@ function RetryChargeButton({ groupId }: { groupId: string }) {
 // trunca a 3 líneas y se deja expandir/colapsar por tarjeta.
 const EXPANDABLE_TEXT_THRESHOLD = 180;
 
+// issue #290: búsqueda de pacientes en el servidor, con página chica y espera.
+const PATIENT_LIST_PAGE_SIZE = 20;
+const PATIENT_SEARCH_DEBOUNCE_MS = 300;
+
 // Issue #159: las notas clínicas se persisten como HTML enriquecido
 // (whitelist p/br/strong/em/u/ul/ol/li, sanitizado en el backend -- ver
 // clinical-note-sanitizer.util.ts). Se sanitiza de nuevo acá como defensa en
@@ -251,8 +254,20 @@ export default function ConsultationsPage() {
   const [editPendingUploadGroupId, setEditPendingUploadGroupId] = useState<string | null>(null);
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
 
-  const { data: patientsPage, isError: patientsError } = usePatients({ page: 1, pageSize: 100 });
+  // issue #290: el buscador consulta al servidor (con espera) y muestra una
+  // página chica; ya no se carga ni se filtra la lista completa en el cliente.
+  const debouncedSearch = useDebouncedValue(search.trim(), PATIENT_SEARCH_DEBOUNCE_MS);
+  const { data: patientsPage, isError: patientsError } = usePatients({
+    page: 1,
+    pageSize: PATIENT_LIST_PAGE_SIZE,
+    search: debouncedSearch,
+  });
   const patients = useMemo(() => patientsPage?.data ?? [], [patientsPage]);
+  // El paciente elegido (también el que llega por ?patientId=) se resuelve por
+  // id cuando no está entre los resultados visibles de la búsqueda.
+  const patientInList = patients.find((p: Patient) => p.id === selectedPatientId);
+  const { data: fetchedPatient } = usePatient(selectedPatientId || undefined, !patientInList);
+  const selectedPatient = patientInList ?? fetchedPatient;
 
   const {
     data: consultations = [],
@@ -410,10 +425,6 @@ export default function ConsultationsPage() {
       return next;
     });
   };
-
-  const filteredPatients = useMemo(() => filterPatients(patients, search), [patients, search]);
-
-  const selectedPatient = patients.find((p: Patient) => p.id === selectedPatientId);
 
   return (
     <div className="p-4 md:p-8">
@@ -617,11 +628,12 @@ export default function ConsultationsPage() {
                 <div className="relative">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input className="input-field pl-8 text-xs" placeholder="Buscar..."
+                    aria-label="Buscar paciente por nombre o RUT"
                     value={search} onChange={e => setSearch(e.target.value)} />
                 </div>
               </div>
               <div className="divide-y divide-slate-50 max-h-64 lg:max-h-96 overflow-auto">
-                {filteredPatients.map((p: Patient) => (
+                {patients.map((p: Patient) => (
                   <button key={p.id}
                     onClick={() => { setSelectedPatientId(p.id); setShowPatientList(false); }}
                     className={`w-full text-left px-4 py-3 hover:bg-cream-50 transition-colors ${
@@ -631,7 +643,15 @@ export default function ConsultationsPage() {
                     <p className="text-xs text-slate-500">{p.rut}</p>
                   </button>
                 ))}
+                {patients.length === 0 && (
+                  <p className="px-4 py-3 text-xs text-slate-500">No se encontraron pacientes.</p>
+                )}
               </div>
+              {patientsPage && patientsPage.total > patients.length && (
+                <p className="px-4 py-2 border-t border-slate-100 text-xs text-slate-500">
+                  Mostrando {patients.length} de {patientsPage.total} pacientes. Escribe para acotar la búsqueda.
+                </p>
+              )}
             </>
           )}
         </div>

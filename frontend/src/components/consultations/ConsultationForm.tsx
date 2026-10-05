@@ -1,7 +1,7 @@
 import ErrorBanner from '../ui/ErrorBanner';
 import FormField from '../ui/FormField';
 import RichTextEditor from '../ui/RichTextEditor';
-import { usePatients } from '../../hooks/usePatients';
+import { useDebouncedValue, usePatients } from '../../hooks/usePatients';
 import { useCreateConsultation } from '../../hooks/useConsultations';
 import { useUploadPatientDocument } from '../../hooks/usePatientDocuments';
 import type { Patient } from '../../types/patient';
@@ -10,8 +10,13 @@ import { isValidTimeString } from '../../utils/availability';
 import { getApiErrorMessage } from '../../utils/api-error';
 import { activateOnKey } from '../../utils/activate-on-key';
 import { ALLOWED_SUMMARY_EXTENSIONS } from '../../utils/consultation-summary';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
+
+// issue #290: el selector ya no carga todos los pacientes: busca en el
+// servidor (con espera) y muestra a lo más esta cantidad de resultados.
+const PATIENT_OPTIONS_PAGE_SIZE = 20;
+const PATIENT_SEARCH_DEBOUNCE_MS = 300;
 
 // Sugerencia de usuarios: muchos terapeutas ya llevan su propio registro de
 // sesión (Word/PDF) y quieren adjuntarlo tal cual, en vez de reescribir todo
@@ -55,13 +60,24 @@ export default function ConsultationForm({
   // lo accesorio nunca revierte ni bloquea lo clínico).
   const [pendingUploadGroupId, setPendingUploadGroupId] = useState<string | null>(null);
 
+  const [patientSearch, setPatientSearch] = useState('');
+  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
+  const debouncedPatientSearch = useDebouncedValue(patientSearch.trim(), PATIENT_SEARCH_DEBOUNCE_MS);
   const {
     data: patientsPage,
     isLoading: patientsLoading,
     isError: patientsError,
     refetch: refetchPatients,
-  } = usePatients({ page: 1, pageSize: 100 });
-  const patients = patientsPage?.data ?? [];
+  } = usePatients({ page: 1, pageSize: PATIENT_OPTIONS_PAGE_SIZE, search: debouncedPatientSearch });
+  // El paciente elegido se conserva como opción aunque una búsqueda posterior
+  // ya no lo incluya en los resultados (si no, el select perdería su valor).
+  const patients = useMemo(() => {
+    const results = patientsPage?.data ?? [];
+    return selectedPatient && !results.some((p) => p.id === selectedPatient.id)
+      ? [selectedPatient, ...results]
+      : results;
+  }, [patientsPage, selectedPatient]);
+  const hiddenPatients = Math.max(0, (patientsPage?.total ?? 0) - (patientsPage?.data.length ?? 0));
   // Un refetch fallido conserva la lista ya cargada: solo se bloquea el select
   // cuando no hay pacientes que mostrar (issue #346).
   const patientsUnavailable = patientsError && patients.length === 0;
@@ -168,9 +184,21 @@ export default function ConsultationForm({
     <form onSubmit={handleSubmit}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FormField id="consult-patientId" label="Paciente" required className="md:col-span-2">
+          <input
+            type="search"
+            className="input-field mb-2"
+            placeholder="Buscar por nombre o RUT..."
+            aria-label="Buscar paciente por nombre o RUT"
+            value={patientSearch}
+            disabled={patientsUnavailable}
+            onChange={e => setPatientSearch(e.target.value)}
+          />
           <select id="consult-patientId" className="input-field" value={form.patientId}
             disabled={patientsLoading || patientsUnavailable}
-            onChange={e => setForm({ ...form, patientId: e.target.value })}>
+            onChange={e => {
+              setForm({ ...form, patientId: e.target.value });
+              setSelectedPatient(patients.find((p: Patient) => p.id === e.target.value) ?? null);
+            }}>
             <option value="">
               {patientsLoading
                 ? 'Cargando pacientes...'
@@ -182,6 +210,11 @@ export default function ConsultationForm({
               <option key={p.id} value={p.id}>{p.fullName} — {p.rut}</option>
             ))}
           </select>
+          {hiddenPatients > 0 && (
+            <p className="mt-1 text-xs text-slate-500">
+              Mostrando {patientsPage?.data.length} de {patientsPage?.total} pacientes. Escribe en el buscador para acotar.
+            </p>
+          )}
           {patientsError && (
             <ErrorBanner
               icon

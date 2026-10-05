@@ -650,3 +650,58 @@ describe('ConsultationsPage', () => {
     ).toBeInTheDocument()
   })
 })
+
+// Issue #290: el selector de pacientes busca en el servidor y resuelve el
+// paciente elegido por id, sin depender de una lista completa en el cliente.
+describe('ConsultationsPage — selector de pacientes en el servidor (#290)', () => {
+  const other = buildPatient({ id: 'patient-2', fullName: 'Otra Persona', rut: '22222222-2' })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('busca con espera en el servidor, avisa cuando hay más resultados y no filtra en el cliente', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockImplementation((url: string, config?: { params?: unknown }) => {
+      if (url === '/patients') {
+        return Promise.resolve({
+          data:
+            (config?.params as { search?: string } | undefined)?.search === 'Otra'
+              ? { data: [other], total: 1, page: 1, pageSize: 20 }
+              : { data: [buildPatient()], total: 45, page: 1, pageSize: 20 },
+        })
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    renderConsultationsPage()
+    await screen.findByText('Paciente de Prueba')
+    expect(screen.getByText(/Mostrando 1 de 45 pacientes/)).toBeInTheDocument()
+
+    await user.type(screen.getByRole('textbox', { name: /buscar paciente/i }), 'Otra')
+
+    expect(await screen.findByText('Otra Persona')).toBeInTheDocument()
+    expect(screen.queryByText('Paciente de Prueba')).not.toBeInTheDocument()
+    const searches = mockedApi.get.mock.calls
+      .filter(([url]) => url === '/patients')
+      .map(([, c]) => (c as { params?: { search?: string } }).params?.search)
+      .filter(Boolean)
+    expect(searches).toEqual(['Otra'])
+  })
+
+  it('un paciente que llega por ?patientId= y no está en la página cargada se resuelve por id', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') {
+        return Promise.resolve({ data: { data: [other], total: 300, page: 1, pageSize: 20 } })
+      }
+      if (url === '/patients/patient-1') return Promise.resolve({ data: buildPatient() })
+      return Promise.resolve({ data: [] })
+    })
+
+    renderConsultationsPage('/consultations?patientId=patient-1')
+
+    expect(await screen.findByRole('button', { name: /Paciente de Prueba/ })).toBeInTheDocument()
+    expect(mockedApi.get).toHaveBeenCalledWith('/patients/patient-1')
+  })
+})
+
