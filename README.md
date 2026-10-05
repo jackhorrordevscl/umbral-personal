@@ -340,6 +340,34 @@ copia offsite de backups en **Backblaze B2** (ver
 5. Configurar backups offsite — ver
    [Copia offsite real](#copia-offsite-real-backblaze-b2--rclone).
 
+### Orden de despliegue en cambios de contrato
+
+Los dos servicios se despliegan de forma distinta: **Vercel (frontend)
+despliega solo al mergear a `main`**, mientras que **Render (backend) es
+manual** desde el dashboard. Un merge que cambia el contrato de la API deja
+el frontend nuevo hablando con el backend anterior hasta que se despliega
+Render (ocurrió con la paginación de `GET /patients`, issue #290). Para que
+el orden de despliegue no importe, un cambio de contrato se hace en pasos
+compatibles:
+
+1. **Backend compatible**: un PR que acepta el formato anterior y el nuevo.
+   Se mergea, se despliega Render a mano y se verifica.
+2. **Frontend**: un PR que pasa a usar el formato nuevo. Se mergea cuando el
+   paso 1 ya está en producción.
+3. **Limpieza** (opcional): un PR que retira el formato anterior del backend,
+   una vez que el frontend nuevo ya está en producción.
+
+Si un cambio no puede ser compatible (por ejemplo, cambia un tipo de
+respuesta sin alternativa), mergear solo después de desplegar el backend en
+Render, o pausar el auto-deploy del proyecto en Vercel hasta que el backend
+esté arriba.
+
+Antes de desplegar Render conviene revisar lo que trae el backend desde el
+último deploy: migraciones en `backend/prisma/`, cambios en `render.yaml` y
+variables nuevas en `backend/src/config/env.validation.ts`. Después del
+deploy, comprobar que `/api/v1` responde `200` y que la pantalla afectada
+carga en producción.
+
 ---
 
 ## Estructura del Proyecto
