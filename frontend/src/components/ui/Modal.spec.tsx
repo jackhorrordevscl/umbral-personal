@@ -39,6 +39,30 @@ describe("Modal (#298)", () => {
     expect(opener).toHaveFocus();
   });
 
+  it("devuelve el foco al opener aunque un hijo tome el foco con autoFocus", () => {
+    function AutoFocusHarness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Abrir</button>
+          {open && (
+            <Modal onClose={() => setOpen(false)} labelledBy="t">
+              <h3 id="t">Título</h3>
+              <input aria-label="Campo" autoFocus />
+            </Modal>
+          )}
+        </>
+      );
+    }
+    render(<AutoFocusHarness />);
+    const opener = screen.getByText("Abrir");
+    opener.focus();
+    fireEvent.click(opener);
+    expect(screen.getByLabelText("Campo")).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(opener).toHaveFocus();
+  });
+
   it("enfoca el panel (tabIndex -1) si no hay elementos enfocables", () => {
     render(
       <Modal onClose={vi.fn()} labelledBy="t">
