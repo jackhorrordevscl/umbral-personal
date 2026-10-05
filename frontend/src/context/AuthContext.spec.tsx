@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { AuthProvider } from './AuthContext'
+import { AuthProvider, STORAGE_SYNC_DELAY_MS } from './AuthContext'
 import { useAuth, type User } from './useAuth'
 import api from '../api/client'
 
@@ -158,10 +158,64 @@ describe('AuthProvider / useAuth', () => {
       else localStorage.removeItem('token')
       if (nextUser) localStorage.setItem('user', JSON.stringify(nextUser))
       else localStorage.removeItem('user')
+      dispatchStorage('token')
+      settle()
+    }
+
+    function dispatchStorage(key: string) {
       act(() => {
-        window.dispatchEvent(new StorageEvent('storage', { key: 'token' }))
+        window.dispatchEvent(new StorageEvent('storage', { key }))
       })
     }
+
+    // La reconciliación se difiere (STORAGE_SYNC_DELAY_MS), así que los tests
+    // avanzan el reloj para que se aplique.
+    function settle() {
+      act(() => {
+        vi.advanceTimersByTime(STORAGE_SYNC_DELAY_MS)
+      })
+    }
+
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+
+    it('does not expose a mixed state between the two storage events of one account switch', () => {
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      act(() => result.current.login('token-a', user))
+      queryClient.setQueryData(['patients'], [{ id: 'p-of-a' }])
+
+      // La otra pestaña escribe `token` y luego `user`: dos eventos distintos.
+      localStorage.setItem('token', 'token-b')
+      dispatchStorage('token')
+      // Entre ambos eventos no debe haber token nuevo con usuario anterior.
+      expect(result.current.token).toBe('token-a')
+      expect(result.current.user).toEqual(user)
+
+      localStorage.setItem('user', JSON.stringify(otherUser))
+      dispatchStorage('user')
+      settle()
+
+      expect(result.current.token).toBe('token-b')
+      expect(result.current.user).toEqual(otherUser)
+      expect(queryClient.getQueryCache().getAll()).toHaveLength(0)
+    })
+
+    it('reconciles once when both events arrive close together', () => {
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      act(() => result.current.login('token-a', user))
+
+      localStorage.setItem('token', 'token-b')
+      dispatchStorage('token')
+      localStorage.setItem('user', JSON.stringify(otherUser))
+      dispatchStorage('user')
+      // El timer del primer evento se reinicia con el segundo.
+      act(() => {
+        vi.advanceTimersByTime(STORAGE_SYNC_DELAY_MS - 1)
+      })
+      expect(result.current.token).toBe('token-a')
+      settle()
+      expect(result.current.token).toBe('token-b')
+    })
 
     it('adopts the account another tab logged into and clears the cache', () => {
       const { result } = renderHook(() => useAuth(), { wrapper })
@@ -213,9 +267,8 @@ describe('AuthProvider / useAuth', () => {
       act(() => result.current.login('token-a', user))
       localStorage.removeItem('token')
 
-      act(() => {
-        window.dispatchEvent(new StorageEvent('storage', { key: 'other' }))
-      })
+      dispatchStorage('other')
+      settle()
 
       expect(result.current.isAuthenticated).toBe(true)
     })

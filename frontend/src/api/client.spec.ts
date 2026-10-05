@@ -1,6 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { AxiosError, type InternalAxiosRequestConfig } from 'axios'
-import api, { PUBLIC_AUTH_PATHS, setUnauthorizedHandler } from './client'
+import api, {
+  PUBLIC_AUTH_PATHS,
+  SESSION_AUTH_PATHS,
+  setUnauthorizedHandler,
+} from './client'
 
 const originalAdapter = api.defaults.adapter
 const originalLocation = window.location
@@ -91,6 +95,42 @@ describe('api client', () => {
     expect(localStorage.getItem('token')).toBe('stored-token')
     expect(window.location.href).toBe('/dashboard')
   })
+
+  it('treats an absolute URL to a public auth endpoint as public (issue #351)', async () => {
+    failWith(401)
+    const base = api.defaults.baseURL as string
+
+    await expect(api.post(`${base}/auth/login`, {})).rejects.toBeInstanceOf(
+      AxiosError,
+    )
+
+    expect(localStorage.getItem('token')).toBe('stored-token')
+  })
+
+  it('warns in development on a 401 from an /auth/ URL that is in neither list (issue #351)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    failWith(401)
+
+    await expect(api.post('/auth/nuevo-endpoint', {})).rejects.toBeInstanceOf(
+      AxiosError,
+    )
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('/auth/nuevo-endpoint'))
+    warn.mockRestore()
+  })
+
+  it.each([...PUBLIC_AUTH_PATHS, ...SESSION_AUTH_PATHS])(
+    'does not warn on a 401 from the known endpoint %s (issue #351)',
+    async (url) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      failWith(401)
+
+      await expect(api.post(url, {})).rejects.toBeInstanceOf(AxiosError)
+
+      expect(warn).not.toHaveBeenCalled()
+      warn.mockRestore()
+    },
+  )
 
   it.each([
     ['post', '/auth/mfa/generate'],

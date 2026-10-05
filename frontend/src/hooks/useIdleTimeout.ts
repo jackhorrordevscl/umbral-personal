@@ -1,8 +1,8 @@
 import { useEffect, useRef, useCallback } from "react";
 
-const IDLE_TIMEOUT = 8 * 60 * 1000;
-const ACTIVITY_CHANNEL = "umbral-activity";
-const ACTIVITY_STORAGE_KEY = "umbral:last-activity";
+export const IDLE_TIMEOUT = 8 * 60 * 1000;
+export const ACTIVITY_CHANNEL = "umbral-activity";
+export const ACTIVITY_STORAGE_KEY = "umbral:last-activity";
 // Evita inundar el canal: mousemove/scroll disparan decenas de eventos por segundo.
 const BROADCAST_THROTTLE_MS = 1000;
 

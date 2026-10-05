@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import { useIdleTimeout } from './useIdleTimeout'
-
-const IDLE_TIMEOUT = 8 * 60 * 1000
+import {
+  ACTIVITY_CHANNEL,
+  ACTIVITY_STORAGE_KEY,
+  IDLE_TIMEOUT,
+  useIdleTimeout,
+} from './useIdleTimeout'
 
 // Bus en memoria: cada instancia recibe lo que publican las demás del mismo
 // canal, como las pestañas reales (una instancia no recibe sus propios mensajes).
@@ -68,7 +71,7 @@ describe('useIdleTimeout', () => {
     const onWarn = vi.fn()
     const onRemoteActivity = vi.fn()
     renderHook(() => useIdleTimeout({ onWarn, onRemoteActivity }))
-    const other = new FakeBroadcastChannel('umbral-activity')
+    const other = new FakeBroadcastChannel(ACTIVITY_CHANNEL)
 
     vi.advanceTimersByTime(IDLE_TIMEOUT - 1000)
     act(() => other.postMessage(Date.now()))
@@ -80,7 +83,7 @@ describe('useIdleTimeout', () => {
 
   it('publica la actividad local a las demás pestañas, con throttle', () => {
     renderHook(() => useIdleTimeout({ onWarn: vi.fn() }))
-    const other = new FakeBroadcastChannel('umbral-activity')
+    const other = new FakeBroadcastChannel(ACTIVITY_CHANNEL)
     const received = vi.fn()
     other.onmessage = received
 
@@ -102,7 +105,7 @@ describe('useIdleTimeout', () => {
     vi.advanceTimersByTime(IDLE_TIMEOUT - 1000)
     act(() => {
       window.dispatchEvent(
-        new StorageEvent('storage', { key: 'umbral:last-activity' }),
+        new StorageEvent('storage', { key: ACTIVITY_STORAGE_KEY }),
       )
     })
     vi.advanceTimersByTime(IDLE_TIMEOUT - 1000)
@@ -111,7 +114,7 @@ describe('useIdleTimeout', () => {
     expect(onRemoteActivity).toHaveBeenCalledTimes(1)
 
     window.dispatchEvent(new Event('click'))
-    expect(localStorage.getItem('umbral:last-activity')).not.toBeNull()
+    expect(localStorage.getItem(ACTIVITY_STORAGE_KEY)).not.toBeNull()
     localStorage.clear()
   })
 

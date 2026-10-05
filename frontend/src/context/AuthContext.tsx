@@ -24,11 +24,24 @@ function readStoredAuth(): { user: User | null; token: string | null } {
   }
 }
 
+// Issue #351: otra pestaña escribe `token` y `user` en dos operaciones y el
+// navegador dispara dos eventos `storage`. Se espera este margen tras el último
+// evento y recién entonces se leen ambas claves, para no adoptar un estado
+// mezclado (token nuevo con usuario anterior).
+export const STORAGE_SYNC_DELAY_MS = 50;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [{ user, token }, setAuth] = useState(readStoredAuth);
+  // Issue #351: false cuando la sesión terminó por un logout voluntario o por
+  // otra pestaña; PrivateRoute no debe recordar entonces la ruta, para que otra
+  // persona que inicie sesión después no aterrice en la del usuario anterior.
+  const [canRestoreRoute, setCanRestoreRoute] = useState(true);
   const queryClient = useQueryClient();
   // Espejo del estado para el listener de `storage`, que no debe re-suscribirse
-  // en cada cambio de sesión.
+  // en cada cambio de sesión. Sincronizarlo en un useEffect (y no durante el
+  // render) es seguro porque las escrituras de esta misma pestaña no disparan
+  // `storage`: el listener solo corre por cambios de OTRAS pestañas, nunca entre
+  // un setAuth local y la ejecución del efecto que actualiza el ref.
   const authRef = useRef({ user, token });
   useEffect(() => {
     authRef.current = { user, token };
@@ -42,10 +55,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
     localStorage.setItem('token', newToken);
     localStorage.setItem('user', JSON.stringify(newUser));
+    setCanRestoreRoute(true);
     setAuth({ token: newToken, user: newUser });
   };
 
-  const logout = () => {
+  // `expired`: la sesión caducó (401), no fue una decisión del usuario; solo ahí
+  // se conserva la ruta para volver a ella tras iniciar sesión (#351).
+  const logout = (options?: { expired?: boolean }) => {
     // Issue #192: revoke the session server-side, best-effort. It stays
     // synchronous for callers: the request is fired with the current token
     // (explicit header, since storage is cleared right below) and any failure
@@ -61,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     queryClient.clear();
+    setCanRestoreRoute(!!options?.expired);
     setAuth({ token: null, user: null });
   };
 
@@ -70,9 +87,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // el token nuevo. El evento `storage` solo se dispara en las OTRAS pestañas,
   // así que no hay eco de los cambios propios.
   useEffect(() => {
-    const handleStorage = (e: StorageEvent) => {
-      // key === null es localStorage.clear().
-      if (e.key !== null && e.key !== 'token' && e.key !== 'user') return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const reconcile = () => {
+      timer = null;
       const next = readStoredAuth();
       const prev = authRef.current;
       if (prev.token === next.token && prev.user?.id === next.user?.id) return;
@@ -80,10 +97,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // sobrevivir, mismo motivo que en login/logout (#291). Si solo cambió el
       // token de la misma cuenta, el caché sigue siendo válido.
       if (prev.user?.id !== next.user?.id) queryClient.clear();
+      // Cierre de sesión (o cambio de cuenta) hecho en otra pestaña: no se
+      // recuerda la ruta de esta (#351).
+      if (!next.token) setCanRestoreRoute(false);
       setAuth(next);
     };
+    const handleStorage = (e: StorageEvent) => {
+      // key === null es localStorage.clear().
+      if (e.key !== null && e.key !== 'token' && e.key !== 'user') return;
+      // Se difiere y se reinicia con cada evento: la lectura ocurre una sola
+      // vez, cuando `token` y `user` ya están ambos escritos (#351).
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(reconcile, STORAGE_SYNC_DELAY_MS);
+    };
     window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      if (timer) clearTimeout(timer);
+    };
   }, [queryClient]);
 
   return (
@@ -94,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         logout,
         isAuthenticated: !!token,
+        canRestoreRoute,
       }}
     >
       {children}
