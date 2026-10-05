@@ -225,7 +225,12 @@ export class PatientsService {
           where: { correctedBy: null, deletedAt: null },
           orderBy: { createdAt: 'desc' },
         },
-        documents: true,
+        // issue #290: acotado con el cap de seguridad (las consultas no se
+        // acotan: truncar el historial clínico en silencio sería peor)
+        documents: {
+          orderBy: { uploadedAt: 'desc' },
+          take: UNPAGINATED_SAFETY_LIMIT,
+        },
       },
     });
     if (!patient) throw new NotFoundException('Paciente no encontrado');
@@ -236,7 +241,13 @@ export class PatientsService {
   }
 
   async update(id: string, dto: UpdatePatientDto, userId: string) {
-    const current = await this.findOne(id, userId);
+    // issue #290: solo columnas escalares de Patient (no consultas,
+    // documentos ni consentimientos); el filtro de ownership es el mismo de
+    // assertAccess/findOne y lanza el mismo 404 uniforme.
+    const current = await this.prisma.patient.findFirst({
+      where: { id, therapistId: userId, deletedAt: null },
+    });
+    if (!current) throw new NotFoundException('Paciente no encontrado');
 
     const { reason, ...fields } = dto;
 
@@ -269,11 +280,6 @@ export class PatientsService {
       );
     }
 
-    // Snapshot sin relaciones ni campos computados (consents es agregado en
-    // findOne desde el ledger PatientConsent, no una columna real de Patient)
-    const { therapist, consultations, documents, consents, ...snapshot } =
-      current;
-
     const updated = await this.prisma
       .$transaction(async (tx) => {
         await tx.patientHistory.create({
@@ -281,7 +287,7 @@ export class PatientsService {
             patientId: id,
             changedById: userId,
             reason,
-            snapshot: toJsonSnapshot(snapshot),
+            snapshot: toJsonSnapshot(current),
             diff: toJsonSnapshot(diff),
           },
         });

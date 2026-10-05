@@ -255,6 +255,23 @@ describe('PatientsService', () => {
       );
     });
 
+    it('acota los documentos con el cap de seguridad (issue #290)', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+
+      await service.findOne('patient-1', 'therapist-1');
+
+      expect(prisma.patient.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            documents: {
+              orderBy: { uploadedAt: 'desc' },
+              take: UNPAGINATED_SAFETY_LIMIT,
+            },
+          }) as unknown,
+        }),
+      );
+    });
+
     it('devuelve el paciente con el estado de consentimiento vigente', async () => {
       prisma.patient.findFirst.mockResolvedValue(buildPatient());
       prisma.patientConsent.findMany.mockResolvedValue([
@@ -275,6 +292,34 @@ describe('PatientsService', () => {
   });
 
   describe('update', () => {
+    it('lee solo columnas escalares del paciente (sin consultas, documentos ni consentimientos) (issue #290)', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+
+      await service.update(
+        'patient-1',
+        { fullName: 'Paciente de Prueba', reason: 'Sin cambios' } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.patient.findFirst).toHaveBeenCalledWith({
+        where: { id: 'patient-1', therapistId: 'therapist-1', deletedAt: null },
+      });
+      expect(prisma.patientConsent.findMany).not.toHaveBeenCalled();
+    });
+
+    it('lanza 404 si el paciente no existe o es de otro terapeuta', async () => {
+      prisma.patient.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.update(
+          'patient-1',
+          { fullName: 'X', reason: 'Motivo cualquiera' } as never,
+          'therapist-1',
+        ),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.patient.update).not.toHaveBeenCalled();
+    });
+
     it('sin cambios reales no toca la DB y devuelve el paciente actual', async () => {
       prisma.patient.findFirst.mockResolvedValue(buildPatient());
       prisma.patientConsent.findMany.mockResolvedValue([]);
