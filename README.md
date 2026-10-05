@@ -592,7 +592,11 @@ umbral-personal/
 ### Auto-agenda pública de pacientes (sdd/patient-self-scheduling)
 - Portal público sin autenticación (`/book/:therapistId`) donde el paciente
   ve los horarios libres del terapeuta y reserva su propia sesión, sin que
-  el terapeuta la agende a mano
+  el terapeuta la agende a mano. El link se arma con el slug del terapeuta
+  (`User.slug`, derivado de su nombre: `/book/juan-jose-martinez`); se
+  regenera cuando el terapeuta cambia su nombre, por lo que el link con el
+  slug anterior deja de funcionar. El UUID sigue siendo válido en la misma
+  ruta, así que los links antiguos no se rompen
 - Perfil público del terapeuta (issue #155) antes del calendario: nombre,
   foto (cuadrada, con degradación graciosa a iniciales si no hay avatar o
   falla el fetch), especialidad y bio — vía `GET
@@ -801,6 +805,10 @@ Las de `availability` requieren `PUBLIC_SCHEDULING_ENABLED=true` (ver
 Variables de Entorno) y no llevan 🔒 porque son intencionalmente accesibles
 sin sesión — es el portal que usa el paciente para autoagendarse. `profile`
 y `avatar` (issue #155) no dependen de ese flag y quedan siempre públicas.
+En todas estas rutas `:therapistId` acepta el slug del terapeuta o su UUID;
+un valor desconocido responde igual que antes (`404`, o lista vacía en
+`availability`). El rate limit por `ip:therapistId` usa el valor tal cual
+viene en la ruta, así que slug y UUID cuentan en buckets separados.
 
 ### Cobro en línea (sdd/online-payment-integration, sdd/payments-multigateway-redesign)
 ```

@@ -8,7 +8,7 @@ Unauthenticated public availability read and booking write for a given therapist
 
 ### Requirement: Public Availability Read Endpoint
 
-The system MUST expose an unauthenticated `GET /api/v1/public/therapists/:therapistId/availability` endpoint returning computed free slots for a requested date range, bounded by the 24-hour minimum lead time and 60-day maximum horizon. It MUST NOT expose any other therapist's data through this endpoint.
+The system MUST expose an unauthenticated `GET /api/v1/public/therapists/:therapistId/availability` endpoint returning computed free slots for a requested date range, bounded by the 24-hour minimum lead time and 60-day maximum horizon. It MUST NOT expose any other therapist's data through this endpoint. In this endpoint and in every other `/public/therapists/:therapistId/...` route, `:therapistId` MUST accept either the therapist's public slug (derived from their name, e.g. `juan-jose-martinez`) or their UUID, and an unknown value MUST behave exactly like an unknown id did before (`404`, or an empty list for availability).
 
 #### Scenario: Public request returns only free slots
 
