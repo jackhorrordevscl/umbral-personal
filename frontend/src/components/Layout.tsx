@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router';
 import {
   LayoutDashboard, Users, ClipboardList, CalendarDays,
@@ -11,6 +11,13 @@ export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const openButtonRef = useRef<HTMLButtonElement>(null);
+  // #356: el aside cerrado queda inert; si el foco estaba dentro caería al body,
+  // así que se devuelve al botón que abrió el menú.
+  const closeSidebar = () => {
+    setSidebarOpen(false);
+    openButtonRef.current?.focus();
+  };
   // #298: en móvil el aside cerrado está fuera de pantalla pero seguía
   // siendo tabulable; en escritorio (lg) siempre es visible.
   const [isDesktop, setIsDesktop] = useState(() =>
@@ -52,7 +59,7 @@ export default function Layout() {
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-20 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
+          onClick={closeSidebar}
         />
       )}
       <aside
@@ -71,7 +78,7 @@ export default function Layout() {
             <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-[83px] w-auto" />
           </div>
           <button
-            onClick={() => setSidebarOpen(false)}
+            onClick={closeSidebar}
             aria-label="Cerrar menú"
             className="lg:hidden text-slate-400 hover:text-white"
           >
@@ -87,7 +94,7 @@ export default function Layout() {
             <NavLink
               key={to}
               to={to}
-              onClick={() => setSidebarOpen(false)}
+              onClick={closeSidebar}
               className={({ isActive }) =>
                 `sidebar-link ${isActive ? 'active' : ''}`
               }
@@ -113,6 +120,7 @@ export default function Layout() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-3">
           <button
+            ref={openButtonRef}
             onClick={() => setSidebarOpen(true)}
             aria-label="Abrir menú"
             aria-expanded={sidebarOpen}
