@@ -7,12 +7,13 @@ import type { RequestUser } from '../../common/decorators/current-user.decorator
 // delega en el servicio con el therapistId del usuario autenticado.
 describe('PatientsController', () => {
   let controller: PatientsController;
-  let service: { getAcquisitionStats: jest.Mock };
+  let service: { getAcquisitionStats: jest.Mock; getSummary: jest.Mock };
   const user = { id: 'therapist-1' } as RequestUser;
 
   beforeEach(() => {
     service = {
       getAcquisitionStats: jest.fn().mockResolvedValue([]),
+      getSummary: jest.fn().mockResolvedValue({ total: 0, withConsent: 0 }),
     };
     controller = new PatientsController(service as unknown as PatientsService);
   });
@@ -22,6 +23,14 @@ describe('PatientsController', () => {
       await controller.getAcquisitionStats(user);
 
       expect(service.getAcquisitionStats).toHaveBeenCalledWith('therapist-1');
+    });
+  });
+
+  describe('getSummary', () => {
+    it('llama al servicio con el therapistId del usuario autenticado', async () => {
+      await controller.getSummary(user);
+
+      expect(service.getSummary).toHaveBeenCalledWith('therapist-1');
     });
   });
 });
