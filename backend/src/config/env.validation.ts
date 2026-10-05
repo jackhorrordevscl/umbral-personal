@@ -158,6 +158,33 @@ function validateMainTsEnvVars(config: Record<string, unknown>): void {
     );
   }
 
+  // Issue #290: purga de notificaciones leídas. Todas opcionales (ausente =
+  // default del servicio); un valor inválido debe fallar en el arranque en vez
+  // de caer al default o desactivar la purga en silencio.
+  if (
+    config.NOTIFICATIONS_PURGE_ENABLED !== undefined &&
+    config.NOTIFICATIONS_PURGE_ENABLED !== 'true' &&
+    config.NOTIFICATIONS_PURGE_ENABLED !== 'false'
+  ) {
+    throw new Error(
+      `NOTIFICATIONS_PURGE_ENABLED inválido: "${describeValue(config.NOTIFICATIONS_PURGE_ENABLED)}" -- debe ser exactamente "true" o "false".`,
+    );
+  }
+  for (const name of [
+    'NOTIFICATIONS_PURGE_RETENTION_DAYS',
+    'NOTIFICATIONS_PURGE_MAX_BATCHES',
+  ]) {
+    const value = config[name];
+    if (
+      value !== undefined &&
+      (typeof value !== 'string' || !/^[1-9]\d*$/.test(value))
+    ) {
+      throw new Error(
+        `${name} inválido: "${describeValue(value)}" -- debe ser un entero positivo.`,
+      );
+    }
+  }
+
   // sdd/patient-self-scheduling PR 1 (tasks.md 1.3, design.md "Migration /
   // Rollout"): un solo flag gatea tanto GET .../availability como POST
   // .../availability/book (PR 3) -- mismo criterio de validación que
