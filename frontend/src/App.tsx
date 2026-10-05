@@ -60,13 +60,18 @@ const queryClient = new QueryClient({
 });
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, canRestoreRoute } = useAuth();
   const location = useLocation();
   // Issue #293: se recuerda el destino para volver a él tras iniciar sesión.
+  // Issue #351: no tras un logout voluntario o desde otra pestaña, o la
+  // siguiente persona en ese equipo aterrizaría en la ruta del usuario anterior.
   return isAuthenticated ? (
     <>{children}</>
   ) : (
-    <Navigate to="/login" state={{ from: toFromPath(location) }} />
+    <Navigate
+      to="/login"
+      state={canRestoreRoute ? { from: toFromPath(location) } : undefined}
+    />
   );
 }
 
@@ -81,7 +86,7 @@ function SessionExpiredHandler() {
   useEffect(
     () =>
       setUnauthorizedHandler(() => {
-        logout();
+        logout({ expired: true });
         navigate("/login", { state: { from } });
       }),
     [logout, navigate, from],
