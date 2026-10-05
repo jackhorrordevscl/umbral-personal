@@ -43,6 +43,7 @@ describe('AuthService', () => {
   let prisma: {
     user: {
       findUnique: jest.Mock;
+      findMany: jest.Mock;
       update: jest.Mock;
       updateMany: jest.Mock;
       create: jest.Mock;
@@ -68,6 +69,7 @@ describe('AuthService', () => {
     prisma = {
       user: {
         findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         create: jest.fn(),
@@ -252,6 +254,29 @@ describe('AuthService', () => {
       });
     });
 
+    it('genera el slug público a partir del nombre, con sufijo si ya existe', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
+      mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+      prisma.user.create.mockResolvedValue(buildUser({ emailVerified: false }));
+      prisma.invitationCode.updateMany.mockResolvedValue({ count: 1 });
+      prisma.user.findMany.mockResolvedValue([{ slug: 'ana-perez' }]);
+
+      await service.signup({
+        email: 'ana@example.com',
+        password: 'password1',
+        name: 'Ana Pérez',
+        inviteCode: 'valid-code',
+      });
+
+      expect(prisma.user.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          slug: 'ana-perez-2',
+        }) as unknown as Record<string, unknown>,
+      });
+      prisma.user.findMany.mockResolvedValue([]);
+    });
+
     it('valida la invitación antes de consultar si el email existe (sin invitación válida no hay oráculo de emails)', async () => {
       prisma.invitationCode.findUnique.mockResolvedValue(null);
       prisma.user.findUnique.mockResolvedValue(buildUser());
@@ -382,6 +407,7 @@ describe('AuthService', () => {
           email: 'user@example.com',
           passwordHash: 'hashed-password',
           name: 'Test User',
+          slug: 'test-user',
           emailVerified: false,
         },
       });

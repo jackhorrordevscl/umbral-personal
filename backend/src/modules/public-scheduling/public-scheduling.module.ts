@@ -4,6 +4,7 @@ import { PublicSchedulingService } from './public-scheduling.service';
 import { PublicScheduleThrottlerGuard } from './public-schedule-throttler.guard';
 import { PublicTherapistProfileController } from './public-therapist-profile.controller';
 import { PublicTherapistProfileService } from './public-therapist-profile.service';
+import { PublicTherapistResolverService } from './public-therapist-resolver.service';
 import { AvailabilityModule } from '../availability/availability.module';
 import { PatientsModule } from '../patients/patients.module';
 import { ConsultationsModule } from '../consultations/consultations.module';
@@ -41,6 +42,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     PublicSchedulingService,
     PublicScheduleThrottlerGuard,
     PublicTherapistProfileService,
+    PublicTherapistResolverService,
   ],
 })
 export class PublicSchedulingModule {}

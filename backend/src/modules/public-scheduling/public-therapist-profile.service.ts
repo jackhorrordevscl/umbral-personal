@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PublicTherapistResolverService } from './public-therapist-resolver.service';
 import {
   readAvatarBuffer,
   isAvatarNotFoundError,
@@ -14,14 +15,32 @@ import {
 // sin ninguna de esas dependencias.
 @Injectable()
 export class PublicTherapistProfileService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly therapistResolver: PublicTherapistResolverService,
+  ) {}
+
+  // La referencia pública puede ser el slug o el UUID del terapeuta; un valor
+  // desconocido da el mismo 404 en ambos casos.
+  private async resolveIdOr404(
+    therapistRef: string,
+    message: string,
+  ): Promise<string> {
+    const therapistId = await this.therapistResolver.resolveId(therapistRef);
+    if (!therapistId) throw new NotFoundException(message);
+    return therapistId;
+  }
 
   // role: PROFESSIONAL excluye explícitamente cualquier id que no sea un
   // terapeuta real (hoy es el único valor del enum, pero el chequeo queda
   // documentado por si se agrega un rol acotado más adelante, ver
   // schema.prisma). Nunca se devuelve email ni ningún otro dato sensible --
   // este endpoint no tiene guard de auth.
-  async getProfile(therapistId: string) {
+  async getProfile(therapistRef: string) {
+    const therapistId = await this.resolveIdOr404(
+      therapistRef,
+      'Terapeuta no encontrado.',
+    );
     const therapist = await this.prisma.user.findFirst({
       where: { id: therapistId, deletedAt: null, role: Role.PROFESSIONAL },
       select: { name: true, bio: true, specialty: true, avatarMimeType: true },
@@ -38,7 +57,11 @@ export class PublicTherapistProfileService {
     };
   }
 
-  async getAvatar(therapistId: string) {
+  async getAvatar(therapistRef: string) {
+    const therapistId = await this.resolveIdOr404(
+      therapistRef,
+      'El terapeuta no tiene foto de perfil.',
+    );
     const therapist = await this.prisma.user.findFirst({
       where: { id: therapistId, deletedAt: null, role: Role.PROFESSIONAL },
       select: { avatarMimeType: true },

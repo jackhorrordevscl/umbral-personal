@@ -32,6 +32,14 @@ import { getClientIp } from '../../common/utils/client-ip.util';
 // trim+lowercase, así que el mismo email con distinto casing cae en el mismo
 // bucket de throttling.
 //
+// El :therapistId de la ruta puede ser el slug o el UUID del terapeuta, y acá
+// se usa tal cual: resolverlo a id exigiría una consulta a la base dentro del
+// guard, en cada request público. Consecuencia conocida: la misma persona que
+// alterne entre slug y UUID usa dos buckets de throttling distintos. No abre un
+// bypass del tope duro: el tope diario de reservas se cuenta en base de datos
+// por id (PublicSchedulingService.book), sin importar la forma de la
+// referencia.
+//
 // Issue #301: la IP es la del cliente real (getClientIp), no req.ip en crudo:
 // detrás del proxy req.ip es la del proxy y todos los visitantes compartirían
 // bucket (agotable por cualquiera para todos los pacientes).

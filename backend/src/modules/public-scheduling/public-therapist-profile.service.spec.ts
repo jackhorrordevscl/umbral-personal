@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PublicTherapistProfileService } from './public-therapist-profile.service';
+import { PublicTherapistResolverService } from './public-therapist-resolver.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as avatarStorage from '../../common/utils/avatar-storage.util';
 
@@ -25,13 +26,62 @@ const { isAvatarNotFoundError } = jest.requireActual<typeof avatarStorage>(
 describe('PublicTherapistProfileService', () => {
   let service: PublicTherapistProfileService;
   let prisma: { user: { findFirst: jest.Mock } };
+  let resolver: { resolveId: jest.Mock };
 
   beforeEach(() => {
     prisma = { user: { findFirst: jest.fn() } };
+    // Identidad por defecto (la referencia ya es el id).
+    resolver = {
+      resolveId: jest.fn((ref: string) => Promise.resolve<string | null>(ref)),
+    };
     service = new PublicTherapistProfileService(
       prisma as unknown as PrismaService,
+      resolver as unknown as PublicTherapistResolverService,
     );
     jest.clearAllMocks();
+  });
+
+  describe('referencia por slug', () => {
+    it('getProfile busca por el id resuelto desde el slug', async () => {
+      resolver.resolveId.mockResolvedValue('uuid-1');
+      prisma.user.findFirst.mockResolvedValue({
+        name: 'Ana Pérez',
+        bio: null,
+        specialty: null,
+        avatarMimeType: null,
+      });
+
+      await service.getProfile('ana-perez');
+
+      expect(resolver.resolveId).toHaveBeenCalledWith('ana-perez');
+      expect(prisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'uuid-1', deletedAt: null, role: Role.PROFESSIONAL },
+        }),
+      );
+    });
+
+    it('getAvatar lee el avatar con el id resuelto desde el slug', async () => {
+      resolver.resolveId.mockResolvedValue('uuid-1');
+      prisma.user.findFirst.mockResolvedValue({ avatarMimeType: 'image/png' });
+      mockReadAvatarBuffer.mockResolvedValue(Buffer.from('x'));
+
+      await service.getAvatar('ana-perez');
+
+      expect(mockReadAvatarBuffer).toHaveBeenCalledWith('uuid-1');
+    });
+
+    it('lanza 404 en perfil y avatar si el slug no existe', async () => {
+      resolver.resolveId.mockResolvedValue(null);
+
+      await expect(service.getProfile('no-existe')).rejects.toThrow(
+        NotFoundException,
+      );
+      await expect(service.getAvatar('no-existe')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.user.findFirst).not.toHaveBeenCalled();
+    });
   });
 
   describe('getProfile', () => {

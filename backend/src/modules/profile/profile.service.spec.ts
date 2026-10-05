@@ -71,7 +71,7 @@ function buildUser(overrides: Partial<User> = {}): User {
 describe('ProfileService', () => {
   let service: ProfileService;
   let prisma: {
-    user: { findFirst: jest.Mock; update: jest.Mock };
+    user: { findFirst: jest.Mock; findMany: jest.Mock; update: jest.Mock };
   };
   let emailChangeService: { requestChange: jest.Mock };
   let auditService: { log: jest.Mock };
@@ -81,6 +81,7 @@ describe('ProfileService', () => {
     prisma = {
       user: {
         findFirst: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
       },
     };
@@ -212,6 +213,41 @@ describe('ProfileService', () => {
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
 
+    it('regenera el slug cuando cambia el nombre, con sufijo si ya existe', async () => {
+      prisma.user.findFirst.mockResolvedValue(buildUser({ slug: 'test-user' }));
+      prisma.user.findMany.mockResolvedValue([{ slug: 'ana-perez' }]);
+      prisma.user.update.mockResolvedValue(buildUser({ name: 'Ana Pérez' }));
+
+      await service.update('user-1', { name: 'Ana Pérez' });
+
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: { not: 'user-1' },
+          }) as unknown as Record<string, unknown>,
+        }) as unknown as Record<string, unknown>,
+      );
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { name: 'Ana Pérez', slug: 'ana-perez-2' },
+        }) as unknown as Record<string, unknown>,
+      );
+    });
+
+    it('no toca el slug si el nombre enviado es el mismo y ya hay slug', async () => {
+      prisma.user.findFirst.mockResolvedValue(buildUser({ slug: 'test-user' }));
+      prisma.user.update.mockResolvedValue(buildUser());
+
+      await service.update('user-1', { name: 'Test User', bio: 'Hola' });
+
+      expect(prisma.user.findMany).not.toHaveBeenCalled();
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { name: 'Test User', bio: 'Hola' },
+        }) as unknown as Record<string, unknown>,
+      );
+    });
+
     it('un update de solo name NO requiere currentPassword', async () => {
       prisma.user.findFirst.mockResolvedValue(buildUser());
       prisma.user.update.mockResolvedValue(buildUser({ name: 'Nombre Nuevo' }));
@@ -223,7 +259,7 @@ describe('ProfileService', () => {
       expect(mockArgon2.verify).not.toHaveBeenCalled();
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { name: 'Nombre Nuevo' },
+        data: { name: 'Nombre Nuevo', slug: 'nombre-nuevo' },
         select: expect.objectContaining({ id: true }) as unknown as Record<
           string,
           boolean
@@ -463,7 +499,7 @@ describe('ProfileService', () => {
       expect(auditService.log).not.toHaveBeenCalled();
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { name: 'Nombre Nuevo' },
+        data: { name: 'Nombre Nuevo', slug: 'nombre-nuevo' },
         select: expect.objectContaining({ id: true }) as unknown as Record<
           string,
           boolean
