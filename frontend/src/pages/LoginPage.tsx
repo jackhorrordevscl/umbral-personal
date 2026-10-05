@@ -10,6 +10,7 @@ import { getPostLoginPath } from '../utils/redirect';
 import { normalizeMfaCode } from '../utils/mfa-code';
 import RecoveryCodesReveal from '../components/RecoveryCodesReveal';
 import ErrorBanner from '../components/ui/ErrorBanner';
+import PasswordInput from "../components/ui/PasswordInput";
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -266,8 +267,7 @@ export default function LoginPage() {
             Esta cuenta todavía usa la contraseña inicial. Elige una nueva contraseña para continuar.
           </p>
           <form onSubmit={onPasswordChangeSubmit}>
-            <input
-              type="password"
+            <PasswordInput
               aria-label="Nueva contraseña"
               placeholder="Nueva contraseña"
               minLength={8}
@@ -275,8 +275,7 @@ export default function LoginPage() {
               onChange={e => setNewPassword(e.target.value)}
               className="input-field mb-4"
             />
-            <input
-              type="password"
+            <PasswordInput
               aria-label="Confirmar nueva contraseña"
               placeholder="Confirmar nueva contraseña"
               minLength={8}
@@ -451,10 +450,9 @@ export default function LoginPage() {
                   ¿Olvidaste tu contraseña?
                 </Link>
               </div>
-              <input
+              <PasswordInput
                 {...register('password')}
                 id="login-password"
-                type="password"
                 placeholder="••••••••"
                 className="input-field"
               />

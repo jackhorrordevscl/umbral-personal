@@ -6,6 +6,7 @@ import { z } from 'zod';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
 import ErrorBanner from '../components/ui/ErrorBanner';
+import PasswordInput from "../components/ui/PasswordInput";
 
 // Issue #5: único componente genuinamente nuevo del MVP -- en la versión
 // institucional las cuentas las creaba un ADMIN (POST /users, eliminado tras
@@ -104,10 +105,9 @@ export default function SignupPage() {
 
           <div>
             <label htmlFor="signup-password" className="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
-            <input
+            <PasswordInput
               {...register('password')}
               id="signup-password"
-              type="password"
               placeholder="••••••••"
               className="input-field"
             />
@@ -118,10 +118,9 @@ export default function SignupPage() {
 
           <div>
             <label htmlFor="signup-confirm-password" className="block text-sm font-medium text-slate-700 mb-1">Confirmar contraseña</label>
-            <input
+            <PasswordInput
               {...register('confirmPassword')}
               id="signup-confirm-password"
-              type="password"
               placeholder="••••••••"
               className="input-field"
             />

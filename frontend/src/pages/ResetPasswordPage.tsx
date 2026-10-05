@@ -6,6 +6,7 @@ import { z } from 'zod';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
 import ErrorBanner from '../components/ui/ErrorBanner';
+import PasswordInput from "../components/ui/PasswordInput";
 
 const resetPasswordSchema = z
   .object({
@@ -99,10 +100,9 @@ export default function ResetPasswordPage() {
             <label htmlFor="reset-password-newPassword" className="block text-sm font-medium text-slate-700 mb-1">
               Nueva contraseña
             </label>
-            <input
+            <PasswordInput
               {...register('newPassword')}
               id="reset-password-newPassword"
-              type="password"
               placeholder="••••••••"
               className="input-field"
             />
@@ -115,10 +115,9 @@ export default function ResetPasswordPage() {
             <label htmlFor="reset-password-confirmPassword" className="block text-sm font-medium text-slate-700 mb-1">
               Confirmar nueva contraseña
             </label>
-            <input
+            <PasswordInput
               {...register('confirmPassword')}
               id="reset-password-confirmPassword"
-              type="password"
               placeholder="••••••••"
               className="input-field"
             />
