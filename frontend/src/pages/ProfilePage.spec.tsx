@@ -176,6 +176,78 @@ describe('ProfilePage — account-settings Req: Profile Section Scope', () => {
     expect(await screen.findByLabelText('Nombre')).toBeInTheDocument()
   })
 
+  describe('sitio web del perfil público', () => {
+    const URL_ERROR = 'Ingresa una URL válida que empiece con http:// o https://.'
+
+    function mockProfile(overrides: Record<string, unknown>) {
+      const defaultGet = mockedApi.get.getMockImplementation()!
+      mockedApi.get.mockImplementation((url: string) => {
+        if (url === '/profile') return Promise.resolve({ data: baseProfile(overrides) })
+        return defaultGet(url)
+      })
+    }
+
+    it('precarga el sitio web guardado y lo envía por PATCH al editarlo', async () => {
+      mockProfile({ website: 'https://ana.cl' })
+      mockedApi.patch.mockResolvedValueOnce({
+        data: baseProfile({ website: 'https://nuevo.cl' }),
+      })
+      const user = userEvent.setup()
+      renderProfilePage()
+
+      const input = await screen.findByLabelText('Sitio web')
+      expect(input).toHaveValue('https://ana.cl')
+      expect(screen.getByRole('button', { name: 'Guardar perfil público' })).toBeDisabled()
+
+      await user.clear(input)
+      await user.type(input, 'https://nuevo.cl')
+      await user.click(screen.getByRole('button', { name: 'Guardar perfil público' }))
+
+      await waitFor(() =>
+        expect(mockedApi.patch).toHaveBeenCalledWith(
+          '/profile',
+          expect.objectContaining({ website: 'https://nuevo.cl' }),
+        ),
+      )
+      expect(await screen.findByText('Perfil público actualizado correctamente.')).toBeInTheDocument()
+    })
+
+    it('vaciar el campo envía website vacío para borrarlo', async () => {
+      mockProfile({ website: 'https://ana.cl' })
+      mockedApi.patch.mockResolvedValueOnce({ data: baseProfile({ website: null }) })
+      const user = userEvent.setup()
+      renderProfilePage()
+
+      await user.clear(await screen.findByLabelText('Sitio web'))
+      await user.click(screen.getByRole('button', { name: 'Guardar perfil público' }))
+
+      await waitFor(() =>
+        expect(mockedApi.patch).toHaveBeenCalledWith(
+          '/profile',
+          expect.objectContaining({ website: '' }),
+        ),
+      )
+      expect(screen.queryByText(URL_ERROR)).not.toBeInTheDocument()
+    })
+
+    it('bloquea una URL inválida y muestra el mensaje sin llamar al backend', async () => {
+      const user = userEvent.setup()
+      renderProfilePage()
+
+      await user.type(await screen.findByLabelText('Sitio web'), 'javascript:alert(1)')
+      await user.click(screen.getByRole('button', { name: 'Guardar perfil público' }))
+
+      expect(await screen.findByText(URL_ERROR)).toBeInTheDocument()
+      expect(mockedApi.patch).not.toHaveBeenCalled()
+    })
+
+    it('un perfil sin el campo website no rompe y muestra el input vacío', async () => {
+      renderProfilePage()
+
+      expect(await screen.findByLabelText('Sitio web')).toHaveValue('')
+    })
+  })
+
   // sdd/patient-self-scheduling PR 4 (tasks.md 4.3): confirma que el editor
   // de horario semanal y el de bloqueos quedan wireados en ProfilePage --
   // el detalle de su comportamiento (guardar/rechazar horario, agregar/

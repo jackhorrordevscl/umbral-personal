@@ -269,6 +269,67 @@ describe('ProfileService', () => {
     });
   });
 
+  describe('update — website', () => {
+    it('persiste website sin exigir currentPassword', async () => {
+      prisma.user.findFirst.mockResolvedValue(buildUser());
+      prisma.user.update.mockResolvedValue(
+        buildUser({ website: 'https://ejemplo.cl' } as Partial<User>),
+      );
+
+      await service.update('user-1', { website: 'https://ejemplo.cl' });
+
+      expect(mockArgon2.verify).not.toHaveBeenCalled();
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { website: 'https://ejemplo.cl' },
+        select: expect.objectContaining({
+          website: true,
+        }) as unknown as Record<string, boolean>,
+      });
+    });
+
+    it('guarda null cuando website llega como string vacío (borrar)', async () => {
+      prisma.user.findFirst.mockResolvedValue(buildUser());
+      prisma.user.update.mockResolvedValue(buildUser());
+
+      await service.update('user-1', { website: '' });
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { website: null },
+        }) as unknown as Record<string, unknown>,
+      );
+    });
+
+    it('no toca website si no viene en el dto', async () => {
+      prisma.user.findFirst.mockResolvedValue(buildUser());
+      prisma.user.update.mockResolvedValue(buildUser());
+
+      await service.update('user-1', { bio: 'Hola' });
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { bio: 'Hola' },
+        }) as unknown as Record<string, unknown>,
+      );
+    });
+  });
+
+  describe('findOne — website', () => {
+    it('incluye website en el select', async () => {
+      prisma.user.findFirst.mockResolvedValue(buildUser());
+
+      await service.findOne('user-1');
+
+      expect(prisma.user.findFirst).toHaveBeenCalledWith({
+        where: { id: 'user-1', deletedAt: null },
+        select: expect.objectContaining({
+          website: true,
+        }) as unknown as Record<string, boolean>,
+      });
+    });
+  });
+
   // Issue #155: perfil público mostrado en la autoagenda. A diferencia de
   // `name` (chequeo truthy), bio/specialty aceptan '' para permitir borrar
   // lo ya cargado -- ver comentario en ProfileService.update.

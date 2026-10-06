@@ -85,11 +85,12 @@ describe('PublicTherapistProfileService', () => {
   });
 
   describe('getProfile', () => {
-    it('devuelve solo name/bio/specialty/hasAvatar -- nunca email', async () => {
+    it('devuelve solo name/bio/specialty/website/hasAvatar -- nunca email', async () => {
       prisma.user.findFirst.mockResolvedValue({
         name: 'Dra. Ejemplo',
         bio: 'Bio corta',
         specialty: 'Ansiedad',
+        website: 'https://ejemplo.cl',
         avatarMimeType: 'image/png',
       });
 
@@ -105,6 +106,7 @@ describe('PublicTherapistProfileService', () => {
           name: true,
           bio: true,
           specialty: true,
+          website: true,
           avatarMimeType: true,
         },
       });
@@ -112,6 +114,7 @@ describe('PublicTherapistProfileService', () => {
         name: 'Dra. Ejemplo',
         bio: 'Bio corta',
         specialty: 'Ansiedad',
+        website: 'https://ejemplo.cl',
         hasAvatar: true,
       });
     });
@@ -121,12 +124,14 @@ describe('PublicTherapistProfileService', () => {
         name: 'Dra. Ejemplo',
         bio: null,
         specialty: null,
+        website: null,
         avatarMimeType: null,
       });
 
       const result = await service.getProfile('therapist-1');
 
       expect(result.hasAvatar).toBe(false);
+      expect(result.website).toBeNull();
     });
 
     it('lanza 404 si el terapeuta no existe, está borrado, o no es PROFESSIONAL', async () => {

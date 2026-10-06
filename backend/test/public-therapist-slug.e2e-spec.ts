@@ -47,6 +47,7 @@ describe('Public therapist slug (e2e)', () => {
         name: 'Slug E2E Therapist',
         slug,
         specialty: 'Ansiedad',
+        website: 'https://ejemplo.cl/slug',
       },
     });
     therapistId = therapist.id;
@@ -80,6 +81,7 @@ describe('Public therapist slug (e2e)', () => {
     expect(bySlug.body).toMatchObject({
       name: 'Slug E2E Therapist',
       specialty: 'Ansiedad',
+      website: 'https://ejemplo.cl/slug',
     });
     expect(bySlug.body).not.toHaveProperty('email');
   });

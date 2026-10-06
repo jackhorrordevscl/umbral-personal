@@ -33,6 +33,7 @@ const PROFILE_SELECT = {
   // campos que persiste `update` más abajo.
   bio: true,
   specialty: true,
+  website: true,
   // Slug público: el frontend arma el link de la agenda (/book/<slug>).
   slug: true,
 } as const;
@@ -61,6 +62,7 @@ export class ProfileService {
         // necesita verlo acá para precargar el form.
         bio: true,
         specialty: true,
+        website: true,
         slug: true,
       },
     });
@@ -163,6 +165,7 @@ export class ProfileService {
       slug?: string;
       bio?: string;
       specialty?: string;
+      website?: string | null;
       passwordHash?: string;
       passwordChangedAt?: Date;
       pendingEmail?: null;
@@ -182,6 +185,9 @@ export class ProfileService {
     // `!== undefined` en vez de truthy.
     if (dto.bio !== undefined) data.bio = dto.bio;
     if (dto.specialty !== undefined) data.specialty = dto.specialty;
+    // website: '' borra el campo (null), a diferencia de bio/specialty que
+    // guardan el string vacío.
+    if (dto.website !== undefined) data.website = dto.website || null;
     if (dto.password) {
       data.passwordHash = await argon2.hash(dto.password);
       // Issue #76 (PR B): JwtStrategy.validate() invalida cualquier token

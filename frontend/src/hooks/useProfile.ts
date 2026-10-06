@@ -22,6 +22,8 @@ export interface Profile {
   // completó, igual criterio que avatarUpdatedAt.
   bio: string | null;
   specialty: string | null;
+  // Sitio web opcional (http/https), mostrado en la autoagenda pública.
+  website: string | null;
   // Slug público del nombre (link /book/<slug>). null en cuentas anteriores a
   // la migración que lo introdujo; el link cae al id en ese caso.
   slug: string | null;
@@ -53,6 +55,8 @@ export type UpdateProfilePayload = Partial<{
   name: string;
   bio: string;
   specialty: string;
+  // '' borra el sitio web guardado.
+  website: string;
   email: string;
   password: string;
   currentPassword: string;

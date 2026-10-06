@@ -1,6 +1,14 @@
 import { NormalizedEmail } from '../../../common/validators/normalized-email.decorator';
 import { PersonName } from '../../../common/validators/person-name.decorator';
-import { IsString, MinLength, MaxLength, IsOptional } from 'class-validator';
+import { Transform } from 'class-transformer';
+import {
+  IsString,
+  IsUrl,
+  MinLength,
+  MaxLength,
+  IsOptional,
+  ValidateIf,
+} from 'class-validator';
 
 export class UpdateProfileDto {
   @IsOptional()
@@ -25,6 +33,20 @@ export class UpdateProfileDto {
   @IsString()
   @MaxLength(120)
   specialty?: string;
+
+  // Sitio web del terapeuta, expuesto sin autenticación en el perfil público.
+  // Solo http/https con protocolo explícito (rechaza javascript:, data:, etc.).
+  // '' (o solo espacios) es válido y borra el campo; ValidateIf evita que
+  // IsUrl rechace ese string vacío.
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @ValidateIf((_obj, value) => value !== '')
+  @IsString()
+  @MaxLength(200)
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  website?: string;
 
   @IsOptional()
   @IsString()

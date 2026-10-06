@@ -139,6 +139,57 @@ describe('PublicBookingPage — public-scheduling Req: Public Availability Read 
     ).toBeInTheDocument()
   })
 
+  describe('sitio web del terapeuta', () => {
+    function mockProfile(website: string | null | undefined) {
+      mockedApi.get.mockImplementation((url: string) => {
+        if (url === '/public/therapists/therapist-1/availability') {
+          return Promise.resolve({ data: [] })
+        }
+        if (url === '/public/therapists/therapist-1/profile') {
+          return Promise.resolve({
+            data: { name: 'Ana Pérez', bio: null, specialty: null, hasAvatar: false, website },
+          })
+        }
+        return Promise.reject(new Error(`GET inesperado: ${url}`))
+      })
+    }
+
+    it('muestra un link seguro con el hostname como texto', async () => {
+      mockProfile('https://www.ana.cl/')
+      renderPage()
+
+      const link = await screen.findByRole('link', { name: /www\.ana\.cl/ })
+      expect(link).toHaveAttribute('href', 'https://www.ana.cl/')
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+      expect(link).toHaveTextContent('www.ana.cl')
+    })
+
+    it('no muestra link cuando website es null', async () => {
+      mockProfile(null)
+      renderPage()
+
+      await screen.findByText('Ana Pérez')
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    })
+
+    it('no muestra link cuando el backend no envía website', async () => {
+      mockProfile(undefined)
+      renderPage()
+
+      await screen.findByText('Ana Pérez')
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    })
+
+    it('no renderiza link para un valor javascript:', async () => {
+      mockProfile('javascript:alert(1)')
+      renderPage()
+
+      await screen.findByText('Ana Pérez')
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    })
+  })
+
   it('un 409 al confirmar la reserva refresca la disponibilidad y avisa que el horario ya no está libre', async () => {
     const slot = futureSlotOnChileDay(6, 13)
     mockedApi.get.mockImplementation((url: string) => {

@@ -125,3 +125,25 @@ When `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` is on and the booking response inc
 - GIVEN a patient is redirected back from Flow to `/book/:therapistId?flow_return=1`
 - WHEN the confirmation page loads with that query parameter
 - THEN it renders the booking confirmation state without asserting the charge is paid, since payment truth comes only from `urlConfirmation`/`payment/getStatus`
+
+### Requirement: Public Therapist Profile Exposes an Optional Website
+
+`GET /public/therapists/:therapistId/profile` MUST return exactly `{ name, bio, specialty, website, hasAvatar }`, where `bio`, `specialty` and `website` are nullable. It MUST NOT return any other therapist field (no email, phone or identifiers). The public booking page MUST render `website` as a link in the profile header only when the value is an `http` or `https` URL, and MUST render no link otherwise.
+
+#### Scenario: Therapist with a website shows a link
+
+- GIVEN a therapist whose profile has `website` set to an `https` URL
+- WHEN the public profile endpoint is called and the booking page renders
+- THEN the response includes `website` with that URL and the page header shows it as a link
+
+#### Scenario: Therapist without a website shows no link
+
+- GIVEN a therapist whose profile has no `website`
+- WHEN the public profile endpoint is called and the booking page renders
+- THEN the response includes `website: null` and the page header renders no website link
+
+#### Scenario: Non-http(s) value is never rendered as a link
+
+- GIVEN a `website` value whose scheme is not `http` or `https`
+- WHEN the booking page renders the profile header
+- THEN no link is rendered for it

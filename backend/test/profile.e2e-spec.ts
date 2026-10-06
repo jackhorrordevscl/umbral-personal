@@ -249,6 +249,64 @@ describe('ProfileModule (e2e)', () => {
     });
   });
 
+  describe('PATCH /profile — website', () => {
+    it('guarda un website http(s) sin currentPassword y lo devuelve en GET /profile', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/api/v1/profile')
+        .set('Authorization', `Bearer ${userAToken}`)
+        .send({ website: '  https://ejemplo.cl/ana  ' })
+        .expect(200);
+      expect((res.body as Record<string, unknown>).website).toBe(
+        'https://ejemplo.cl/ana',
+      );
+
+      const profile = await request(app.getHttpServer())
+        .get('/api/v1/profile')
+        .set('Authorization', `Bearer ${userAToken}`)
+        .expect(200);
+      expect((profile.body as Record<string, unknown>).website).toBe(
+        'https://ejemplo.cl/ana',
+      );
+    });
+
+    it.each(['javascript:alert(1)', 'data:text/html,hola', 'ejemplo.cl'])(
+      'rechaza el website %s (400)',
+      (website) => {
+        return request(app.getHttpServer())
+          .patch('/api/v1/profile')
+          .set('Authorization', `Bearer ${userAToken}`)
+          .send({ website })
+          .expect(400);
+      },
+    );
+
+    it('rechaza un website de más de 200 caracteres (400)', () => {
+      return request(app.getHttpServer())
+        .patch('/api/v1/profile')
+        .set('Authorization', `Bearer ${userAToken}`)
+        .send({ website: `https://ejemplo.cl/${'a'.repeat(200)}` })
+        .expect(400);
+    });
+
+    it('un string vacío borra el website (null)', async () => {
+      await request(app.getHttpServer())
+        .patch('/api/v1/profile')
+        .set('Authorization', `Bearer ${userAToken}`)
+        .send({ website: 'https://ejemplo.cl' })
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .patch('/api/v1/profile')
+        .set('Authorization', `Bearer ${userAToken}`)
+        .send({ website: '' })
+        .expect(200);
+      expect((res.body as Record<string, unknown>).website).toBeNull();
+
+      const user = await prisma.user.findUnique({ where: { id: userAId } });
+      expect(user!.website).toBeNull();
+    });
+  });
+
   describe('PATCH /profile — cambio de email diferido (pendingEmail)', () => {
     it('con currentPassword correcta, deja pendingEmail seteado sin tocar el email activo, y audita EMAIL_CHANGE_REQUESTED', async () => {
       const newEmail = `pending.${runId}@umbral.cl`;

@@ -93,6 +93,7 @@ export interface PublicTherapistProfile {
   name: string;
   bio: string | null;
   specialty: string | null;
+  website: string | null;
   hasAvatar: boolean;
 }
 
