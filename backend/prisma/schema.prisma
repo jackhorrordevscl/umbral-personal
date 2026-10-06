@@ -90,6 +90,9 @@ model User {
   // para evitar abuso (ver UpdateProfileDto).
   bio                        String?
   specialty                  String?
+  // Sitio web público del terapeuta (http/https), opcional. Se muestra en el
+  // perfil público de la autoagenda; validado en UpdateProfileDto.
+  website                    String?
   // Slug público del terapeuta para el link de la agenda (/book/<slug>).
   // Se regenera cuando cambia el nombre (sin historial: el link viejo deja de
   // resolver, el UUID sigue funcionando). Nullable solo por compatibilidad con

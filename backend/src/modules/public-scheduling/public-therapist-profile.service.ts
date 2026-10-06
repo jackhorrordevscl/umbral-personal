@@ -43,7 +43,13 @@ export class PublicTherapistProfileService {
     );
     const therapist = await this.prisma.user.findFirst({
       where: { id: therapistId, deletedAt: null, role: Role.PROFESSIONAL },
-      select: { name: true, bio: true, specialty: true, avatarMimeType: true },
+      select: {
+        name: true,
+        bio: true,
+        specialty: true,
+        website: true,
+        avatarMimeType: true,
+      },
     });
     if (!therapist) {
       throw new NotFoundException('Terapeuta no encontrado.');
@@ -53,6 +59,7 @@ export class PublicTherapistProfileService {
       name: therapist.name,
       bio: therapist.bio,
       specialty: therapist.specialty,
+      website: therapist.website,
       hasAvatar: therapist.avatarMimeType != null,
     };
   }
