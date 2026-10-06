@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import SlotList from './SlotList';
 import {
   buildLocalISO,
-  formatChileDate,
+  formatChileLongDate,
   formatSlotTimeRange,
 } from '../../utils/datetime';
 import type { PublicSlot } from '../../api/publicScheduling';
@@ -36,9 +36,15 @@ describe('SlotList', () => {
     renderList();
     expect(
       screen.getByText(
-        `Horarios para el ${formatChileDate(buildLocalISO(DAY, '00:00'))}`,
+        `Horarios para el ${formatChileLongDate(new Date(buildLocalISO(DAY, '12:00')))}`,
       ),
     ).toBeInTheDocument();
+  });
+
+  it('shows a date-only heading without any time of day', () => {
+    renderList();
+    const heading = screen.getByText(/^Horarios para el/);
+    expect(heading.textContent).not.toMatch(/\d{1,2}:\d{2}|a\. m\.|p\. m\./);
   });
 
   it('exposes the slots in a group named "Horarios disponibles"', () => {

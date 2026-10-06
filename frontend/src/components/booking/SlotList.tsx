@@ -1,6 +1,6 @@
 import {
   buildLocalISO,
-  formatChileDate,
+  formatChileLongDate,
   formatSlotTimeRange,
 } from '../../utils/datetime';
 import type { PublicSlot } from '../../api/publicScheduling';
@@ -26,7 +26,8 @@ export default function SlotList({
   return (
     <div>
       <p className="text-sm font-medium text-slate-700 mb-2">
-        Horarios para el {formatChileDate(buildLocalISO(dayKey, '00:00'))}
+        Horarios para el{' '}
+        {formatChileLongDate(new Date(buildLocalISO(dayKey, '12:00')))}
       </p>
       {slots.length === 0 ? (
         <p className="text-xs text-slate-400">
