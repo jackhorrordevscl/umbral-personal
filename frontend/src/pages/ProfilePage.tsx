@@ -152,11 +152,27 @@ function NameCard({ profile }: { profile: Profile | undefined }) {
 
 // issue #155: bio/specialty se muestran en la autoagenda pública
 // (PublicBookingPage.tsx).
+// El backend acepta solo http/https (hasta 200 caracteres); se valida antes de
+// enviar para avisar en línea en vez de esperar el 400.
+const WEBSITE_URL_ERROR = 'Ingresa una URL válida que empiece con http:// o https://.';
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function PublicProfileCard({ profile }: { profile: Profile | undefined }) {
   const [accountBio, setAccountBio] = useState(profile?.bio ?? '');
   const [accountSpecialty, setAccountSpecialty] = useState(profile?.specialty ?? '');
   const [bioInput, setBioInput] = useState(profile?.bio ?? '');
   const [specialtyInput, setSpecialtyInput] = useState(profile?.specialty ?? '');
+  const [accountWebsite, setAccountWebsite] = useState(profile?.website ?? '');
+  const [websiteInput, setWebsiteInput] = useState(profile?.website ?? '');
+  const [websiteError, setWebsiteError] = useState('');
 
   const profileMutation = useUpdateProfile();
   const profileSaving = profileMutation.isPending;
@@ -173,12 +189,19 @@ function PublicProfileCard({ profile }: { profile: Profile | undefined }) {
   // válido, no "no cambiar nada".
   const handleUpdatePublicProfile = (e: React.FormEvent) => {
     e.preventDefault();
+    const website = websiteInput.trim();
+    if (website && !isHttpUrl(website)) {
+      setWebsiteError(WEBSITE_URL_ERROR);
+      return;
+    }
     profileMutation.mutate(
-      { bio: bioInput, specialty: specialtyInput },
+      { bio: bioInput, specialty: specialtyInput, website },
       {
         onSuccess: (data) => {
           setAccountBio(data.bio ?? '');
           setAccountSpecialty(data.specialty ?? '');
+          setAccountWebsite(data.website ?? '');
+          setWebsiteInput(data.website ?? '');
         },
       },
     );
@@ -192,7 +215,7 @@ function PublicProfileCard({ profile }: { profile: Profile | undefined }) {
           Visible en tu autoagenda pública, para que tus pacientes te conozcan antes de reservar
         </p>
       </div>
-      <form onSubmit={handleUpdatePublicProfile} className="space-y-3">
+      <form onSubmit={handleUpdatePublicProfile} noValidate className="space-y-3">
         <div>
           <input
             type="text"
@@ -224,13 +247,40 @@ function PublicProfileCard({ profile }: { profile: Profile | undefined }) {
             {bioInput.length}/500
           </p>
         </div>
+        <div>
+          <input
+            type="url"
+            aria-label="Sitio web"
+            aria-invalid={websiteError ? true : undefined}
+            aria-describedby="website-hint"
+            placeholder="https://tusitio.cl"
+            maxLength={200}
+            value={websiteInput}
+            onChange={(e) => {
+              setWebsiteInput(e.target.value);
+              setWebsiteError('');
+              if (profileMutation.isSuccess || profileMutation.isError) profileMutation.reset();
+            }}
+            className="input-field"
+          />
+          <p id="website-hint" className="text-xs text-slate-400 mt-1">
+            Opcional. Se muestra públicamente en tu autoagenda.
+          </p>
+          {websiteError && (
+            <p role="alert" className="text-xs text-red-600 mt-1">
+              {websiteError}
+            </p>
+          )}
+        </div>
         {profileMessage && <ErrorBanner message={profileMessage} variant="success" />}
         {profileError && <ErrorBanner message={profileError} />}
         <button
           type="submit"
           disabled={
             profileSaving ||
-            (bioInput === accountBio && specialtyInput === accountSpecialty)
+            (bioInput === accountBio &&
+              specialtyInput === accountSpecialty &&
+              websiteInput === accountWebsite)
           }
           className="btn-primary disabled:opacity-50"
         >

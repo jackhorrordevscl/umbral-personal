@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Globe } from 'lucide-react';
 import PublicBookingForm from '../components/booking/PublicBookingForm';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import { usePublicAvailability, usePublicTherapistProfile } from '../hooks/usePublicScheduling';
@@ -58,6 +58,21 @@ function initials(name: string): string {
     .join('');
 }
 
+// Defensa en profundidad: el backend ya valida http/https, pero el valor se
+// vuelve a comprobar acá para no renderizar jamás un href javascript:/data:.
+// Devuelve null si no es una URL http(s) válida.
+function safeWebsite(raw: string | null | undefined): { href: string; label: string } | null {
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    const label = url.host + (url.pathname === '/' ? '' : url.pathname);
+    return { href: url.href, label: label || raw };
+  } catch {
+    return null;
+  }
+}
+
 // issue #155: se renderiza ANTES del bloque de agenda -- si el fetch del
 // perfil falla o sigue cargando, esta sección simplemente no aparece (return
 // null), nunca bloquea ni muestra un error que compita con el flujo de
@@ -68,6 +83,8 @@ function TherapistProfileHeader({ therapistId }: { therapistId: string }) {
   const { data: profile, isError } = usePublicTherapistProfile(therapistId);
 
   if (isError || !profile) return null;
+
+  const website = safeWebsite(profile.website);
 
   return (
     <div className="flex items-start gap-4 mb-6 pb-6 border-b border-slate-100">
@@ -93,6 +110,17 @@ function TherapistProfileHeader({ therapistId }: { therapistId: string }) {
         )}
         {profile.bio && (
           <p className="text-sm text-slate-500 mt-2 whitespace-pre-line">{profile.bio}</p>
+        )}
+        {website && (
+          <a
+            href={website.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 mt-2 text-sm text-sage-700 hover:underline break-all"
+          >
+            <Globe size={14} aria-hidden="true" />
+            {website.label}
+          </a>
         )}
       </div>
     </div>
