@@ -26,6 +26,13 @@ export default function BookingConfirmation(props: BookingConfirmationProps) {
     headingRef.current?.focus();
   }, []);
 
+  // formatChileDate ya termina en punto con "a. m."/"p. m."; evita duplicarlo.
+  let sessionDateText = '';
+  if (props.variant === 'booked') {
+    const formatted = formatChileDate(props.sessionDate);
+    sessionDateText = formatted.endsWith('.') ? formatted : `${formatted}.`;
+  }
+
   return (
     <div className="min-h-screen bg-cream-100 flex items-center justify-center p-6">
       <div className="card w-full max-w-md text-center p-8">
@@ -44,8 +51,7 @@ export default function BookingConfirmation(props: BookingConfirmationProps) {
         ) : (
           <>
             <p className="text-slate-600 text-sm">
-              Tu sesión quedó agendada para el{' '}
-              {formatChileDate(props.sessionDate)}.
+              Tu sesión quedó agendada para el {sessionDateText}
             </p>
             {props.checkout.pending && props.checkout.url && (
               <div className="mt-4">

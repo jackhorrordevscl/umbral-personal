@@ -1,7 +1,12 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import BookingConfirmation from './BookingConfirmation';
 import { formatChileDate } from '../../utils/datetime';
+
+vi.mock('../../utils/datetime', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/datetime')>();
+  return { ...actual, formatChileDate: vi.fn(actual.formatChileDate) };
+});
 
 const SESSION_DATE = '2026-10-08T14:00:00.000Z';
 const NO_CHECKOUT = { pending: false, url: null, pollExhausted: false };
@@ -21,6 +26,29 @@ function renderBooked(checkout: {
 }
 
 describe('BookingConfirmation', () => {
+  afterEach(() => {
+    vi.mocked(formatChileDate).mockRestore();
+  });
+
+  it('termina la frase de la fecha con un solo punto cuando el formato ya lo trae (p. m.)', () => {
+    renderBooked(NO_CHECKOUT);
+
+    const sentence = screen.getByText(/Tu sesión quedó agendada para el/);
+    expect(sentence.textContent).not.toContain('..');
+    expect(sentence.textContent).toMatch(/[^.]\.$/);
+  });
+
+  it('agrega el punto final cuando la fecha formateada no termina en punto', () => {
+    vi.mocked(formatChileDate).mockReturnValue('8 de octubre de 2026, 11:00');
+    renderBooked(NO_CHECKOUT);
+
+    expect(
+      screen.getByText(
+        'Tu sesión quedó agendada para el 8 de octubre de 2026, 11:00.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('muestra solo el exito cuando no hay checkout', () => {
     renderBooked(NO_CHECKOUT);
 
@@ -29,7 +57,7 @@ describe('BookingConfirmation', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        `Tu sesión quedó agendada para el ${formatChileDate(SESSION_DATE)}.`,
+        `Tu sesión quedó agendada para el ${formatChileDate(SESSION_DATE).replace(/\.$/, '')}.`,
       ),
     ).toBeInTheDocument();
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
