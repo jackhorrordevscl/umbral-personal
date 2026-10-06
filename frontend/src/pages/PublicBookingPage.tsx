@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
-import { ChevronLeft, ChevronRight, Globe } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import ProfileCard from '../components/booking/ProfileCard';
 import PublicBookingForm from '../components/booking/PublicBookingForm';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import { usePublicAvailability, usePublicTherapistProfile } from '../hooks/usePublicScheduling';
@@ -49,84 +50,6 @@ function addMonths(view: ViewMonth, delta: number): ViewMonth {
   return { year, month };
 }
 
-function initials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('');
-}
-
-// Defensa en profundidad: el backend ya valida http/https, pero el valor se
-// vuelve a comprobar acá para no renderizar jamás un href javascript:/data:.
-// Devuelve null si no es una URL http(s) válida.
-function safeWebsite(raw: string | null | undefined): { href: string; label: string } | null {
-  if (!raw) return null;
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-    const label = url.host + (url.pathname === '/' ? '' : url.pathname);
-    return { href: url.href, label: label || raw };
-  } catch {
-    return null;
-  }
-}
-
-// issue #155: se renderiza ANTES del bloque de agenda -- si el fetch del
-// perfil falla o sigue cargando, esta sección simplemente no aparece (return
-// null), nunca bloquea ni muestra un error que compita con el flujo de
-// reserva (spec: "booking debe seguir funcionando aunque el perfil no
-// cargue"). isLoading no se distingue de un perfil vacío a propósito: no
-// vale la pena un skeleton para algo puramente decorativo.
-function TherapistProfileHeader({ therapistId }: { therapistId: string }) {
-  const { data: profile, isError } = usePublicTherapistProfile(therapistId);
-
-  if (isError || !profile) return null;
-
-  const website = safeWebsite(profile.website);
-
-  return (
-    <div className="flex items-start gap-4 mb-6 pb-6 border-b border-slate-100">
-      {profile.hasAvatar ? (
-        <img
-          src={getPublicTherapistAvatarUrl(therapistId)}
-          alt={profile.name}
-          width={112}
-          height={112}
-          className="w-28 h-28 rounded-lg object-cover flex-shrink-0"
-        />
-      ) : (
-        <div className="w-28 h-28 rounded-lg bg-slate-200 flex items-center justify-center text-slate-500 font-medium flex-shrink-0">
-          {initials(profile.name)}
-        </div>
-      )}
-      <div className="min-w-0">
-        <p className="font-medium text-slate-800">{profile.name}</p>
-        {profile.specialty && (
-          <span className="inline-block mt-1 text-xs bg-sage-50 text-sage-700 px-2 py-0.5 rounded-full">
-            {profile.specialty}
-          </span>
-        )}
-        {profile.bio && (
-          <p className="text-sm text-slate-500 mt-2 whitespace-pre-line">{profile.bio}</p>
-        )}
-        {website && (
-          <a
-            href={website.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 mt-2 text-sm text-sage-700 hover:underline break-all"
-          >
-            <Globe size={14} aria-hidden="true" />
-            {website.label}
-          </a>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // sdd/patient-self-scheduling PR 5 (tasks.md 5.2, public-scheduling Req:
 // "Public Availability Read Endpoint" + "Double-Booking Protection"): página
 // pública SIN AuthProvider/JWT -- solo lee useParams de react-router, ningún
@@ -139,6 +62,12 @@ function TherapistProfileHeader({ therapistId }: { therapistId: string }) {
 export default function PublicBookingPage() {
   const { therapistId = '' } = useParams<{ therapistId: string }>();
   const [searchParams] = useSearchParams();
+  // issue #155: la query vive en la página para saber si hay perfil y elegir
+  // el layout (dos columnas o ancho completo) sin dejar una columna vacía.
+  // Carga o error equivalen a "sin perfil": nunca bloquea ni muestra un error
+  // que compita con el flujo de reserva (el perfil es puramente decorativo).
+  // React Query deduplica, así que no agrega requests.
+  const { data: profile } = usePublicTherapistProfile(therapistId);
   const [viewMonth, setViewMonth] = useState<ViewMonth>(chileTodayViewMonth);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<PublicSlot | null>(null);
@@ -236,8 +165,8 @@ export default function PublicBookingPage() {
   if (confirmation) {
     const checkoutStatus = confirmation.checkout?.status;
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
-        <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md text-center">
+      <div className="min-h-screen bg-cream-100 flex items-center justify-center p-8">
+        <div className="card w-full max-w-md text-center p-8">
           <h2 className="font-display text-2xl text-slate-900 mb-2">¡Listo!</h2>
           <p className="text-slate-500 text-sm">
             Tu sesión quedó agendada para el {formatChileDate(confirmation.sessionDate)}.
@@ -278,8 +207,8 @@ export default function PublicBookingPage() {
   // urlConfirmation/payment/getStatus, nunca en la sola llegada a esta URL.
   if (searchParams.get('flow_return') === '1') {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
-        <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md text-center">
+      <div className="min-h-screen bg-cream-100 flex items-center justify-center p-8">
+        <div className="card w-full max-w-md text-center p-8">
           <h2 className="font-display text-2xl text-slate-900 mb-2">¡Listo!</h2>
           <p className="text-slate-500 text-sm">
             Tu sesión ya está agendada. Si el pago quedó pendiente, tu terapeuta te lo
@@ -291,124 +220,135 @@ export default function PublicBookingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 p-4 md:p-8">
-      <div className="max-w-2xl mx-auto bg-cream-50 rounded-2xl p-6">
-        <TherapistProfileHeader therapistId={therapistId} />
-
-        <h2 className="font-display text-2xl text-slate-900 mb-1">Agenda tu sesión</h2>
-        <p className="text-slate-500 text-sm mb-6">
-          Elige un horario disponible para reservar.
-        </p>
-
-        {takenMessage && <ErrorBanner message={takenMessage} className="mb-4" />}
-
-        <div className="flex items-center justify-between mb-4">
-          <button
-            type="button"
-            onClick={() => changeMonth(-1)}
-            aria-label="Mes anterior"
-            className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500"
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <p className="font-medium text-slate-800 capitalize">
-            {MONTH_LABELS[viewMonth.month - 1]} {viewMonth.year}
+    <div className="min-h-screen bg-cream-100 px-3 py-6 sm:px-6 lg:py-12">
+      <div
+        className={
+          profile
+            ? 'mx-auto max-w-5xl grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:gap-8 lg:items-start'
+            : 'mx-auto max-w-2xl'
+        }
+      >
+        {profile && (
+          <aside className="lg:sticky lg:top-8 lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto">
+            <ProfileCard profile={profile} avatarUrl={getPublicTherapistAvatarUrl(therapistId)} />
+          </aside>
+        )}
+        <main className="card p-4 sm:p-6 min-w-0">
+          <h2 className="font-display text-2xl text-slate-900 mb-1">Agenda tu sesión</h2>
+          <p className="text-slate-500 text-sm mb-6">
+            Elige un horario disponible para reservar.
           </p>
-          <button
-            type="button"
-            onClick={() => changeMonth(1)}
-            aria-label="Mes siguiente"
-            className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500"
-          >
-            <ChevronRight size={18} />
-          </button>
-        </div>
 
-        {isLoading && <p className="text-sm text-slate-500">Cargando disponibilidad...</p>}
-        {isError && (
-          <ErrorBanner message="No se pudo cargar la disponibilidad. Intenta nuevamente." />
-        )}
+          {takenMessage && <ErrorBanner message={takenMessage} className="mb-4" />}
 
-        <div
-          className="grid grid-cols-7 gap-1 mb-6"
-          role="group"
-          aria-label="Días con horarios disponibles"
-        >
-          {grid.days.map((day) => {
-            const daySlots = slotsByDay[day] ?? [];
-            const isCurrentMonth = Number(day.split('-')[1]) === viewMonth.month;
-            const hasSlots = daySlots.length > 0;
-            return (
-              <button
-                key={day}
-                type="button"
-                disabled={!hasSlots}
-                onClick={() => {
-                  setSelectedDay(day);
-                  setSelectedSlot(null);
-                  setTakenMessage('');
-                }}
-                aria-label={`Ver horarios del ${formatChileLongDate(new Date(buildLocalISO(day, '12:00')))}`}
-                aria-pressed={selectedDay === day}
-                className={[
-                  'text-xs rounded-lg py-2',
-                  isCurrentMonth ? 'text-slate-700' : 'text-slate-300',
-                  hasSlots ? 'bg-emerald-50 hover:bg-emerald-100' : 'cursor-not-allowed',
-                  selectedDay === day ? 'ring-2 ring-emerald-400' : '',
-                ].join(' ')}
-              >
-                {Number(day.split('-')[2])}
-              </button>
-            );
-          })}
-        </div>
-
-        {selectedDay && (
-          <div className="mb-6">
-            <p className="text-sm font-medium text-slate-700 mb-2">
-              Horarios para el {formatChileDate(buildLocalISO(selectedDay, '00:00'))}
+          <div className="flex items-center justify-between mb-4">
+            <button
+              type="button"
+              onClick={() => changeMonth(-1)}
+              aria-label="Mes anterior"
+              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <p className="font-medium text-slate-800 capitalize">
+              {MONTH_LABELS[viewMonth.month - 1]} {viewMonth.year}
             </p>
-            {(slotsByDay[selectedDay] ?? []).length === 0 ? (
-              <p className="text-xs text-slate-400">Sin horarios disponibles este día.</p>
-            ) : (
-              <div
-                className="flex flex-wrap gap-2"
-                role="group"
-                aria-label="Horarios disponibles"
-              >
-                {(slotsByDay[selectedDay] ?? []).map((slot) => (
-                  <button
-                    key={slot.start}
-                    type="button"
-                    onClick={() => {
-                      setSelectedSlot(slot);
-                      setTakenMessage('');
-                    }}
-                    aria-pressed={selectedSlot?.start === slot.start}
-                    className={[
-                      'text-xs px-3 py-1.5 rounded-lg border',
-                      selectedSlot?.start === slot.start
-                        ? 'bg-emerald-500 text-white border-emerald-500'
-                        : 'border-slate-200 text-slate-600 hover:bg-slate-50',
-                    ].join(' ')}
-                  >
-                    {formatSlotTimeRange(slot.start, slot.end)}
-                  </button>
-                ))}
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={() => changeMonth(1)}
+              aria-label="Mes siguiente"
+              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500"
+            >
+              <ChevronRight size={18} />
+            </button>
           </div>
-        )}
 
-        {selectedSlot && (
-          <PublicBookingForm
-            therapistId={therapistId}
-            slotStart={selectedSlot.start}
-            onSuccess={setConfirmation}
-            onSlotTaken={handleSlotTaken}
-            origin={origin}
-          />
-        )}
+          {isLoading && <p className="text-sm text-slate-500">Cargando disponibilidad...</p>}
+          {isError && (
+            <ErrorBanner message="No se pudo cargar la disponibilidad. Intenta nuevamente." />
+          )}
+
+          <div
+            className="grid grid-cols-7 gap-1 mb-6"
+            role="group"
+            aria-label="Días con horarios disponibles"
+          >
+            {grid.days.map((day) => {
+              const daySlots = slotsByDay[day] ?? [];
+              const isCurrentMonth = Number(day.split('-')[1]) === viewMonth.month;
+              const hasSlots = daySlots.length > 0;
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  disabled={!hasSlots}
+                  onClick={() => {
+                    setSelectedDay(day);
+                    setSelectedSlot(null);
+                    setTakenMessage('');
+                  }}
+                  aria-label={`Ver horarios del ${formatChileLongDate(new Date(buildLocalISO(day, '12:00')))}`}
+                  aria-pressed={selectedDay === day}
+                  className={[
+                    'text-xs rounded-lg py-2',
+                    isCurrentMonth ? 'text-slate-700' : 'text-slate-300',
+                    hasSlots ? 'bg-emerald-50 hover:bg-emerald-100' : 'cursor-not-allowed',
+                    selectedDay === day ? 'ring-2 ring-emerald-400' : '',
+                  ].join(' ')}
+                >
+                  {Number(day.split('-')[2])}
+                </button>
+              );
+            })}
+          </div>
+
+          {selectedDay && (
+            <div className="mb-6">
+              <p className="text-sm font-medium text-slate-700 mb-2">
+                Horarios para el {formatChileDate(buildLocalISO(selectedDay, '00:00'))}
+              </p>
+              {(slotsByDay[selectedDay] ?? []).length === 0 ? (
+                <p className="text-xs text-slate-400">Sin horarios disponibles este día.</p>
+              ) : (
+                <div
+                  className="flex flex-wrap gap-2"
+                  role="group"
+                  aria-label="Horarios disponibles"
+                >
+                  {(slotsByDay[selectedDay] ?? []).map((slot) => (
+                    <button
+                      key={slot.start}
+                      type="button"
+                      onClick={() => {
+                        setSelectedSlot(slot);
+                        setTakenMessage('');
+                      }}
+                      aria-pressed={selectedSlot?.start === slot.start}
+                      className={[
+                        'text-xs px-3 py-1.5 rounded-lg border',
+                        selectedSlot?.start === slot.start
+                          ? 'bg-emerald-500 text-white border-emerald-500'
+                          : 'border-slate-200 text-slate-600 hover:bg-slate-50',
+                      ].join(' ')}
+                    >
+                      {formatSlotTimeRange(slot.start, slot.end)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {selectedSlot && (
+            <PublicBookingForm
+              therapistId={therapistId}
+              slotStart={selectedSlot.start}
+              onSuccess={setConfirmation}
+              onSlotTaken={handleSlotTaken}
+              origin={origin}
+            />
+          )}
+        </main>
       </div>
     </div>
   );
