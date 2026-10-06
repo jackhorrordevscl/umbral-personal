@@ -6,33 +6,13 @@ import CalendarSyncBadge from '../components/calendar/CalendarSyncBadge';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import { useCalendarSessions } from '../hooks/useCalendarSessions';
 import { chileMonthGridRange, toChileDayKey } from '../utils/datetime';
+import {
+  MONTH_LABELS,
+  addMonths,
+  chileTodayViewMonth,
+  type ViewMonth,
+} from '../utils/booking-calendar';
 import type { CalendarSession } from '../api/consultations';
-
-const MONTH_LABELS = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-];
-
-interface ViewMonth {
-  year: number;
-  month: number; // 1-indexado
-}
-
-// "Hoy" anclado a America/Santiago (reutiliza toChileDayKey) -- no al huso
-// horario del dispositivo del profesional, consistente con el resto del
-// módulo de calendario (design.md "All date bucketing is pinned to
-// America/Santiago").
-function chileTodayViewMonth(): ViewMonth {
-  const [year, month] = toChileDayKey(new Date().toISOString()).split('-').map(Number);
-  return { year, month };
-}
-
-function addMonths(view: ViewMonth, delta: number): ViewMonth {
-  const zeroIndexed = view.month - 1 + delta;
-  const year = view.year + Math.floor(zeroIndexed / 12);
-  const month = ((zeroIndexed % 12) + 12) % 12 + 1;
-  return { year, month };
-}
 
 // session-calendar: agrupa las sesiones del rango por día calendario de
 // Chile -- session-calendar Req: Session Date Anchoring (bucketea por

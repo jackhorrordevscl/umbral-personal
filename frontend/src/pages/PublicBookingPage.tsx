@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import BookingCalendar from '../components/booking/BookingCalendar';
 import ProfileCard from '../components/booking/ProfileCard';
 import PublicBookingForm from '../components/booking/PublicBookingForm';
 import ErrorBanner from '../components/ui/ErrorBanner';
@@ -10,11 +10,12 @@ import {
   buildLocalISO,
   chileMonthGridRange,
   formatChileDate,
-  formatChileLongDate,
   formatSlotTimeRange,
   groupSlotsByChileDay,
   toChileDayKey,
 } from '../utils/datetime';
+import { addMonths, chileTodayViewMonth } from '../utils/booking-calendar';
+import type { ViewMonth } from '../utils/booking-calendar';
 import type { BookingConfirmation, PublicBookingOrigin, PublicSlot } from '../api/publicScheduling';
 
 // sdd/public-booking-payment-calendar PR 5 (tasks.md 5.4, design.md
@@ -25,30 +26,6 @@ import type { BookingConfirmation, PublicBookingOrigin, PublicSlot } from '../ap
 // una PR futura pueda ajustar el presupuesto sin tocar la lógica de polling.
 export const CHECKOUT_POLL_INTERVAL_MS = 2000;
 export const CHECKOUT_POLL_TIMEOUT_MS = 15000;
-
-const MONTH_LABELS = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-];
-
-interface ViewMonth {
-  year: number;
-  month: number; // 1-indexado
-}
-
-// Mismo criterio que CalendarPage.chileTodayViewMonth -- "hoy" anclado a
-// America/Santiago, no al huso horario del dispositivo del visitante.
-function chileTodayViewMonth(): ViewMonth {
-  const [year, month] = toChileDayKey(new Date().toISOString()).split('-').map(Number);
-  return { year, month };
-}
-
-function addMonths(view: ViewMonth, delta: number): ViewMonth {
-  const zeroIndexed = view.month - 1 + delta;
-  const year = view.year + Math.floor(zeroIndexed / 12);
-  const month = ((zeroIndexed % 12) + 12) % 12 + 1;
-  return { year, month };
-}
 
 // sdd/patient-self-scheduling PR 5 (tasks.md 5.2, public-scheduling Req:
 // "Public Availability Read Endpoint" + "Double-Booking Protection"): página
@@ -69,6 +46,9 @@ export default function PublicBookingPage() {
   // React Query deduplica, así que no agrega requests.
   const { data: profile } = usePublicTherapistProfile(therapistId);
   const [viewMonth, setViewMonth] = useState<ViewMonth>(chileTodayViewMonth);
+  // "Hoy" se fija una sola vez al montar y se inyecta al calendario, que queda
+  // puro y testeable con fechas fijas (mismo criterio America/Santiago).
+  const [todayKey] = useState(() => toChileDayKey(new Date().toISOString()));
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<PublicSlot | null>(null);
   const [takenMessage, setTakenMessage] = useState('');
@@ -241,66 +221,29 @@ export default function PublicBookingPage() {
 
           {takenMessage && <ErrorBanner message={takenMessage} className="mb-4" />}
 
-          <div className="flex items-center justify-between mb-4">
-            <button
-              type="button"
-              onClick={() => changeMonth(-1)}
-              aria-label="Mes anterior"
-              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500"
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <p className="font-medium text-slate-800 capitalize">
-              {MONTH_LABELS[viewMonth.month - 1]} {viewMonth.year}
-            </p>
-            <button
-              type="button"
-              onClick={() => changeMonth(1)}
-              aria-label="Mes siguiente"
-              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500"
-            >
-              <ChevronRight size={18} />
-            </button>
-          </div>
-
-          {isLoading && <p className="text-sm text-slate-500">Cargando disponibilidad...</p>}
+          {isLoading && <p className="text-sm text-slate-500 mb-3">Cargando disponibilidad...</p>}
           {isError && (
-            <ErrorBanner message="No se pudo cargar la disponibilidad. Intenta nuevamente." />
+            <ErrorBanner
+              message="No se pudo cargar la disponibilidad. Intenta nuevamente."
+              className="mb-3"
+            />
           )}
 
-          <div
-            className="grid grid-cols-7 gap-1 mb-6"
-            role="group"
-            aria-label="Días con horarios disponibles"
-          >
-            {grid.days.map((day) => {
-              const daySlots = slotsByDay[day] ?? [];
-              const isCurrentMonth = Number(day.split('-')[1]) === viewMonth.month;
-              const hasSlots = daySlots.length > 0;
-              return (
-                <button
-                  key={day}
-                  type="button"
-                  disabled={!hasSlots}
-                  onClick={() => {
-                    setSelectedDay(day);
-                    setSelectedSlot(null);
-                    setTakenMessage('');
-                  }}
-                  aria-label={`Ver horarios del ${formatChileLongDate(new Date(buildLocalISO(day, '12:00')))}`}
-                  aria-pressed={selectedDay === day}
-                  className={[
-                    'text-xs rounded-lg py-2',
-                    isCurrentMonth ? 'text-slate-700' : 'text-slate-300',
-                    hasSlots ? 'bg-emerald-50 hover:bg-emerald-100' : 'cursor-not-allowed',
-                    selectedDay === day ? 'ring-2 ring-emerald-400' : '',
-                  ].join(' ')}
-                >
-                  {Number(day.split('-')[2])}
-                </button>
-              );
-            })}
-          </div>
+          <BookingCalendar
+            viewMonth={viewMonth}
+            days={grid.days}
+            slotsByDay={slotsByDay}
+            selectedDay={selectedDay}
+            todayKey={todayKey}
+            busy={isLoading}
+            onPrevMonth={() => changeMonth(-1)}
+            onNextMonth={() => changeMonth(1)}
+            onSelectDay={(day) => {
+              setSelectedDay(day);
+              setSelectedSlot(null);
+              setTakenMessage('');
+            }}
+          />
 
           {selectedDay && (
             <div className="mb-6">
