@@ -187,6 +187,31 @@ describe('BookingCalendar', () => {
     expect(cell).toHaveAccessibleName(dayName('2026-10-09'));
   });
 
+  it('limita la cantidad visible a 9+ sin alterar el nombre accesible', () => {
+    const many = (day: string, n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        slot(day, `${String(8 + i).padStart(2, '0')}:00`),
+      );
+    renderCalendar({
+      slotsByDay: {
+        '2026-10-09': many('2026-10-09', 12),
+        '2026-10-12': many('2026-10-12', 9),
+        '2026-10-13': many('2026-10-13', 3),
+      },
+    });
+    const twelve = screen.getByRole('button', { name: dayName('2026-10-09') });
+    const nine = screen.getByRole('button', { name: dayName('2026-10-12') });
+    const three = screen.getByRole('button', { name: dayName('2026-10-13') });
+    expect(within(twelve).getByText('9+')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+    expect(within(twelve).queryByText('12')).toBeNull();
+    expect(within(nine).getByText('9')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(three).getByText('3')).toHaveAttribute('aria-hidden', 'true');
+    expect(twelve).toHaveAccessibleName(dayName('2026-10-09'));
+  });
+
   it('no muestra cantidad en los días sin horarios', () => {
     renderCalendar();
     const cell = screen.getByRole('button', { name: dayName('2026-10-07') });
