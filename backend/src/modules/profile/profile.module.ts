@@ -1,6 +1,6 @@
 import { Logger, Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerModule, ThrottlerModuleOptions } from '@nestjs/throttler';
+import { ConfigService } from '@nestjs/config';
+import { ThrottlerModuleOptions } from '@nestjs/throttler';
 import { ProfileService } from './profile.service';
 import { ProfileController } from './profile.controller';
 import { EmailChangeService } from './email-change.service';
@@ -95,15 +95,7 @@ export function buildProfileThrottlerOptions(
 }
 
 @Module({
-  imports: [
-    AuthModule,
-    MailModule,
-    ThrottlerModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: buildProfileThrottlerOptions,
-    }),
-  ],
+  imports: [AuthModule, MailModule],
   controllers: [ProfileController, EmailChangeController],
   providers: [ProfileService, EmailChangeService],
 })

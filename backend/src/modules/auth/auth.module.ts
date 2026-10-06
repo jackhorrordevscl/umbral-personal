@@ -2,7 +2,7 @@ import { Logger, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerModule, ThrottlerModuleOptions } from '@nestjs/throttler';
+import { ThrottlerModuleOptions } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { MfaService } from './mfa.service';
 import { MfaSecretCryptoService } from './mfa-secret-crypto.service';
@@ -327,11 +327,6 @@ export function buildAuthThrottlerOptions(
         secret: config.get<string>('JWT_SECRET') as string,
         signOptions: { expiresIn: config.get('JWT_EXPIRES_IN', '8h') },
       }),
-    }),
-    ThrottlerModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: buildAuthThrottlerOptions,
     }),
   ],
   controllers: [AuthController],
