@@ -13,8 +13,8 @@ export const MONTH_LABELS: readonly string[] = [
 // La grilla de chileMonthGridRange empieza en lunes.
 export const WEEKDAY_LABELS: readonly string[] = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
 
-// Mismo criterio que CalendarPage.chileTodayViewMonth -- "hoy" anclado a
-// America/Santiago, no al huso horario del dispositivo del visitante.
+// "Hoy" anclado a America/Santiago, no al huso horario del dispositivo.
+// Compartido por CalendarPage y la agenda pública.
 export function chileTodayViewMonth(): ViewMonth {
   const [year, month] = toChileDayKey(new Date().toISOString()).split('-').map(Number);
   return { year, month };
