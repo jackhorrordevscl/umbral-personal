@@ -44,7 +44,7 @@ function cellClasses(
   return [
     base,
     tone,
-    !isCurrentMonth && !isSelected ? 'opacity-60' : '',
+    !isCurrentMonth && !isSelected && !hasSlots ? 'opacity-60' : '',
     isToday
       ? `${TODAY_MARK} ${isSelected ? 'after:bg-white' : 'after:bg-sage-500'}`
       : '',

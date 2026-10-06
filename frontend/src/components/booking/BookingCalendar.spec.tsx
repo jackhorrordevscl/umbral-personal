@@ -99,6 +99,19 @@ describe('BookingCalendar', () => {
     expect(props.onSelectDay).toHaveBeenCalledWith('2026-11-03');
   });
 
+  it('no atenúa un día con horarios fuera del mes para no perder contraste', () => {
+    renderCalendar();
+    const cell = screen.getByRole('button', { name: dayName('2026-11-03') });
+    expect(cell.className).not.toContain('opacity-60');
+  });
+
+  it('atenúa un día sin horarios fuera del mes', () => {
+    renderCalendar();
+    const cell = screen.getByRole('button', { name: dayName('2026-11-04') });
+    expect(cell).toBeDisabled();
+    expect(cell.className).toContain('opacity-60');
+  });
+
   it('llama onSelectDay con la clave del día', async () => {
     const { props } = renderCalendar();
     await userEvent.click(
