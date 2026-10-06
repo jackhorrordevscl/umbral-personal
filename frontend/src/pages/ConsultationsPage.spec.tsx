@@ -716,6 +716,19 @@ describe('ConsultationsPage — selector de pacientes en el servidor (#290)', ()
     expect(screen.queryByText('No se encontraron pacientes.')).not.toBeInTheDocument()
   })
 
+  it('si falla la carga de pacientes avisa del error y no muestra "No se encontraron pacientes."', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.reject(new Error('boom'))
+      return Promise.resolve({ data: [] })
+    })
+
+    renderConsultationsPage()
+
+    expect(await screen.findByText(/No se pudieron cargar los pacientes/)).toBeInTheDocument()
+    expect(screen.queryByText('No se encontraron pacientes.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Cargando pacientes...')).not.toBeInTheDocument()
+  })
+
   it('con la carga terminada y sin resultados muestra "No se encontraron pacientes."', async () => {
     mockedApi.get.mockImplementation((url: string) => {
       if (url === '/patients') return Promise.resolve({ data: { data: [], total: 0, page: 1, pageSize: 20 } })

@@ -650,7 +650,7 @@ export default function ConsultationsPage() {
                 {patientsLoading && (
                   <p className="px-4 py-3 text-xs text-slate-500">Cargando pacientes...</p>
                 )}
-                {!patientsLoading && patients.length === 0 && (
+                {!patientsLoading && !patientsError && patients.length === 0 && (
                   <p className="px-4 py-3 text-xs text-slate-500">No se encontraron pacientes.</p>
                 )}
               </div>
