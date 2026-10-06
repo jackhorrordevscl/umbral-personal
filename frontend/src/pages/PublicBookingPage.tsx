@@ -1,20 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import BookingCalendar from '../components/booking/BookingCalendar';
 import ProfileCard from '../components/booking/ProfileCard';
 import PublicBookingForm from '../components/booking/PublicBookingForm';
+import SlotList from '../components/booking/SlotList';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import { usePublicAvailability, usePublicTherapistProfile } from '../hooks/usePublicScheduling';
 import { getBookingCheckout, getPublicTherapistAvatarUrl } from '../api/publicScheduling';
 import {
-  buildLocalISO,
   chileMonthGridRange,
   formatChileDate,
-  formatSlotTimeRange,
   groupSlotsByChileDay,
   toChileDayKey,
 } from '../utils/datetime';
 import { addMonths, chileTodayViewMonth } from '../utils/booking-calendar';
+import { revealElement } from '../utils/reveal';
 import type { ViewMonth } from '../utils/booking-calendar';
 import type { BookingConfirmation, PublicBookingOrigin, PublicSlot } from '../api/publicScheduling';
 
@@ -55,6 +55,8 @@ export default function PublicBookingPage() {
   const [confirmation, setConfirmation] = useState<BookingConfirmation | null>(null);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [checkoutPollExhausted, setCheckoutPollExhausted] = useState(false);
+  const slotsRef = useRef<HTMLElement>(null);
+  const formRef = useRef<HTMLElement>(null);
 
   // issue #157: derivado UNA sola vez al montar (lazy initializer) -- ni
   // utm_source (query string en el momento de la carga) ni document.referrer
@@ -88,6 +90,16 @@ export default function PublicBookingPage() {
     refetch,
   } = usePublicAvailability(therapistId, grid.from, grid.to);
   const slotsByDay = useMemo(() => groupSlotsByChileDay(slots), [slots]);
+
+  // Scroll guiado sin mover el foco (design.md Decision 6): el efecto (y no el
+  // handler) porque la sección recién existe en el render posterior al cambio
+  // de estado; el guard evita desplazar la vista al montar.
+  useEffect(() => {
+    if (selectedDay) revealElement(slotsRef.current);
+  }, [selectedDay]);
+  useEffect(() => {
+    if (selectedSlot) revealElement(formRef.current);
+  }, [selectedSlot]);
 
   // design.md Data Flow "unique violation ⇒ 409 (client refetches)": el
   // visitante nunca ve por qué (spec.md "never discloses why") -- solo que
@@ -246,50 +258,29 @@ export default function PublicBookingPage() {
           />
 
           {selectedDay && (
-            <div className="mb-6">
-              <p className="text-sm font-medium text-slate-700 mb-2">
-                Horarios para el {formatChileDate(buildLocalISO(selectedDay, '00:00'))}
-              </p>
-              {(slotsByDay[selectedDay] ?? []).length === 0 ? (
-                <p className="text-xs text-slate-400">Sin horarios disponibles este día.</p>
-              ) : (
-                <div
-                  className="flex flex-wrap gap-2"
-                  role="group"
-                  aria-label="Horarios disponibles"
-                >
-                  {(slotsByDay[selectedDay] ?? []).map((slot) => (
-                    <button
-                      key={slot.start}
-                      type="button"
-                      onClick={() => {
-                        setSelectedSlot(slot);
-                        setTakenMessage('');
-                      }}
-                      aria-pressed={selectedSlot?.start === slot.start}
-                      className={[
-                        'text-xs px-3 py-1.5 rounded-lg border',
-                        selectedSlot?.start === slot.start
-                          ? 'bg-emerald-500 text-white border-emerald-500'
-                          : 'border-slate-200 text-slate-600 hover:bg-slate-50',
-                      ].join(' ')}
-                    >
-                      {formatSlotTimeRange(slot.start, slot.end)}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <section ref={slotsRef} className="mb-6">
+              <SlotList
+                dayKey={selectedDay}
+                slots={slotsByDay[selectedDay] ?? []}
+                selectedStart={selectedSlot?.start ?? null}
+                onSelect={(slot) => {
+                  setSelectedSlot(slot);
+                  setTakenMessage('');
+                }}
+              />
+            </section>
           )}
 
           {selectedSlot && (
-            <PublicBookingForm
-              therapistId={therapistId}
-              slotStart={selectedSlot.start}
-              onSuccess={setConfirmation}
-              onSlotTaken={handleSlotTaken}
-              origin={origin}
-            />
+            <section ref={formRef}>
+              <PublicBookingForm
+                therapistId={therapistId}
+                slotStart={selectedSlot.start}
+                onSuccess={setConfirmation}
+                onSlotTaken={handleSlotTaken}
+                origin={origin}
+              />
+            </section>
           )}
         </main>
       </div>
