@@ -111,3 +111,25 @@ The system MUST record a distinguishable `AuditLog` row per credential change, w
 - GIVEN a user requests then confirms an email change
 - WHEN each step completes
 - THEN one `EMAIL_CHANGE_REQUESTED` row and, on confirmation, one `EMAIL_CHANGE_CONFIRMED` row exist, both scoped to `resourceId: user.id`
+
+### Requirement: Optional Public Website on the Therapist Profile
+
+`GET /profile` MUST include `website` (nullable). `PATCH /profile` MUST accept an optional `website` that is an `http` or `https` URL of at most 200 characters; an empty string MUST clear it (stored as null). Any other scheme or an overlong value MUST be rejected with `400` without applying any field change. Updating `website` MUST NOT require `currentPassword`. The value is public: it is exposed by the unauthenticated public therapist profile endpoint.
+
+#### Scenario: Valid website is saved
+
+- GIVEN an authenticated therapist
+- WHEN they send `PATCH /profile` with `website: "https://example.com"` and no `currentPassword`
+- THEN the request succeeds and `GET /profile` returns that `website`
+
+#### Scenario: Non-http(s) website is rejected
+
+- GIVEN an authenticated therapist
+- WHEN they send `PATCH /profile` with `website: "javascript:alert(1)"`
+- THEN the response is `400` and the stored `website` is unchanged
+
+#### Scenario: Empty string clears the website
+
+- GIVEN a therapist with a stored `website`
+- WHEN they send `PATCH /profile` with `website: ""`
+- THEN `GET /profile` returns `website: null`

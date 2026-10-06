@@ -255,11 +255,15 @@ Desde "Ajustes" (además de la sección de MFA descrita en el punto 1) puedes
 editar tus propios datos:
 
 - **Nombre**: se actualiza al instante, sin pedir contraseña.
-- **Perfil público**: especialidad (ej. "Psicología clínica") y una bio
-  corta (hasta 500 caracteres) que se muestran sin que el paciente necesite
-  loguearse, en la página de tu auto-agenda pública (ver sección 13), junto
-  a tu foto de perfil. Ambos campos son opcionales — si los dejas vacíos,
-  simplemente no aparecen ahí.
+- **Perfil público**: especialidad (ej. "Psicología clínica"), una bio
+  corta (hasta 500 caracteres) y un **Sitio web** (dirección que empiece con
+  `http://` o `https://`, hasta 200 caracteres) que se muestran sin que el
+  paciente necesite loguearse, en la página de tu auto-agenda pública (ver
+  sección 13), junto a tu foto de perfil. El sitio web aparece como un link
+  en el encabezado de tu agenda. Los tres campos son opcionales y públicos:
+  no pongas ahí nada que no quieras que cualquiera pueda ver. Si los dejas
+  vacíos, simplemente no aparecen (para quitar el sitio web, borra el texto
+  y guarda).
 - **Email**: pide tu contraseña actual. El cambio **no se aplica de
   inmediato** — queda pendiente hasta que confirmes desde un enlace enviado
   a la casilla nueva (válido 24 horas). Tu email actual sigue funcionando
@@ -355,7 +359,7 @@ sesión directamente, sin que tengas que agendarlos tú a mano.
   Si cambias tu nombre en "Ajustes", el link cambia con él: vuelve a copiarlo
   y compártelo de nuevo, porque el anterior deja de funcionar.
 - **Qué ve el paciente.** Antes del calendario, ve tu foto de perfil (o tus
-  iniciales si no subiste una), tu especialidad y tu bio, si los cargaste
+  iniciales si no subiste una), tu especialidad, tu bio y un link a tu sitio web, si los cargaste
   desde "Ajustes" (ver sección 10). Después, entra sin necesidad de crear
   ninguna cuenta ni loguearse: ve los horarios libres respetando tu horario,
   tus bloqueos y los feriados, elige uno y completa un formulario corto
