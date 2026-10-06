@@ -170,6 +170,41 @@ describe('BookingCalendar', () => {
     expect(group).toHaveAttribute('aria-busy', 'false');
   });
 
+  it('muestra la cantidad de horarios en un elemento aria-hidden sin alterar el nombre accesible', () => {
+    renderCalendar({
+      slotsByDay: {
+        ...SLOTS_BY_DAY,
+        '2026-10-09': [
+          slot('2026-10-09', '10:00'),
+          slot('2026-10-09', '11:00'),
+          slot('2026-10-09', '12:00'),
+        ],
+      },
+    });
+    const cell = screen.getByRole('button', { name: dayName('2026-10-09') });
+    const count = within(cell).getByText('3');
+    expect(count).toHaveAttribute('aria-hidden', 'true');
+    expect(cell).toHaveAccessibleName(dayName('2026-10-09'));
+  });
+
+  it('no muestra cantidad en los días sin horarios', () => {
+    renderCalendar();
+    const cell = screen.getByRole('button', { name: dayName('2026-10-07') });
+    expect(cell.querySelector('[aria-hidden="true"]')).toBeNull();
+  });
+
+  it('conserva las clases sage del día seleccionado con la cantidad visible', () => {
+    renderCalendar({ selectedDay: '2026-10-08' });
+    const selected = screen.getByRole('button', {
+      name: dayName('2026-10-08'),
+    });
+    expect(selected.className).toContain('bg-sage-600');
+    expect(within(selected).getByText('2')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+  });
+
   it('no usa la paleta emerald', () => {
     const { container } = renderCalendar({ selectedDay: '2026-10-08' });
     expect(container.innerHTML).not.toContain('emerald');

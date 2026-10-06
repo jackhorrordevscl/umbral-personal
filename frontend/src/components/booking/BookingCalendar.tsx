@@ -125,6 +125,14 @@ export default function BookingCalendar({
               )}
             >
               {Number(day.split('-')[2])}
+              {hasSlots && (
+                <span
+                  aria-hidden="true"
+                  className={`absolute right-1 top-1 text-[10px] leading-none font-normal ${isSelected ? 'text-white' : 'text-sage-700'}`}
+                >
+                  {slotsByDay[day].length}
+                </span>
+              )}
             </button>
           );
         })}
