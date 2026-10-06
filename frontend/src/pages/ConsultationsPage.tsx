@@ -257,7 +257,11 @@ export default function ConsultationsPage() {
   // issue #290: el buscador consulta al servidor (con espera) y muestra una
   // página chica; ya no se carga ni se filtra la lista completa en el cliente.
   const debouncedSearch = useDebouncedValue(search.trim(), PATIENT_SEARCH_DEBOUNCE_MS);
-  const { data: patientsPage, isError: patientsError } = usePatients({
+  const {
+    data: patientsPage,
+    isError: patientsError,
+    isLoading: patientsLoading,
+  } = usePatients({
     page: 1,
     pageSize: PATIENT_LIST_PAGE_SIZE,
     search: debouncedSearch,
@@ -643,7 +647,10 @@ export default function ConsultationsPage() {
                     <p className="text-xs text-slate-500">{p.rut}</p>
                   </button>
                 ))}
-                {patients.length === 0 && (
+                {patientsLoading && (
+                  <p className="px-4 py-3 text-xs text-slate-500">Cargando pacientes...</p>
+                )}
+                {!patientsLoading && patients.length === 0 && (
                   <p className="px-4 py-3 text-xs text-slate-500">No se encontraron pacientes.</p>
                 )}
               </div>

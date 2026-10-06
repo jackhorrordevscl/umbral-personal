@@ -703,5 +703,29 @@ describe('ConsultationsPage — selector de pacientes en el servidor (#290)', ()
     expect(await screen.findByRole('button', { name: /Paciente de Prueba/ })).toBeInTheDocument()
     expect(mockedApi.get).toHaveBeenCalledWith('/patients/patient-1')
   })
+
+  it('mientras cargan los pacientes muestra "Cargando pacientes..." y no "No se encontraron pacientes."', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return new Promise(() => {})
+      return Promise.resolve({ data: [] })
+    })
+
+    renderConsultationsPage()
+
+    expect(await screen.findByText('Cargando pacientes...')).toBeInTheDocument()
+    expect(screen.queryByText('No se encontraron pacientes.')).not.toBeInTheDocument()
+  })
+
+  it('con la carga terminada y sin resultados muestra "No se encontraron pacientes."', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: { data: [], total: 0, page: 1, pageSize: 20 } })
+      return Promise.resolve({ data: [] })
+    })
+
+    renderConsultationsPage()
+
+    expect(await screen.findByText('No se encontraron pacientes.')).toBeInTheDocument()
+    expect(screen.queryByText('Cargando pacientes...')).not.toBeInTheDocument()
+  })
 })
 
