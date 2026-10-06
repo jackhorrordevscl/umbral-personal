@@ -1,6 +1,6 @@
 import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerModule, ThrottlerModuleOptions } from '@nestjs/throttler';
+import { ThrottlerModuleOptions } from '@nestjs/throttler';
 import { MailModule } from '../mail/mail.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PaymentsService } from './payments.service';
@@ -126,17 +126,7 @@ export function buildPaymentsThrottlerOptions(
 // credentials (dev/CI/e2e), same as CalendarOauthService/MailService
 // without their own credentials.
 @Module({
-  imports: [
-    ConfigModule,
-    MailModule,
-    NotificationsModule,
-    AuthModule,
-    ThrottlerModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: buildPaymentsThrottlerOptions,
-    }),
-  ],
+  imports: [ConfigModule, MailModule, NotificationsModule, AuthModule],
   controllers: [PaymentsController],
   providers: [
     PaymentsService,

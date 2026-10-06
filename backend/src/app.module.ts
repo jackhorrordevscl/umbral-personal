@@ -4,8 +4,10 @@ import {
   NestModule,
   RequestMethod,
 } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { buildAppThrottlerOptions } from './config/throttler.config';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
@@ -40,6 +42,13 @@ import { AppService } from './app.service';
     // (T4.5), así que registrar ScheduleModule acá no dispara el cron por
     // sí solo en entornos donde ese flag esté en "false" (p. ej. e2e).
     ScheduleModule.forRoot(),
+    // Issue #363: único registro del ThrottlerModule (@Global()); ver
+    // config/throttler.config.ts.
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: buildAppThrottlerOptions,
+    }),
     PrismaModule,
     AuditModule,
     AuthModule,
