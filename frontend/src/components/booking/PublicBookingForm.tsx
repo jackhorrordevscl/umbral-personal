@@ -24,7 +24,14 @@ const publicBookingFormSchema = z.object({
   email: z.string().min(1, 'El email es obligatorio').email('Email inválido'),
 });
 
-type PublicBookingFormValues = z.infer<typeof publicBookingFormSchema>;
+// La politica de privacidad vive fuera de este repo (sitio institucional), por
+// eso es un enlace absoluto y no una ruta interna.
+const PRIVACY_POLICY_URL = 'https://umbral.groundzerodevs.com/privacidad-general';
+
+const LINK_FOCUS_RING =
+  'rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white';
+
+type PublicBookingFormValues =z.infer<typeof publicBookingFormSchema>;
 
 interface PublicBookingFormProps {
   therapistId: string;
@@ -106,6 +113,21 @@ export default function PublicBookingForm({
           <input id="booking-email" type="email" className="input-field" {...register('email')} />
         </FormField>
       </div>
+
+      <p data-testid="booking-privacy-note" className="text-xs text-slate-500">
+        <strong className="font-semibold text-slate-600">Tus datos.</strong> Usamos tu nombre, RUT,
+        fecha de nacimiento y correo solo para gestionar esta reserva. Los recibe tu terapeuta, que
+        es quien los trata. Más información en nuestra{' '}
+        <a
+          href={PRIVACY_POLICY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`text-sage-700 underline ${LINK_FOCUS_RING}`}
+        >
+          política de privacidad
+        </a>
+        .
+      </p>
 
       {submitError && <ErrorBanner message={submitError} />}
 
