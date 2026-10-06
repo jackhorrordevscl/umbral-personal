@@ -80,8 +80,8 @@ export default function PublicBookingForm({
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="border-t border-slate-100 pt-4 space-y-4">
-      <p className="text-sm font-medium text-slate-700">Tus datos</p>
+    <form onSubmit={handleSubmit(onSubmit)} className="border-t border-slate-100 pt-6 space-y-4">
+      <p className="font-display text-lg text-slate-900">Tus datos</p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FormField id="booking-fullName" label="Nombre completo" required error={errors.fullName?.message}>
           <input id="booking-fullName" className="input-field" {...register('fullName')} />
@@ -109,7 +109,11 @@ export default function PublicBookingForm({
 
       {submitError && <ErrorBanner message={submitError} />}
 
-      <button type="submit" disabled={bookSlot.isPending} className="btn-primary disabled:opacity-50">
+      <button
+        type="submit"
+        disabled={bookSlot.isPending}
+        className="btn-primary w-full sm:w-auto min-h-11 disabled:opacity-50"
+      >
         {bookSlot.isPending ? 'Reservando...' : 'Confirmar reserva'}
       </button>
     </form>
