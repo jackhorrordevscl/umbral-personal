@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import BookingCalendar from '../components/booking/BookingCalendar';
+import BookingConfirmation from '../components/booking/BookingConfirmation';
 import ProfileCard from '../components/booking/ProfileCard';
 import PublicBookingForm from '../components/booking/PublicBookingForm';
 import SlotList from '../components/booking/SlotList';
@@ -9,14 +10,17 @@ import { usePublicAvailability, usePublicTherapistProfile } from '../hooks/usePu
 import { getBookingCheckout, getPublicTherapistAvatarUrl } from '../api/publicScheduling';
 import {
   chileMonthGridRange,
-  formatChileDate,
   groupSlotsByChileDay,
   toChileDayKey,
 } from '../utils/datetime';
 import { addMonths, chileTodayViewMonth } from '../utils/booking-calendar';
 import { revealElement } from '../utils/reveal';
 import type { ViewMonth } from '../utils/booking-calendar';
-import type { BookingConfirmation, PublicBookingOrigin, PublicSlot } from '../api/publicScheduling';
+import type {
+  BookingConfirmation as BookingConfirmationData,
+  PublicBookingOrigin,
+  PublicSlot,
+} from '../api/publicScheduling';
 
 // sdd/public-booking-payment-calendar PR 5 (tasks.md 5.4, design.md
 // Decision 5 "Checkout is polled, not awaited"): ensureCharge() es
@@ -52,7 +56,7 @@ export default function PublicBookingPage() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<PublicSlot | null>(null);
   const [takenMessage, setTakenMessage] = useState('');
-  const [confirmation, setConfirmation] = useState<BookingConfirmation | null>(null);
+  const [confirmation, setConfirmation] = useState<BookingConfirmationData | null>(null);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [checkoutPollExhausted, setCheckoutPollExhausted] = useState(false);
   const slotsRef = useRef<HTMLElement>(null);
@@ -177,36 +181,16 @@ export default function PublicBookingPage() {
   }, [confirmation, therapistId]);
 
   if (confirmation) {
-    const checkoutStatus = confirmation.checkout?.status;
     return (
-      <div className="min-h-screen bg-cream-100 flex items-center justify-center p-8">
-        <div className="card w-full max-w-md text-center p-8">
-          <h2 className="font-display text-2xl text-slate-900 mb-2">¡Listo!</h2>
-          <p className="text-slate-500 text-sm">
-            Tu sesión quedó agendada para el {formatChileDate(confirmation.sessionDate)}.
-          </p>
-          {checkoutStatus === 'PENDING' && checkoutUrl && (
-            <div className="mt-4">
-              <p className="text-slate-500 text-xs mb-2">
-                Vas a salir de esta página para completar el pago.
-              </p>
-              <a href={checkoutUrl} className="btn-primary inline-block">
-                Pagar ahora
-              </a>
-            </div>
-          )}
-          {checkoutStatus === 'PENDING' && !checkoutUrl && !checkoutPollExhausted && (
-            <p className="text-slate-500 text-xs mt-4" role="status">
-              Preparando tu pago...
-            </p>
-          )}
-          {checkoutStatus === 'PENDING' && !checkoutUrl && checkoutPollExhausted && (
-            <p className="text-slate-500 text-xs mt-4">
-              Te vamos a enviar el link de pago a tu email.
-            </p>
-          )}
-        </div>
-      </div>
+      <BookingConfirmation
+        variant="booked"
+        sessionDate={confirmation.sessionDate}
+        checkout={{
+          pending: confirmation.checkout?.status === 'PENDING',
+          url: checkoutUrl,
+          pollExhausted: checkoutPollExhausted,
+        }}
+      />
     );
   }
 
@@ -220,17 +204,7 @@ export default function PublicBookingPage() {
   // nada sobre el estado del pago -- la verdad del pago vive solo en
   // urlConfirmation/payment/getStatus, nunca en la sola llegada a esta URL.
   if (searchParams.get('flow_return') === '1') {
-    return (
-      <div className="min-h-screen bg-cream-100 flex items-center justify-center p-8">
-        <div className="card w-full max-w-md text-center p-8">
-          <h2 className="font-display text-2xl text-slate-900 mb-2">¡Listo!</h2>
-          <p className="text-slate-500 text-sm">
-            Tu sesión ya está agendada. Si el pago quedó pendiente, tu terapeuta te lo
-            confirmará por email.
-          </p>
-        </div>
-      </div>
-    );
+    return <BookingConfirmation variant="flowReturn" />;
   }
 
   return (
