@@ -34,15 +34,15 @@ export default function BookingConfirmation(props: BookingConfirmationProps) {
   }
 
   return (
-    <div className="min-h-screen bg-cream-100 flex items-center justify-center p-6">
+    <main className="min-h-screen bg-cream-100 flex items-center justify-center p-6">
       <div className="card w-full max-w-md text-center p-8">
-        <h2
+        <h1
           ref={headingRef}
           tabIndex={-1}
           className="font-display text-2xl text-slate-900 mb-2 outline-none"
         >
           ¡Listo!
-        </h2>
+        </h1>
         {props.variant === 'flowReturn' ? (
           <p className="text-slate-600 text-sm">
             Tu sesión ya está agendada. Si el pago quedó pendiente, tu terapeuta
@@ -83,6 +83,6 @@ export default function BookingConfirmation(props: BookingConfirmationProps) {
           </>
         )}
       </div>
-    </div>
+    </main>
   );
 }

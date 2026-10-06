@@ -49,6 +49,26 @@ describe('BookingConfirmation', () => {
     ).toBeInTheDocument();
   });
 
+  it.each([
+    [
+      'booked',
+      <BookingConfirmation
+        key="b"
+        variant="booked"
+        sessionDate={SESSION_DATE}
+        checkout={NO_CHECKOUT}
+      />,
+    ],
+    ['flowReturn', <BookingConfirmation key="f" variant="flowReturn" />],
+  ])('estructura accesible: h1 y main en la variante %s', (_name, ui) => {
+    render(ui);
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: '¡Listo!' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('main')).toBeInTheDocument();
+  });
+
   it('muestra solo el exito cuando no hay checkout', () => {
     renderBooked(NO_CHECKOUT);
 
