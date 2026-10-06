@@ -147,4 +147,43 @@ describe('PublicBookingPage: día seleccionado sin horarios tras un refetch', ()
       'true',
     );
   });
+
+  it('limpia el horario elegido cuando el día sigue con otros horarios pero ese ya no se ofrece', async () => {
+    const slotA = futureSlot();
+    const baseB = new Date(new Date(slotA.start).getTime() + 2 * 3600000);
+    const slotB = {
+      start: baseB.toISOString(),
+      end: new Date(baseB.getTime() + 50 * 60000).toISOString(),
+    };
+    mockAvailability([slotA]);
+    const user = userEvent.setup();
+    const queryClient = renderPage();
+
+    const name = `Ver horarios del ${dayLabel(slotA.dayKey)}`;
+    await user.click(await screen.findByRole('button', { name }));
+    const group = await screen.findByRole('group', {
+      name: 'Horarios disponibles',
+    });
+    await user.click(within(group).getAllByRole('button')[0]);
+    expect(
+      await screen.findByRole('button', { name: 'Confirmar reserva' }),
+    ).toBeInTheDocument();
+
+    mockAvailability([slotB]);
+    await act(() => queryClient.invalidateQueries());
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Confirmar reserva' }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('button', { name })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    const newGroup = screen.getByRole('group', { name: 'Horarios disponibles' });
+    within(newGroup)
+      .getAllByRole('button')
+      .forEach((b) => expect(b).toHaveAttribute('aria-pressed', 'false'));
+  });
 });

@@ -105,9 +105,19 @@ export default function PublicBookingPage() {
   // terminada: mientras se pide, los datos previos siguen vigentes. Se ajusta
   // durante el render (patrón de React para estado derivado de props/queries)
   // en vez de un efecto, que dispararía un render extra con la UI obsoleta.
-  if (selectedDay && !isFetching && (slotsByDay[selectedDay] ?? []).length === 0) {
-    setSelectedDay(null);
-    setSelectedSlot(null);
+  // Si el día conserva otros horarios pero el elegido ya no se ofrece, solo se
+  // limpia el horario (el día sigue elegido) para cerrar el formulario.
+  if (selectedDay && !isFetching) {
+    const daySlots = slotsByDay[selectedDay] ?? [];
+    if (daySlots.length === 0) {
+      setSelectedDay(null);
+      setSelectedSlot(null);
+    } else if (
+      selectedSlot &&
+      !daySlots.some((slot) => slot.start === selectedSlot.start)
+    ) {
+      setSelectedSlot(null);
+    }
   }
   useEffect(() => {
     if (selectedSlot) revealElement(formRef.current);
