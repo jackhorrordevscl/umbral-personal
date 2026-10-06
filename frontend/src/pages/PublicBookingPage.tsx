@@ -14,6 +14,7 @@ import {
   groupSlotsByChileDay,
   toChileDayKey,
 } from '../utils/datetime';
+import { initials, safeWebsite } from '../utils/public-profile';
 import type { BookingConfirmation, PublicBookingOrigin, PublicSlot } from '../api/publicScheduling';
 
 // sdd/public-booking-payment-calendar PR 5 (tasks.md 5.4, design.md
@@ -47,30 +48,6 @@ function addMonths(view: ViewMonth, delta: number): ViewMonth {
   const year = view.year + Math.floor(zeroIndexed / 12);
   const month = ((zeroIndexed % 12) + 12) % 12 + 1;
   return { year, month };
-}
-
-function initials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('');
-}
-
-// Defensa en profundidad: el backend ya valida http/https, pero el valor se
-// vuelve a comprobar acá para no renderizar jamás un href javascript:/data:.
-// Devuelve null si no es una URL http(s) válida.
-function safeWebsite(raw: string | null | undefined): { href: string; label: string } | null {
-  if (!raw) return null;
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-    const label = url.host + (url.pathname === '/' ? '' : url.pathname);
-    return { href: url.href, label: label || raw };
-  } catch {
-    return null;
-  }
 }
 
 // issue #155: se renderiza ANTES del bloque de agenda -- si el fetch del
