@@ -13,8 +13,9 @@ import {
   formatChileLongDate,
   formatSlotTimeRange,
   groupSlotsByChileDay,
-  toChileDayKey,
 } from '../utils/datetime';
+import { MONTH_LABELS, addMonths, chileTodayViewMonth } from '../utils/booking-calendar';
+import type { ViewMonth } from '../utils/booking-calendar';
 import type { BookingConfirmation, PublicBookingOrigin, PublicSlot } from '../api/publicScheduling';
 
 // sdd/public-booking-payment-calendar PR 5 (tasks.md 5.4, design.md
@@ -25,30 +26,6 @@ import type { BookingConfirmation, PublicBookingOrigin, PublicSlot } from '../ap
 // una PR futura pueda ajustar el presupuesto sin tocar la lógica de polling.
 export const CHECKOUT_POLL_INTERVAL_MS = 2000;
 export const CHECKOUT_POLL_TIMEOUT_MS = 15000;
-
-const MONTH_LABELS = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-];
-
-interface ViewMonth {
-  year: number;
-  month: number; // 1-indexado
-}
-
-// Mismo criterio que CalendarPage.chileTodayViewMonth -- "hoy" anclado a
-// America/Santiago, no al huso horario del dispositivo del visitante.
-function chileTodayViewMonth(): ViewMonth {
-  const [year, month] = toChileDayKey(new Date().toISOString()).split('-').map(Number);
-  return { year, month };
-}
-
-function addMonths(view: ViewMonth, delta: number): ViewMonth {
-  const zeroIndexed = view.month - 1 + delta;
-  const year = view.year + Math.floor(zeroIndexed / 12);
-  const month = ((zeroIndexed % 12) + 12) % 12 + 1;
-  return { year, month };
-}
 
 // sdd/patient-self-scheduling PR 5 (tasks.md 5.2, public-scheduling Req:
 // "Public Availability Read Endpoint" + "Double-Booking Protection"): página
