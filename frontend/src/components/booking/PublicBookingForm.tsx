@@ -115,7 +115,7 @@ export default function PublicBookingForm({
       </div>
 
       <p data-testid="booking-privacy-note" className="text-xs text-slate-500">
-        <strong className="font-semibold text-slate-600">Tus datos.</strong> Usamos tu nombre, RUT,
+        <strong className="font-semibold text-slate-600">Privacidad.</strong> Usamos tu nombre, RUT,
         fecha de nacimiento y correo solo para gestionar esta reserva. Los recibe tu terapeuta, que
         es quien los trata. Más información en nuestra{' '}
         <a
