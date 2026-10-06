@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -113,5 +113,38 @@ describe('PublicBookingPage: scroll guiado', () => {
     ).toBeInTheDocument();
     expect(scrollIntoView).toHaveBeenCalledTimes(2);
     expect(slotButton).toHaveFocus();
+  });
+});
+
+describe('PublicBookingPage: día seleccionado sin horarios tras un refetch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('limpia el día seleccionado cuando un refetch lo deja sin horarios', async () => {
+    const slot = futureSlot();
+    mockAvailability([slot]);
+    const user = userEvent.setup();
+    const queryClient = renderPage();
+
+    const name = `Ver horarios del ${dayLabel(slot.dayKey)}`;
+    await user.click(await screen.findByRole('button', { name }));
+    expect(
+      await screen.findByRole('group', { name: 'Horarios disponibles' }),
+    ).toBeInTheDocument();
+
+    mockAvailability([]);
+    await act(() => queryClient.invalidateQueries());
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('group', { name: 'Horarios disponibles' }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/^Horarios para el/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name })).not.toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 });

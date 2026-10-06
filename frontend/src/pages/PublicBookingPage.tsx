@@ -86,6 +86,7 @@ export default function PublicBookingPage() {
   const {
     data: slots = [],
     isLoading,
+    isFetching,
     isError,
     refetch,
   } = usePublicAvailability(therapistId, grid.from, grid.to);
@@ -97,6 +98,17 @@ export default function PublicBookingPage() {
   useEffect(() => {
     if (selectedDay) revealElement(slotsRef.current);
   }, [selectedDay]);
+
+  // issue #371 (punto 2): si un refetch (p. ej. tras un 409) deja sin horarios
+  // al día elegido, la selección se limpia para no dejar una celda
+  // deshabilitada con estilo y aria-pressed de seleccionada. Solo con la carga
+  // terminada: mientras se pide, los datos previos siguen vigentes. Se ajusta
+  // durante el render (patrón de React para estado derivado de props/queries)
+  // en vez de un efecto, que dispararía un render extra con la UI obsoleta.
+  if (selectedDay && !isFetching && (slotsByDay[selectedDay] ?? []).length === 0) {
+    setSelectedDay(null);
+    setSelectedSlot(null);
+  }
   useEffect(() => {
     if (selectedSlot) revealElement(formRef.current);
   }, [selectedSlot]);
