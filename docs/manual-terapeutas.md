@@ -141,14 +141,25 @@ directo a tu cuenta.
 
 ### Conectar tu cuenta Flow
 
-Desde "Ajustes", un asistente de 5 pasos te guía para conectar tu cuenta:
+Desde "Pagos", un asistente de 5 pasos te guía para conectar tu cuenta:
 
-1. Pegas la **llave** (API key) de tu cuenta Flow.
-2. Pegas el **secreto** (secret key) de tu cuenta Flow.
-3. La app valida esas credenciales directamente contra Flow antes de
-   guardarlas — si están mal, te avisa ahí mismo y no queda nada guardado.
-4. Confirmas.
-5. Tu cuenta queda conectada y lista para generar cobros.
+1. **Antes de empezar**: una lista de lo que necesitas (una cuenta activa en
+   Flow y tu API Key y Secret Key del panel de Flow).
+2. **Ir a Flow**: ingresas al panel de Flow con tu cuenta.
+3. **Ubicar tus credenciales**: dentro de Flow, en "Configuración de la
+   API", copias tu API Key y tu Secret Key.
+4. **Pegar tus credenciales**: pegas la API Key y la Secret Key en la app. La
+   app las valida directamente contra Flow antes de guardarlas; si están
+   mal, te avisa ahí mismo y no queda nada guardado.
+5. **Confirmación**: ves un resumen (proveedor, API Key enmascarada, huella
+   de la clave y, si Flow la informa, el nombre del comercio), puedes
+   ponerle un nombre opcional a la cuenta y confirmas con "Confirmar y
+   conectar". Recién ahí tu cuenta queda conectada y lista para generar
+   cobros.
+
+Desde la misma pantalla puedes desconectar la cuenta cuando quieras: los
+cargos ya generados no se ven afectados, pero no se crean cargos nuevos hasta
+que vuelvas a conectarla.
 
 **Sin una cuenta Flow conectada no puedes cobrar**, pero eso no te bloquea
 para nada más: puedes seguir creando pacientes y agendando consultas
@@ -167,17 +178,33 @@ cobro al registrar la consulta.
 
 ### Estados de un cobro
 
-- **Pendiente**: el link está generado y esperando que el paciente pague.
+En la lista de Consultas, cada sesión con cobro muestra uno de estos chips:
+
+- **Cobro pendiente**: el link está generado y esperando que el paciente pague.
+- **Link no enviado**: el cobro existe, pero el paciente no recibió el link
+  automáticamente (por ejemplo, porque no tiene email cargado).
 - **Pagado**: el paciente completó el pago.
-- **Vencido**: pasó la fecha límite y el paciente no pagó.
-- **Cancelado**: el cobro fue anulado (por ti, o automáticamente — ver más
-  abajo) y el link ya no se puede pagar.
+- **Cobro atrasado**: pasó la fecha límite y el paciente no pagó.
+- **Cobro cancelado**: el cobro fue anulado automáticamente (por ejemplo, al
+  eliminar la ficha del paciente, ver más abajo) y el link ya no se puede
+  pagar. No existe un botón para cancelar un cobro a mano.
 
 ### Reenviar el link de pago
 
 Si el paciente perdió el email, no lo recibió, o simplemente quiere que se lo
 reenvíes, hay un botón para **reenviar el link de pago** manualmente desde el
 cobro correspondiente.
+
+### Cobro no generado y reintento
+
+Si al registrar la consulta Flow rechazó la creación del cobro (por ejemplo,
+porque el monto está bajo el mínimo que acepta Flow, hoy 350 CLP según la
+configuración de Umbral), el cobro queda pendiente **sin link de pago**. En la
+lista de Consultas, esa sesión muestra el chip "Cobro no generado" con el
+motivo y un botón **"Reintentar cobro"**. Corrige el monto del paciente o de
+la sesión si hace falta y pulsa el botón: la app vuelve a intentar crear el
+cobro y, si lo logra, el link queda disponible para copiar o reenviar. Solo
+sirve para cobros pendientes o vencidos que aún no tienen link.
 
 ### Si eliminas una ficha con cobros pendientes
 
@@ -195,15 +222,21 @@ activo para una ficha que ya borraste.
 
 Desde la ficha del paciente, en la sección "Documentos legales", subes archivos ligados a esa persona en dos pasos:
 
-1. Elige el tipo de documento en el desplegable: **Consentimiento informado**, **Acuerdo de telemedicina** u **Otro**.
+1. Elige el tipo de documento en el desplegable: **Consentimiento informado**, **Asentimiento informado**, **Acuerdo telemedicina** u **Otro**.
 2. Haz clic en "Subir" y selecciona el archivo desde tu computadora.
 
 Reglas:
-- Solo se aceptan **PDF e imágenes** — cualquier otro tipo de archivo se rechaza antes de subir.
-- **10 MB máximo** por archivo.
+- Se aceptan **PDF, Word, Excel, ZIP e imágenes**: cualquier otro tipo de archivo se rechaza antes de subir.
+- **25 MB máximo** por archivo.
 - Solo puedes subir documentos a pacientes propios (mismos que ves en tu listado).
 
 Cada documento subido queda en la lista con su nombre y tipo, y se puede volver a descargar en cualquier momento con el ícono de descarga.
+
+### Anular un documento
+
+Si subiste un documento por error, usa el botón "Anular" junto a él. La app te pide un **motivo obligatorio** (entre 5 y 500 caracteres). El documento **no se elimina**: por la obligación de custodia de la ficha clínica queda marcado como "Anulado", con el motivo visible, y sigue pudiendo descargarse. Si ese documento sustentaba el consentimiento vigente del paciente y no queda otro documento vigente del mismo tipo, el consentimiento registrado también se revoca (queda en el historial de consentimientos).
+
+Además, al corregir una consulta puedes adjuntar un **registro de sesión propio** (opcional); queda en la ficha como documento de tipo "Registro de sesión".
 
 Esto es distinto de "Archivos personales" (ver sección 7): los documentos de paciente quedan ligados a una ficha específica (el consentimiento firmado de esa persona, por ejemplo), mientras que "Archivos personales" es tu biblioteca general, sin paciente asociado.
 
@@ -238,10 +271,10 @@ Desde la ficha de un paciente se puede exportar un PDF con la ficha clínica com
 ## 9. Sesión y seguridad
 
 - **Cierre de sesión por inactividad**: después de 8 minutos sin actividad (mover el mouse, tipear, hacer clic, scrollear), aparece un aviso con una cuenta regresiva de 2 minutos. Si no haces nada en ese lapso, la sesión se cierra sola. "Continuar sesión" en ese aviso reinicia el contador.
-- **Cierre de sesión real**: al cerrar sesión (botón de salir, cierre por inactividad), la sesión también se invalida en el servidor: el token de ese dispositivo deja de funcionar aunque alguien lo hubiera copiado. Tras esta actualización, cada usuario debe iniciar sesión una vez más.
+- **Cierre de sesión real**: al cerrar sesión (botón de salir, cierre por inactividad), la sesión también se invalida en el servidor: el token de ese dispositivo deja de funcionar aunque alguien lo hubiera copiado.
 - **Límite de intentos de login**: después de varios intentos fallidos seguidos, el sistema bloquea temporalmente nuevos intentos (rate limiting) — es intencional, no un error, y se libera solo pasado un tiempo. Aplica también a los intentos de código MFA, de restablecimiento de contraseña y de recuperación con código MFA.
 - **Bitácora de auditoría**: toda acción relevante (login, creación/edición de fichas, descarga de documentos, etc.) queda registrada de forma inmutable en el servidor — no hay una pantalla para verla dentro de la app (no hay panel administrativo), pero existe y no se puede alterar ni borrar.
-- **Generar invitación**: si tu cuenta es la autorizada a invitar (configurada por quien administra la instancia), en esta misma pantalla aparece una sección "Generar invitación" para crear un código de un solo uso, válido 7 días, que le compartes a la persona que quieres invitar a registrarse. Si tu cuenta no está autorizada, esta sección directamente no aparece.
+- **Generar invitación**: si tu cuenta es la autorizada a invitar (configurada por quien administra la instancia), en la pantalla "Seguridad" aparece una sección "Generar invitación" para crear un código de un solo uso, válido 7 días, que le compartes a la persona que quieres invitar a registrarse. Si tu cuenta no está autorizada, esta sección directamente no aparece.
 
 > 📝 Observaciones UX: (¿el aviso de sesión por expirar se nota a tiempo, o es fácil perderlo de vista y que la sesión se cierre sin querer?)
 >
@@ -249,10 +282,12 @@ Desde la ficha de un paciente se puede exportar un PDF con la ficha clínica com
 
 ---
 
-## 10. Ajustes de tu cuenta
+## 10. Tu cuenta: Perfil y Seguridad
 
-Desde "Ajustes" (además de la sección de MFA descrita en el punto 1) puedes
-editar tus propios datos:
+En el menú lateral, "Perfil" reúne tus datos personales y tu agenda pública, y
+"Seguridad" reúne el MFA, el historial de seguridad, la conexión con Google
+Calendar y, si corresponde, las invitaciones (ver sección 9). Desde "Perfil"
+puedes editar tus propios datos:
 
 - **Nombre**: se actualiza al instante, sin pedir contraseña.
 - **Perfil público**: especialidad (ej. "Psicología clínica"), una bio
@@ -290,7 +325,7 @@ El ícono de campana en la barra superior muestra tus notificaciones, con un
 contador de las que no has leído. Al abrirlas puedes marcarlas una por una
 como leídas, o todas de una vez.
 
-Tres tipos de notificación llegan hoy:
+Estos tipos de notificación llegan hoy:
 
 - **Recordatorio de sesión**: se genera automáticamente 24 horas y 2 horas
   antes de cada consulta agendada, y llega por dos canales independientes —
@@ -306,6 +341,20 @@ Tres tipos de notificación llegan hoy:
   solo por primera vez y todavía no tiene un monto de cobro configurado en
   su ficha, te llega un aviso para que completes ese monto a mano — de lo
   contrario esa primera sesión queda sin generar cargo.
+- **Cobro vencido**: cuando un cobro pasa su fecha límite sin pago, te llega un
+  aviso con el nombre del paciente (y se le envía un correo al paciente si
+  tiene email).
+- **Anomalía en un cobro**: si la pasarela informa algo que Umbral no puede
+  representar (por ejemplo, un pago recibido en un cobro que estaba anulado, o
+  un pago con un monto distinto al del cobro), te llega un aviso para que
+  revises tu cuenta de la pasarela. El cobro no se marca como pagado
+  automáticamente en esos casos.
+- **Aviso único sobre documentos legales**: un anuncio puntual, enviado a todas
+  las cuentas, pidiendo volver a subir documentos legales perdidos por un
+  problema de almacenamiento antes del 23/09. No se repite.
+
+Las notificaciones leídas se eliminan automáticamente pasados 30 días; las
+no leídas se conservan hasta que las leas.
 
 > 📝 Observaciones UX: (¿el contador de no leídas se nota fácil? ¿los recordatorios llegan con tiempo suficiente para prepararte?)
 >
@@ -315,7 +364,7 @@ Tres tipos de notificación llegan hoy:
 
 ## 12. Conectar tu Google Calendar (opcional)
 
-Desde "Ajustes" puedes conectar tu cuenta de Google para que tus consultas
+Desde "Seguridad" puedes conectar tu cuenta de Google para que tus consultas
 aparezcan automáticamente en tu Google Calendar personal.
 
 - Es **por cuenta**, no por sesión: conectas una vez y queda activo hasta
@@ -356,11 +405,11 @@ sesión directamente, sin que tengas que agendarlos tú a mano.
   link público de agenda y un botón para copiarlo — ya viene armado con tu
   nombre (por ejemplo, `.../book/juan-jose-martinez`) y listo para
   compartir por el canal que uses con tus pacientes (WhatsApp, email, etc.).
-  Si cambias tu nombre en "Ajustes", el link cambia con él: vuelve a copiarlo
+  Si cambias tu nombre en "Perfil", el link cambia con él: vuelve a copiarlo
   y compártelo de nuevo, porque el anterior deja de funcionar.
 - **Qué ve el paciente.** Antes del calendario, ve tu foto de perfil (o tus
   iniciales si no subiste una), tu especialidad, tu bio y un link a tu sitio web, si los cargaste
-  desde "Ajustes" (ver sección 10). Después, entra sin necesidad de crear
+  desde "Perfil" (ver sección 10). Después, entra sin necesidad de crear
   ninguna cuenta ni loguearse: ve los horarios libres respetando tu horario,
   tus bloqueos y los feriados, elige uno y completa un formulario corto
   (nombre, RUT, fecha de nacimiento y email). Si el email coincide con un

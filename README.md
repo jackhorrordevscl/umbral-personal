@@ -30,6 +30,11 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 - [`docs/incident-log.md`](docs/incident-log.md) — bitácora de incidentes de
   seguridad reales: qué pasó, impacto, causa raíz, remediación y
   verificación.
+- [`docs/evaluacion-v1.md`](docs/evaluacion-v1.md): evaluación de
+  preparación para v1 (veredicto, bloqueantes, riesgos y checklist de salida).
+- [`docs/datos-landing.md`](docs/datos-landing.md): ficha de datos
+  verificados (funcionalidades, cifras, stack y qué no afirmar) para
+  actualizar la landing page.
 - [`docs/decisiones/`](docs/decisiones/) — decisiones de arquitectura (ADR),
   p. ej. por qué NestJS, Vite y Tailwind están congelados en su major actual.
 
@@ -38,10 +43,10 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 ## Stack Tecnológico
 
 **Frontend**
-- React 19 + TypeScript
+- React 19.2 + TypeScript
 - Vite 7 (congelado en su major actual, ver
   [ADR 0001](docs/decisiones/0001-congelar-majors-nestjs-vite-tailwind.md))
-- Tailwind CSS 3 (congelado, mismo ADR)
+- Tailwind CSS 3.4 (congelado, mismo ADR)
 - React Router v8
 - TanStack Query (React Query)
 - React Hook Form + Zod 4
@@ -54,7 +59,7 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 **Backend**
 - NestJS 11 + TypeScript
 - PostgreSQL 16
-- Prisma ORM v6
+- Prisma ORM 6.19
 - JWT + Passport
 - Argon2 (hash de contraseñas)
 - Speakeasy (MFA/TOTP)
@@ -71,7 +76,8 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 
 - Node.js v22+ (versión usada en CI; v20+ también funciona)
 - PostgreSQL 16 (en producción, Supabase gestiona la base — ver sección
-  [Despliegue](#despliegue-issue-8))
+  [Despliegue](#despliegue-issue-8)); en local puede levantarse con el
+  `docker-compose.yml` de la raíz (Postgres 16)
 - npm
 
 ---
@@ -99,6 +105,12 @@ ALTER USER umbral_user CREATEDB;
 \q
 ```
 
+> Alternativa con Docker: `docker compose up -d` en la raíz levanta un
+> Postgres 16 solo para desarrollo local (contenedor `umbral-postgres-local`,
+> base `umbral_db`, usuario `umbral_user`, puerto 5432 enlazado a
+> `127.0.0.1`). Las credenciales de ese archivo son ejemplos públicos: no
+> usarlas fuera de desarrollo.
+>
 > Alternativa: `./install.sh` automatiza estos pasos (Node, PostgreSQL,
 > creación de base, `.env`, dependencias y cron de backup) en Ubuntu/Debian.
 
@@ -408,6 +420,7 @@ umbral-personal/
 │   │   │   └── audit/            # Bitácora inmutable (interceptor global)
 │   │   ├── shared-files/         # Biblioteca personal (plantillas, protocolos) -- privada por usuario
 │   │   └── prisma/               # Servicio Prisma
+│   ├── scripts/                  # Scripts one-off (seed-holidays, notify-document-reupload)
 │   └── .env.example
 ├── frontend/
 │   └── src/
@@ -435,7 +448,16 @@ umbral-personal/
 │                                  # Payments, PaymentReturn, PublicBooking,
 │                                  # Profile (datos de cuenta), Security (MFA,
 │                                  # conexión Google Calendar), SharedFiles
-├── docs/                         # Manual de uso, caso de testing, RAT
+├── docs/                         # Manual de uso, caso de testing, RAT, cláusula de transferencia,
+│   │                             # incident-log, evaluación de v1 y ficha de datos para la landing
+│   ├── decisiones/               # ADR (decisiones de arquitectura)
+│   └── evidencia-compliance/     # DPA y términos de proveedores, salida de npm audit
+├── odd/tasks/                    # Documentos de seguimiento de features (ODD)
+├── openspec/                     # Specs y cambios SDD (changes/, specs/)
+├── .github/workflows/            # CI (ci.yml) y backup diario (backup.yml)
+├── docker-compose.yml            # Postgres 16 para desarrollo local
+├── render.yaml                   # Blueprint del backend en Render
+├── install.sh                    # Instalador para Ubuntu/Debian
 └── README.md
 ```
 
@@ -483,7 +505,7 @@ umbral-personal/
 
 ### Documentos y Archivos
 - Documentos clínicos por paciente (consentimiento informado, informes,
-  otros), PDF/imágenes hasta 10MB
+  otros), PDF, Word, Excel, ZIP e imágenes hasta 25MB
 - Anulación de documentos subidos por error, con motivo obligatorio: el
   documento no se elimina (custodia de 15 años), queda marcado como anulado y
   sigue descargable. Si sustentaba el consentimiento vigente y no queda otro
@@ -519,6 +541,9 @@ umbral-personal/
   (hasta 120 caracteres), editables desde la sección "Perfil público" junto
   al resto de los datos de cuenta (mismo `PATCH /profile`) — se muestran sin
   autenticación en la auto-agenda pública (ver más abajo)
+- Sitio web del terapeuta (`User.website`, opcional, solo `http`/`https`):
+  se edita en Perfil con el mismo `PATCH /profile` y se muestra como enlace
+  en la tarjeta de perfil de la agenda pública
 
 ### Recordatorios y notificaciones (sdd/session-reminders)
 - Modelo genérico de notificaciones in-app (`GET /notifications`, contador
@@ -541,6 +566,14 @@ umbral-personal/
   monto de cobro (`defaultSessionAmount`) configurado, para que complete el
   monto a mano en vez de perder ese cargo en silencio
   (`PATIENT_MISSING_SESSION_AMOUNT`)
+- Tipos de notificación (`NotificationType`): `SESSION_REMINDER`,
+  `GOOGLE_CALENDAR_DISCONNECTED`, `PAYMENT_LATE`,
+  `PATIENT_MISSING_SESSION_AMOUNT`, `PATIENT_DOCUMENT_REUPLOAD_REQUIRED` (aviso
+  único de un script de mantenimiento) y `PAYMENT_ANOMALY` (la pasarela
+  reportó un cobro inconsistente)
+- Purga diaria (04:30) de notificaciones **leídas** con más de 30 días
+  (`NOTIFICATIONS_PURGE_RETENTION_DAYS`, desactivable con
+  `NOTIFICATIONS_PURGE_ENABLED=false`); las no leídas nunca se purgan
 
 ### Integración con Google Calendar (sdd/google-calendar-integration, issue #78)
 - Conexión OAuth 2.0 por cuenta de terapeuta (`calendar.events`, acceso
@@ -582,6 +615,10 @@ umbral-personal/
 - Monto snapshoteado al crear el cargo (`Patient.defaultSessionAmount` o un
   override por sesión) — un cambio posterior del monto por defecto nunca
   reescribe un cargo ya emitido
+- Reintento de cobro: si al crear la consulta no se pudo generar el cargo en
+  Flow (por ejemplo, por un fallo transitorio), `POST
+  /payments/:groupId/retry-charge` vuelve a intentar crear la orden para un
+  cargo que todavía no tiene link de pago (issue #271)
 - Wizard de 5 pasos conecta la cuenta Flow del terapeuta (pegar
   apiKey/secretKey, validar contra Flow antes de persistir, confirmación) —
   reemplaza el flujo `onboard()`/`createMerchant` retirado
@@ -752,8 +789,9 @@ PATCH /api/v1/consultations/:id/correct            🔒
 
 ### Documentos
 ```
-POST /api/v1/documents/upload             🔒 (multipart, PDF/imagen, máx. 10MB)
+POST /api/v1/documents/upload             🔒 (multipart, PDF/Word/Excel/ZIP/imagen, máx. 25MB)
 GET  /api/v1/documents/patient/:patientId 🔒
+POST /api/v1/documents/:id/void           🔒 (anulación con motivo obligatorio, issue #270)
 GET  /api/v1/documents/:id/download       🔒
 ```
 
@@ -818,6 +856,7 @@ POST   /api/v1/payments/account                   🔒 (confirmación, persiste 
 DELETE /api/v1/payments/account                   🔒
 PATCH  /api/v1/payments/:groupId                  🔒 (corrige el monto de un cargo)
 POST   /api/v1/payments/:groupId/resend-link       🔒
+POST   /api/v1/payments/:groupId/retry-charge      🔒 (reintenta crear el cargo cuando aún no tiene link de pago, issue #271)
 POST   /api/v1/payments/confirm                       (webhook de Flow, sin auth, firma verificada)
 GET    /api/v1/payments/return                        (redirect del paciente tras el checkout, sin auth)
 POST   /api/v1/payments/return                        (mismo caso, safety net de método HTTP)
@@ -988,7 +1027,7 @@ SELECT relname, n_live_tup FROM pg_stat_user_tables WHERE schemaname = 'public';
 |---|---|
 | Ficha clínica obligatoria | Módulo de pacientes con todos los campos exigidos |
 | Secreto profesional | Datos cifrados en tránsito (HTTPS en producción) |
-| Custodia 15 años | Soft delete + archivo de custodia legal mensual cifrado que nunca se borra (separado de la rotación operativa de 30 días) |
+| Custodia 15 años | Soft delete + backups diarios cifrados a Backblaze B2, sin rotación ni borrado (ver [Backups Automáticos](#backups-automáticos)) |
 | Derecho del paciente a su ficha | Exportación PDF bajo demanda |
 | Inalterabilidad de registros | Versionado en consultas + soft delete en pacientes |
 | Bitácora de accesos | Audit Log inmutable con registro de todas las acciones |
@@ -1010,6 +1049,7 @@ del RAT, que es la fuente de verdad.
 | Supabase | Base de datos primaria (fichas, consultas, auditoría) | São Paulo, Brasil | Se incorpora al aceptar los Términos de Servicio (cláusula 12.2) |
 | Backblaze B2 | Backups offsite cifrados con AES-256 antes de subir; avatares, archivos personales y documentos de ficha (buckets privados y separados) | Estados Unidos, región `us-west-004` en todos los buckets | Se incorpora al aceptar los Términos de Servicio, pero el DPA público está acotado a GDPR |
 | Resend | Nombre y email del profesional (verificación, recuperación de cuenta, recordatorios); si se activa el cobro, también el email del paciente con el link de pago | Estados Unidos | Se incorpora al aceptar los Términos de Servicio |
+| Sentry (opcional, solo si se define `SENTRY_DSN`) | Trazas de errores 500 y excepciones no controladas. En el backend se redactan emails y RUT y se descartan bodies, cookies, headers y breadcrumbs; en el frontend se descartan bodies, cookies y headers de las requests | Según la región del proyecto Sentry (por confirmar) | Por confirmar (ver RAT) |
 | Google (opcional) | Metadata minimizada de sesiones, solo si el terapeuta conecta su calendario | Estados Unidos | Pendiente de confirmar si aplica a cuentas personales |
 | Flow (opcional) | Nombre y email del paciente, monto y fecha, si el terapeuta activa el cobro | AWS us-east-2 (Ohio, EE.UU.) | Sin DPA descargable; ver política de privacidad |
 

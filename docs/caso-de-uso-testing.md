@@ -70,7 +70,7 @@ Al revisar la consulta que registraste, te das cuenta de que pusiste "Presencial
 
 Carga a **Jorge Luis Ramírez Peña** (perfil #4 — el adulto mayor con el email con tilde). Otórgale los dos consentimientos (Tratamiento y Telemedicina), con evidencia distinta para cada uno. Súbele un documento (un PDF cualquiera, o una foto tuya guardada como .jpg).
 
-Intenta también subir un archivo que **no** sea PDF ni imagen (un .docx, por ejemplo) — a propósito, para que falle.
+Intenta también subir un archivo de un tipo no permitido (un .txt, por ejemplo; solo se aceptan PDF, Word, Excel, ZIP e imágenes) — a propósito, para que falle. Si te sobra un archivo de más de 25 MB, prueba también el límite de tamaño.
 
 > 📝 Anota: ¿el mensaje de error del archivo rechazado fue claro, o quedaste sin saber por qué no subió?
 
@@ -82,8 +82,8 @@ Genera el PDF de la ficha de Jorge. Revisa que tenga la consulta con su historia
 
 ### 10:35 — Conectas tu cuenta Flow y cobras tu primera sesión
 
-Antes de poder cobrarle a un paciente necesitas conectar tu cuenta Flow. Desde
-"Ajustes", busca la opción para conectar Flow y sigue el asistente:
+Antes de poder cobrarle a un paciente necesitas conectar tu cuenta Flow. Entra
+a "Pagos" en el menú lateral y sigue el asistente de conexión de Flow:
 
 - **Primero, a propósito, pon una llave o un secreto inválidos** (cualquier
   texto que no sea una credencial real de Flow) y avanza. Debería rechazarte
@@ -93,7 +93,8 @@ Antes de poder cobrarle a un paciente necesitas conectar tu cuenta Flow. Desde
   > inválidas, o algo genérico? ¿quedó algo guardado a pesar del error?
 
 - Ahora repite el asistente con las credenciales de **sandbox** de Flow que
-  te pasé aparte, hasta completar los 5 pasos y quedar con la cuenta
+  te pasé aparte, hasta completar los 5 pasos (antes de empezar, ir a Flow,
+  ubicar tus credenciales, pegarlas y confirmar) y quedar con la cuenta
   conectada.
 
   > 📝 Anota: ¿los 5 pasos se sintieron claros? ¿en algún momento no supiste
@@ -123,11 +124,13 @@ hayas agregado un email a su ficha).
 > 📝 Anota: ¿quedó claro en algún lado que el link no se pudo enviar porque
 > el paciente no tenía email? ¿el botón de reenviar fue fácil de encontrar?
 
-Por último, sobre el cobro de Antonia, prueba **cancelarlo** manualmente, y
-después intenta abrir ese mismo link de pago desde otra pestaña.
+Por último, si algún cobro quedó como "Cobro no generado" (por ejemplo, con un
+monto bajo el mínimo de Flow, 350 CLP), prueba el botón **"Reintentar cobro"**
+después de corregir el monto.
 
-> 📝 Anota: ¿el link cancelado te dejó pagar igual, o te avisó que ya no era
-> válido?
+> 📝 Anota: ¿el mensaje de "Cobro no generado" explicó el motivo? ¿el reintento
+> funcionó y apareció el link de pago? (La cancelación de un cobro no tiene
+> botón: ocurre sola al borrar una ficha, y se prueba en la sección final.)
 
 ### 10:40 — Pruebas tu link de auto-agenda, haciéndote pasar por un paciente
 
@@ -159,19 +162,20 @@ consentimientos cargados — eso te toca completarlo a ti).
 > ningún tipo de ayuda tuya? ¿te llegó algún email avisándote de la reserva
 > nueva, o tuviste que entrar a la app para enterarte?
 
-### 10:45 — Revisas tus Ajustes de cuenta
+### 10:45 — Revisas tu Perfil y tu Seguridad
 
-Antes de cerrar el día, entra a "Ajustes" y prueba tres cosas:
+Antes de cerrar el día, entra a "Perfil" y a "Seguridad" (menú lateral) y prueba estas cosas:
 
-- Cambia tu nombre (no pide contraseña) y confirma que se actualiza.
+- En "Perfil", cambia tu nombre (no pide contraseña) y confirma que se actualiza; fíjate que el link de auto-agenda cambia con tu nombre.
+- En "Perfil", completa tu perfil público (especialidad, bio y un sitio web que empiece con https://) y abre tu link de auto-agenda en una ventana de incógnito para ver cómo se muestra.
 - Mira la campana de notificaciones: deberías tener al menos una notificación si programaste una consulta cerca de las 24h o 2h de anticipación. Márcala como leída.
-- Si tienes una cuenta de Google a mano, prueba conectar Google Calendar y revisa que la consulta de Antonia o Jorge aparezca ahí — fíjate que **no** muestre el nombre completo del paciente, solo iniciales y un código. Si no tienes cuenta de Google disponible, al menos revisa que el botón "Conectar" te lleve a la pantalla de permisos de Google (puedes cancelar ahí sin problema).
+- En "Seguridad", si tienes una cuenta de Google a mano, prueba conectar Google Calendar y revisa que la consulta de Antonia o Jorge aparezca ahí — fíjate que **no** muestre el nombre completo del paciente, solo iniciales y un código. Si no tienes cuenta de Google disponible, al menos revisa que el botón "Conectar" te lleve a la pantalla de permisos de Google (puedes cancelar ahí sin problema).
 
 > 📝 Anota: ¿el cambio de nombre te dio alguna confirmación clara? ¿el evento en Google Calendar (si lo probaste) te pareció que exponía menos información de la que esperabas, o más?
 
 ### 11:00 — Cambias tu contraseña a propósito
 
-Cambia tu contraseña desde "Ajustes". Deberías quedar deslogueado de inmediato y tener que volver a entrar con la contraseña nueva.
+Cambia tu contraseña desde "Perfil". Deberías quedar deslogueado de inmediato y tener que volver a entrar con la contraseña nueva.
 
 > 📝 Anota: ¿el mensaje al desloguearte explicó por qué pasó, o se sintió como un error?
 

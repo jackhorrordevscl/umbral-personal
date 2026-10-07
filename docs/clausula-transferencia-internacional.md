@@ -63,6 +63,21 @@ Encabezado sugerido para el subpunto nuevo en ambos documentos:
       profesional use la versión actualizada de los documentos con cada
       paciente nuevo desde ahora, y --si aplica-- actualice la fecha de
       vigencia en `docs/manual-terapeutas.md`.
+- [ ] **Alcance de almacenamiento actualizado (nota del 2026-10-06).** Además
+      de los respaldos, Backblaze B2 aloja hoy, en buckets privados y
+      separados entre sí, los avatares, los archivos personales y los
+      documentos adjuntos de la ficha (estos últimos cifrados por la
+      aplicación antes de subir), todos en Estados Unidos (región
+      `us-west-004`). El texto aplicado el 2026-08-03 dice que los
+      "documentos asociados" se almacenan en São Paulo; esa frase ya no
+      refleja la ubicación de los documentos adjuntos. No se modificó el
+      texto legal ya aplicado: queda pendiente que quien tenga criterio
+      legal decida si corresponde ajustarlo en los `.docx`.
+- [ ] **Otros proveedores.** Resend (email), Google (Calendar), Flow (cobro) y
+      Sentry (registro de errores, opcional) no están cubiertos por esta
+      cláusula; se tratan en el RAT (`docs/registro-actividades-tratamiento.md`,
+      filas 4, 11, 13 y 20, y sección "Transferencia internacional de
+      datos"), donde quedan pendientes de revisión legal.
 - [ ] **No incluido todavía: sincronización con Google Calendar**
       (sdd/google-calendar-integration, issue #78). El RAT
       (`docs/registro-actividades-tratamiento.md`, fila 11) ya documenta
