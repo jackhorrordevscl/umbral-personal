@@ -70,8 +70,10 @@ Concretamente:
 1. No se cambia el mecanismo de sesión en v1.
 2. Se abrió el issue #386 para añadir Content-Security-Policy en `vercel.json`
    (`script-src 'self'`, sin `unsafe-inline` si el build lo permite;
-   `connect-src` limitado al API) y se prueba primero en modo
-   `Content-Security-Policy-Report-Only`.
+   `connect-src` limitado al API y a Sentry). Se probó primero en modo
+   `Content-Security-Policy-Report-Only` (PR #389) y, tras recorrer las
+   pantallas públicas y autenticadas sin violaciones, pasó a modo bloqueante.
+   zod se configura con `jitless` para no requerir `unsafe-eval`.
 3. Se mantiene como regla de revisión: todo HTML de usuario se sanitiza antes de
    inyectarse; no se agrega `dangerouslySetInnerHTML` sin DOMPurify.
 4. Se reabre esta decisión (migración a B o C) si ocurre alguno de estos
