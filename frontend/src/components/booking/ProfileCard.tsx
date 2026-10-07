@@ -25,10 +25,10 @@ export default function ProfileCard({ profile, avatarUrl }: ProfileCardProps) {
           alt={profile.name}
           width={288}
           height={288}
-          className="h-20 w-20 lg:h-auto lg:w-full lg:aspect-square rounded-xl object-cover flex-shrink-0"
+          className="h-auto min-h-28 w-28 self-stretch lg:min-h-0 lg:w-full lg:self-auto lg:aspect-square rounded-xl object-cover flex-shrink-0"
         />
       ) : (
-        <div className="h-20 w-20 lg:h-auto lg:w-full lg:aspect-square rounded-xl bg-sage-100 text-sage-700 font-display text-2xl lg:text-7xl flex items-center justify-center flex-shrink-0">
+        <div className="h-auto min-h-28 w-28 self-stretch lg:min-h-0 lg:w-full lg:self-auto lg:aspect-square rounded-xl bg-sage-100 text-sage-700 font-display text-2xl lg:text-7xl flex items-center justify-center flex-shrink-0">
           {initials(profile.name)}
         </div>
       )}
