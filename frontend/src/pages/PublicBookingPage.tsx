@@ -8,11 +8,7 @@ import SlotList from '../components/booking/SlotList';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import { usePublicAvailability, usePublicTherapistProfile } from '../hooks/usePublicScheduling';
 import { getBookingCheckout, getPublicTherapistAvatarUrl } from '../api/publicScheduling';
-import {
-  chileMonthGridRange,
-  groupSlotsByChileDay,
-  toChileDayKey,
-} from '../utils/datetime';
+import { chileMonthGridRange, groupSlotsByChileDay, toChileDayKey } from '../utils/datetime';
 import { addMonths, chileTodayViewMonth } from '../utils/booking-calendar';
 import { revealElement } from '../utils/reveal';
 import type { ViewMonth } from '../utils/booking-calendar';
@@ -83,10 +79,7 @@ export default function PublicBookingPage() {
     setTakenMessage('');
   };
 
-  const grid = useMemo(
-    () => chileMonthGridRange(viewMonth.year, viewMonth.month),
-    [viewMonth],
-  );
+  const grid = useMemo(() => chileMonthGridRange(viewMonth.year, viewMonth.month), [viewMonth]);
   const {
     data: slots = [],
     isLoading,
@@ -116,10 +109,7 @@ export default function PublicBookingPage() {
     if (daySlots.length === 0) {
       setSelectedDay(null);
       setSelectedSlot(null);
-    } else if (
-      selectedSlot &&
-      !daySlots.some((slot) => slot.start === selectedSlot.start)
-    ) {
+    } else if (selectedSlot && !daySlots.some((slot) => slot.start === selectedSlot.start)) {
       setSelectedSlot(null);
     }
   }
@@ -212,7 +202,7 @@ export default function PublicBookingPage() {
       <div
         className={
           profile
-            ? 'mx-auto max-w-5xl grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:gap-8 lg:items-start'
+            ? 'mx-auto max-w-[96rem] grid gap-6 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)] lg:gap-8 lg:items-start'
             : 'mx-auto max-w-2xl'
         }
       >
@@ -221,21 +211,25 @@ export default function PublicBookingPage() {
             <ProfileCard profile={profile} avatarUrl={getPublicTherapistAvatarUrl(therapistId)} />
           </aside>
         )}
-        <main className="card p-4 sm:p-6 min-w-0">
-          <h2 className="font-display text-2xl text-slate-900 mb-1">Agenda tu sesión</h2>
-          <p className="text-slate-500 text-sm mb-6">
-            Elige un horario disponible para reservar.
-          </p>
+        <main className="card p-4 sm:p-6 min-w-0 xl:grid xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] xl:gap-x-10 xl:items-start">
+          <div className="xl:col-span-2">
+            <h2 className="font-display text-2xl text-slate-900 mb-1">Agenda tu sesión</h2>
+            <p className="text-slate-500 text-sm mb-6">
+              Elige un horario disponible para reservar.
+            </p>
+          </div>
 
-          {takenMessage && <ErrorBanner message={takenMessage} className="mb-4" />}
+          <div className="xl:col-span-2 empty:hidden">
+            {takenMessage && <ErrorBanner message={takenMessage} className="mb-4" />}
 
-          {isLoading && <p className="text-sm text-slate-500 mb-3">Cargando disponibilidad...</p>}
-          {isError && (
-            <ErrorBanner
-              message="No se pudo cargar la disponibilidad. Intenta nuevamente."
-              className="mb-3"
-            />
-          )}
+            {isLoading && <p className="text-sm text-slate-500 mb-3">Cargando disponibilidad...</p>}
+            {isError && (
+              <ErrorBanner
+                message="No se pudo cargar la disponibilidad. Intenta nuevamente."
+                className="mb-3"
+              />
+            )}
+          </div>
 
           <BookingCalendar
             viewMonth={viewMonth}
@@ -253,31 +247,38 @@ export default function PublicBookingPage() {
             }}
           />
 
-          {selectedDay && (
-            <section ref={slotsRef} className="mb-6">
-              <SlotList
-                dayKey={selectedDay}
-                slots={slotsByDay[selectedDay] ?? []}
-                selectedStart={selectedSlot?.start ?? null}
-                onSelect={(slot) => {
-                  setSelectedSlot(slot);
-                  setTakenMessage('');
-                }}
-              />
-            </section>
-          )}
+          <div className="min-w-0 xl:col-start-2">
+            {!selectedDay && (
+              <p className="hidden xl:block rounded-xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">
+                Selecciona un día del calendario para ver los horarios disponibles.
+              </p>
+            )}
+            {selectedDay && (
+              <section ref={slotsRef} className="mb-6">
+                <SlotList
+                  dayKey={selectedDay}
+                  slots={slotsByDay[selectedDay] ?? []}
+                  selectedStart={selectedSlot?.start ?? null}
+                  onSelect={(slot) => {
+                    setSelectedSlot(slot);
+                    setTakenMessage('');
+                  }}
+                />
+              </section>
+            )}
 
-          {selectedSlot && (
-            <section ref={formRef}>
-              <PublicBookingForm
-                therapistId={therapistId}
-                slotStart={selectedSlot.start}
-                onSuccess={setConfirmation}
-                onSlotTaken={handleSlotTaken}
-                origin={origin}
-              />
-            </section>
-          )}
+            {selectedSlot && (
+              <section ref={formRef}>
+                <PublicBookingForm
+                  therapistId={therapistId}
+                  slotStart={selectedSlot.start}
+                  onSuccess={setConfirmation}
+                  onSlotTaken={handleSlotTaken}
+                  origin={origin}
+                />
+              </section>
+            )}
+          </div>
         </main>
       </div>
     </div>
