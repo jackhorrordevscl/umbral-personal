@@ -18,29 +18,29 @@ export default function ProfileCard({ profile, avatarUrl }: ProfileCardProps) {
   const website = safeWebsite(profile.website);
 
   return (
-    <div className="card p-5 flex gap-4 lg:flex-col lg:items-start">
+    <div className="card p-5 lg:p-6 flex flex-1 gap-4 lg:flex-col lg:items-stretch lg:gap-6">
       {profile.hasAvatar ? (
         <img
           src={avatarUrl}
           alt={profile.name}
-          width={112}
-          height={112}
-          className="h-20 w-20 lg:h-28 lg:w-28 rounded-xl object-cover flex-shrink-0"
+          width={288}
+          height={288}
+          className="h-20 w-20 lg:h-auto lg:w-full lg:aspect-square rounded-xl object-cover flex-shrink-0"
         />
       ) : (
-        <div className="h-20 w-20 lg:h-28 lg:w-28 rounded-xl bg-sage-100 text-sage-700 font-display text-2xl flex items-center justify-center flex-shrink-0">
+        <div className="h-20 w-20 lg:h-auto lg:w-full lg:aspect-square rounded-xl bg-sage-100 text-sage-700 font-display text-2xl lg:text-7xl flex items-center justify-center flex-shrink-0">
           {initials(profile.name)}
         </div>
       )}
       <div className="min-w-0">
-        <h1 className="font-display text-2xl leading-tight text-slate-900">{profile.name}</h1>
+        <h1 className="font-display text-2xl lg:text-3xl leading-tight text-slate-900">{profile.name}</h1>
         {profile.specialty && (
-          <span className="inline-block mt-1 text-xs bg-sage-50 text-sage-700 px-2 py-0.5 rounded-full">
+          <span className="inline-block mt-1 lg:mt-2 text-xs lg:text-sm bg-sage-50 text-sage-700 px-2 py-0.5 lg:px-3 lg:py-1 rounded-full">
             {profile.specialty}
           </span>
         )}
         {profile.bio && (
-          <p className="mt-3 text-sm leading-relaxed text-slate-600 whitespace-pre-line line-clamp-4 lg:line-clamp-none">
+          <p className="mt-3 lg:mt-4 text-sm lg:text-base leading-relaxed text-slate-600 whitespace-pre-line line-clamp-4 lg:line-clamp-none">
             {profile.bio}
           </p>
         )}
@@ -49,7 +49,7 @@ export default function ProfileCard({ profile, avatarUrl }: ProfileCardProps) {
             href={website.href}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-3 inline-flex items-center gap-1.5 text-sm text-sage-700 hover:underline break-all rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage-400"
+            className="mt-3 lg:mt-4 inline-flex items-center gap-1.5 text-sm lg:text-base text-sage-700 hover:underline break-all rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage-400"
           >
             <Globe size={14} aria-hidden="true" />
             {website.label}
