@@ -202,12 +202,12 @@ export default function PublicBookingPage() {
       <div
         className={
           profile
-            ? 'mx-auto max-w-[96rem] grid gap-6 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)] lg:gap-8 lg:items-start'
+            ? 'mx-auto max-w-[96rem] grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:gap-8'
             : 'mx-auto max-w-2xl'
         }
       >
         {profile && (
-          <aside className="lg:sticky lg:top-8 lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto">
+          <aside className="flex flex-col">
             <ProfileCard profile={profile} avatarUrl={getPublicTherapistAvatarUrl(therapistId)} />
           </aside>
         )}
