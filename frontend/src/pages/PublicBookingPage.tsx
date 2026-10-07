@@ -198,12 +198,12 @@ export default function PublicBookingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-cream-100 px-3 py-6 sm:px-6 lg:py-12">
+    <div className="min-h-screen bg-cream-100 px-3 py-6 sm:px-6 lg:flex lg:items-center lg:py-12">
       <div
         className={
           profile
-            ? 'mx-auto max-w-[96rem] grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:gap-8'
-            : 'mx-auto max-w-2xl'
+            ? 'mx-auto w-full max-w-[96rem] grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:gap-8'
+            : 'mx-auto w-full max-w-2xl'
         }
       >
         {profile && (
