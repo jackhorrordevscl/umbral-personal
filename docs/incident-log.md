@@ -130,3 +130,10 @@ son un problema: `psql -f` los saltea y sigue con el resto del archivo.
 verificar. Esta prueba confirma que el pipeline completo (cifrado → subida →
 descarga → desencriptado → restore) funciona de punta a punta, no solo la
 mitad subida.
+
+**Nota (2026-10-06).** Las cifras de esta verificación (11 tablas y 21
+migraciones) corresponden al esquema vigente el 2026-08-03. A la fecha de esta
+nota `backend/prisma/migrations/` tiene 66 migraciones y `schema.prisma` define
+23 modelos, por lo que esas cifras ya no describen el estado actual. La
+verificación de restauración no se ha repetido desde entonces; conviene
+repetirla contra el esquema actual antes de la salida a v1.

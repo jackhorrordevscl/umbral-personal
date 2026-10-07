@@ -14,5 +14,5 @@ npm run start:prod      # producción
 npm run test             # tests unitarios
 npm run test:e2e         # tests e2e
 npm run test:cov         # cobertura
-npm run seed              # seed inicial (admin semilla)
+npm run seed              # seed inicial (usuario semilla)
 ```
