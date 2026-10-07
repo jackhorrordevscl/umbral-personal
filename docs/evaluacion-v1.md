@@ -52,7 +52,7 @@ El núcleo clínico, la seguridad de cuentas, los respaldos y el pipeline de CI 
 
 | # | Tema | Evidencia | Justificación |
 |---|---|---|---|
-| R1 | No hay health check que consulte la base | `render.yaml:22` usa `healthCheckPath: /api/v1`, que responde el saludo de `backend/src/app.controller.ts:8` sin tocar la base | Render considera sano un proceso con la base caída. Agregar un endpoint `/health` con `SELECT 1` es de bajo costo |
+| R1 | ~~No hay health check que consulte la base~~ Resuelto (#380) | `backend/src/health/health.controller.ts` ejecuta `SELECT 1` con timeout de 5 s y responde 503 si falla; `render.yaml` apunta a `/api/v1/health` | Verificar tras el despliegue que Render marque el servicio como sano. Si la base cae, Render puede reiniciar la instancia |
 | R2 | El cierre por inactividad no se dispara en móvil | Issue #367 (abierto, `bug`); temporizador en `frontend/src/hooks/useIdleTimeout.ts:58-72` | Es un control de seguridad (8 minutos) que no funciona donde más se usa. Mitigación parcial: JWT de 8 h y sesiones revocables. Recomendado alto: corregir antes de promover el uso desde celular |
 | R3 | Restore de respaldo verificado solo en agosto | `docs/incident-log.md` (verificación del 2026-08-03, 11 tablas y 21 migraciones; hoy 65 migraciones y 23 modelos) | Repetir el restore contra el esquema actual es barato y valida que los respaldos siguen siendo útiles |
 | R4 | Google OAuth en modo Testing | Issue #123 (abierto, `pospuesto`); README, sección Google Calendar | El refresh token caduca a los 7 días y la conexión se desconecta sola. Es opcional y el sistema degrada con aviso, pero genera soporte. Recomendado: iniciar la verificación de la app con Google |
@@ -84,7 +84,7 @@ El núcleo clínico, la seguridad de cuentas, los respaldos y el pipeline de CI 
 
 - [ ] B1: decidir y ejecutar la salida del plan gratuito de Render (o migrar los crons a un disparador externo) y, si no, quitar las promesas de recordatorios puntuales.
 - [ ] B2: redactar con apoyo legal y publicar la nota de privacidad de la agenda pública (#376).
-- [ ] R1: endpoint de health con consulta a la base y `healthCheckPath` actualizado en `render.yaml`.
+- [x] R1: endpoint de health con consulta a la base y `healthCheckPath` actualizado en `render.yaml`.
 - [ ] R2: corregir el cierre por inactividad en móvil (#367) y probar en un dispositivo real.
 - [ ] R3: repetir el restore de un respaldo reciente contra el esquema actual y anotarlo en `docs/incident-log.md`.
 - [ ] R4: iniciar la verificación de la app OAuth de Google (#123) o dejar documentada la limitación.

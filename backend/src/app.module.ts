@@ -30,6 +30,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { ClientIpMiddleware } from './common/middleware/client-ip.middleware';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { HealthController } from './health/health.controller';
 
 @Module({
   imports: [
@@ -72,7 +73,7 @@ import { AppService } from './app.service';
     // la firma Svix contra los bytes exactos del body.
     WebhooksModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, HealthController],
   providers: [
     AppService,
     {
