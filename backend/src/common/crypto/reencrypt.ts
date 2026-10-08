@@ -451,6 +451,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (apply) {
       throw new ArgsError('--check-retire no se combina con --apply');
     }
+    // Un escaneo parcial podría informar "ninguna fila usa la clave" aunque
+    // las filas sin revisar la sigan usando.
+    if (limit !== undefined) {
+      throw new ArgsError(
+        '--check-retire no se combina con --limit: debe revisar todas las filas',
+      );
+    }
     const dataset = DATASET_NAMES.find(
       (d) => DATASET_KEY_NAMES[d] === checkRetire.keyName,
     ) as DatasetName;

@@ -496,6 +496,7 @@ describe('parseArgs', () => {
     [['--check-retire', 'DOCUMENT_ENCRYPTION_KEY=300']],
     [['--check-retire', 'DOCUMENT_ENCRYPTION_KEY=x']],
     [['--check-retire', 'DOCUMENT_ENCRYPTION_KEY=0', '--apply']],
+    [['--check-retire', 'DOCUMENT_ENCRYPTION_KEY=0', '--limit', '10']],
     [['--check-retire', 'DOCUMENT_ENCRYPTION_KEY=0', '--only', 'mfa']],
     [['posicional']],
   ])('rechaza argumentos inválidos %j', (argv) => {
