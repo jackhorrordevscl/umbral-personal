@@ -29,15 +29,12 @@ Las filas 9-11 y 18 (archivos personales, backups, Google Calendar y bloques
 ocupados) mezclan ambos roles: el contenido es del terapeuta y la
 infraestructura es del operador. Se clasifican en la revisión legal.
 
-**Estado:** propuesta de roles redactada para el issue #376 y aceptada por el
-responsable del proyecto. Falta la confirmación de un abogado: roles, base
-legal y términos de la Ley 21.719 (por ejemplo, "supresión" en lugar de
-"cancelación", que es el término de la Ley 19.628 vigente). La política
-pública (repo `umbral-landing`, página `/privacidad-general`) ya describe al
-terapeuta como responsable de los datos de sus pacientes, pero su sección 0
-nombra a Ground Zero Devs como responsable sin acotar a los datos de la cuenta
-y llama encargado a "Umbral", no a Ground Zero Devs. Debe alinearse con esta
-sección.
+**Estado:** roles definidos para el issue #376 y alineados con la política
+pública (repo `umbral-landing`, página `/privacidad-general`). El abogado del
+proyecto los revisó y los dio por correctos el 2026-10-08, según informó el
+responsable del proyecto; no hay un documento de esa revisión en el repositorio.
+Quedan por clasificar las filas 9-11 y 18, que mezclan ambos roles, y por
+recopilar la evidencia de los DPA de Render y Sentry.
 
 ## Inventario de actividades de tratamiento
 
