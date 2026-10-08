@@ -347,7 +347,7 @@ describe('PaymentsService', () => {
         );
       });
 
-      it('sin representante con email: SKIPPED_NO_EMAIL, no usa el email del menor y el pagador técnico es el terapeuta', async () => {
+      it('sin representante con email: SKIPPED_NO_EMAIL, no usa el email del menor, no cae al terapeuta y no emite la orden', async () => {
         prisma.consultation.findFirst.mockResolvedValue(
           buildConsultation(
             {},
@@ -367,12 +367,15 @@ describe('PaymentsService', () => {
         await service.ensureCharge('group-1');
 
         expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
-        expect(gatewayAdapter.createOrder).toHaveBeenCalledWith(
-          expect.anything(),
-          expect.objectContaining({
-            payerEmail: 'terapeuta@example.com',
-          }) as unknown,
-        );
+        expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+        expect(prisma.payment.update).toHaveBeenCalledWith({
+          where: { id: 'payment-1' },
+          data: {
+            lastError: expect.stringContaining(
+              'representante legal',
+            ) as unknown,
+          },
+        });
         expect(prisma.payment.update).toHaveBeenCalledWith({
           where: { id: 'payment-1' },
           data: { linkDelivery: 'SKIPPED_NO_EMAIL' },

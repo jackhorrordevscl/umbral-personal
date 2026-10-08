@@ -107,11 +107,12 @@ propio menor nunca se usa. Sin representante elegible el envío se omite
 (`linkDelivery = SKIPPED_NO_EMAIL`) y queda un aviso en el log; no se cae al
 email del terapeuta para los avisos.
 
-Excepción técnica: Flow exige un email de pagador al crear la orden. Si ningún
-representante tiene email, el pagador técnico ante Flow es el email del
-terapeuta, con un `warn` en el log para que no sea silencioso. Solo un
-representante a la vez puede ser `isPayer`: marcar uno limpia la marca en el
-otro.
+Flow exige un email de pagador al crear la orden y le envía el comprobante. Por
+eso, si ningún representante tiene email, no se emite la orden: no se usa el
+email del terapeuta como pagador. El cobro queda creado, sin link, con
+`lastError` explicando que falta el email de un representante, y se completa
+con el reintento de cobro una vez cargado ese email. Solo un representante a la
+vez puede ser `isPayer`: marcar uno limpia la marca en el otro.
 
 Los recordatorios de sesión no cambian: van al terapeuta. El aviso de
 cancelación al representante queda para el bloque del informe de alta.
