@@ -31,10 +31,13 @@ infraestructura es del operador. Se clasifican en la revisión legal.
 
 **Estado:** propuesta de roles redactada para el issue #376 y aceptada por el
 responsable del proyecto. Falta la confirmación de un abogado: roles, base
-legal y términos de la Ley 21.719 (por ejemplo, "supresión" en vez de
-"cancelación" al describir los derechos). La política pública
-(`/privacidad-general`, sitio aparte) debe alinearse con esta sección: hoy
-nombra a Ground Zero Devs como responsable de todo y a Umbral como encargado.
+legal y términos de la Ley 21.719 (por ejemplo, "supresión" en lugar de
+"cancelación", que es el término de la Ley 19.628 vigente). La política
+pública (repo `umbral-landing`, página `/privacidad-general`) ya describe al
+terapeuta como responsable de los datos de sus pacientes, pero su sección 0
+nombra a Ground Zero Devs como responsable sin acotar a los datos de la cuenta
+y llama encargado a "Umbral", no a Ground Zero Devs. Debe alinearse con esta
+sección.
 
 ## Inventario de actividades de tratamiento
 
