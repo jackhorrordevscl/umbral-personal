@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   HttpException,
   Injectable,
   Logger,
@@ -16,12 +17,15 @@ import { UpdatePatientDto } from './dto/update-patient.dto';
 import { RecordConsentDto } from './dto/record-consent.dto';
 import { BulkDeclareConsentDto } from './dto/bulk-declare-consent.dto';
 import {
+  ConsentAction,
+  ConsentGrantor,
   ConsentPurpose,
   Patient,
   PatientConsent,
   Prisma,
 } from '@prisma/client';
 import { getAgeBand, isMinor } from '../../common/utils/age.util';
+import { chileDayKeyFromInstant } from '../../common/utils/chile-time.util';
 import { MINOR_GUARDIAN_ENFORCEMENT_DATE } from './patients.constants';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
@@ -80,6 +84,11 @@ function comparableValue(key: string, value: unknown): string | null {
     ? JSON.stringify(value)
     : String(value as string | number | boolean);
 }
+
+const MINOR_NEEDS_GUARDIAN_MESSAGE =
+  'El paciente es menor de edad: el consentimiento debe ser otorgado por su representante legal. Registra al representante e indícalo al registrar el consentimiento.';
+const MINOR_LEGACY_CONSENT_MESSAGE =
+  'El paciente es menor de edad: el consentimiento debe ser otorgado por su representante legal. Registra al representante y un nuevo consentimiento otorgado por él.';
 
 type ConsentStatusMap = Record<ConsentPurpose, boolean>;
 
@@ -323,10 +332,10 @@ export class PatientsService {
   async assertAccess(
     id: string,
     userId: string,
-  ): Promise<{ id: string; rut: string }> {
+  ): Promise<{ id: string; rut: string; birthDate: Date }> {
     const patient = await this.prisma.patient.findFirst({
       where: { id, therapistId: userId, deletedAt: null },
-      select: { id: true, rut: true },
+      select: { id: true, rut: true, birthDate: true },
     });
     // NotFoundException uniforme tanto si el paciente no existe como si
     // pertenece a otro profesional: no distinguir evita filtrar (vía 403 vs
@@ -536,7 +545,11 @@ export class PatientsService {
     userId: string,
     documentId?: string,
   ) {
-    await this.assertAccess(id, userId);
+    const patient = await this.assertAccess(id, userId);
+    const { grantedBy, guardianId } = await this.resolveConsentGrantor(
+      patient,
+      dto,
+    );
 
     return this.prisma.patientConsent.create({
       data: {
@@ -546,8 +559,105 @@ export class PatientsService {
         recordedById: userId,
         evidence: dto.evidence,
         documentId: documentId ?? null,
+        grantedBy,
+        guardianId,
       },
     });
+  }
+
+  // Write policy (strict from deploy, unlike the lenient read policy in
+  // assertTreatmentConsent):
+  // - adult: only the patient can grant; a guardian makes no sense.
+  // - minor: a GRANT needs a guardian of THIS patient with canConsent; a
+  //   REVOKE is always accepted (revoking is never blocked), but a guardian
+  //   reference, when present, must still be coherent.
+  private async resolveConsentGrantor(
+    patient: { id: string; birthDate: Date },
+    dto: Pick<RecordConsentDto, 'action' | 'grantedBy' | 'guardianId'>,
+  ): Promise<{ grantedBy: ConsentGrantor; guardianId: string | null }> {
+    const grantedBy = dto.grantedBy ?? ConsentGrantor.PATIENT;
+    const guardianId = dto.guardianId ?? null;
+
+    if (!isMinor(patient.birthDate)) {
+      if (grantedBy !== ConsentGrantor.PATIENT || guardianId) {
+        throw new BadRequestException(
+          'Un paciente mayor de edad otorga su propio consentimiento: no corresponde indicar un representante legal.',
+        );
+      }
+      return { grantedBy, guardianId: null };
+    }
+
+    const isGrant = dto.action === ConsentAction.GRANT;
+    if (isGrant && (grantedBy !== ConsentGrantor.GUARDIAN || !guardianId)) {
+      throw new BadRequestException(MINOR_NEEDS_GUARDIAN_MESSAGE);
+    }
+    if (grantedBy === ConsentGrantor.GUARDIAN && !guardianId) {
+      throw new BadRequestException(
+        'Debe indicar el representante legal que otorga el consentimiento.',
+      );
+    }
+    if (grantedBy === ConsentGrantor.PATIENT && guardianId) {
+      throw new BadRequestException(
+        'Un consentimiento otorgado por el paciente no puede referenciar a un representante.',
+      );
+    }
+
+    if (guardianId) {
+      await this.assertGuardianCanSign(patient.id, guardianId, isGrant);
+    }
+    return { grantedBy, guardianId };
+  }
+
+  // The guardian must belong to THIS patient (another patient's guardian is
+  // rejected as if it did not exist) and, to sign a GRANT, have canConsent.
+  // Also used by DocumentsService to fail before storing a consent document.
+  async assertGuardianCanSign(
+    patientId: string,
+    guardianId: string,
+    requireCanConsent: boolean,
+  ): Promise<void> {
+    const guardian = await this.prisma.legalGuardian.findFirst({
+      where: { id: guardianId, patientId },
+      select: { canConsent: true },
+    });
+    if (!guardian) {
+      throw new BadRequestException(
+        'El representante indicado no pertenece a este paciente.',
+      );
+    }
+    if (requireCanConsent && !guardian.canConsent) {
+      throw new BadRequestException(
+        'El representante indicado no está habilitado para otorgar consentimiento.',
+      );
+    }
+  }
+
+  // Read policy for the consultation guardrail. An adult needs an active
+  // consent for any purpose. A minor needs one granted by a legal guardian,
+  // but only from MINOR_GUARDIAN_ENFORCEMENT_DATE (Santiago calendar day):
+  // before it, the consent the patient gave as a legacy still counts, so the
+  // existing minors are not locked out while they are regularized.
+  async assertTreatmentConsent(
+    patientId: string,
+    noConsentMessage: string,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ): Promise<void> {
+    const patient = await client.patient.findUnique({
+      where: { id: patientId },
+      select: { birthDate: true },
+    });
+    if (!patient) throw new NotFoundException('Paciente no encontrado');
+
+    const events = await this.getLatestConsentEvents([patientId], client);
+    const granted = events.filter((e) => e.action === ConsentAction.GRANT);
+    if (granted.length === 0) throw new ForbiddenException(noConsentMessage);
+
+    if (!isMinor(patient.birthDate)) return;
+    const today = chileDayKeyFromInstant(new Date());
+    if (today < MINOR_GUARDIAN_ENFORCEMENT_DATE) return;
+    if (!granted.some((e) => e.grantedBy === ConsentGrantor.GUARDIAN)) {
+      throw new ForbiddenException(MINOR_LEGACY_CONSENT_MESSAGE);
+    }
   }
 
   // T5 (issue #131): declaración retroactiva en bloque para pacientes que

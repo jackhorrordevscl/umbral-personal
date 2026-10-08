@@ -470,17 +470,17 @@ describe('Patient guardians (e2e)', () => {
       );
       const guardianId = (created.body as Body).id as string;
 
-      // Legacy consent: recorded through the existing endpoint, grantedBy
-      // defaults to PATIENT.
-      await request(app.getHttpServer())
-        .post(`/api/v1/patients/${id}/consents`)
-        .set('Authorization', `Bearer ${tokenA}`)
-        .send({
+      // Legacy consent: seeded directly, since the API now requires a guardian
+      // to grant consent for a minor. grantedBy defaults to PATIENT.
+      await prisma.patientConsent.create({
+        data: {
+          patientId: id,
           purpose: 'TREATMENT',
           action: 'GRANT',
+          recordedById: therapistAId,
           evidence: 'Consentimiento firmado antes del cambio',
-        })
-        .expect(201);
+        },
+      });
       expect((await getPatient(tokenA, id)).minorStatus).toBe('LEGACY_CONSENT');
 
       // The list endpoint reports the same state without the guardians array.

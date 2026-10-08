@@ -105,6 +105,35 @@ describe('límites de longitud en DTOs de patients', () => {
     expect(errors.map((e) => e.property)).toContain('evidence');
   });
 
+  // M2b: quién otorga el consentimiento (la edad la valida el servicio).
+  it('RecordConsentDto acepta grantedBy GUARDIAN con guardianId UUID', async () => {
+    const dto = plainToInstance(RecordConsentDto, {
+      purpose: 'TREATMENT',
+      action: 'GRANT',
+      evidence: 'Firmado por la madre en papel',
+      grantedBy: 'GUARDIAN',
+      guardianId: '3f2b8c1e-5a4d-4e6f-8a9b-0c1d2e3f4a5b',
+    });
+
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('RecordConsentDto rechaza grantedBy inválido y guardianId que no es UUID', async () => {
+    const dto = plainToInstance(RecordConsentDto, {
+      purpose: 'TREATMENT',
+      action: 'GRANT',
+      evidence: 'Firmado por la madre en papel',
+      grantedBy: 'NADIE',
+      guardianId: 'no-es-uuid',
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors.map((e) => e.property)).toEqual(
+      expect.arrayContaining(['grantedBy', 'guardianId']),
+    );
+  });
+
   it('BulkDeclareConsentDto rechaza evidencia de 5000 caracteres', async () => {
     const dto = plainToInstance(BulkDeclareConsentDto, {
       patientIds: ['3fa85f64-5717-4562-b3fc-2c963f66afa6'],
