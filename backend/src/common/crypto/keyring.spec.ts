@@ -6,6 +6,8 @@ import {
   decryptWithKeyring,
   encryptTextWithKeyring,
   encryptWithKeyring,
+  inspectPayload,
+  inspectText,
   resolvePayloadKeyId,
   resolveTextKeyId,
 } from './keyring';
@@ -261,6 +263,69 @@ describe('keyring', () => {
       const payload = encryptAesGcm(Buffer.from('a'), Buffer.alloc(32, 99));
 
       expect(() => resolvePayloadKeyId(payload, ringWith())).toThrow();
+    });
+  });
+
+  describe('inspectPayload / inspectText', () => {
+    it('distingue un payload legacy de uno versionado con id 0', () => {
+      const ring = ringWith();
+      const legacy = encryptAesGcm(Buffer.from('a'), key0);
+      const versioned = encryptWithKeyring(Buffer.from('a'), ring);
+
+      expect(inspectPayload(legacy, ring)).toEqual({
+        keyId: 0,
+        versioned: false,
+      });
+      expect(inspectPayload(versioned, ring)).toEqual({
+        keyId: 0,
+        versioned: true,
+      });
+    });
+
+    it('informa el keyId de un payload versionado con otra clave', () => {
+      const ring = ringWith('5');
+      const payload = encryptWithKeyring(Buffer.from('a'), ring);
+
+      expect(inspectPayload(payload, ring)).toEqual({
+        keyId: 5,
+        versioned: true,
+      });
+    });
+
+    it('trata como legacy un payload cuyo IV imita la cabecera', () => {
+      const iv = Buffer.concat([
+        Buffer.from([0x55, 0x4b, 0x01, 0x05]),
+        Buffer.alloc(8, 1),
+      ]);
+      const payload = legacyPayloadWithIv(iv, Buffer.from('a'), key0);
+
+      expect(inspectPayload(payload, ringWith('5'))).toEqual({
+        keyId: 0,
+        versioned: false,
+      });
+    });
+
+    it('lanza si el payload no se puede descifrar', () => {
+      const payload = encryptAesGcm(Buffer.from('a'), Buffer.alloc(32, 99));
+
+      expect(() => inspectPayload(payload, ringWith())).toThrow();
+    });
+
+    it('clasifica texto plano, enc:v1 y enc:v2', () => {
+      const ring = ringWith('7');
+      const v1 = `enc:v1:${encryptAesGcm(Buffer.from('a'), key0).toString('base64')}`;
+      const v2 = encryptTextWithKeyring(Buffer.from('a'), ring);
+
+      expect(inspectText('JBSWY3DPEHPK3PXP')).toEqual({
+        keyId: null,
+        format: 'plaintext',
+      });
+      expect(inspectText(v1)).toEqual({ keyId: 0, format: 'v1' });
+      expect(inspectText(v2)).toEqual({ keyId: 7, format: 'v2' });
+    });
+
+    it('lanza ante un enc:v2 con keyId inválido', () => {
+      expect(() => inspectText('enc:v2:x:abc')).toThrow();
     });
   });
 });
