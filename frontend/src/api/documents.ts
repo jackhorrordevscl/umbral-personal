@@ -10,12 +10,16 @@ export function uploadPatientDocument(
   file: File,
   type: string,
   consultationGroupId?: string,
+  // Bloque Menores: representante que otorga el consentimiento de un menor.
+  // El servidor fija grantedBy; el cliente solo indica quién.
+  guardianId?: string,
 ) {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('patientId', patientId);
   formData.append('type', type);
   if (consultationGroupId) formData.append('consultationGroupId', consultationGroupId);
+  if (guardianId) formData.append('guardianId', guardianId);
   return api.post('/documents/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });

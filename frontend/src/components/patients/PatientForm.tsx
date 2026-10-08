@@ -7,6 +7,7 @@ import {
   type ConsentPurpose,
   type ConsentStatus,
 } from "../../types/patient";
+import { isMinorOnChileDay } from "../../utils/age";
 
 export interface StagedDocument {
   file: File;
@@ -181,6 +182,16 @@ export default function PatientForm({
             onChange={(e) => onChange({ ...form, defaultSessionAmount: e.target.value })}
           />
         </FormField>
+        {isMinorOnChileDay(form.birthDate) && (
+          <p
+            role="note"
+            className="md:col-span-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700"
+          >
+            El paciente es menor de edad. El representante legal se agrega desde su ficha,
+            después de guardarla. Hasta entonces no se registrará el consentimiento ni se
+            subirán consentimientos adjuntos.
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-6 pt-2">
           {(Object.keys(CONSENT_PURPOSE_LABELS) as ConsentPurpose[]).map((purpose) => (
             <label

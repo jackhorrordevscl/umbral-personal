@@ -116,4 +116,17 @@ describe('PatientForm', () => {
 
     expect(screen.getByRole('button', { name: /guardando/i })).toBeDisabled()
   })
+
+  it('avisa que el representante se agrega después cuando la fecha de nacimiento es de un menor', () => {
+    const year = new Date().getFullYear() - 10
+    renderForm({ form: buildForm({ birthDate: `${year}-01-01` }) })
+
+    expect(screen.getByRole('note')).toHaveTextContent(/representante legal se agrega desde su ficha/i)
+  })
+
+  it('no muestra el aviso de menor para un adulto', () => {
+    renderForm({ form: buildForm({ birthDate: '1990-01-01' }) })
+
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+  })
 })

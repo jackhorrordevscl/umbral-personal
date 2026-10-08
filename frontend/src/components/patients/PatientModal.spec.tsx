@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import PatientModal from './PatientModal'
 import api from '../../api/client'
-import type { Patient, PatientDocument } from '../../types/patient'
+import type { LegalGuardian, Patient, PatientDocument } from '../../types/patient'
 
 // Issue #270: anular documentos legales desde la ficha (sin borrado físico).
 
@@ -190,5 +190,191 @@ describe('PatientModal — formularios (#295)', () => {
     await user.click(screen.getByRole('button', { name: 'Editar' }))
 
     expect(screen.getByLabelText('Teléfono')).toHaveValue('999')
+  })
+})
+
+// Bloque Menores (M5)
+const guardian: LegalGuardian = {
+  id: 'guardian-1',
+  patientId: 'patient-1',
+  fullName: 'Ana Pérez',
+  rut: '12345678-5',
+  relationship: 'MOTHER',
+  email: null,
+  phone: null,
+  isPayer: true,
+  receivesCommunications: true,
+  canAccessReports: true,
+  canConsent: true,
+  custody: 'SOLE',
+  hasConflict: false,
+}
+
+const minorPatient = {
+  ...patient,
+  birthDate: '2015-05-05T00:00:00.000Z',
+  isMinor: true,
+  ageBand: 'UNDER_14',
+  guardianCount: 0,
+  minorStatus: 'MISSING_GUARDIAN',
+} as unknown as Patient
+
+function renderMinorModal(target: Patient = minorPatient) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <PatientModal patient={target} initialTab="detail" onClose={() => undefined} />
+    </QueryClientProvider>,
+  )
+}
+
+function mockMinorApi(guardians: LegalGuardian[]) {
+  mockedApi.get.mockImplementation((url: string) => {
+    if (url === '/patients/patient-1/guardians') return Promise.resolve({ data: guardians })
+    if (url === '/patients/patient-1/assents') return Promise.resolve({ data: [] })
+    if (url === '/patients/patient-1') return Promise.resolve({ data: minorPatient })
+    return Promise.resolve({ data: [] })
+  })
+}
+
+function fileInput(container: HTMLElement) {
+  return container.ownerDocument.querySelector('input[type="file"]') as HTMLInputElement
+}
+
+describe('PatientModal — pacientes menores (bloque Menores, M5)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('muestra el tramo etario, la alerta con el plazo, los representantes y el asentimiento', async () => {
+    mockMinorApi([])
+    renderMinorModal()
+
+    expect(screen.getByText('Menor de 14 años')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(/01-12-2026/)
+    expect(await screen.findByText('Sin representantes registrados.')).toBeInTheDocument()
+    expect(screen.getByText('Asentimiento del menor')).toBeInTheDocument()
+  })
+
+  it('un adulto no ve alerta, representantes ni asentimiento', () => {
+    mockedApi.get.mockResolvedValue({ data: [] })
+    renderModal()
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText('Representantes legales')).not.toBeInTheDocument()
+    expect(screen.queryByText('Asentimiento del menor')).not.toBeInTheDocument()
+  })
+
+  it('sin representante con canConsent bloquea la subida de un consentimiento', async () => {
+    mockMinorApi([])
+    renderMinorModal()
+
+    expect(await screen.findByText(/agrega primero un representante legal/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /subir/i })).toBeDisabled()
+  })
+
+  it('sube el consentimiento de un menor con el guardianId del representante', async () => {
+    const user = userEvent.setup()
+    mockMinorApi([guardian])
+    mockedApi.post.mockResolvedValue({ data: {} })
+    const { container } = renderMinorModal()
+
+    await screen.findByLabelText('Representante que otorga el consentimiento')
+    await user.upload(fileInput(container), new File(['x'], 'firma.pdf', { type: 'application/pdf' }))
+
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalled())
+    const [url, body] = mockedApi.post.mock.calls[0]
+    expect(url).toBe('/documents/upload')
+    const form = body as FormData
+    expect(form.get('type')).toBe('INFORMED_CONSENT')
+    expect(form.get('guardianId')).toBe('guardian-1')
+  })
+
+  it('el asentimiento informado de un menor se sube sin representante', async () => {
+    const user = userEvent.setup()
+    mockMinorApi([])
+    mockedApi.post.mockResolvedValue({ data: {} })
+    const { container } = renderMinorModal()
+
+    await user.selectOptions(
+      await screen.findByLabelText('Tipo de documento a subir'),
+      'INFORMED_ASSENT',
+    )
+    await user.upload(
+      fileInput(container),
+      new File(['x'], 'asentimiento.pdf', { type: 'application/pdf' }),
+    )
+
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalled())
+    const form = mockedApi.post.mock.calls[0][1] as FormData
+    expect(form.get('type')).toBe('INFORMED_ASSENT')
+    expect(form.has('guardianId')).toBe(false)
+  })
+
+  it('un adulto sube el consentimiento sin guardianId', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockResolvedValue({ data: [] })
+    mockedApi.post.mockResolvedValue({ data: {} })
+    const { container } = renderModal()
+
+    await user.upload(fileInput(container), new File(['x'], 'firma.pdf', { type: 'application/pdf' }))
+
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalled())
+    expect((mockedApi.post.mock.calls[0][1] as FormData).has('guardianId')).toBe(false)
+  })
+
+  it('al otorgar un consentimiento desde la edición envía GUARDIAN y el guardianId', async () => {
+    const user = userEvent.setup()
+    mockMinorApi([guardian])
+    mockedApi.patch.mockResolvedValue({ data: {} })
+    mockedApi.post.mockResolvedValue({ data: {} })
+    renderMinorModal({
+      ...minorPatient,
+      consents: { TREATMENT: false, TELEMEDICINE: false },
+    } as unknown as Patient)
+
+    await screen.findByRole('button', { name: 'Editar a Ana Pérez' })
+    await user.click(screen.getByRole('button', { name: 'Editar' }))
+    await user.click(screen.getByLabelText('Presencial'))
+    await user.type(
+      screen.getByLabelText(/motivo de la modificación/i),
+      'Regularización del representante',
+    )
+    await user.click(screen.getByRole('button', { name: /guardar cambios/i }))
+
+    await waitFor(() =>
+      expect(mockedApi.post).toHaveBeenCalledWith(
+        '/patients/patient-1/consents',
+        expect.objectContaining({
+          purpose: 'TREATMENT',
+          action: 'GRANT',
+          grantedBy: 'GUARDIAN',
+          guardianId: 'guardian-1',
+        }),
+      ),
+    )
+  })
+
+  it('un adulto que otorga consentimiento desde la edición no envía grantedBy', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockResolvedValue({ data: [] })
+    mockedApi.patch.mockResolvedValue({ data: {} })
+    mockedApi.post.mockResolvedValue({ data: {} })
+    renderModal()
+
+    await user.click(screen.getByRole('button', { name: 'Editar' }))
+    await user.click(screen.getByLabelText('Telemedicina'))
+    await user.type(
+      screen.getByLabelText(/motivo de la modificación/i),
+      'Consentimiento de telemedicina',
+    )
+    await user.click(screen.getByRole('button', { name: /guardar cambios/i }))
+
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalled())
+    const body = mockedApi.post.mock.calls[0][1] as Record<string, unknown>
+    expect(body).not.toHaveProperty('grantedBy')
+    expect(body).not.toHaveProperty('guardianId')
   })
 })

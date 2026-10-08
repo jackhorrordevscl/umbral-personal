@@ -1,5 +1,16 @@
 import api from './client';
-import type { ConsentPurpose, ConsentStatus, Patient, PatientHistoryEntry } from '../types/patient';
+import type {
+  AssentAction,
+  ConsentGrantor,
+  ConsentPurpose,
+  ConsentStatus,
+  CustodyType,
+  GuardianRelationship,
+  LegalGuardian,
+  Patient,
+  PatientAssent,
+  PatientHistoryEntry,
+} from '../types/patient';
 
 export interface CreatePatientPayload {
   fullName: string;
@@ -92,8 +103,16 @@ export function recordPatientConsent(
   purpose: ConsentPurpose,
   action: 'GRANT' | 'REVOKE',
   evidence: string,
+  // Bloque Menores: solo para el GRANT de un menor (GUARDIAN + guardianId).
+  // Un adulto nunca debe enviarlos.
+  grantor?: { grantedBy: ConsentGrantor; guardianId?: string },
 ) {
-  return api.post(`/patients/${id}/consents`, { purpose, action, evidence });
+  return api.post(`/patients/${id}/consents`, {
+    purpose,
+    action,
+    evidence,
+    ...(grantor ? { grantedBy: grantor.grantedBy, guardianId: grantor.guardianId } : {}),
+  });
 }
 
 export function getPatientConsentStatus(id: string) {
@@ -120,4 +139,56 @@ export function bulkDeclarePatientConsent(
       evidence,
     })
     .then((r) => r.data);
+}
+
+// Bloque Menores (M5): representantes legales (máximo 2 por paciente).
+export interface GuardianPayload {
+  fullName: string;
+  rut: string;
+  relationship: GuardianRelationship;
+  email?: string;
+  phone?: string;
+  isPayer?: boolean;
+  receivesCommunications?: boolean;
+  canAccessReports?: boolean;
+  canConsent?: boolean;
+  custody?: CustodyType;
+  hasConflict?: boolean;
+}
+
+export function listGuardians(patientId: string) {
+  return api.get<LegalGuardian[]>(`/patients/${patientId}/guardians`).then((r) => r.data);
+}
+
+export function createGuardian(patientId: string, data: GuardianPayload) {
+  return api.post<LegalGuardian>(`/patients/${patientId}/guardians`, data).then((r) => r.data);
+}
+
+export function updateGuardian(
+  patientId: string,
+  guardianId: string,
+  data: Partial<GuardianPayload>,
+) {
+  return api
+    .patch<LegalGuardian>(`/patients/${patientId}/guardians/${guardianId}`, data)
+    .then((r) => r.data);
+}
+
+// 409 si algún consentimiento referencia al representante.
+export function deleteGuardian(patientId: string, guardianId: string) {
+  return api.delete(`/patients/${patientId}/guardians/${guardianId}`);
+}
+
+// Ledger append-only de asentimiento del menor (sin PATCH ni DELETE).
+export interface AssentPayload {
+  action: AssentAction;
+  note?: string;
+}
+
+export function listAssents(patientId: string) {
+  return api.get<PatientAssent[]>(`/patients/${patientId}/assents`).then((r) => r.data);
+}
+
+export function recordAssent(patientId: string, data: AssentPayload) {
+  return api.post<PatientAssent>(`/patients/${patientId}/assents`, data).then((r) => r.data);
 }

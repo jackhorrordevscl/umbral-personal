@@ -3,6 +3,7 @@ import { List, useDynamicRowHeight, type RowComponentProps } from "react-window"
 import { UserPlus, Search, Download, Trash2, Eye, Pencil, AlertCircle } from "lucide-react";
 import { normalizeRut, formatRut, validateRut } from "../utils/rut";
 import { getApiErrorMessage } from "../utils/api-error";
+import { isMinorOnChileDay } from "../utils/age";
 import { downloadPatientReport } from "../api/reports";
 import { downloadBlob } from "../utils/download";
 import {
@@ -54,6 +55,26 @@ const displayRut = (rut: string) => formatRut(rut.replace(/\./g, ""));
 // consents.TREATMENT, así que un paciente con consentimiento SOLO de
 // telemedicina (igual de válido) aparecía como "Sin consentimiento". El
 // consentimiento de cualquiera de las dos finalidades habilita la ficha.
+// Bloque Menores (M5): documentos que otorgan consentimiento y, en un menor,
+// requieren un representante (no puede existir aún al crear la ficha).
+const MINOR_GUARDIAN_DOC_TYPES = ["INFORMED_CONSENT", "TELEMED_AGREEMENT"];
+
+// Menor sin representante con facultad de consentir, o con consentimiento
+// legado: se marca en la lista para regularizarlo antes de la fecha límite.
+const needsMinorAttention = (p: Patient) =>
+  p.minorStatus === "MISSING_GUARDIAN" || p.minorStatus === "LEGACY_CONSENT";
+
+function MinorStatusBadge({ patient }: { patient: Patient }) {
+  if (!needsMinorAttention(patient)) return null;
+  return (
+    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 whitespace-nowrap">
+      {patient.minorStatus === "MISSING_GUARDIAN"
+        ? "Menor sin representante"
+        : "Menor: consentimiento por regularizar"}
+    </span>
+  );
+}
+
 const hasAnyConsent = (p: Patient) => Boolean(p.consents?.TREATMENT || p.consents?.TELEMEDICINE);
 
 // Issue #206: con años de datos acumulados, `filtered.map(...)` montaba
@@ -106,6 +127,7 @@ function PatientTableRow({
       <div role="cell">
         <p className="font-medium text-slate-800">{p.fullName}</p>
         <p className="text-xs text-slate-500">{p.email}</p>
+        <MinorStatusBadge patient={p} />
       </div>
       <div role="cell" className="text-slate-600 font-mono text-xs">
         {displayRut(p.rut)}
@@ -189,6 +211,7 @@ function PatientCardRow({
           <div>
             <p className="font-medium text-slate-800">{p.fullName}</p>
             <p className="text-xs text-slate-500 font-mono">{displayRut(p.rut)}</p>
+            <MinorStatusBadge patient={p} />
           </div>
           <span
             className={`text-xs px-2 py-1 rounded-full shrink-0 ${
@@ -381,7 +404,7 @@ export default function PatientsPage() {
         consents: formConsents,
       },
       {
-        onSuccess: async ({ patient, failedPurposes }) => {
+        onSuccess: async ({ patient, failedPurposes, deferredPurposes }) => {
           setShowForm(false);
           resetCreateForm();
 
@@ -392,16 +415,34 @@ export default function PatientsPage() {
             );
           }
 
+          // Bloque Menores: sin representante todavía no se puede otorgar el
+          // consentimiento de un menor ni subir documentos que lo otorgan.
+          const minorPatient = isMinorOnChileDay(form.birthDate);
+          if (deferredPurposes.length > 0) {
+            messages.push(
+              "Paciente menor de edad creado: agrega a su representante legal desde la ficha y luego registra el consentimiento.",
+            );
+          }
+          const docsToUpload = minorPatient
+            ? stagedDocuments.filter((doc) => !MINOR_GUARDIAN_DOC_TYPES.includes(doc.type))
+            : stagedDocuments;
+          const heldDocs = stagedDocuments.length - docsToUpload.length;
+          if (heldDocs > 0) {
+            messages.push(
+              `${heldDocs} documento(s) de consentimiento no se subieron porque requieren un representante legal: súbelos desde la ficha una vez agregado.`,
+            );
+          }
+
           // Recién acá existe el patientId -- documentsApi.uploadPatientDocument
           // lo exige, así que estos uploads no pueden dispararse antes de que
           // la creación del paciente resuelva.
-          if (stagedDocuments.length > 0) {
+          if (docsToUpload.length > 0) {
             const results = await Promise.allSettled(
-              stagedDocuments.map((doc) =>
+              docsToUpload.map((doc) =>
                 documentsApi.uploadPatientDocument(patient.id, doc.file, doc.type),
               ),
             );
-            const failedDocs = stagedDocuments.filter((_, i) => results[i].status === "rejected");
+            const failedDocs = docsToUpload.filter((_, i) => results[i].status === "rejected");
             if (failedDocs.length > 0) {
               messages.push(
                 `No se pudieron subir ${failedDocs.length} documento(s): ${failedDocs

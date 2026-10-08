@@ -1,7 +1,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import * as patientsApi from '../api/patients';
-import type { ConsentPurpose, ConsentStatus } from '../types/patient';
+import type { ConsentGrantor, ConsentPurpose, ConsentStatus } from '../types/patient';
+import { isMinorOnChileDay } from '../utils/age';
 
 // issue #290: las claves cuelgan todas del prefijo ['patients'] para que las
 // mutaciones (crear/editar/eliminar/consentimientos/documentos) refresquen con
@@ -12,6 +13,9 @@ export const patientKeys = {
   list: (params: patientsApi.ListPatientsParams) => ['patients', 'list', params] as const,
   summary: ['patients', 'summary'] as const,
   detail: (id: string) => ['patients', 'detail', id] as const,
+  // Bloque Menores: cuelgan de ['patients'] para refrescarse con patientKeys.all.
+  guardians: (id: string) => ['patients', 'guardians', id] as const,
+  assents: (id: string) => ['patients', 'assents', id] as const,
 };
 
 // Lista paginada con búsqueda en el servidor. keepPreviousData mantiene la
@@ -67,9 +71,15 @@ export function useCreatePatient() {
       consents: ConsentStatus;
     }) => {
       const patient = await patientsApi.createPatient(data);
-      const grants = (Object.keys(consents) as ConsentPurpose[]).filter(
+      const requested = (Object.keys(consents) as ConsentPurpose[]).filter(
         (purpose) => consents[purpose],
       );
+      // Bloque Menores: el GRANT de un menor exige un representante con
+      // canConsent, que todavía no existe al crear la ficha. No se envía (el
+      // servidor lo rechazaría) y se informa como diferido.
+      const minor = isMinorOnChileDay(data.birthDate);
+      const grants = minor ? [] : requested;
+      const deferredPurposes = minor ? requested : [];
       // allSettled (no all): el paciente ya quedó creado arriba, así que si
       // un POST de consentimiento individual falla no debe hacer que el
       // flujo entero parezca haber fallado.
@@ -84,7 +94,7 @@ export function useCreatePatient() {
         ),
       );
       const failedPurposes = grants.filter((_, i) => results[i].status === 'rejected');
-      return { patient, failedPurposes };
+      return { patient, failedPurposes, deferredPurposes };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: patientKeys.all });
@@ -106,12 +116,24 @@ export function useUpdatePatient() {
     }: {
       id: string;
       data: Record<string, unknown>;
-      consentChanges: { purpose: ConsentPurpose; action: 'GRANT' | 'REVOKE' }[];
+      // grantedBy/guardianId solo para el GRANT de un menor.
+      consentChanges: {
+        purpose: ConsentPurpose;
+        action: 'GRANT' | 'REVOKE';
+        grantedBy?: ConsentGrantor;
+        guardianId?: string;
+      }[];
     }) => {
       await patientsApi.updatePatient(id, data);
       const results = await Promise.allSettled(
-        consentChanges.map(({ purpose, action }) =>
-          patientsApi.recordPatientConsent(id, purpose, action, String(data.reason ?? '')),
+        consentChanges.map(({ purpose, action, grantedBy, guardianId }) =>
+          patientsApi.recordPatientConsent(
+            id,
+            purpose,
+            action,
+            String(data.reason ?? ''),
+            grantedBy ? { grantedBy, guardianId } : undefined,
+          ),
         ),
       );
       const failed = consentChanges.filter((_, i) => results[i].status === 'rejected');
