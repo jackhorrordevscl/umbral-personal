@@ -85,6 +85,9 @@ function buildPayment(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+// Relative to today so the fixture stays a minor as time passes.
+const MINOR_BIRTH_DATE = new Date(Date.now() - 10 * 365 * 24 * 60 * 60 * 1000);
+
 describe('PaymentsService', () => {
   let service: PaymentsService;
   let prisma: {
@@ -316,7 +319,7 @@ describe('PaymentsService', () => {
             {},
             {
               email: 'menor@example.com',
-              birthDate: new Date('2015-05-05'),
+              birthDate: MINOR_BIRTH_DATE,
               guardians: [guardian],
             },
           ),
@@ -350,7 +353,7 @@ describe('PaymentsService', () => {
             {},
             {
               email: 'menor@example.com',
-              birthDate: new Date('2015-05-05'),
+              birthDate: MINOR_BIRTH_DATE,
               guardians: [{ ...guardian, email: null }],
             },
           ),
@@ -1135,7 +1138,7 @@ describe('PaymentsService', () => {
           {},
           {
             email: 'menor@example.com',
-            birthDate: new Date('2015-05-05'),
+            birthDate: MINOR_BIRTH_DATE,
             guardians: [
               {
                 fullName: 'Ana Soto',
@@ -1167,7 +1170,7 @@ describe('PaymentsService', () => {
       prisma.patient.findUnique.mockResolvedValue(
         buildConsultation(
           {},
-          { email: 'menor@example.com', birthDate: new Date('2015-05-05') },
+          { email: 'menor@example.com', birthDate: MINOR_BIRTH_DATE },
         ).patient,
       );
 

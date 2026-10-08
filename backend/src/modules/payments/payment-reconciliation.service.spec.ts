@@ -39,6 +39,9 @@ function buildPayment(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+// Relative to today so the fixture stays a minor as time passes.
+const MINOR_BIRTH_DATE = new Date(Date.now() - 10 * 365 * 24 * 60 * 60 * 1000);
+
 describe('PaymentReconciliationService', () => {
   let service: PaymentReconciliationService;
   let prisma: {
@@ -242,7 +245,7 @@ describe('PaymentReconciliationService', () => {
         prisma.patient.findUnique.mockResolvedValue({
           email: 'menor@example.com',
           fullName: 'Juan Soto',
-          birthDate: new Date('2015-05-05'),
+          birthDate: MINOR_BIRTH_DATE,
           guardians: [
             {
               fullName: 'Ana Soto',
@@ -270,7 +273,7 @@ describe('PaymentReconciliationService', () => {
         prisma.patient.findUnique.mockResolvedValue({
           email: 'menor@example.com',
           fullName: 'Juan Soto',
-          birthDate: new Date('2015-05-05'),
+          birthDate: MINOR_BIRTH_DATE,
           guardians: [],
         });
 
