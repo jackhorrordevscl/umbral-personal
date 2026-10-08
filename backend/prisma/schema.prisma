@@ -106,6 +106,7 @@ model User {
   sharedFiles           SharedFile[]              @relation("UploadedFiles")
   consultationEdits     ConsultationHistory[]     @relation("ConsultationEdits")
   patientConsentEvents  PatientConsent[]          @relation("PatientConsentEvents")
+  patientAssentEvents   PatientAssent[]           @relation("PatientAssentEvents")
   mfaRecoveryCodes      MfaRecoveryCode[]
   notifications         Notification[]
   sessions              Session[]
@@ -211,6 +212,8 @@ model Patient {
   documents     PatientDocument[]
   history       PatientHistory[]
   consents      PatientConsent[]
+  assents       PatientAssent[]
+  guardians     LegalGuardian[]
 
   // issue #314: el RUT es único por terapeuta, no global -- un 409 solo
   // revela fichas propias y dos terapeutas pueden atender a la misma persona.
@@ -243,6 +246,7 @@ model PatientDocument {
   voidReason          String?
   // Eventos del ledger de consentimiento que dependen de este documento.
   consentEvents       PatientConsent[]
+  assentEvents        PatientAssent[]
 
   @@index([patientId])
   @@index([consultationGroupId])
@@ -441,9 +445,95 @@ model PatientConsent {
   // REVOKE automático al anular). Null para registros manuales o en bloque.
   documentId   String?
   document     PatientDocument? @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  // Quién otorgó el evento: el propio paciente o su representante legal. Las
+  // filas previas a esta columna son del paciente (default PATIENT); guardianId
+  // solo se llena cuando grantedBy = GUARDIAN.
+  grantedBy    ConsentGrantor   @default(PATIENT)
+  guardianId   String?
+  guardian     LegalGuardian?   @relation(fields: [guardianId], references: [id], onDelete: Restrict)
 
   @@index([patientId, purpose])
   @@index([documentId])
+  @@index([guardianId])
+}
+
+enum ConsentGrantor {
+  PATIENT
+  GUARDIAN
+}
+
+// Representante legal de un paciente menor de edad (opcional para adultos).
+// Sin borrado físico en cascada: igual que el resto de los datos clínicos, la
+// ficha solo se da de baja con deletedAt, y PatientConsent.guardianId lo
+// referencia como evidencia de quién consintió (onDelete Restrict).
+model LegalGuardian {
+  id                     String               @id @default(uuid())
+  patientId              String
+  patient                Patient              @relation(fields: [patientId], references: [id])
+  fullName               String
+  rut                    String
+  relationship           GuardianRelationship
+  email                  String?
+  phone                  String?
+  isPayer                Boolean              @default(false)
+  receivesCommunications Boolean              @default(true)
+  canAccessReports       Boolean              @default(true)
+  canConsent             Boolean              @default(true)
+  custody                CustodyType          @default(UNKNOWN)
+  hasConflict            Boolean              @default(false)
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  consents               PatientConsent[]
+
+  @@index([patientId])
+}
+
+enum GuardianRelationship {
+  MOTHER
+  FATHER
+  LEGAL_GUARDIAN
+  CURATOR
+  CAREGIVER
+  OTHER
+}
+
+enum CustodyType {
+  SOLE
+  SHARED
+  UNKNOWN
+}
+
+// Ledger append-only del asentimiento de un niño, niña o adolescente (mismo
+// criterio que PatientConsent: nunca se actualiza ni se borra una fila, se
+// agrega una nueva). El asentimiento complementa, nunca reemplaza, la
+// autorización del representante legal.
+model PatientAssent {
+  id           String           @id @default(uuid())
+  patientId    String
+  patient      Patient          @relation(fields: [patientId], references: [id])
+  ageBand      AssentAgeBand
+  action       AssentAction
+  note         String?
+  documentId   String?
+  document     PatientDocument? @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  recordedById String
+  recordedBy   User             @relation("PatientAssentEvents", fields: [recordedById], references: [id])
+  recordedAt   DateTime         @default(now())
+
+  @@index([patientId, recordedAt])
+  @@index([documentId])
+}
+
+enum AssentAgeBand {
+  UNDER_14
+  AGE_14_17
+}
+
+enum AssentAction {
+  GRANTED
+  REFUSED
+  WITHDRAWN
+  INFORMED_AND_HEARD
 }
 
 enum ConsentPurpose {

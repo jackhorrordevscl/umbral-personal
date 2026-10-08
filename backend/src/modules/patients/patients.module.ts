@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { PatientsService } from './patients.service';
 import { PatientsController } from './patients.controller';
+import { GuardiansService } from './guardians.service';
+import { GuardiansController } from './guardians.controller';
+import { AssentsService } from './assents.service';
+import { AssentsController } from './assents.controller';
 import { CalendarIntegrationModule } from '../calendar-integration/calendar-integration.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { AvailabilityModule } from '../availability/availability.module';
@@ -21,8 +25,8 @@ import { AvailabilityModule } from '../availability/availability.module';
 // los BookedSlot en softDelete() -- sin ciclo, no importa nada.
 @Module({
   imports: [CalendarIntegrationModule, PaymentsModule, AvailabilityModule],
-  controllers: [PatientsController],
-  providers: [PatientsService],
+  controllers: [PatientsController, GuardiansController, AssentsController],
+  providers: [PatientsService, GuardiansService, AssentsService],
   exports: [PatientsService],
 })
 export class PatientsModule {}

@@ -5,6 +5,7 @@ import { CreatePatientDto } from './create-patient.dto';
 import { UpdatePatientDto } from './update-patient.dto';
 import { RecordConsentDto } from './record-consent.dto';
 import { BulkDeclareConsentDto } from './bulk-declare-consent.dto';
+import { chileDayKeyFromInstant } from '../../../common/utils/chile-time.util';
 
 // Issue #195: los campos de texto libre se clonan completos en
 // PatientHistory.snapshot/diff en cada edición, así que se acotan.
@@ -104,6 +105,35 @@ describe('límites de longitud en DTOs de patients', () => {
     expect(errors.map((e) => e.property)).toContain('evidence');
   });
 
+  // M2b: quién otorga el consentimiento (la edad la valida el servicio).
+  it('RecordConsentDto acepta grantedBy GUARDIAN con guardianId UUID', async () => {
+    const dto = plainToInstance(RecordConsentDto, {
+      purpose: 'TREATMENT',
+      action: 'GRANT',
+      evidence: 'Firmado por la madre en papel',
+      grantedBy: 'GUARDIAN',
+      guardianId: '3f2b8c1e-5a4d-4e6f-8a9b-0c1d2e3f4a5b',
+    });
+
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('RecordConsentDto rechaza grantedBy inválido y guardianId que no es UUID', async () => {
+    const dto = plainToInstance(RecordConsentDto, {
+      purpose: 'TREATMENT',
+      action: 'GRANT',
+      evidence: 'Firmado por la madre en papel',
+      grantedBy: 'NADIE',
+      guardianId: 'no-es-uuid',
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors.map((e) => e.property)).toEqual(
+      expect.arrayContaining(['grantedBy', 'guardianId']),
+    );
+  });
+
   it('BulkDeclareConsentDto rechaza evidencia de 5000 caracteres', async () => {
     const dto = plainToInstance(BulkDeclareConsentDto, {
       patientIds: ['3fa85f64-5717-4562-b3fc-2c963f66afa6'],
@@ -148,6 +178,54 @@ describe('formato de rut en CreatePatientDto', () => {
     const errors = await validate(dto);
 
     expect(errors.map((e) => e.property)).toContain('rut');
+  });
+});
+
+// birthDate no puede ser futura (base del cálculo de edad / menores).
+describe('birthDate no futura en DTOs de patients', () => {
+  const today = chileDayKeyFromInstant(new Date());
+  const tomorrow = chileDayKeyFromInstant(new Date(Date.now() + 86_400_000));
+
+  it('CreatePatientDto rechaza una birthDate futura', async () => {
+    const dto = plainToInstance(CreatePatientDto, {
+      fullName: 'Ana Pérez',
+      rut: '12345678-5',
+      birthDate: tomorrow,
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors.map((e) => e.property)).toContain('birthDate');
+  });
+
+  it('CreatePatientDto acepta birthDate de hoy', async () => {
+    const dto = plainToInstance(CreatePatientDto, {
+      fullName: 'Ana Pérez',
+      rut: '12345678-5',
+      birthDate: today,
+    });
+
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('UpdatePatientDto rechaza una birthDate futura', async () => {
+    const dto = plainToInstance(UpdatePatientDto, {
+      birthDate: tomorrow,
+      reason: 'Motivo de la modificación',
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors.map((e) => e.property)).toContain('birthDate');
+  });
+
+  it('UpdatePatientDto acepta birthDate de hoy', async () => {
+    const dto = plainToInstance(UpdatePatientDto, {
+      birthDate: today,
+      reason: 'Motivo de la modificación',
+    });
+
+    expect(await validate(dto)).toHaveLength(0);
   });
 });
 

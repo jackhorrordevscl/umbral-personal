@@ -1370,3 +1370,203 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
     });
   }, 15000);
 });
+
+// M2b: política de transición para menores de edad (real Prisma). Antes de
+// MINOR_GUARDIAN_ENFORCEMENT_DATE el consentimiento legado del paciente sigue
+// valiendo; desde esa fecha el guardrail exige uno otorgado por el
+// representante. Solo se falsea Date: con timers falsos el pool de Postgres
+// no funcionaría.
+describe('ConsultationsService consent guardrail for minors (integration, real Prisma)', () => {
+  let prisma: PrismaService;
+  let consultationsService: ConsultationsService;
+  const runId = Date.now();
+
+  let therapistId: string;
+  let adultId: string;
+  let legacyMinorId: string;
+  let guardianMinorId: string;
+
+  const dto = (patientId: string) =>
+    ({
+      patientId,
+      sessionDate: '2026-04-10',
+      consultReason: 'Motivo de integración',
+      intervention: 'Intervención de integración',
+    }) as never;
+
+  const setToday = (iso: string) =>
+    jest.useFakeTimers({
+      now: new Date(iso),
+      doNotFake: [
+        'hrtime',
+        'nextTick',
+        'performance',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'requestIdleCallback',
+        'cancelIdleCallback',
+        'setImmediate',
+        'clearImmediate',
+        'setInterval',
+        'clearInterval',
+        'setTimeout',
+        'clearTimeout',
+      ],
+    });
+
+  beforeAll(async () => {
+    prisma = new PrismaService();
+    await prisma.onModuleInit();
+
+    const therapist = await prisma.user.create({
+      data: {
+        email: `consultations-minor-consent-${runId}@example.com`,
+        passwordHash: await argon2.hash('TestPass123!'),
+        name: 'Dra. Menores',
+      },
+    });
+    therapistId = therapist.id;
+
+    const makePatient = async (suffix: string, birthDate: string) =>
+      (
+        await prisma.patient.create({
+          data: {
+            fullName: `Paciente ${suffix}`,
+            rut: `${runId}-${suffix}`,
+            birthDate: new Date(birthDate),
+            therapistId,
+          },
+        })
+      ).id;
+    adultId = await makePatient('1', '1990-01-01T12:00:00.000Z');
+    legacyMinorId = await makePatient('2', '2015-01-01T12:00:00.000Z');
+    guardianMinorId = await makePatient('3', '2015-01-01T12:00:00.000Z');
+
+    const guardian = await prisma.legalGuardian.create({
+      data: {
+        patientId: guardianMinorId,
+        fullName: 'Representante de Prueba',
+        rut: `${runId}-9`,
+        relationship: 'MOTHER',
+      },
+    });
+
+    const grant = (
+      patientId: string,
+      extra: { grantedBy?: 'PATIENT' | 'GUARDIAN'; guardianId?: string } = {},
+    ) =>
+      prisma.patientConsent.create({
+        data: {
+          patientId,
+          purpose: 'TREATMENT',
+          action: 'GRANT',
+          recordedById: therapistId,
+          evidence: 'Consentimiento otorgado en fixture de test (integration)',
+          ...extra,
+        },
+      });
+    await grant(adultId);
+    await grant(legacyMinorId);
+    await grant(guardianMinorId, {
+      grantedBy: 'GUARDIAN',
+      guardianId: guardian.id,
+    });
+
+    const calendarSync = {
+      syncGroup: jest.fn().mockResolvedValue(undefined),
+    } as unknown as CalendarSyncService;
+    const patientsService = new PatientsService(
+      prisma,
+      new AuditService(prisma),
+      calendarSync,
+      buildDisabledPaymentsService(prisma),
+      buildAvailabilityService(prisma),
+    );
+    consultationsService = new ConsultationsService(
+      prisma,
+      patientsService,
+      calendarSync,
+      buildDisabledPaymentsService(prisma),
+      buildAvailabilityService(prisma),
+    );
+  }, 30000);
+
+  afterEach(() => jest.useRealTimers());
+
+  afterAll(async () => {
+    const patientIds = [adultId, legacyMinorId, guardianMinorId];
+    await prisma.consultationHistory.deleteMany({
+      where: { editedById: therapistId },
+    });
+    await prisma.consultation.deleteMany({ where: { therapistId } });
+    await prisma.patientConsent.deleteMany({
+      where: { patientId: { in: patientIds } },
+    });
+    await prisma.legalGuardian.deleteMany({
+      where: { patientId: { in: patientIds } },
+    });
+    await prisma.patient.deleteMany({ where: { id: { in: patientIds } } });
+    await prisma.user.deleteMany({ where: { id: therapistId } });
+    await prisma.onModuleDestroy();
+  }, 30000);
+
+  it('antes de la fecha de vigencia: el consentimiento legado de un menor sigue valiendo', async () => {
+    setToday('2026-11-30T15:00:00Z');
+
+    const consultation = await consultationsService.create(
+      dto(legacyMinorId),
+      therapistId,
+    );
+
+    expect(consultation.id).toBeDefined();
+  }, 15000);
+
+  it('desde la fecha de vigencia: un consentimiento legado de un menor da 403 específico', async () => {
+    setToday('2026-12-01T15:00:00Z');
+
+    await expect(
+      consultationsService.create(dto(legacyMinorId), therapistId),
+    ).rejects.toThrow(/menor de edad.*representante legal/);
+  }, 15000);
+
+  it('desde la fecha de vigencia: un menor con consentimiento del representante puede crear consultas', async () => {
+    setToday('2026-12-05T15:00:00Z');
+
+    const consultation = await consultationsService.create(
+      dto(guardianMinorId),
+      therapistId,
+    );
+
+    expect(consultation.id).toBeDefined();
+  }, 15000);
+
+  it('desde la fecha de vigencia: un adulto no cambia', async () => {
+    setToday('2026-12-05T15:00:00Z');
+
+    const consultation = await consultationsService.create(
+      dto(adultId),
+      therapistId,
+    );
+
+    expect(consultation.id).toBeDefined();
+  }, 15000);
+
+  it('correct() aplica la misma política: desde la fecha un legado da 403', async () => {
+    setToday('2026-11-30T15:00:00Z');
+    const original = await consultationsService.create(
+      dto(legacyMinorId),
+      therapistId,
+    );
+    jest.useRealTimers();
+    setToday('2026-12-02T15:00:00Z');
+
+    await expect(
+      consultationsService.correct(
+        original.id,
+        { consultReason: 'Motivo corregido de integración' } as never,
+        therapistId,
+      ),
+    ).rejects.toThrow(/representante legal/);
+  }, 15000);
+});

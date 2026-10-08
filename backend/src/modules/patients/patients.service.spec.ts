@@ -1,10 +1,12 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { Patient, Prisma } from '@prisma/client';
-import { PatientsService } from './patients.service';
+import { PatientsService, computeMinorStatus } from './patients.service';
+import { MINOR_GUARDIAN_ENFORCEMENT_DATE } from './patients.constants';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
@@ -32,6 +34,8 @@ function buildPatient(overrides: Partial<Patient> = {}): Patient {
     createdAt: new Date(),
     updatedAt: new Date(),
     therapistId: 'therapist-1',
+    // Relación incluida por findOne/findAll (M2a); los demás métodos la ignoran.
+    guardians: [],
     ...overrides,
   } as unknown as Patient;
 }
@@ -44,9 +48,11 @@ describe('PatientsService', () => {
       findMany: jest.Mock;
       count: jest.Mock;
       findFirst: jest.Mock;
+      findUnique: jest.Mock;
       update: jest.Mock;
       groupBy: jest.Mock;
     };
+    legalGuardian: { findFirst: jest.Mock; count: jest.Mock };
     patientConsent: { findMany: jest.Mock; create: jest.Mock };
     patientHistory: { create: jest.Mock; findMany: jest.Mock };
     consultation: { findMany: jest.Mock };
@@ -65,9 +71,11 @@ describe('PatientsService', () => {
         findMany: jest.fn(),
         count: jest.fn(),
         findFirst: jest.fn(),
+        findUnique: jest.fn(),
         update: jest.fn(),
         groupBy: jest.fn(),
       },
+      legalGuardian: { findFirst: jest.fn(), count: jest.fn() },
       patientConsent: {
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn(),
@@ -280,15 +288,21 @@ describe('PatientsService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('devuelve { id, rut } si el paciente pertenece al terapeuta', async () => {
+    it('devuelve { id, rut, birthDate } si el paciente pertenece al terapeuta', async () => {
+      const birthDate = new Date('1990-01-01');
       prisma.patient.findFirst.mockResolvedValue({
         id: 'patient-1',
         rut: '11111111-1',
+        birthDate,
       });
 
       const result = await service.assertAccess('patient-1', 'therapist-1');
 
-      expect(result).toEqual({ id: 'patient-1', rut: '11111111-1' });
+      expect(result).toEqual({
+        id: 'patient-1',
+        rut: '11111111-1',
+        birthDate,
+      });
     });
   });
 
@@ -333,6 +347,235 @@ describe('PatientsService', () => {
       expect(result.consents).toEqual({
         TREATMENT: true,
         TELEMEDICINE: false,
+      });
+    });
+  });
+
+  // M2a: edad, tramo y estado de regularización de menores. El estado se deriva
+  // del último evento por (paciente, finalidad) y de los representantes con
+  // canConsent; los listados lo calculan en una sola consulta por página.
+  describe('campos de menor de edad', () => {
+    const yearsAgo = (years: number) => {
+      const date = new Date();
+      date.setUTCFullYear(date.getUTCFullYear() - years);
+      return date;
+    };
+    const consentEvent = (
+      patientId: string,
+      purpose: 'TREATMENT' | 'TELEMEDICINE',
+      action: 'GRANT' | 'REVOKE',
+      grantedBy: 'PATIENT' | 'GUARDIAN',
+    ) => ({ patientId, purpose, action, grantedBy });
+
+    describe('computeMinorStatus', () => {
+      const adult = yearsAgo(30);
+      const minor = yearsAgo(10);
+
+      it('NOT_MINOR para un adulto, tenga o no representantes', () => {
+        expect(computeMinorStatus(adult, 0, [])).toBe('NOT_MINOR');
+        expect(
+          computeMinorStatus(adult, 1, [
+            consentEvent('p', 'TREATMENT', 'GRANT', 'PATIENT'),
+          ]),
+        ).toBe('NOT_MINOR');
+      });
+
+      it('MISSING_GUARDIAN para un menor sin representante con canConsent', () => {
+        expect(computeMinorStatus(minor, 0, [])).toBe('MISSING_GUARDIAN');
+      });
+
+      it('LEGACY_CONSENT si el consentimiento vigente lo otorgó el paciente', () => {
+        expect(
+          computeMinorStatus(minor, 1, [
+            consentEvent('p', 'TREATMENT', 'GRANT', 'PATIENT'),
+          ]),
+        ).toBe('LEGACY_CONSENT');
+      });
+
+      it('LEGACY_CONSENT si basta con una finalidad vigente otorgada por el paciente', () => {
+        expect(
+          computeMinorStatus(minor, 1, [
+            consentEvent('p', 'TREATMENT', 'GRANT', 'GUARDIAN'),
+            consentEvent('p', 'TELEMEDICINE', 'GRANT', 'PATIENT'),
+          ]),
+        ).toBe('LEGACY_CONSENT');
+      });
+
+      it('OK si todo consentimiento vigente lo otorgó un representante', () => {
+        expect(
+          computeMinorStatus(minor, 1, [
+            consentEvent('p', 'TREATMENT', 'GRANT', 'GUARDIAN'),
+          ]),
+        ).toBe('OK');
+      });
+
+      it('OK si no hay ningún consentimiento vigente (nada que regularizar)', () => {
+        expect(computeMinorStatus(minor, 1, [])).toBe('OK');
+      });
+
+      it('ignora un consentimiento legado ya revocado', () => {
+        expect(
+          computeMinorStatus(minor, 1, [
+            consentEvent('p', 'TREATMENT', 'REVOKE', 'PATIENT'),
+          ]),
+        ).toBe('OK');
+      });
+    });
+
+    describe('findOne', () => {
+      it('para un menor expone isMinor, ageBand, guardians, minorStatus y la fecha de vigencia', async () => {
+        const guardian = { id: 'g-1', canConsent: true };
+        prisma.patient.findFirst.mockResolvedValue({
+          ...buildPatient({ birthDate: yearsAgo(10) }),
+          guardians: [guardian],
+        });
+        prisma.patientConsent.findMany.mockResolvedValue([
+          consentEvent('patient-1', 'TREATMENT', 'GRANT', 'PATIENT'),
+        ]);
+
+        const result = await service.findOne('patient-1', 'therapist-1');
+
+        expect(result).toEqual(
+          expect.objectContaining({
+            isMinor: true,
+            ageBand: 'UNDER_14',
+            guardians: [guardian],
+            guardianCount: 1,
+            minorStatus: 'LEGACY_CONSENT',
+            guardianEnforcementDate: MINOR_GUARDIAN_ENFORCEMENT_DATE,
+          }),
+        );
+      });
+
+      it('incluye los representantes ordenados por createdAt', async () => {
+        prisma.patient.findFirst.mockResolvedValue({
+          ...buildPatient(),
+          guardians: [],
+        });
+
+        await service.findOne('patient-1', 'therapist-1');
+
+        expect(prisma.patient.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({
+            include: expect.objectContaining({
+              guardians: { orderBy: { createdAt: 'asc' } },
+            }) as unknown,
+          }),
+        );
+      });
+
+      it('para un adulto no incluye la fecha de vigencia y marca ADULT', async () => {
+        prisma.patient.findFirst.mockResolvedValue({
+          ...buildPatient({ birthDate: yearsAgo(30) }),
+          guardians: [],
+        });
+
+        const result = await service.findOne('patient-1', 'therapist-1');
+
+        expect(result).toEqual(
+          expect.objectContaining({
+            isMinor: false,
+            ageBand: 'ADULT',
+            minorStatus: 'NOT_MINOR',
+          }),
+        );
+        expect(result).not.toHaveProperty('guardianEnforcementDate');
+      });
+
+      it('consulta los consentimientos una sola vez', async () => {
+        prisma.patient.findFirst.mockResolvedValue({
+          ...buildPatient(),
+          guardians: [],
+        });
+
+        await service.findOne('patient-1', 'therapist-1');
+
+        expect(prisma.patientConsent.findMany).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe('findAll', () => {
+      it('devuelve guardianCount y minorStatus sin incluir la lista de representantes', async () => {
+        prisma.patient.findMany.mockResolvedValue([
+          {
+            ...buildPatient({ id: 'minor-ok', birthDate: yearsAgo(15) }),
+            guardians: [{ canConsent: true }, { canConsent: false }],
+          },
+          {
+            ...buildPatient({ id: 'minor-missing', birthDate: yearsAgo(5) }),
+            guardians: [{ canConsent: false }],
+          },
+          {
+            ...buildPatient({ id: 'adult', birthDate: yearsAgo(40) }),
+            guardians: [],
+          },
+        ]);
+        prisma.patient.count.mockResolvedValue(3);
+        prisma.patientConsent.findMany.mockResolvedValue([
+          consentEvent('minor-ok', 'TREATMENT', 'GRANT', 'GUARDIAN'),
+        ]);
+
+        const result = await service.findAll('therapist-1');
+
+        const byId = Object.fromEntries(result.data.map((p) => [p.id, p]));
+        expect(byId['minor-ok']).toEqual(
+          expect.objectContaining({
+            isMinor: true,
+            ageBand: 'AGE_14_17',
+            guardianCount: 2,
+            minorStatus: 'OK',
+            guardianEnforcementDate: MINOR_GUARDIAN_ENFORCEMENT_DATE,
+          }),
+        );
+        expect(byId['minor-missing']).toEqual(
+          expect.objectContaining({
+            ageBand: 'UNDER_14',
+            minorStatus: 'MISSING_GUARDIAN',
+          }),
+        );
+        expect(byId['adult']).toEqual(
+          expect.objectContaining({
+            isMinor: false,
+            ageBand: 'ADULT',
+            guardianCount: 0,
+            minorStatus: 'NOT_MINOR',
+          }),
+        );
+        expect(byId['minor-ok']).not.toHaveProperty('guardians');
+      });
+
+      it('resuelve consentimientos y representantes sin consultas por paciente', async () => {
+        prisma.patient.findMany.mockResolvedValue([
+          { ...buildPatient({ id: 'a' }), guardians: [] },
+          { ...buildPatient({ id: 'b' }), guardians: [] },
+        ]);
+        prisma.patient.count.mockResolvedValue(2);
+        prisma.patientConsent.findMany.mockResolvedValue([]);
+
+        await service.findAll('therapist-1');
+
+        expect(prisma.patient.findMany).toHaveBeenCalledTimes(1);
+        expect(prisma.patientConsent.findMany).toHaveBeenCalledTimes(1);
+        expect(prisma.patient.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            include: { guardians: { select: { canConsent: true } } },
+          }),
+        );
+      });
+    });
+
+    describe('getConsentStatusMap', () => {
+      it('conserva su firma y su resultado booleano por finalidad', async () => {
+        prisma.patientConsent.findMany.mockResolvedValue([
+          consentEvent('patient-1', 'TREATMENT', 'GRANT', 'GUARDIAN'),
+        ]);
+
+        const map = await service.getConsentStatusMap(['patient-1']);
+
+        expect(map.get('patient-1')).toEqual({
+          TREATMENT: true,
+          TELEMEDICINE: false,
+        });
       });
     });
   });
@@ -825,6 +1068,426 @@ describe('PatientsService', () => {
       );
 
       expect(result).toEqual({ TREATMENT: false, TELEMEDICINE: true });
+    });
+  });
+
+  // M2b: escritura estricta del consentimiento según la edad del paciente.
+  describe('recordConsent (menores y representantes)', () => {
+    const consentDto = (extra: Record<string, unknown> = {}) =>
+      ({
+        purpose: 'TREATMENT',
+        action: 'GRANT',
+        evidence: 'Firmado en papel, escaneado y adjunto al expediente',
+        ...extra,
+      }) as never;
+    const minor = () => buildPatient({ birthDate: new Date('2015-01-01') });
+    const GUARDIAN_ID = '3f2b8c1e-5a4d-4e6f-8a9b-0c1d2e3f4a5b';
+
+    beforeEach(() => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-10-08T15:00:00Z'));
+      prisma.patientConsent.create.mockResolvedValue({ id: 'consent-1' });
+    });
+    afterEach(() => jest.useRealTimers());
+
+    it('adulto: persiste grantedBy PATIENT y guardianId null por defecto', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+
+      await service.recordConsent('patient-1', consentDto(), 'therapist-1');
+
+      expect(prisma.patientConsent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          grantedBy: 'PATIENT',
+          guardianId: null,
+        }) as unknown,
+      });
+    });
+
+    it('adulto: rechaza un otorgante GUARDIAN con 400', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+
+      await expect(
+        service.recordConsent(
+          'patient-1',
+          consentDto({ grantedBy: 'GUARDIAN', guardianId: GUARDIAN_ID }),
+          'therapist-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.patientConsent.create).not.toHaveBeenCalled();
+    });
+
+    it('adulto: rechaza un guardianId aunque venga con grantedBy PATIENT', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+
+      await expect(
+        service.recordConsent(
+          'patient-1',
+          consentDto({ grantedBy: 'PATIENT', guardianId: GUARDIAN_ID }),
+          'therapist-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('menor: rechaza un GRANT sin representante con 400', async () => {
+      prisma.patient.findFirst.mockResolvedValue(minor());
+
+      await expect(
+        service.recordConsent('patient-1', consentDto(), 'therapist-1'),
+      ).rejects.toThrow(/representante legal/);
+      expect(prisma.patientConsent.create).not.toHaveBeenCalled();
+    });
+
+    it('menor: rechaza un GRANT con grantedBy GUARDIAN pero sin guardianId', async () => {
+      prisma.patient.findFirst.mockResolvedValue(minor());
+
+      await expect(
+        service.recordConsent(
+          'patient-1',
+          consentDto({ grantedBy: 'GUARDIAN' }),
+          'therapist-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('menor: rechaza un representante de otro paciente (404 de la consulta acotada)', async () => {
+      prisma.patient.findFirst.mockResolvedValue(minor());
+      prisma.legalGuardian.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.recordConsent(
+          'patient-1',
+          consentDto({ grantedBy: 'GUARDIAN', guardianId: GUARDIAN_ID }),
+          'therapist-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.legalGuardian.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: GUARDIAN_ID, patientId: 'patient-1' },
+        }),
+      );
+      expect(prisma.patientConsent.create).not.toHaveBeenCalled();
+    });
+
+    it('menor: rechaza un representante con canConsent false', async () => {
+      prisma.patient.findFirst.mockResolvedValue(minor());
+      prisma.legalGuardian.findFirst.mockResolvedValue({ canConsent: false });
+
+      await expect(
+        service.recordConsent(
+          'patient-1',
+          consentDto({ grantedBy: 'GUARDIAN', guardianId: GUARDIAN_ID }),
+          'therapist-1',
+        ),
+      ).rejects.toThrow(/habilitado/);
+    });
+
+    it('menor: acepta un GRANT de un representante habilitado y persiste grantedBy/guardianId', async () => {
+      prisma.patient.findFirst.mockResolvedValue(minor());
+      prisma.legalGuardian.findFirst.mockResolvedValue({ canConsent: true });
+
+      await service.recordConsent(
+        'patient-1',
+        consentDto({ grantedBy: 'GUARDIAN', guardianId: GUARDIAN_ID }),
+        'therapist-1',
+      );
+
+      expect(prisma.patientConsent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          grantedBy: 'GUARDIAN',
+          guardianId: GUARDIAN_ID,
+        }) as unknown,
+      });
+    });
+
+    it('menor: si el representante se elimina antes del INSERT (FK P2003) responde 400, no 500', async () => {
+      prisma.patient.findFirst.mockResolvedValue(minor());
+      prisma.legalGuardian.findFirst.mockResolvedValue({ canConsent: true });
+      prisma.patientConsent.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('FK violation', {
+          code: 'P2003',
+          clientVersion: 'test',
+        }),
+      );
+
+      await expect(
+        service.recordConsent(
+          'patient-1',
+          consentDto({ grantedBy: 'GUARDIAN', guardianId: GUARDIAN_ID }),
+          'therapist-1',
+        ),
+      ).rejects.toThrow(
+        new BadRequestException(
+          'El representante indicado no pertenece a este paciente.',
+        ),
+      );
+    });
+
+    it('un error de base de datos distinto de P2003 se propaga', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patientConsent.create.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.recordConsent('patient-1', consentDto(), 'therapist-1'),
+      ).rejects.toThrow('db down');
+    });
+
+    it('menor: un REVOKE se acepta sin representante', async () => {
+      prisma.patient.findFirst.mockResolvedValue(minor());
+
+      await service.recordConsent(
+        'patient-1',
+        consentDto({ action: 'REVOKE' }),
+        'therapist-1',
+      );
+
+      expect(prisma.patientConsent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          action: 'REVOKE',
+          grantedBy: 'PATIENT',
+          guardianId: null,
+        }) as unknown,
+      });
+    });
+
+    it('menor: un REVOKE con representante exige que sea del paciente', async () => {
+      prisma.patient.findFirst.mockResolvedValue(minor());
+      prisma.legalGuardian.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.recordConsent(
+          'patient-1',
+          consentDto({
+            action: 'REVOKE',
+            grantedBy: 'GUARDIAN',
+            guardianId: GUARDIAN_ID,
+          }),
+          'therapist-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('bulkDeclareConsent omite a los menores con la razón y sigue con los adultos', async () => {
+      prisma.patient.findFirst
+        .mockResolvedValueOnce(minor())
+        .mockResolvedValueOnce(buildPatient({ id: 'patient-2' }));
+
+      const results = await service.bulkDeclareConsent(
+        {
+          patientIds: ['patient-1', 'patient-2'],
+          purpose: 'TREATMENT',
+          evidence: 'Consentimiento en papel del expediente físico previo',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.patientConsent.create).toHaveBeenCalledTimes(1);
+      expect(results).toEqual([
+        {
+          patientId: 'patient-1',
+          ok: false,
+          error: expect.stringContaining('representante legal') as unknown,
+        },
+        { patientId: 'patient-2', ok: true },
+      ]);
+    });
+  });
+
+  // M2b: política de lectura suave para el guardrail de consultas.
+  describe('assertTreatmentConsent', () => {
+    const MESSAGE = 'Sin consentimiento vigente';
+    const event = (
+      action: 'GRANT' | 'REVOKE',
+      grantedBy: 'PATIENT' | 'GUARDIAN',
+      purpose: 'TREATMENT' | 'TELEMEDICINE' = 'TREATMENT',
+    ) => ({ patientId: 'patient-1', purpose, action, grantedBy });
+    const withBirth = (birthDate: string) =>
+      prisma.patient.findUnique.mockResolvedValue({
+        birthDate: new Date(birthDate),
+      });
+    const BEFORE = new Date('2026-11-30T12:00:00Z');
+    const AFTER = new Date('2026-12-01T12:00:00Z');
+
+    afterEach(() => jest.useRealTimers());
+
+    it('adulto: sin consentimiento vigente da 403 con el mensaje recibido', async () => {
+      withBirth('1990-01-01');
+
+      await expect(
+        service.assertTreatmentConsent('patient-1', MESSAGE),
+      ).rejects.toThrow(new ForbiddenException(MESSAGE));
+    });
+
+    it('adulto: un REVOKE vigente cuenta como sin consentimiento', async () => {
+      withBirth('1990-01-01');
+      prisma.patientConsent.findMany.mockResolvedValue([
+        event('REVOKE', 'PATIENT'),
+      ]);
+
+      await expect(
+        service.assertTreatmentConsent('patient-1', MESSAGE),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('adulto: acepta cualquier finalidad otorgada por el paciente', async () => {
+      withBirth('1990-01-01');
+      prisma.patientConsent.findMany.mockResolvedValue([
+        event('GRANT', 'PATIENT', 'TELEMEDICINE'),
+      ]);
+
+      await expect(
+        service.assertTreatmentConsent('patient-1', MESSAGE),
+      ).resolves.toBeUndefined();
+    });
+
+    it('adulto: la fecha de vigencia no cambia nada', async () => {
+      jest.useFakeTimers().setSystemTime(AFTER);
+      withBirth('1990-01-01');
+      prisma.patientConsent.findMany.mockResolvedValue([
+        event('GRANT', 'PATIENT'),
+      ]);
+
+      await expect(
+        service.assertTreatmentConsent('patient-1', MESSAGE),
+      ).resolves.toBeUndefined();
+    });
+
+    it('menor antes de la fecha: el consentimiento legado del paciente sigue valiendo', async () => {
+      jest.useFakeTimers().setSystemTime(BEFORE);
+      withBirth('2015-01-01');
+      prisma.patientConsent.findMany.mockResolvedValue([
+        event('GRANT', 'PATIENT'),
+      ]);
+
+      await expect(
+        service.assertTreatmentConsent('patient-1', MESSAGE),
+      ).resolves.toBeUndefined();
+    });
+
+    it('menor antes de la fecha: sin consentimiento da 403 genérico', async () => {
+      jest.useFakeTimers().setSystemTime(BEFORE);
+      withBirth('2015-01-01');
+
+      await expect(
+        service.assertTreatmentConsent('patient-1', MESSAGE),
+      ).rejects.toThrow(new ForbiddenException(MESSAGE));
+    });
+
+    it('menor desde la fecha: un consentimiento legado da 403 específico', async () => {
+      jest.useFakeTimers().setSystemTime(AFTER);
+      withBirth('2015-01-01');
+      prisma.patientConsent.findMany.mockResolvedValue([
+        event('GRANT', 'PATIENT'),
+      ]);
+
+      await expect(
+        service.assertTreatmentConsent('patient-1', MESSAGE),
+      ).rejects.toThrow(/menor de edad.*representante legal/);
+    });
+
+    it('menor desde la fecha: sin consentimiento mantiene el mensaje genérico', async () => {
+      jest.useFakeTimers().setSystemTime(AFTER);
+      withBirth('2015-01-01');
+
+      await expect(
+        service.assertTreatmentConsent('patient-1', MESSAGE),
+      ).rejects.toThrow(new ForbiddenException(MESSAGE));
+    });
+
+    it('menor desde la fecha: un propósito legado junto a otro del representante da 403 (como LEGACY_CONSENT)', async () => {
+      jest.useFakeTimers().setSystemTime(AFTER);
+      withBirth('2015-01-01');
+      prisma.legalGuardian.count.mockResolvedValue(1);
+      prisma.patientConsent.findMany.mockResolvedValue([
+        event('GRANT', 'PATIENT', 'TREATMENT'),
+        event('GRANT', 'GUARDIAN', 'TELEMEDICINE'),
+      ]);
+
+      await expect(
+        service.assertTreatmentConsent('patient-1', MESSAGE),
+      ).rejects.toThrow(/Registra al representante y un nuevo consentimiento/);
+    });
+
+    it('menor desde la fecha: acepta si todos los GRANT vigentes son del representante', async () => {
+      jest.useFakeTimers().setSystemTime(AFTER);
+      withBirth('2015-01-01');
+      prisma.legalGuardian.count.mockResolvedValue(1);
+      prisma.patientConsent.findMany.mockResolvedValue([
+        event('GRANT', 'GUARDIAN', 'TREATMENT'),
+        event('GRANT', 'GUARDIAN', 'TELEMEDICINE'),
+      ]);
+
+      await expect(
+        service.assertTreatmentConsent('patient-1', MESSAGE),
+      ).resolves.toBeUndefined();
+      expect(prisma.legalGuardian.count).toHaveBeenCalledWith({
+        where: { patientId: 'patient-1', canConsent: true },
+      });
+    });
+
+    it('menor desde la fecha: sin representante con canConsent da 403 aunque el GRANT sea de un representante', async () => {
+      jest.useFakeTimers().setSystemTime(AFTER);
+      withBirth('2015-01-01');
+      prisma.legalGuardian.count.mockResolvedValue(0);
+      prisma.patientConsent.findMany.mockResolvedValue([
+        event('GRANT', 'GUARDIAN'),
+      ]);
+
+      await expect(
+        service.assertTreatmentConsent('patient-1', MESSAGE),
+      ).rejects.toThrow(/Registra al representante e indícalo/);
+    });
+
+    it('menor antes de la fecha: un GRANT legado pasa sin consultar representantes', async () => {
+      jest.useFakeTimers().setSystemTime(BEFORE);
+      withBirth('2015-01-01');
+      prisma.patientConsent.findMany.mockResolvedValue([
+        event('GRANT', 'PATIENT', 'TREATMENT'),
+        event('GRANT', 'GUARDIAN', 'TELEMEDICINE'),
+      ]);
+
+      await expect(
+        service.assertTreatmentConsent('patient-1', MESSAGE),
+      ).resolves.toBeUndefined();
+      expect(prisma.legalGuardian.count).not.toHaveBeenCalled();
+    });
+
+    it('usa el día calendario de Santiago para la fecha de vigencia', async () => {
+      // 2026-12-01T02:00Z sigue siendo 30-nov en Santiago (UTC-3 en verano).
+      jest.useFakeTimers().setSystemTime(new Date('2026-12-01T02:00:00Z'));
+      withBirth('2015-01-01');
+      prisma.patientConsent.findMany.mockResolvedValue([
+        event('GRANT', 'PATIENT'),
+      ]);
+
+      await expect(
+        service.assertTreatmentConsent('patient-1', MESSAGE),
+      ).resolves.toBeUndefined();
+    });
+
+    it('lee con el cliente de transacción recibido', async () => {
+      withBirth('1990-01-01');
+      prisma.patientConsent.findMany.mockResolvedValue([
+        event('GRANT', 'PATIENT'),
+      ]);
+      const tx = {
+        patient: {
+          findUnique: jest
+            .fn()
+            .mockResolvedValue({ birthDate: new Date('1990-01-01') }),
+        },
+        patientConsent: {
+          findMany: jest.fn().mockResolvedValue([event('GRANT', 'PATIENT')]),
+        },
+      };
+
+      await service.assertTreatmentConsent(
+        'patient-1',
+        MESSAGE,
+        tx as unknown as PrismaService,
+      );
+
+      expect(tx.patient.findUnique).toHaveBeenCalled();
+      expect(tx.patientConsent.findMany).toHaveBeenCalled();
+      expect(prisma.patientConsent.findMany).not.toHaveBeenCalled();
     });
   });
 

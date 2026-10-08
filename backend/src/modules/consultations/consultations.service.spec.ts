@@ -60,7 +60,7 @@ describe('ConsultationsService', () => {
   let availabilityService: { invalidate: jest.Mock };
   let patientsService: {
     assertAccess: jest.Mock;
-    getConsentStatusMap: jest.Mock;
+    assertTreatmentConsent: jest.Mock;
   };
   let calendarSync: { syncGroup: jest.Mock };
   let paymentsService: {
@@ -110,11 +110,10 @@ describe('ConsultationsService', () => {
       assertAccess: jest
         .fn()
         .mockResolvedValue({ id: 'patient-1', rut: '11111111-1' }),
-      getConsentStatusMap: jest
-        .fn()
-        .mockResolvedValue(
-          new Map([['patient-1', { TREATMENT: true, TELEMEDICINE: false }]]),
-        ),
+      // La política de consentimiento (adulto/menor, fecha de vigencia) vive en
+      // PatientsService.assertTreatmentConsent y se prueba allí; acá solo se
+      // verifica que las consultas la invoquen dentro de la transacción.
+      assertTreatmentConsent: jest.fn().mockResolvedValue(undefined),
     };
     calendarSync = { syncGroup: jest.fn().mockResolvedValue(undefined) };
     paymentsService = {
@@ -172,8 +171,8 @@ describe('ConsultationsService', () => {
     });
 
     it('rechaza crear la consulta si el paciente no tiene consentimiento vigente (issue #131)', async () => {
-      patientsService.getConsentStatusMap.mockResolvedValue(
-        new Map([['patient-1', { TREATMENT: false, TELEMEDICINE: false }]]),
+      patientsService.assertTreatmentConsent.mockRejectedValue(
+        new ForbiddenException('sin consentimiento'),
       );
 
       await expect(
@@ -190,11 +189,8 @@ describe('ConsultationsService', () => {
       expect(prisma.consultation.create).not.toHaveBeenCalled();
     });
 
-    it('acepta consentimiento de telemedicina aunque no haya presencial (issue #27/#131)', async () => {
+    it('valida el consentimiento dentro de la transacción con el cliente tx (M2b)', async () => {
       prisma.consultation.create.mockResolvedValue(buildConsultation());
-      patientsService.getConsentStatusMap.mockResolvedValue(
-        new Map([['patient-1', { TREATMENT: false, TELEMEDICINE: true }]]),
-      );
 
       await service.create(
         {
@@ -206,7 +202,11 @@ describe('ConsultationsService', () => {
         'therapist-1',
       );
 
-      expect(prisma.consultation.create).toHaveBeenCalled();
+      expect(patientsService.assertTreatmentConsent).toHaveBeenCalledWith(
+        'patient-1',
+        expect.stringContaining('crear la consulta') as unknown,
+        prisma,
+      );
     });
 
     it('usa el rut de la ficha del paciente', async () => {
@@ -559,8 +559,8 @@ describe('ConsultationsService', () => {
   describe('correct', () => {
     it('rechaza corregir la consulta si el paciente no tiene consentimiento vigente (issue #131)', async () => {
       prisma.consultation.findFirst.mockResolvedValueOnce(buildConsultation());
-      patientsService.getConsentStatusMap.mockResolvedValue(
-        new Map([['patient-1', { TREATMENT: false, TELEMEDICINE: false }]]),
+      patientsService.assertTreatmentConsent.mockRejectedValue(
+        new ForbiddenException('sin consentimiento'),
       );
 
       await expect(
@@ -598,8 +598,8 @@ describe('ConsultationsService', () => {
       prisma.consultation.findFirst
         .mockResolvedValueOnce(buildConsultation())
         .mockResolvedValueOnce({ id: 'already-corrected' });
-      patientsService.getConsentStatusMap.mockResolvedValue(
-        new Map([['patient-1', { TREATMENT: false, TELEMEDICINE: false }]]),
+      patientsService.assertTreatmentConsent.mockRejectedValue(
+        new ForbiddenException('sin consentimiento'),
       );
 
       await expect(
@@ -611,8 +611,8 @@ describe('ConsultationsService', () => {
       ).rejects.toThrow(ConflictException);
       // El chequeo de versión-ya-corregida corta antes de llegar a
       // consultar el consentimiento -- no es solo el mismo error, es que ni
-      // siquiera se paga la consulta a getConsentStatusMap.
-      expect(patientsService.getConsentStatusMap).not.toHaveBeenCalled();
+      // siquiera se paga la consulta a assertTreatmentConsent.
+      expect(patientsService.assertTreatmentConsent).not.toHaveBeenCalled();
     });
 
     it('crea una fila nueva sin modificar la original y guarda el snapshot previo', async () => {

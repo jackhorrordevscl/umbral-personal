@@ -481,7 +481,7 @@ describe('Patient consent ledger (e2e)', () => {
       expect(ledger[0].evidence).toContain('consentimiento.pdf');
     });
 
-    it('subir INFORMED_ASSENT NO otorga consentimiento automático (Art. 25, el asentimiento del menor no reemplaza al del tutor)', async () => {
+    it('subir INFORMED_ASSENT NO otorga consentimiento automático (el asentimiento del menor no reemplaza al del representante; en un adulto tampoco crea asentimiento)', async () => {
       const fakePdf = Buffer.from('%PDF-1.4\n%mock asentimiento del menor');
 
       await request(app.getHttpServer())
@@ -501,6 +501,13 @@ describe('Patient consent ledger (e2e)', () => {
         where: { patientId: uploadPatientId },
       });
       expect(ledger.length).toBe(1);
+      // M2b: el paciente es adulto, así que solo se guarda el documento; para
+      // un menor este upload crea un PatientAssent (ver minor-consent.e2e-spec).
+      expect(
+        await prisma.patientAssent.count({
+          where: { patientId: uploadPatientId },
+        }),
+      ).toBe(0);
     });
   });
 

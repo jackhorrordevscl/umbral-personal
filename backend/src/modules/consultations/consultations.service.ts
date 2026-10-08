@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -163,16 +162,13 @@ export class ConsultationsService {
     // esta sesión puntual.
     const consultation = await this.prisma.$transaction(async (tx) => {
       await this.lockTherapistSchedule(tx, therapistId);
-      const consentStatus = await this.patientsService.getConsentStatusMap(
-        [dto.patientId],
+      // M2b: para un menor de edad exige además (desde la fecha de vigencia)
+      // que el consentimiento lo haya otorgado su representante.
+      await this.patientsService.assertTreatmentConsent(
+        dto.patientId,
+        'El paciente no tiene un consentimiento informado vigente. Registra el consentimiento antes de crear la consulta.',
         tx,
       );
-      const consent = consentStatus.get(dto.patientId);
-      if (!consent?.TREATMENT && !consent?.TELEMEDICINE) {
-        throw new ForbiddenException(
-          'El paciente no tiene un consentimiento informado vigente. Registra el consentimiento antes de crear la consulta.',
-        );
-      }
 
       // issue #336: la sesión nace con la duración vigente del terapeuta y la
       // conserva aunque después cambie su configuración.
@@ -429,16 +425,11 @@ export class ConsultationsService {
       ) {
         await this.lockTherapistSchedule(tx, original.therapistId);
       }
-      const consentStatus = await this.patientsService.getConsentStatusMap(
-        [original.patientId],
+      await this.patientsService.assertTreatmentConsent(
+        original.patientId,
+        'El paciente no tiene un consentimiento informado vigente. Registra el consentimiento antes de corregir la consulta.',
         tx,
       );
-      const consent = consentStatus.get(original.patientId);
-      if (!consent?.TREATMENT && !consent?.TELEMEDICINE) {
-        throw new ForbiddenException(
-          'El paciente no tiene un consentimiento informado vigente. Registra el consentimiento antes de corregir la consulta.',
-        );
-      }
 
       // El snapshot queda indexado por groupId, no por el id de la versión
       // que se está corrigiendo, para que el historial sea el mismo visto

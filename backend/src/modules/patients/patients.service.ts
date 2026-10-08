@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   HttpException,
   Injectable,
   Logger,
@@ -15,7 +16,17 @@ import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { RecordConsentDto } from './dto/record-consent.dto';
 import { BulkDeclareConsentDto } from './dto/bulk-declare-consent.dto';
-import { ConsentPurpose, Patient, Prisma } from '@prisma/client';
+import {
+  ConsentAction,
+  ConsentGrantor,
+  ConsentPurpose,
+  Patient,
+  PatientConsent,
+  Prisma,
+} from '@prisma/client';
+import { getAgeBand, isMinor } from '../../common/utils/age.util';
+import { chileDayKeyFromInstant } from '../../common/utils/chile-time.util';
+import { MINOR_GUARDIAN_ENFORCEMENT_DATE } from './patients.constants';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { DEFAULT_PATIENTS_PAGE_SIZE } from './dto/patients-query.dto';
@@ -74,10 +85,81 @@ function comparableValue(key: string, value: unknown): string | null {
     : String(value as string | number | boolean);
 }
 
+const MINOR_NEEDS_GUARDIAN_MESSAGE =
+  'El paciente es menor de edad: el consentimiento debe ser otorgado por su representante legal. Registra al representante e indícalo al registrar el consentimiento.';
+const MINOR_LEGACY_CONSENT_MESSAGE =
+  'El paciente es menor de edad: el consentimiento debe ser otorgado por su representante legal. Registra al representante y un nuevo consentimiento otorgado por él.';
+
 type ConsentStatusMap = Record<ConsentPurpose, boolean>;
 
 function emptyConsentStatus(): ConsentStatusMap {
   return { TREATMENT: false, TELEMEDICINE: false };
+}
+
+type LatestConsentEvent = Pick<
+  PatientConsent,
+  'patientId' | 'purpose' | 'action' | 'grantedBy'
+>;
+
+function buildConsentStatusMap(
+  patientIds: string[],
+  latestEvents: LatestConsentEvent[],
+): Map<string, ConsentStatusMap> {
+  const map = new Map<string, ConsentStatusMap>();
+  for (const id of patientIds) map.set(id, emptyConsentStatus());
+  for (const event of latestEvents) {
+    const status = map.get(event.patientId) ?? emptyConsentStatus();
+    status[event.purpose] = event.action === 'GRANT';
+    map.set(event.patientId, status);
+  }
+  return map;
+}
+
+export type MinorStatus =
+  | 'NOT_MINOR'
+  | 'OK'
+  | 'MISSING_GUARDIAN'
+  | 'LEGACY_CONSENT';
+
+// Regularization state of a patient under 18 (transition policy: reads stay
+// lenient until MINOR_GUARDIAN_ENFORCEMENT_DATE, this only flags it).
+// `latestEvents` are the latest consent events per purpose of this patient.
+// A minor with no active consent has nothing to regularize yet (the missing
+// consent is already flagged by the existing consent badge).
+export function computeMinorStatus(
+  birthDate: Date,
+  consentingGuardianCount: number,
+  latestEvents: Pick<LatestConsentEvent, 'action' | 'grantedBy'>[],
+): MinorStatus {
+  if (!isMinor(birthDate)) return 'NOT_MINOR';
+  if (consentingGuardianCount === 0) return 'MISSING_GUARDIAN';
+  const hasLegacyGrant = latestEvents.some(
+    (e) => e.action === 'GRANT' && e.grantedBy !== 'GUARDIAN',
+  );
+  return hasLegacyGrant ? 'LEGACY_CONSENT' : 'OK';
+}
+
+// Age fields added to every patient read. `guardianEnforcementDate` is only
+// present for minors, since it is only relevant to them.
+function minorFields(
+  birthDate: Date,
+  guardians: { canConsent: boolean }[],
+  latestEvents: LatestConsentEvent[],
+) {
+  const minor = isMinor(birthDate);
+  return {
+    isMinor: minor,
+    ageBand: getAgeBand(birthDate),
+    guardianCount: guardians.length,
+    minorStatus: computeMinorStatus(
+      birthDate,
+      guardians.filter((g) => g.canConsent).length,
+      latestEvents,
+    ),
+    ...(minor && {
+      guardianEnforcementDate: MINOR_GUARDIAN_ENFORCEMENT_DATE,
+    }),
+  };
 }
 
 @Injectable()
@@ -134,10 +216,21 @@ export class PatientsService {
     patientIds: string[],
     client: PrismaService | Prisma.TransactionClient = this.prisma,
   ): Promise<Map<string, ConsentStatusMap>> {
-    const map = new Map<string, ConsentStatusMap>();
-    if (patientIds.length === 0) return map;
+    return buildConsentStatusMap(
+      patientIds,
+      await this.getLatestConsentEvents(patientIds, client),
+    );
+  }
 
-    const latestEvents = await client.patientConsent.findMany({
+  // Latest event per (patientId, purpose), with grantedBy. Shared by
+  // getConsentStatusMap and the minor-status computation so the listing needs
+  // a single consent query per page.
+  private async getLatestConsentEvents(
+    patientIds: string[],
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ): Promise<LatestConsentEvent[]> {
+    if (patientIds.length === 0) return [];
+    return client.patientConsent.findMany({
       where: { patientId: { in: patientIds } },
       distinct: ['patientId', 'purpose'],
       orderBy: [
@@ -146,14 +239,6 @@ export class PatientsService {
         { recordedAt: 'desc' },
       ],
     });
-
-    for (const id of patientIds) map.set(id, emptyConsentStatus());
-    for (const event of latestEvents) {
-      const status = map.get(event.patientId) ?? emptyConsentStatus();
-      status[event.purpose] = event.action === 'GRANT';
-      map.set(event.patientId, status);
-    }
-    return map;
   }
 
   // issue #290: siempre devuelve { data, total, page, pageSize }. Sin
@@ -187,16 +272,25 @@ export class PatientsService {
         orderBy: { createdAt: 'desc' },
         take: pageSize,
         skip: (page - 1) * pageSize,
+        // M2a: a patient has at most two guardians, so joining only the
+        // canConsent flag keeps the page to one query (no N+1) and the
+        // response leaves the full list to the detail endpoint.
+        include: { guardians: { select: { canConsent: true } } },
       }),
       this.prisma.patient.count({ where }),
     ]);
 
-    const consentMap = await this.getConsentStatusMap(
-      patients.map((p) => p.id),
-    );
-    const data = patients.map((p) => ({
+    const patientIds = patients.map((p) => p.id);
+    const latestEvents = await this.getLatestConsentEvents(patientIds);
+    const consentMap = buildConsentStatusMap(patientIds, latestEvents);
+    const data = patients.map(({ guardians, ...p }) => ({
       ...p,
       consents: consentMap.get(p.id) ?? emptyConsentStatus(),
+      ...minorFields(
+        p.birthDate,
+        guardians,
+        latestEvents.filter((e) => e.patientId === p.id),
+      ),
     }));
 
     return { data, total, page, pageSize };
@@ -238,10 +332,10 @@ export class PatientsService {
   async assertAccess(
     id: string,
     userId: string,
-  ): Promise<{ id: string; rut: string }> {
+  ): Promise<{ id: string; rut: string; birthDate: Date }> {
     const patient = await this.prisma.patient.findFirst({
       where: { id, therapistId: userId, deletedAt: null },
-      select: { id: true, rut: true },
+      select: { id: true, rut: true, birthDate: true },
     });
     // NotFoundException uniforme tanto si el paciente no existe como si
     // pertenece a otro profesional: no distinguir evita filtrar (vía 403 vs
@@ -268,13 +362,19 @@ export class PatientsService {
           orderBy: { uploadedAt: 'desc' },
           take: UNPAGINATED_SAFETY_LIMIT,
         },
+        guardians: { orderBy: { createdAt: 'asc' } },
       },
     });
     if (!patient) throw new NotFoundException('Paciente no encontrado');
 
+    const latestEvents = await this.getLatestConsentEvents([id]);
     const consents =
-      (await this.getConsentStatusMap([id])).get(id) ?? emptyConsentStatus();
-    return { ...patient, consents };
+      buildConsentStatusMap([id], latestEvents).get(id) ?? emptyConsentStatus();
+    return {
+      ...patient,
+      consents,
+      ...minorFields(patient.birthDate, patient.guardians, latestEvents),
+    };
   }
 
   async update(id: string, dto: UpdatePatientDto, userId: string) {
@@ -445,18 +545,141 @@ export class PatientsService {
     userId: string,
     documentId?: string,
   ) {
-    await this.assertAccess(id, userId);
+    const patient = await this.assertAccess(id, userId);
+    const { grantedBy, guardianId } = await this.resolveConsentGrantor(
+      patient,
+      dto,
+    );
 
-    return this.prisma.patientConsent.create({
-      data: {
-        patientId: id,
-        purpose: dto.purpose,
-        action: dto.action,
-        recordedById: userId,
-        evidence: dto.evidence,
-        documentId: documentId ?? null,
-      },
+    try {
+      return await this.prisma.patientConsent.create({
+        data: {
+          patientId: id,
+          purpose: dto.purpose,
+          action: dto.action,
+          recordedById: userId,
+          evidence: dto.evidence,
+          documentId: documentId ?? null,
+          grantedBy,
+          guardianId,
+        },
+      });
+    } catch (err) {
+      // The guardian was deleted between the check and the INSERT (FK).
+      if (
+        guardianId &&
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2003'
+      ) {
+        throw new BadRequestException(
+          'El representante indicado no pertenece a este paciente.',
+        );
+      }
+      throw err;
+    }
+  }
+
+  // Write policy (strict from deploy, unlike the lenient read policy in
+  // assertTreatmentConsent):
+  // - adult: only the patient can grant; a guardian makes no sense.
+  // - minor: a GRANT needs a guardian of THIS patient with canConsent; a
+  //   REVOKE is always accepted (revoking is never blocked), but a guardian
+  //   reference, when present, must still be coherent.
+  private async resolveConsentGrantor(
+    patient: { id: string; birthDate: Date },
+    dto: Pick<RecordConsentDto, 'action' | 'grantedBy' | 'guardianId'>,
+  ): Promise<{ grantedBy: ConsentGrantor; guardianId: string | null }> {
+    const grantedBy = dto.grantedBy ?? ConsentGrantor.PATIENT;
+    const guardianId = dto.guardianId ?? null;
+
+    if (!isMinor(patient.birthDate)) {
+      if (grantedBy !== ConsentGrantor.PATIENT || guardianId) {
+        throw new BadRequestException(
+          'Un paciente mayor de edad otorga su propio consentimiento: no corresponde indicar un representante legal.',
+        );
+      }
+      return { grantedBy, guardianId: null };
+    }
+
+    const isGrant = dto.action === ConsentAction.GRANT;
+    if (isGrant && (grantedBy !== ConsentGrantor.GUARDIAN || !guardianId)) {
+      throw new BadRequestException(MINOR_NEEDS_GUARDIAN_MESSAGE);
+    }
+    if (grantedBy === ConsentGrantor.GUARDIAN && !guardianId) {
+      throw new BadRequestException(
+        'Debe indicar el representante legal que otorga el consentimiento.',
+      );
+    }
+    if (grantedBy === ConsentGrantor.PATIENT && guardianId) {
+      throw new BadRequestException(
+        'Un consentimiento otorgado por el paciente no puede referenciar a un representante.',
+      );
+    }
+
+    if (guardianId) {
+      await this.assertGuardianCanSign(patient.id, guardianId, isGrant);
+    }
+    return { grantedBy, guardianId };
+  }
+
+  // The guardian must belong to THIS patient (another patient's guardian is
+  // rejected as if it did not exist) and, to sign a GRANT, have canConsent.
+  // Also used by DocumentsService to fail before storing a consent document.
+  async assertGuardianCanSign(
+    patientId: string,
+    guardianId: string,
+    requireCanConsent: boolean,
+  ): Promise<void> {
+    const guardian = await this.prisma.legalGuardian.findFirst({
+      where: { id: guardianId, patientId },
+      select: { canConsent: true },
     });
+    if (!guardian) {
+      throw new BadRequestException(
+        'El representante indicado no pertenece a este paciente.',
+      );
+    }
+    if (requireCanConsent && !guardian.canConsent) {
+      throw new BadRequestException(
+        'El representante indicado no está habilitado para otorgar consentimiento.',
+      );
+    }
+  }
+
+  // Read policy for the consultation guardrail. An adult needs an active
+  // consent for any purpose. A minor needs one granted by a legal guardian,
+  // but only from MINOR_GUARDIAN_ENFORCEMENT_DATE (Santiago calendar day):
+  // before it, the consent the patient gave as a legacy still counts, so the
+  // existing minors are not locked out while they are regularized.
+  async assertTreatmentConsent(
+    patientId: string,
+    noConsentMessage: string,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ): Promise<void> {
+    const patient = await client.patient.findUnique({
+      where: { id: patientId },
+      select: { birthDate: true },
+    });
+    if (!patient) throw new NotFoundException('Paciente no encontrado');
+
+    const events = await this.getLatestConsentEvents([patientId], client);
+    const granted = events.filter((e) => e.action === ConsentAction.GRANT);
+    if (granted.length === 0) throw new ForbiddenException(noConsentMessage);
+
+    if (!isMinor(patient.birthDate)) return;
+    const today = chileDayKeyFromInstant(new Date());
+    if (today < MINOR_GUARDIAN_ENFORCEMENT_DATE) return;
+    // Same rules as computeMinorStatus: every active grant must come from a
+    // guardian and at least one guardian must still be able to consent.
+    const consentingGuardians = await client.legalGuardian.count({
+      where: { patientId, canConsent: true },
+    });
+    if (consentingGuardians === 0) {
+      throw new ForbiddenException(MINOR_NEEDS_GUARDIAN_MESSAGE);
+    }
+    if (granted.some((e) => e.grantedBy !== ConsentGrantor.GUARDIAN)) {
+      throw new ForbiddenException(MINOR_LEGACY_CONSENT_MESSAGE);
+    }
   }
 
   // T5 (issue #131): declaración retroactiva en bloque para pacientes que
