@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { AlertTriangle } from "lucide-react";
 import { useDialogA11y } from "./ui/useDialogA11y";
+import { IDLE_WARNING_SECONDS } from "../hooks/useIdleTimeout";
 
-const WARNING_SECONDS = 120;
+const WARNING_SECONDS = IDLE_WARNING_SECONDS;
 
 interface IdleWarningModalProps {
   onExtend: () => void;

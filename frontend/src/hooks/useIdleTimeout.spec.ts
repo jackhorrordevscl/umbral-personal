@@ -4,6 +4,7 @@ import {
   ACTIVITY_CHANNEL,
   ACTIVITY_STORAGE_KEY,
   IDLE_TIMEOUT,
+  IDLE_WARNING_SECONDS,
   useIdleTimeout,
 } from './useIdleTimeout'
 
@@ -127,5 +128,178 @@ describe('useIdleTimeout', () => {
 
     expect(FakeBroadcastChannel.instances[0].closed).toBe(true)
     expect(onWarn).not.toHaveBeenCalled()
+  })
+
+  describe('inactividad con temporizadores congelados (issue #367)', () => {
+    const MIN = 60 * 1000
+    const NOW = new Date('2026-10-08T12:00:00Z').getTime()
+
+    const setVisibility = (state: DocumentVisibilityState) =>
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue(state)
+
+    // Simula el regreso a la app: el reloj avanza sin que corran los timers.
+    const returnAfter = (
+      ms: number,
+      event: 'visibilitychange' | 'pageshow',
+    ) => {
+      vi.setSystemTime(NOW + ms)
+      act(() => {
+        if (event === 'visibilitychange') {
+          document.dispatchEvent(new Event('visibilitychange'))
+        } else {
+          window.dispatchEvent(new Event('pageshow'))
+        }
+      })
+    }
+
+    beforeEach(() => {
+      vi.setSystemTime(NOW)
+      localStorage.clear()
+      localStorage.setItem(ACTIVITY_STORAGE_KEY, String(NOW))
+      setVisibility('visible')
+    })
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+      localStorage.clear()
+    })
+
+    it.each(['visibilitychange', 'pageshow'] as const)(
+      'avisa al volver tras 9 min (%s)',
+      (event) => {
+        const onWarn = vi.fn()
+        const onExpire = vi.fn()
+        renderHook(() => useIdleTimeout({ onWarn, onExpire }))
+
+        returnAfter(9 * MIN, event)
+
+        expect(onWarn).toHaveBeenCalled()
+        expect(onExpire).not.toHaveBeenCalled()
+      },
+    )
+
+    it.each(['visibilitychange', 'pageshow'] as const)(
+      'expira directo al volver tras 11 min (%s)',
+      (event) => {
+        const onWarn = vi.fn()
+        const onExpire = vi.fn()
+        renderHook(() => useIdleTimeout({ onWarn, onExpire }))
+
+        returnAfter(IDLE_TIMEOUT + IDLE_WARNING_SECONDS * 1000 + 1000, event)
+
+        expect(onExpire).toHaveBeenCalledTimes(1)
+        expect(onWarn).not.toHaveBeenCalled()
+      },
+    )
+
+    it('no hace nada al volver tras 3 min', () => {
+      const onWarn = vi.fn()
+      const onExpire = vi.fn()
+      renderHook(() => useIdleTimeout({ onWarn, onExpire }))
+
+      returnAfter(3 * MIN, 'visibilitychange')
+
+      expect(onWarn).not.toHaveBeenCalled()
+      expect(onExpire).not.toHaveBeenCalled()
+    })
+
+    it('ignora visibilitychange cuando la pestaña pasa a oculta', () => {
+      const onWarn = vi.fn()
+      renderHook(() => useIdleTimeout({ onWarn, onExpire: vi.fn() }))
+      setVisibility('hidden')
+
+      returnAfter(9 * MIN, 'visibilitychange')
+
+      expect(onWarn).not.toHaveBeenCalled()
+    })
+
+    it('una marca más reciente de otra pestaña evita el aviso', () => {
+      const onWarn = vi.fn()
+      const onExpire = vi.fn()
+      renderHook(() => useIdleTimeout({ onWarn, onExpire }))
+      localStorage.setItem(ACTIVITY_STORAGE_KEY, String(NOW + 8 * MIN))
+
+      returnAfter(9 * MIN, 'visibilitychange')
+
+      expect(onWarn).not.toHaveBeenCalled()
+      expect(onExpire).not.toHaveBeenCalled()
+    })
+
+    it('al montar con una marca vieja expira; con una intermedia avisa', () => {
+      vi.setSystemTime(NOW + 30 * MIN)
+      const onExpire = vi.fn()
+      renderHook(() => useIdleTimeout({ onWarn: vi.fn(), onExpire }))
+      expect(onExpire).toHaveBeenCalledTimes(1)
+
+      localStorage.setItem(
+        ACTIVITY_STORAGE_KEY,
+        String(NOW + 30 * MIN - 9 * MIN),
+      )
+      const onWarn = vi.fn()
+      renderHook(() => useIdleTimeout({ onWarn, onExpire: vi.fn() }))
+      expect(onWarn).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([null, 'abc', ''])(
+      'una marca ausente o inválida (%s) no expira y se reescribe',
+      (value) => {
+        localStorage.removeItem(ACTIVITY_STORAGE_KEY)
+        if (value !== null) localStorage.setItem(ACTIVITY_STORAGE_KEY, value)
+        const onWarn = vi.fn()
+        const onExpire = vi.fn()
+        renderHook(() => useIdleTimeout({ onWarn, onExpire }))
+
+        returnAfter(0, 'pageshow')
+
+        expect(onWarn).not.toHaveBeenCalled()
+        expect(onExpire).not.toHaveBeenCalled()
+        expect(localStorage.getItem(ACTIVITY_STORAGE_KEY)).toBe(String(NOW))
+      },
+    )
+
+    it('la actividad local persiste la marca, con throttle', () => {
+      renderHook(() => useIdleTimeout({ onWarn: vi.fn(), onExpire: vi.fn() }))
+      localStorage.removeItem(ACTIVITY_STORAGE_KEY)
+
+      vi.setSystemTime(NOW + 5000)
+      window.dispatchEvent(new Event('mousemove'))
+      expect(localStorage.getItem(ACTIVITY_STORAGE_KEY)).toBe(String(NOW + 5000))
+
+      vi.setSystemTime(NOW + 5100)
+      window.dispatchEvent(new Event('mousemove'))
+      expect(localStorage.getItem(ACTIVITY_STORAGE_KEY)).toBe(String(NOW + 5000))
+    })
+
+    it('extend refresca la marca guardada', () => {
+      const { result } = renderHook(() =>
+        useIdleTimeout({ onWarn: vi.fn(), onExpire: vi.fn() }),
+      )
+      vi.setSystemTime(NOW + 9 * MIN)
+
+      act(() => result.current.extend())
+
+      expect(localStorage.getItem(ACTIVITY_STORAGE_KEY)).toBe(String(NOW + 9 * MIN))
+    })
+
+    it('si localStorage lanza, no falla y mantiene el temporizador', () => {
+      vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('blocked')
+      })
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('blocked')
+      })
+      const onWarn = vi.fn()
+      const onExpire = vi.fn()
+
+      expect(() => {
+        renderHook(() => useIdleTimeout({ onWarn, onExpire }))
+        window.dispatchEvent(new Event('click'))
+        returnAfter(20 * MIN, 'visibilitychange')
+      }).not.toThrow()
+      expect(onExpire).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(IDLE_TIMEOUT)
+      expect(onWarn).toHaveBeenCalled()
+    })
   })
 })
