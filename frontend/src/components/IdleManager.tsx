@@ -25,12 +25,20 @@ export default function IdleManager() {
     navigate("/login");
   }, [logout, navigate]);
 
+  // Issue #367: al volver de un segundo plano ya pasó también el tiempo del
+  // aviso, así que se cierra sin mostrarlo. IdleManager vive siempre montado;
+  // sin sesión no hay nada que cerrar.
+  const handleExpire = useCallback(() => {
+    if (isAuthenticated) handleLogout();
+  }, [isAuthenticated, handleLogout]);
+
   // Si otra pestaña está activa, el usuario sigue presente: se descarta el
   // aviso para que su cuenta atrás no cierre la sesión compartida.
   const handleRemoteActivity = useCallback(() => setShowWarning(false), []);
 
   const { extend } = useIdleTimeout({
     onWarn: handleWarn,
+    onExpire: handleExpire,
     onRemoteActivity: handleRemoteActivity,
   });
 
