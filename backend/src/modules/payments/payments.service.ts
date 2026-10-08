@@ -13,12 +13,36 @@ import { PaymentAccountService } from './payment-account.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
+  resolvePatientPayerEmail,
+  resolvePatientRecipient,
+  type RecipientPatient,
+} from '../../common/utils/resolve-patient-recipient';
+import { isMinor } from '../../common/utils/age.util';
+import {
   CANCELLABLE_STATUSES,
   PAYMENT_DUE_GRACE_MS,
   PAYMENT_CONFIRM_PATH,
   PAYMENT_RETURN_PATH,
   PAYMENT_RETURN_REDIRECT_PATH,
 } from './payments.constants';
+
+// Only the fields resolvePatientRecipient needs; guardians in creation order.
+const GUARDIAN_RECIPIENT_SELECT = {
+  select: {
+    fullName: true,
+    email: true,
+    isPayer: true,
+    receivesCommunications: true,
+  },
+  orderBy: { createdAt: 'asc' },
+} as const;
+
+const PATIENT_RECIPIENT_SELECT = {
+  fullName: true,
+  email: true,
+  birthDate: true,
+  guardians: GUARDIAN_RECIPIENT_SELECT,
+} as const;
 
 const DEFAULT_FRONTEND_URL = 'http://localhost:5173';
 // T5.6: local backend default (same default port as main.ts,
@@ -115,6 +139,8 @@ export class PaymentsService {
             deletedAt: true,
             email: true,
             fullName: true,
+            birthDate: true,
+            guardians: GUARDIAN_RECIPIENT_SELECT,
           },
         },
         therapist: { select: { email: true } },
@@ -186,7 +212,11 @@ export class PaymentsService {
       context,
       amount,
       groupId,
-      payerEmail: consultation.patient.email ?? consultation.therapist.email,
+      payerEmail: await this.resolvePayerEmail(
+        consultation.patient,
+        consultation.therapistId,
+        consultation.therapist.email,
+      ),
     });
     await this.deliverPaymentLink(
       created.id,
@@ -207,11 +237,17 @@ export class PaymentsService {
   // this can never prevent ensureCharge() from resolving.
   private async deliverPaymentLink(
     paymentId: string,
-    patient: { email: string | null; fullName: string },
+    patient: RecipientPatient,
     order: { paymentUrl: string } | null,
     amount: number,
   ): Promise<void> {
-    if (!patient.email) {
+    const recipient = resolvePatientRecipient(patient);
+    if (!recipient.email) {
+      if (recipient.kind === 'GUARDIAN') {
+        this.logger.warn(
+          `Paciente menor sin representante con email: link de pago no enviado (paymentId=${paymentId})`,
+        );
+      }
       await this.prisma.payment.update({
         where: { id: paymentId },
         data: { linkDelivery: 'SKIPPED_NO_EMAIL' },
@@ -227,9 +263,8 @@ export class PaymentsService {
       return;
     }
 
-    const sent = await this.mailService.sendPaymentLinkEmail(
-      patient.email,
-      patient.fullName,
+    const sent = await this.sendLink(
+      { ...recipient, email: recipient.email },
       order.paymentUrl,
       amount,
     );
@@ -339,9 +374,10 @@ export class PaymentsService {
     if (context) {
       const patient = await this.prisma.patient.findUnique({
         where: { id: payment.patientId },
+        select: PATIENT_RECIPIENT_SELECT,
       });
       const payerEmail = await this.resolvePayerEmail(
-        patient?.email ?? null,
+        patient,
         payment.therapistId,
       );
       // issue #284: el link anterior sigue vivo en la pasarela con el monto
@@ -404,9 +440,10 @@ export class PaymentsService {
 
     const patient = await this.prisma.patient.findUnique({
       where: { id: payment.patientId },
+      select: PATIENT_RECIPIENT_SELECT,
     });
     const payerEmail = await this.resolvePayerEmail(
-      patient?.email ?? null,
+      patient,
       payment.therapistId,
     );
     const order = await this.issueOrder({
@@ -446,16 +483,19 @@ export class PaymentsService {
 
     const patient = await this.prisma.patient.findUnique({
       where: { id: payment.patientId },
+      select: PATIENT_RECIPIENT_SELECT,
     });
-    if (!patient?.email) {
+    const recipient = patient ? resolvePatientRecipient(patient) : null;
+    if (!recipient?.email) {
       throw new BadRequestException(
-        'El paciente no tiene un email registrado.',
+        recipient?.kind === 'GUARDIAN'
+          ? 'El paciente es menor de edad y no tiene un representante con email registrado.'
+          : 'El paciente no tiene un email registrado.',
       );
     }
 
-    const sent = await this.mailService.sendPaymentLinkEmail(
-      patient.email,
-      patient.fullName,
+    const sent = await this.sendLink(
+      { ...recipient, email: recipient.email },
       payment.paymentUrl,
       payment.amount,
     );
@@ -500,16 +540,51 @@ export class PaymentsService {
   // delivery -- falls back to the therapist's own email only when the
   // patient has none, purely to satisfy that requirement. Queries User only
   // when the fallback is actually needed.
+  //
+  // For a minor the payer is the legal guardian (never the minor's own
+  // email); with no guardian email the therapist fallback applies too, with a
+  // warning so it is not silent.
   private async resolvePayerEmail(
-    patientEmail: string | null,
+    patient: RecipientPatient | null,
     therapistId: string,
+    therapistEmail?: string,
   ): Promise<string> {
-    if (patientEmail) return patientEmail;
+    const payerEmail = patient ? resolvePatientPayerEmail(patient) : null;
+    if (payerEmail) return payerEmail;
+    if (patient && isMinor(patient.birthDate)) {
+      this.logger.warn(
+        `Paciente menor sin representante con email: pagador técnico de Flow es el terapeuta (therapistId=${therapistId})`,
+      );
+    }
+    if (therapistEmail) return therapistEmail;
     const therapist = await this.prisma.user.findUniqueOrThrow({
       where: { id: therapistId },
       select: { email: true },
     });
     return therapist.email;
+  }
+
+  // Guardian wording is only passed for guardian recipients, so adult emails
+  // keep the exact previous call shape.
+  private sendLink(
+    recipient: ReturnType<typeof resolvePatientRecipient> & { email: string },
+    paymentUrl: string,
+    amount: number,
+  ): Promise<boolean> {
+    return recipient.kind === 'GUARDIAN'
+      ? this.mailService.sendPaymentLinkEmail(
+          recipient.email,
+          recipient.recipientName,
+          paymentUrl,
+          amount,
+          { patientName: recipient.patientName, isGuardian: true },
+        )
+      : this.mailService.sendPaymentLinkEmail(
+          recipient.email,
+          recipient.recipientName,
+          paymentUrl,
+          amount,
+        );
   }
 
   // spec.md "Cancellation Preserves Paid Charges and Voids Pending Ones":

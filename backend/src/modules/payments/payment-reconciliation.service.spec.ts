@@ -151,6 +151,8 @@ describe('PaymentReconciliationService', () => {
       prisma.patient.findUnique.mockResolvedValue({
         email: 'paciente@example.com',
         fullName: 'Juan Soto',
+        birthDate: new Date('1990-01-01'),
+        guardians: [],
       });
 
       await service.sweep();
@@ -207,12 +209,76 @@ describe('PaymentReconciliationService', () => {
       prisma.patient.findUnique.mockResolvedValue({
         email: null,
         fullName: 'Juan Soto',
+        birthDate: new Date('1990-01-01'),
+        guardians: [],
       });
 
       await service.sweep();
 
       expect(mailService.sendLatePaymentEmail).not.toHaveBeenCalled();
       expect(notificationsService.create).toHaveBeenCalledTimes(1);
+    });
+
+    describe('paciente menor de edad', () => {
+      const duePayment = () =>
+        buildPayment({
+          id: 'payment-due',
+          status: 'PENDING',
+          patientId: 'patient-1',
+          therapistId: 'therapist-1',
+          amount: 30000,
+        });
+
+      beforeEach(() => {
+        prisma.payment.updateMany.mockImplementation(
+          (args: { where: { status?: string } }) =>
+            Promise.resolve({ count: args.where.status === 'PENDING' ? 1 : 0 }),
+        );
+      });
+
+      it('envía el aviso al representante con redacción de representante', async () => {
+        const payment = duePayment();
+        pass1Candidates = [payment];
+        prisma.patient.findUnique.mockResolvedValue({
+          email: 'menor@example.com',
+          fullName: 'Juan Soto',
+          birthDate: new Date('2015-05-05'),
+          guardians: [
+            {
+              fullName: 'Ana Soto',
+              email: 'apoderada@example.com',
+              isPayer: true,
+              receivesCommunications: true,
+            },
+          ],
+        });
+
+        await service.sweep();
+
+        expect(mailService.sendLatePaymentEmail).toHaveBeenCalledWith(
+          'apoderada@example.com',
+          'Ana Soto',
+          30000,
+          payment.dueDate,
+          { patientName: 'Juan Soto', isGuardian: true },
+        );
+        expect(notificationsService.create).toHaveBeenCalledTimes(1);
+      });
+
+      it('sin representante con email no envía email (nunca al menor) pero notifica al terapeuta', async () => {
+        pass1Candidates = [duePayment()];
+        prisma.patient.findUnique.mockResolvedValue({
+          email: 'menor@example.com',
+          fullName: 'Juan Soto',
+          birthDate: new Date('2015-05-05'),
+          guardians: [],
+        });
+
+        await service.sweep();
+
+        expect(mailService.sendLatePaymentEmail).not.toHaveBeenCalled();
+        expect(notificationsService.create).toHaveBeenCalledTimes(1);
+      });
     });
 
     it('pass 2 reconcilia un cargo PENDING con token viejo y lo marca PAID si el gateway confirma', async () => {

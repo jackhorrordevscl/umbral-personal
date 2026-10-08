@@ -4,6 +4,13 @@ import { Resend } from 'resend';
 import { escapeHtml } from '../../common/utils/escape-html.util';
 import { maskEmail } from '../../common/utils/mask-email.util';
 
+// When isGuardian is set the email is addressed to a minor's legal guardian
+// and names the patient (no clinical information).
+export interface GuardianMailOptions {
+  patientName?: string;
+  isGuardian?: boolean;
+}
+
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
@@ -276,6 +283,7 @@ export class MailService {
     patientName: string,
     paymentUrl: string,
     amount: number,
+    options?: GuardianMailOptions,
   ): Promise<boolean> {
     if (!this.resend) {
       this.logger.warn(
@@ -294,7 +302,13 @@ export class MailService {
       from: this.from,
       to,
       subject: 'Link de pago de tu sesión en Umbral - RCE',
-      html: `
+      html: options?.isGuardian
+        ? `
+        <p>Hola ${escapeHtml(patientName)},</p>
+        <p>Le escribimos por el pago de las sesiones de ${escapeHtml(options.patientName ?? '')}. Hay un cobro pendiente de ${escapeHtml(formattedAmount)}. Puede pagarlo haciendo clic en el siguiente enlace:</p>
+        <p><a href="${escapeHtml(paymentUrl)}">${escapeHtml(paymentUrl)}</a></p>
+      `
+        : `
         <p>Hola ${escapeHtml(patientName)},</p>
         <p>Tu sesión tiene un cobro pendiente de ${escapeHtml(formattedAmount)}. Puedes pagarlo haciendo clic en el siguiente enlace:</p>
         <p><a href="${escapeHtml(paymentUrl)}">${escapeHtml(paymentUrl)}</a></p>
@@ -324,6 +338,7 @@ export class MailService {
     patientName: string,
     amount: number,
     dueDate: Date,
+    options?: GuardianMailOptions,
   ): Promise<void> {
     if (!this.resend) {
       this.logger.warn(
@@ -346,7 +361,12 @@ export class MailService {
       from: this.from,
       to,
       subject: 'Tu cobro en Umbral - RCE está vencido',
-      html: `
+      html: options?.isGuardian
+        ? `
+        <p>Hola ${escapeHtml(patientName)},</p>
+        <p>Le escribimos por el cobro de las sesiones de ${escapeHtml(options.patientName ?? '')}. El cobro de ${escapeHtml(formattedAmount)} correspondiente a la sesión del ${escapeHtml(formattedDueDate)} sigue pendiente de pago.</p>
+      `
+        : `
         <p>Hola ${escapeHtml(patientName)},</p>
         <p>El cobro de ${escapeHtml(formattedAmount)} correspondiente a tu sesión del ${escapeHtml(formattedDueDate)} sigue pendiente de pago.</p>
       `,

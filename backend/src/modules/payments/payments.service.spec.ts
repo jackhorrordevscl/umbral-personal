@@ -21,6 +21,13 @@ interface ConsultationRow {
     deletedAt: Date | null;
     email: string | null;
     fullName: string;
+    birthDate: Date;
+    guardians: {
+      fullName: string;
+      email: string | null;
+      isPayer: boolean;
+      receivesCommunications: boolean;
+    }[];
   };
   therapist: {
     email: string;
@@ -43,6 +50,8 @@ function buildConsultation(
       deletedAt: null,
       email: 'paciente@example.com',
       fullName: 'Juan Soto',
+      birthDate: new Date('1990-01-01'),
+      guardians: [],
       ...patientOverrides,
     },
     therapist: { email: 'terapeuta@example.com' },
@@ -290,6 +299,81 @@ describe('PaymentsService', () => {
           gatewayToken: 'order-token',
           paymentUrl: 'https://flow.cl/pay/order-token',
         }) as unknown,
+      });
+    });
+
+    describe('paciente menor de edad', () => {
+      const guardian = {
+        fullName: 'Ana Soto',
+        email: 'apoderada@example.com',
+        isPayer: true,
+        receivesCommunications: true,
+      };
+
+      it('envía el link al representante y usa su email como pagador en Flow', async () => {
+        prisma.consultation.findFirst.mockResolvedValue(
+          buildConsultation(
+            {},
+            {
+              email: 'menor@example.com',
+              birthDate: new Date('2015-05-05'),
+              guardians: [guardian],
+            },
+          ),
+        );
+        paymentAccountService.resolveGatewayContext.mockResolvedValue(
+          buildContext(),
+        );
+        prisma.payment.findUnique.mockResolvedValue(null);
+        prisma.payment.create.mockResolvedValue(buildPayment());
+
+        await service.ensureCharge('group-1');
+
+        expect(gatewayAdapter.createOrder).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            payerEmail: 'apoderada@example.com',
+          }) as unknown,
+        );
+        expect(mailService.sendPaymentLinkEmail).toHaveBeenCalledWith(
+          'apoderada@example.com',
+          'Ana Soto',
+          'https://flow.cl/pay/order-token',
+          30000,
+          { patientName: 'Juan Soto', isGuardian: true },
+        );
+      });
+
+      it('sin representante con email: SKIPPED_NO_EMAIL, no usa el email del menor y el pagador técnico es el terapeuta', async () => {
+        prisma.consultation.findFirst.mockResolvedValue(
+          buildConsultation(
+            {},
+            {
+              email: 'menor@example.com',
+              birthDate: new Date('2015-05-05'),
+              guardians: [{ ...guardian, email: null }],
+            },
+          ),
+        );
+        paymentAccountService.resolveGatewayContext.mockResolvedValue(
+          buildContext(),
+        );
+        prisma.payment.findUnique.mockResolvedValue(null);
+        prisma.payment.create.mockResolvedValue(buildPayment());
+
+        await service.ensureCharge('group-1');
+
+        expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+        expect(gatewayAdapter.createOrder).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            payerEmail: 'terapeuta@example.com',
+          }) as unknown,
+        );
+        expect(prisma.payment.update).toHaveBeenCalledWith({
+          where: { id: 'payment-1' },
+          data: { linkDelivery: 'SKIPPED_NO_EMAIL' },
+        });
       });
     });
 
@@ -1038,6 +1122,57 @@ describe('PaymentsService', () => {
 
       await expect(service.resendPaymentLink('group-1')).rejects.toThrow(
         BadRequestException,
+      );
+      expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+    });
+
+    it('menor: reenvía al representante con redacción de representante', async () => {
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment({ paymentUrl: 'https://flow.cl/pay/existing-token' }),
+      );
+      prisma.patient.findUnique.mockResolvedValue(
+        buildConsultation(
+          {},
+          {
+            email: 'menor@example.com',
+            birthDate: new Date('2015-05-05'),
+            guardians: [
+              {
+                fullName: 'Ana Soto',
+                email: 'apoderada@example.com',
+                isPayer: true,
+                receivesCommunications: true,
+              },
+            ],
+          },
+        ).patient,
+      );
+      prisma.payment.update.mockResolvedValue(buildPayment());
+
+      await service.resendPaymentLink('group-1');
+
+      expect(mailService.sendPaymentLinkEmail).toHaveBeenCalledWith(
+        'apoderada@example.com',
+        'Ana Soto',
+        'https://flow.cl/pay/existing-token',
+        30000,
+        { patientName: 'Juan Soto', isGuardian: true },
+      );
+    });
+
+    it('menor sin representante con email: 400 específico y nunca usa el email del menor', async () => {
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment({ paymentUrl: 'https://flow.cl/pay/existing-token' }),
+      );
+      prisma.patient.findUnique.mockResolvedValue(
+        buildConsultation(
+          {},
+          { email: 'menor@example.com', birthDate: new Date('2015-05-05') },
+        ).patient,
+      );
+
+      await expect(service.resendPaymentLink('group-1')).rejects.toThrow(
+        'El paciente es menor de edad y no tiene un representante con email registrado.',
       );
       expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
     });
