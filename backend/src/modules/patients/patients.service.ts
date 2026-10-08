@@ -815,6 +815,14 @@ export class PatientsService {
         );
         throw new ConflictException('No fue posible procesar la reserva.');
       }
+      // A stored patient who is currently a minor can only be booked through
+      // the minor path (patient RUT + guardian RUT), never by email alone.
+      if (isMinor(matches[0].birthDate)) {
+        this.logger.warn(
+          `Reserva pública rechazada: la ficha corresponde a un menor bajo therapistId=${therapistId}`,
+        );
+        throw new ConflictException('No fue posible procesar la reserva.');
+      }
       return { patient: matches[0], isNew: false };
     }
 
@@ -905,15 +913,25 @@ export class PatientsService {
     origin: PublicBookingOriginInput | undefined,
     client: PrismaService | Prisma.TransactionClient,
   ): Promise<{ patient: Patient; isNew: boolean }> {
-    if (!isValidRut(dto.rut) || !isValidRut(guardian.rut)) {
+    const rut = normalizeRut(dto.rut);
+    const guardianRut = normalizeRut(guardian.rut);
+
+    // Depends only on the request body, so a 400 reveals nothing stored.
+    if (guardianRut === rut) {
+      throw new BadRequestException(
+        'El RUT del representante legal debe ser distinto al del paciente.',
+      );
+    }
+
+    // The guardian RUT check digit is always required. The patient RUT check
+    // digit is only required when creating a new patient (same as the adult
+    // flow, issue #289), so a stored minor with an invalid one can still book.
+    if (!isValidRut(guardian.rut)) {
       this.logger.warn(
         `Reserva pública de menor rechazada: RUT con dígito verificador inválido bajo therapistId=${therapistId}`,
       );
       throw new ConflictException('No fue posible procesar la reserva.');
     }
-
-    const rut = normalizeRut(dto.rut);
-    const guardianRut = normalizeRut(guardian.rut);
 
     const existing = await client.patient.findFirst({
       where: { therapistId, rut, deletedAt: null },
@@ -924,7 +942,9 @@ export class PatientsService {
         where: { patientId: existing.id, rut: guardianRut },
         select: { id: true },
       });
-      if (!matchingGuardian) {
+      // Reuse only a patient who is a minor today by their STORED birth date;
+      // the submitted birthDate never overrides the record.
+      if (!matchingGuardian || !isMinor(existing.birthDate)) {
         this.logger.warn(
           `Reserva pública de menor rechazada: identidad no verificada bajo therapistId=${therapistId}`,
         );
@@ -933,7 +953,34 @@ export class PatientsService {
       return { patient: existing, isNew: false };
     }
 
+    if (!isValidRut(dto.rut)) {
+      this.logger.warn(
+        `Reserva pública de menor rechazada: RUT con dígito verificador inválido bajo therapistId=${therapistId}`,
+      );
+      throw new ConflictException('No fue posible procesar la reserva.');
+    }
+
     const email = dto.email?.trim().toLowerCase() || null;
+    // A duplicate email would make the adult email-first lookup ambiguous for
+    // the existing patient forever, so it is rejected with the uniform 409.
+    if (email) {
+      const emailTaken = await client.patient.findMany({
+        where: {
+          therapistId,
+          deletedAt: null,
+          email: { equals: email, mode: 'insensitive' },
+        },
+        select: { id: true },
+        take: 1,
+      });
+      if (emailTaken.length > 0) {
+        this.logger.warn(
+          `Reserva pública de menor rechazada: email ya registrado bajo therapistId=${therapistId}`,
+        );
+        throw new ConflictException('No fue posible procesar la reserva.');
+      }
+    }
+
     try {
       const patient = await client.patient.create({
         data: {

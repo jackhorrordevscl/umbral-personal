@@ -238,6 +238,74 @@ describe('Public booking for a minor (e2e)', () => {
     }).expect(400);
   });
 
+  it('a new minor with an email already used by an active patient gets the uniform 409 and is not created', async () => {
+    const takenEmail = `ocupado.${runId}@ejemplo.cl`;
+    await prisma.patient.create({
+      data: {
+        fullName: 'Paciente Adulto Con Email',
+        rut: uniqueTestRut(),
+        birthDate: new Date(birthDateYearsAgo(30)),
+        email: takenEmail,
+        therapistId,
+      },
+    });
+    const newMinorRut = uniqueTestRut();
+
+    const response = await book({
+      slotStart: thirdSlot.toISOString(),
+      patient: {
+        ...minorPatient,
+        rut: newMinorRut,
+        email: takenEmail.toUpperCase(),
+      },
+      guardian: { ...guardian, rut: uniqueTestRut() },
+    }).expect(409);
+
+    expect(JSON.stringify(response.body)).toContain(
+      'No fue posible procesar la reserva.',
+    );
+    const created = await prisma.patient.findFirst({
+      where: { therapistId, rut: newMinorRut },
+    });
+    expect(created).toBeNull();
+    const slot = await prisma.bookedSlot.findFirst({
+      where: { therapistId, slotStart: thirdSlot },
+    });
+    expect(slot).toBeNull();
+  });
+
+  it('an adult booking whose email and RUT match a stored minor gets the uniform 409', async () => {
+    const storedMinorRut = uniqueTestRut();
+    const storedMinorEmail = `menor.guardado.${runId}@ejemplo.cl`;
+    await prisma.patient.create({
+      data: {
+        fullName: 'Menor Guardado',
+        rut: storedMinorRut,
+        birthDate: new Date(birthDateYearsAgo(10)),
+        email: storedMinorEmail,
+        therapistId,
+      },
+    });
+
+    const response = await book({
+      slotStart: thirdSlot.toISOString(),
+      patient: {
+        fullName: 'Menor Guardado',
+        rut: storedMinorRut,
+        birthDate: birthDateYearsAgo(30),
+        email: storedMinorEmail,
+      },
+    }).expect(409);
+
+    expect(JSON.stringify(response.body)).toContain(
+      'No fue posible procesar la reserva.',
+    );
+    const slot = await prisma.bookedSlot.findFirst({
+      where: { therapistId, slotStart: thirdSlot },
+    });
+    expect(slot).toBeNull();
+  });
+
   it('an adult without email is rejected with 400', async () => {
     await book({
       slotStart: thirdSlot.toISOString(),
