@@ -25,16 +25,26 @@ distinguen según el tipo de dato (issue #376):
 | Pacientes y su ficha clínica (filas 1-3, 5-8, 12-14) | El terapeuta tratante, que presta la atención y es el obligado por la Ley 20.584 | Ground Zero Devs, operador de Umbral, que procesa los datos por cuenta del terapeuta |
 | Cuenta y uso de la plataforma por el propio profesional (filas 4, 4b, 15-17, 19-20) | Ground Zero Devs, operador de Umbral | Los procesadores de la tabla "Transferencia internacional de datos" |
 
-Las filas 9-11 y 18 (archivos personales, backups, Google Calendar y bloques
-ocupados) mezclan ambos roles: el contenido es del terapeuta y la
-infraestructura es del operador. Se clasifican en la revisión legal.
+Las filas 9-11 y 18 mezclan ambos roles: el contenido es del terapeuta y la
+infraestructura es del operador. Clasificación propuesta (issue #414):
+
+| Fila | Actividad | Responsable | Encargado | Criterio |
+|---|---|---|---|---|
+| 9 | Archivos personales | El terapeuta, dueño del material | Ground Zero Devs, que lo almacena | El contenido es de la práctica del profesional. Si sube un archivo con datos de pacientes, se rige como la fila 5 |
+| 10 | Backups | Ground Zero Devs, para los datos de cuenta | Ground Zero Devs, para los datos de pacientes que contiene el volcado (el terapeuta sigue siendo su responsable) | El volcado incluye ambos tipos de dato y lo decide el operador como medida de seguridad |
+| 11 | Sincronización con Google Calendar | El terapeuta, que decide conectar su agenda y cuyos pacientes aparecen como iniciales | Ground Zero Devs. Google LLC actúa como subencargado | El token OAuth es dato de cuenta del terapeuta y lo custodia Ground Zero Devs |
+| 18 | Bloques ocupados del calendario | El terapeuta, dueño de su agenda | Ground Zero Devs | Son intervalos de tiempo del propio profesional, sin datos de pacientes |
+
+Esta clasificación es una propuesta de redacción posterior a la revisión del
+abogado y no consta que la haya revisado.
 
 **Estado:** roles definidos para el issue #376 y alineados con la política
 pública (repo `umbral-landing`, página `/privacidad-general`). El abogado del
 proyecto los revisó y los dio por correctos el 2026-10-08, según informó el
 responsable del proyecto; no hay un documento de esa revisión en el repositorio.
-Quedan por clasificar las filas 9-11 y 18, que mezclan ambos roles (issue
-#414). Los DPA de Render y Sentry ya están en `docs/evidencia-compliance/`.
+Las filas 9-11 y 18 tienen una clasificación propuesta, pendiente de
+confirmar con el abogado (issue #414). Los DPA de Render y Sentry ya están en
+`docs/evidencia-compliance/`.
 
 ## Inventario de actividades de tratamiento
 
