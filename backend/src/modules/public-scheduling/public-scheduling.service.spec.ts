@@ -799,7 +799,11 @@ describe('PublicSchedulingService', () => {
         }),
       );
       const [call] = notificationsService.create.mock.calls[0];
-      expect(call.body).toContain('Paciente Público');
+      // issue #400: tono de bienvenida, con el monto como frase secundaria.
+      expect(call.title).toBe('¡Paciente nuevo de AutoAgenda!');
+      expect(call.body).toBe(
+        'Paciente Público agendó su primera sesión. Revisa su ficha cuando puedas. Si quieres que se genere cobro, define el monto de sesión en su ficha.',
+      );
     });
 
     it('paciente existente (isNew: false) NO dispara ninguna notificación', async () => {

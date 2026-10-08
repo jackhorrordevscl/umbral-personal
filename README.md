@@ -562,9 +562,9 @@ umbral-personal/
   responde `501`; firma inválida responde `401`. El estado más reciente por
   sesión se muestra como badge (enviado/entregado/abierto/no enviado) en la
   lista de consultas
-- Notificación al terapeuta cuando un paciente se autoagenda sin tener un
-  monto de cobro (`defaultSessionAmount`) configurado, para que complete el
-  monto a mano en vez de perder ese cargo en silencio
+- Notificación al terapeuta cuando un paciente nuevo se autoagenda: avisa que
+  agendó su primera sesión y recuerda definir el monto de cobro
+  (`defaultSessionAmount`) en su ficha, para no perder ese cargo en silencio
   (`PATIENT_MISSING_SESSION_AMOUNT`)
 - Tipos de notificación (`NotificationType`): `SESSION_REMINDER`,
   `GOOGLE_CALENDAR_DISCONNECTED`, `PAYMENT_LATE`,
