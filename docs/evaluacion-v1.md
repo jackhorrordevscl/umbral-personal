@@ -44,7 +44,7 @@ El núcleo clínico, la seguridad de cuentas, los respaldos y el pipeline de CI 
 
 ### B2. Nota de privacidad de la agenda pública afirma que el terapeuta es el responsable del tratamiento
 
-- `frontend/src/components/booking/PublicBookingForm.tsx:118` dice "Los recibe tu terapeuta, que es quien los trata". El RAT (`docs/registro-actividades-tratamiento.md`, sección "Responsable del tratamiento") identifica como responsable a "Umbral - RCE". Issue #376 (abierto, etiquetas `enhancement` y `compliance`).
+- `frontend/src/components/booking/PublicBookingForm.tsx:118` decía "Los recibe tu terapeuta, que es quien los trata" (frase eliminada, ver #376). El RAT (`docs/registro-actividades-tratamiento.md`, sección "Responsable del tratamiento") identifica como responsable a "Umbral - RCE". Issue #376 (la redacción final sigue pendiente de revisión legal).
 - El texto se muestra a pacientes que entregan RUT y fecha de nacimiento, y la Ley 21.719 entra en vigencia en diciembre de 2026.
 - Clasificación: **Bloqueante** (compliance). El arreglo de código es de una línea; lo que bloquea es que alguien con criterio legal defina la redacción.
 
