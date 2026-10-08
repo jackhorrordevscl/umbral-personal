@@ -15,7 +15,14 @@ import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { RecordConsentDto } from './dto/record-consent.dto';
 import { BulkDeclareConsentDto } from './dto/bulk-declare-consent.dto';
-import { ConsentPurpose, Patient, Prisma } from '@prisma/client';
+import {
+  ConsentPurpose,
+  Patient,
+  PatientConsent,
+  Prisma,
+} from '@prisma/client';
+import { getAgeBand, isMinor } from '../../common/utils/age.util';
+import { MINOR_GUARDIAN_ENFORCEMENT_DATE } from './patients.constants';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { DEFAULT_PATIENTS_PAGE_SIZE } from './dto/patients-query.dto';
@@ -80,6 +87,72 @@ function emptyConsentStatus(): ConsentStatusMap {
   return { TREATMENT: false, TELEMEDICINE: false };
 }
 
+type LatestConsentEvent = Pick<
+  PatientConsent,
+  'patientId' | 'purpose' | 'action' | 'grantedBy'
+>;
+
+function buildConsentStatusMap(
+  patientIds: string[],
+  latestEvents: LatestConsentEvent[],
+): Map<string, ConsentStatusMap> {
+  const map = new Map<string, ConsentStatusMap>();
+  for (const id of patientIds) map.set(id, emptyConsentStatus());
+  for (const event of latestEvents) {
+    const status = map.get(event.patientId) ?? emptyConsentStatus();
+    status[event.purpose] = event.action === 'GRANT';
+    map.set(event.patientId, status);
+  }
+  return map;
+}
+
+export type MinorStatus =
+  | 'NOT_MINOR'
+  | 'OK'
+  | 'MISSING_GUARDIAN'
+  | 'LEGACY_CONSENT';
+
+// Regularization state of a patient under 18 (transition policy: reads stay
+// lenient until MINOR_GUARDIAN_ENFORCEMENT_DATE, this only flags it).
+// `latestEvents` are the latest consent events per purpose of this patient.
+// A minor with no active consent has nothing to regularize yet (the missing
+// consent is already flagged by the existing consent badge).
+export function computeMinorStatus(
+  birthDate: Date,
+  consentingGuardianCount: number,
+  latestEvents: Pick<LatestConsentEvent, 'action' | 'grantedBy'>[],
+): MinorStatus {
+  if (!isMinor(birthDate)) return 'NOT_MINOR';
+  if (consentingGuardianCount === 0) return 'MISSING_GUARDIAN';
+  const hasLegacyGrant = latestEvents.some(
+    (e) => e.action === 'GRANT' && e.grantedBy !== 'GUARDIAN',
+  );
+  return hasLegacyGrant ? 'LEGACY_CONSENT' : 'OK';
+}
+
+// Age fields added to every patient read. `guardianEnforcementDate` is only
+// present for minors, since it is only relevant to them.
+function minorFields(
+  birthDate: Date,
+  guardians: { canConsent: boolean }[],
+  latestEvents: LatestConsentEvent[],
+) {
+  const minor = isMinor(birthDate);
+  return {
+    isMinor: minor,
+    ageBand: getAgeBand(birthDate),
+    guardianCount: guardians.length,
+    minorStatus: computeMinorStatus(
+      birthDate,
+      guardians.filter((g) => g.canConsent).length,
+      latestEvents,
+    ),
+    ...(minor && {
+      guardianEnforcementDate: MINOR_GUARDIAN_ENFORCEMENT_DATE,
+    }),
+  };
+}
+
 @Injectable()
 export class PatientsService {
   private readonly logger = new Logger(PatientsService.name);
@@ -134,10 +207,21 @@ export class PatientsService {
     patientIds: string[],
     client: PrismaService | Prisma.TransactionClient = this.prisma,
   ): Promise<Map<string, ConsentStatusMap>> {
-    const map = new Map<string, ConsentStatusMap>();
-    if (patientIds.length === 0) return map;
+    return buildConsentStatusMap(
+      patientIds,
+      await this.getLatestConsentEvents(patientIds, client),
+    );
+  }
 
-    const latestEvents = await client.patientConsent.findMany({
+  // Latest event per (patientId, purpose), with grantedBy. Shared by
+  // getConsentStatusMap and the minor-status computation so the listing needs
+  // a single consent query per page.
+  private async getLatestConsentEvents(
+    patientIds: string[],
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ): Promise<LatestConsentEvent[]> {
+    if (patientIds.length === 0) return [];
+    return client.patientConsent.findMany({
       where: { patientId: { in: patientIds } },
       distinct: ['patientId', 'purpose'],
       orderBy: [
@@ -146,14 +230,6 @@ export class PatientsService {
         { recordedAt: 'desc' },
       ],
     });
-
-    for (const id of patientIds) map.set(id, emptyConsentStatus());
-    for (const event of latestEvents) {
-      const status = map.get(event.patientId) ?? emptyConsentStatus();
-      status[event.purpose] = event.action === 'GRANT';
-      map.set(event.patientId, status);
-    }
-    return map;
   }
 
   // issue #290: siempre devuelve { data, total, page, pageSize }. Sin
@@ -187,16 +263,25 @@ export class PatientsService {
         orderBy: { createdAt: 'desc' },
         take: pageSize,
         skip: (page - 1) * pageSize,
+        // M2a: a patient has at most two guardians, so joining only the
+        // canConsent flag keeps the page to one query (no N+1) and the
+        // response leaves the full list to the detail endpoint.
+        include: { guardians: { select: { canConsent: true } } },
       }),
       this.prisma.patient.count({ where }),
     ]);
 
-    const consentMap = await this.getConsentStatusMap(
-      patients.map((p) => p.id),
-    );
-    const data = patients.map((p) => ({
+    const patientIds = patients.map((p) => p.id);
+    const latestEvents = await this.getLatestConsentEvents(patientIds);
+    const consentMap = buildConsentStatusMap(patientIds, latestEvents);
+    const data = patients.map(({ guardians, ...p }) => ({
       ...p,
       consents: consentMap.get(p.id) ?? emptyConsentStatus(),
+      ...minorFields(
+        p.birthDate,
+        guardians,
+        latestEvents.filter((e) => e.patientId === p.id),
+      ),
     }));
 
     return { data, total, page, pageSize };
@@ -268,13 +353,19 @@ export class PatientsService {
           orderBy: { uploadedAt: 'desc' },
           take: UNPAGINATED_SAFETY_LIMIT,
         },
+        guardians: { orderBy: { createdAt: 'asc' } },
       },
     });
     if (!patient) throw new NotFoundException('Paciente no encontrado');
 
+    const latestEvents = await this.getLatestConsentEvents([id]);
     const consents =
-      (await this.getConsentStatusMap([id])).get(id) ?? emptyConsentStatus();
-    return { ...patient, consents };
+      buildConsentStatusMap([id], latestEvents).get(id) ?? emptyConsentStatus();
+    return {
+      ...patient,
+      consents,
+      ...minorFields(patient.birthDate, patient.guardians, latestEvents),
+    };
   }
 
   async update(id: string, dto: UpdatePatientDto, userId: string) {
