@@ -325,10 +325,56 @@ describe('PublicSchedulingService', () => {
         patientDto,
         undefined,
         tx,
+        undefined,
       );
       expect(consultationsService.createFromPublicBooking).toHaveBeenCalledWith(
         'therapist-1',
         'patient-1',
+        '11111111-1',
+        new Date('2026-09-05T13:00:00.000Z'),
+        50,
+        tx,
+      );
+    });
+
+    // Minor booking: the guardian travels to PatientsService inside the same
+    // transaction; minor-ness is decided there from birthDate.
+    it('reenvía el guardian del body a resolveForPublicBooking dentro de la transacción', async () => {
+      prisma.user.findUnique.mockResolvedValue({ sessionDurationMinutes: 50 });
+      availabilityService.computeSlots.mockResolvedValue([
+        { start: '2026-09-05T13:00:00.000Z', end: '2026-09-05T13:50:00.000Z' },
+      ]);
+      patientsService.resolveForPublicBooking.mockResolvedValue({
+        patient: { id: 'minor-1', rut: '11111111-1', fullName: 'Menor' },
+        isNew: true,
+      });
+      consultationsService.createFromPublicBooking.mockResolvedValue({
+        id: 'consultation-1',
+        sessionDate: new Date('2026-09-05T13:00:00.000Z'),
+      });
+      const guardian = {
+        fullName: 'Representante Legal',
+        rut: '12.345.678-5',
+        relationship: 'MOTHER',
+        email: 'madre@ejemplo.cl',
+      };
+
+      await service.book('therapist-1', {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: patientDto,
+        guardian,
+      } as never);
+
+      expect(patientsService.resolveForPublicBooking).toHaveBeenCalledWith(
+        'therapist-1',
+        patientDto,
+        undefined,
+        tx,
+        guardian,
+      );
+      expect(consultationsService.createFromPublicBooking).toHaveBeenCalledWith(
+        'therapist-1',
+        'minor-1',
         '11111111-1',
         new Date('2026-09-05T13:00:00.000Z'),
         50,

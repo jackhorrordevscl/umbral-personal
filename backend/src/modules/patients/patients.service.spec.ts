@@ -52,7 +52,11 @@ describe('PatientsService', () => {
       update: jest.Mock;
       groupBy: jest.Mock;
     };
-    legalGuardian: { findFirst: jest.Mock; count: jest.Mock };
+    legalGuardian: {
+      findFirst: jest.Mock;
+      count: jest.Mock;
+      create: jest.Mock;
+    };
     patientConsent: { findMany: jest.Mock; create: jest.Mock };
     patientHistory: { create: jest.Mock; findMany: jest.Mock };
     consultation: { findMany: jest.Mock };
@@ -75,7 +79,11 @@ describe('PatientsService', () => {
         update: jest.fn(),
         groupBy: jest.fn(),
       },
-      legalGuardian: { findFirst: jest.fn(), count: jest.fn() },
+      legalGuardian: {
+        findFirst: jest.fn(),
+        count: jest.fn(),
+        create: jest.fn(),
+      },
       patientConsent: {
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn(),
@@ -1739,6 +1747,426 @@ describe('PatientsService', () => {
       for (const call of warnSpy.mock.calls) {
         expect(String(call[0])).not.toContain('paciente@ejemplo.cl');
       }
+    });
+
+    // Minor booking: the server decides minor-ness from the submitted
+    // birthDate; identity is the patient RUT scoped to the therapist plus a
+    // matching guardian RUT. Birth dates are relative to today (no time bomb).
+    describe('minor booking', () => {
+      const yearsAgo = (years: number): string => {
+        const date = new Date();
+        date.setUTCFullYear(date.getUTCFullYear() - years);
+        return date.toISOString().slice(0, 10);
+      };
+      const minorDto = {
+        fullName: 'Paciente Menor',
+        rut: '11.111.111-1',
+        birthDate: yearsAgo(10),
+      };
+      const guardian = {
+        fullName: 'Representante Legal',
+        rut: '12.345.678-5',
+        relationship: 'MOTHER',
+        email: 'Madre@Ejemplo.cl',
+        phone: '+56911111111',
+      };
+
+      it('adulto sin email -> 400 y no toca la base', async () => {
+        const { email: _email, ...withoutEmail } = dto;
+
+        await expect(
+          service.resolveForPublicBooking(
+            'therapist-1',
+            withoutEmail as never,
+            undefined,
+            undefined,
+            undefined,
+          ),
+        ).rejects.toBeInstanceOf(BadRequestException);
+        expect(prisma.patient.findMany).not.toHaveBeenCalled();
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+      });
+
+      it('adulto con representante -> 400', async () => {
+        await expect(
+          service.resolveForPublicBooking(
+            'therapist-1',
+            dto as never,
+            undefined,
+            undefined,
+            guardian as never,
+          ),
+        ).rejects.toBeInstanceOf(BadRequestException);
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+      });
+
+      it('menor sin representante -> 400', async () => {
+        await expect(
+          service.resolveForPublicBooking('therapist-1', minorDto as never),
+        ).rejects.toBeInstanceOf(BadRequestException);
+        expect(prisma.patient.findFirst).not.toHaveBeenCalled();
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+      });
+
+      it('menor nuevo: crea la ficha (email null) y un representante pagador en el mismo client', async () => {
+        prisma.patient.findFirst.mockResolvedValue(null);
+        const created = buildPatient({
+          id: 'minor-1',
+          rut: '11111111-1',
+          email: null,
+        });
+        prisma.patient.create.mockResolvedValue(created);
+        prisma.legalGuardian.create.mockResolvedValue({ id: 'guardian-1' });
+
+        const result = await service.resolveForPublicBooking(
+          'therapist-1',
+          minorDto as never,
+          { source: 'instagram' },
+          undefined,
+          guardian as never,
+        );
+
+        expect(result).toEqual({ patient: created, isNew: true });
+        // Adult email-first lookup is never used for minors.
+        expect(prisma.patient.findMany).not.toHaveBeenCalled();
+        expect(prisma.patient.findFirst).toHaveBeenCalledWith({
+          where: {
+            therapistId: 'therapist-1',
+            rut: '11111111-1',
+            deletedAt: null,
+          },
+        });
+        expect(prisma.patient.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            rut: '11111111-1',
+            email: null,
+            therapistId: 'therapist-1',
+            acquisitionSource: 'instagram',
+          }) as unknown,
+        });
+        expect(prisma.legalGuardian.create).toHaveBeenCalledWith({
+          data: {
+            patientId: 'minor-1',
+            fullName: 'Representante Legal',
+            rut: '12345678-5',
+            relationship: 'MOTHER',
+            email: 'madre@ejemplo.cl',
+            phone: '+56911111111',
+            isPayer: true,
+            receivesCommunications: true,
+            canAccessReports: true,
+            canConsent: true,
+            custody: 'UNKNOWN',
+            hasConflict: false,
+          },
+        });
+      });
+
+      it('menor nuevo con email propio: lo guarda normalizado', async () => {
+        prisma.patient.findFirst.mockResolvedValue(null);
+        prisma.patient.findMany.mockResolvedValue([]);
+        prisma.patient.create.mockResolvedValue(buildPatient({ id: 'm-2' }));
+        prisma.legalGuardian.create.mockResolvedValue({ id: 'g-2' });
+
+        await service.resolveForPublicBooking(
+          'therapist-1',
+          { ...minorDto, email: ' Menor@Ejemplo.cl ' } as never,
+          undefined,
+          undefined,
+          { ...guardian, phone: undefined } as never,
+        );
+
+        const createArgs = prisma.patient.create.mock.calls[0] as unknown[];
+        expect((createArgs[0] as { data: { email: string } }).data.email).toBe(
+          'menor@ejemplo.cl',
+        );
+        const guardianArgs = prisma.legalGuardian.create.mock
+          .calls[0] as unknown[];
+        expect(
+          (guardianArgs[0] as { data: { phone: unknown } }).data.phone,
+        ).toBeNull();
+      });
+
+      it('menor existente con un representante del mismo RUT: reutiliza la ficha sin escribir', async () => {
+        const existing = buildPatient({
+          id: 'minor-1',
+          rut: '11111111-1',
+          birthDate: new Date(minorDto.birthDate),
+        });
+        prisma.patient.findFirst.mockResolvedValue(existing);
+        prisma.legalGuardian.findFirst.mockResolvedValue({ id: 'guardian-1' });
+
+        const result = await service.resolveForPublicBooking(
+          'therapist-1',
+          { ...minorDto, rut: '11111111-1' } as never,
+          undefined,
+          undefined,
+          { ...guardian, rut: '12345678-5' } as never,
+        );
+
+        expect(result).toEqual({ patient: existing, isNew: false });
+        expect(prisma.legalGuardian.findFirst).toHaveBeenCalledWith({
+          where: { patientId: 'minor-1', rut: '12345678-5' },
+          select: { id: true },
+        });
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+        expect(prisma.patient.update).not.toHaveBeenCalled();
+        expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
+      });
+
+      it('menor existente sin un representante con ese RUT -> 409 uniforme, sin escribir', async () => {
+        prisma.patient.findFirst.mockResolvedValue(
+          buildPatient({
+            id: 'minor-1',
+            rut: '11111111-1',
+            birthDate: new Date(minorDto.birthDate),
+          }),
+        );
+        prisma.legalGuardian.findFirst.mockResolvedValue(null);
+
+        const attempt = service.resolveForPublicBooking(
+          'therapist-1',
+          minorDto as never,
+          undefined,
+          undefined,
+          guardian as never,
+        );
+
+        await expect(attempt).rejects.toThrow(ConflictException);
+        await expect(attempt).rejects.toThrow(
+          'No fue posible procesar la reserva.',
+        );
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+        expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
+      });
+
+      // Mirrors the adult flow (#289): the patient RUT check digit is only
+      // required when creating a new patient.
+      it('menor nuevo con DV inválido -> 409 uniforme, sin crear', async () => {
+        prisma.patient.findFirst.mockResolvedValue(null);
+
+        await expect(
+          service.resolveForPublicBooking(
+            'therapist-1',
+            { ...minorDto, rut: '11.111.111-2' } as never,
+            undefined,
+            undefined,
+            guardian as never,
+          ),
+        ).rejects.toThrow('No fue posible procesar la reserva.');
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+        expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
+      });
+
+      it('menor existente con DV inválido guardado y representante coincidente: reutiliza la ficha', async () => {
+        const existing = buildPatient({
+          id: 'minor-1',
+          rut: '11111111-2',
+          birthDate: new Date(minorDto.birthDate),
+        });
+        prisma.patient.findFirst.mockResolvedValue(existing);
+        prisma.legalGuardian.findFirst.mockResolvedValue({ id: 'guardian-1' });
+
+        const result = await service.resolveForPublicBooking(
+          'therapist-1',
+          { ...minorDto, rut: '11.111.111-2' } as never,
+          undefined,
+          undefined,
+          guardian as never,
+        );
+
+        expect(result).toEqual({ patient: existing, isNew: false });
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+      });
+
+      it('ficha existente que hoy es adulta, aunque el representante coincida -> 409 uniforme', async () => {
+        prisma.patient.findFirst.mockResolvedValue(
+          buildPatient({
+            id: 'adult-1',
+            rut: '11111111-1',
+            birthDate: new Date('1990-01-01'),
+          }),
+        );
+        prisma.legalGuardian.findFirst.mockResolvedValue({ id: 'guardian-1' });
+
+        await expect(
+          service.resolveForPublicBooking(
+            'therapist-1',
+            minorDto as never,
+            undefined,
+            undefined,
+            guardian as never,
+          ),
+        ).rejects.toThrow('No fue posible procesar la reserva.');
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+        expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
+      });
+
+      it('representante con el mismo RUT que el menor -> 400, sin tocar la base', async () => {
+        await expect(
+          service.resolveForPublicBooking(
+            'therapist-1',
+            minorDto as never,
+            undefined,
+            undefined,
+            { ...guardian, rut: '11111111-1' } as never,
+          ),
+        ).rejects.toBeInstanceOf(BadRequestException);
+        expect(prisma.patient.findFirst).not.toHaveBeenCalled();
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+      });
+
+      it('menor nuevo con un email que ya usa otra ficha activa del terapeuta -> 409 uniforme, sin crear', async () => {
+        prisma.patient.findFirst.mockResolvedValue(null);
+        prisma.patient.findMany.mockResolvedValue([{ id: 'adult-1' }]);
+
+        await expect(
+          service.resolveForPublicBooking(
+            'therapist-1',
+            { ...minorDto, email: ' Paciente@Ejemplo.cl ' } as never,
+            undefined,
+            undefined,
+            guardian as never,
+          ),
+        ).rejects.toThrow('No fue posible procesar la reserva.');
+        expect(prisma.patient.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              therapistId: 'therapist-1',
+              deletedAt: null,
+              email: { equals: 'paciente@ejemplo.cl', mode: 'insensitive' },
+            },
+          }),
+        );
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+        expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
+      });
+
+      it('adulto cuyo email coincide con una ficha guardada de un menor -> 409 uniforme', async () => {
+        prisma.patient.findMany.mockResolvedValue([
+          buildPatient({
+            email: 'paciente@ejemplo.cl',
+            rut: '11111111-1',
+            birthDate: new Date(yearsAgo(10)),
+          }),
+        ]);
+
+        await expect(
+          service.resolveForPublicBooking('therapist-1', dto as never),
+        ).rejects.toThrow('No fue posible procesar la reserva.');
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+      });
+
+      it('adulto con ficha guardada adulta sigue reutilizándose (regresión)', async () => {
+        const existing = buildPatient({
+          email: 'paciente@ejemplo.cl',
+          rut: '11111111-1',
+          birthDate: new Date(yearsAgo(30)),
+        });
+        prisma.patient.findMany.mockResolvedValue([existing]);
+
+        const result = await service.resolveForPublicBooking(
+          'therapist-1',
+          dto as never,
+        );
+
+        expect(result).toEqual({ patient: existing, isNew: false });
+      });
+
+      it('RUT del representante con DV inválido -> 409 uniforme, sin buscar ni crear', async () => {
+        await expect(
+          service.resolveForPublicBooking(
+            'therapist-1',
+            minorDto as never,
+            undefined,
+            undefined,
+            { ...guardian, rut: '12.345.678-9' } as never,
+          ),
+        ).rejects.toThrow(ConflictException);
+        expect(prisma.patient.findFirst).not.toHaveBeenCalled();
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+      });
+
+      it('carrera al crear el menor: P2002 -> 409 uniforme', async () => {
+        prisma.patient.findFirst.mockResolvedValue(null);
+        prisma.patient.create.mockRejectedValue(
+          new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+            code: 'P2002',
+            clientVersion: 'test',
+          }),
+        );
+
+        await expect(
+          service.resolveForPublicBooking(
+            'therapist-1',
+            minorDto as never,
+            undefined,
+            undefined,
+            guardian as never,
+          ),
+        ).rejects.toThrow(ConflictException);
+        expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
+      });
+
+      it('usa el client transaccional recibido para la ficha y el representante', async () => {
+        const tx = {
+          patient: {
+            findMany: jest.fn(),
+            findFirst: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue(buildPatient({ id: 'm-3' })),
+          },
+          legalGuardian: {
+            findFirst: jest.fn(),
+            create: jest.fn().mockResolvedValue({ id: 'g-3' }),
+          },
+        };
+
+        await service.resolveForPublicBooking(
+          'therapist-1',
+          minorDto as never,
+          undefined,
+          tx as never,
+          guardian as never,
+        );
+
+        expect(tx.patient.create).toHaveBeenCalled();
+        expect(tx.legalGuardian.create).toHaveBeenCalled();
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+        expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
+      });
+
+      it('nunca loguea RUT ni email al rechazar un menor', async () => {
+        prisma.patient.findFirst.mockResolvedValue(
+          buildPatient({
+            id: 'minor-1',
+            rut: '11111111-1',
+            birthDate: new Date(minorDto.birthDate),
+          }),
+        );
+        prisma.legalGuardian.findFirst.mockResolvedValue(null);
+        const warnSpy = jest.spyOn(
+          (service as unknown as { logger: { warn: (msg: string) => void } })
+            .logger,
+          'warn',
+        );
+
+        await expect(
+          service.resolveForPublicBooking(
+            'therapist-1',
+            minorDto as never,
+            undefined,
+            undefined,
+            guardian as never,
+          ),
+        ).rejects.toThrow(ConflictException);
+
+        for (const call of warnSpy.mock.calls) {
+          const message = String(call[0]);
+          expect(message).not.toContain('11111111');
+          expect(message).not.toContain('12345678');
+          expect(message.toLowerCase()).not.toContain('madre@ejemplo.cl');
+        }
+      });
     });
 
     // issue #157: acquisitionSource/acquisitionReferrer solo se setean en la
