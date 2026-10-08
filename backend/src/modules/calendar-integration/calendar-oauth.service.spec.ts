@@ -69,7 +69,10 @@ function buildPrismaMock(): {
 
 function buildTokenCrypto(): GoogleTokenCryptoService {
   const key = Buffer.alloc(32, 4).toString('base64');
-  const config = { get: () => key } as unknown as ConfigService;
+  const config = {
+    get: (name: string) =>
+      name === 'GOOGLE_TOKEN_ENCRYPTION_KEY' ? key : undefined,
+  } as unknown as ConfigService;
   const service = new GoogleTokenCryptoService(config);
   service.onModuleInit();
   return service;

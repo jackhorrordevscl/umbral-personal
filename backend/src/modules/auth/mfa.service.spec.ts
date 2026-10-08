@@ -109,7 +109,10 @@ describe('MfaService', () => {
     };
     // Real crypto on purpose: the round trip is what these specs verify.
     crypto = new MfaSecretCryptoService({
-      get: () => Buffer.alloc(32, 5).toString('base64'),
+      get: (name: string) =>
+        name === 'MFA_SECRET_ENCRYPTION_KEY'
+          ? Buffer.alloc(32, 5).toString('base64')
+          : undefined,
     } as unknown as ConfigService);
     crypto.onModuleInit();
 
