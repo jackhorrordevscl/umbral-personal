@@ -26,7 +26,7 @@ distinguen según el tipo de dato (issue #376):
 | Cuenta y uso de la plataforma por el propio profesional (filas 4, 4b, 15-17, 19-20) | Ground Zero Devs, operador de Umbral | Los procesadores de la tabla "Transferencia internacional de datos" |
 
 Las filas 9-11 y 18 mezclan ambos roles: el contenido es del terapeuta y la
-infraestructura es del operador. Clasificación propuesta (issue #414):
+infraestructura es del operador. Clasificación (issue #414):
 
 | Fila | Actividad | Responsable | Encargado | Criterio |
 |---|---|---|---|---|
@@ -35,16 +35,13 @@ infraestructura es del operador. Clasificación propuesta (issue #414):
 | 11 | Sincronización con Google Calendar | El terapeuta, que decide conectar su agenda y cuyos pacientes aparecen como iniciales | Ground Zero Devs. Google LLC actúa como subencargado | El token OAuth es dato de cuenta del terapeuta y lo custodia Ground Zero Devs |
 | 18 | Bloques ocupados del calendario | El terapeuta, dueño de su agenda | Ground Zero Devs | Son intervalos de tiempo del propio profesional, sin datos de pacientes |
 
-Esta clasificación es una propuesta de redacción posterior a la revisión del
-abogado y no consta que la haya revisado.
-
 **Estado:** roles definidos para el issue #376 y alineados con la política
 pública (repo `umbral-landing`, página `/privacidad-general`). El abogado del
-proyecto los revisó y los dio por correctos el 2026-10-08, según informó el
-responsable del proyecto; no hay un documento de esa revisión en el repositorio.
-Las filas 9-11 y 18 tienen una clasificación propuesta, pendiente de
-confirmar con el abogado (issue #414). Los DPA de Render y Sentry ya están en
-`docs/evidencia-compliance/`.
+proyecto los revisó y los dio por correctos el 2026-10-08, incluida la
+clasificación de las filas 9-11 y 18 (issue #414), según informó el
+responsable del proyecto; no hay un documento de esa revisión en el
+repositorio. Cualquier ajuste posterior se hará cuando el abogado lo indique.
+Los DPA de Render y Sentry están en `docs/evidencia-compliance/`.
 
 ## Inventario de actividades de tratamiento
 
