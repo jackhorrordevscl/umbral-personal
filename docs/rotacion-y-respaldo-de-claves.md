@@ -126,7 +126,9 @@ Los ejemplos de abajo usan documentos.
    ```
 
    Sale con error si queda algo cifrado con esa clave, **o** si alguna fila no
-   se pudo leer. Solo con resultado limpio se puede retirar.
+   se pudo leer. Solo con resultado limpio se puede retirar. Revisa siempre
+   todas las filas: no acepta `--limit`, porque un escaneo parcial podría dar
+   una falsa señal de retiro seguro.
 
 8. **Retirar la clave vieja** (solo ids 1 o superiores, ver la limitación de
    abajo): quitarla de `<NOMBRE>_KEYRING` y desplegar. Probar antes de dar por
@@ -173,7 +175,7 @@ Todos desde `backend/`:
 | `npm run crypto:reencrypt -- --only mfa,google,payment,documents` | Limita los datasets |
 | `npm run crypto:reencrypt -- --limit N` | Máximo de filas por dataset |
 | `npm run crypto:reencrypt -- --apply` | Re-cifra con la clave activa |
-| `npm run crypto:reencrypt -- --check-retire NOMBRE=id` | Verifica que una clave ya no se usa |
+| `npm run crypto:reencrypt -- --check-retire NOMBRE=id` | Verifica que una clave ya no se usa (no se combina con `--apply` ni `--limit`) |
 
 Códigos de salida: `0` sin fallas, `1` si alguna fila falló o hubo un error
 inesperado, `2` si los argumentos son inválidos.
