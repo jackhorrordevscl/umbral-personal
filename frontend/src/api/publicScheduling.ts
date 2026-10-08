@@ -27,11 +27,13 @@ export interface PublicSlot {
 // campo de documentos/consentimientos legales (design.md "Identity
 // resolution gotchas": esos flujos requieren sesión). email es obligatorio
 // acá (clave de resolución de identidad para PatientsService.resolveForPublicBooking).
+// Minors: email is optional for the patient (the guardian's email is the
+// contact); the backend still requires it for adults.
 export interface PublicBookingPatientInput {
   fullName: string;
   rut: string;
   birthDate: string;
-  email: string;
+  email?: string;
   occupation?: string;
   address?: string;
   phone?: string;
@@ -50,9 +52,31 @@ export interface PublicBookingOrigin {
   referrer?: string;
 }
 
+// Mirror of GuardianRelationship (backend Prisma enum) and
+// PublicBookingGuardianDto (backend/src/modules/public-scheduling/dto/
+// public-booking-guardian.dto.ts).
+export type GuardianRelationship =
+  | 'MOTHER'
+  | 'FATHER'
+  | 'LEGAL_GUARDIAN'
+  | 'CURATOR'
+  | 'CAREGIVER'
+  | 'OTHER';
+
+export interface PublicBookingGuardianInput {
+  fullName: string;
+  rut: string;
+  relationship: GuardianRelationship;
+  email: string;
+  phone?: string;
+}
+
+// `guardian` is required when the patient is a minor and rejected for an
+// adult; the backend decides minor-ness from patient.birthDate.
 export interface BookPublicSlotPayload {
   slotStart: string;
   patient: PublicBookingPatientInput;
+  guardian?: PublicBookingGuardianInput;
   origin?: PublicBookingOrigin;
 }
 
