@@ -31,7 +31,12 @@ import {
 } from "../../hooks/usePatientDocuments";
 import { usePatientHistory } from "../../hooks/usePatientHistory";
 import { downloadDocument } from "../../api/documents";
-import { getPatientConsentStatus } from "../../api/patients";
+import { getPatient, getPatientConsentStatus } from "../../api/patients";
+import { useGuardians } from "../../hooks/useGuardians";
+import AgeBandBadge from "./AgeBandBadge";
+import AssentSection from "./AssentSection";
+import GuardiansSection from "./GuardiansSection";
+import MinorStatusAlert from "./MinorStatusAlert";
 import { downloadPatientReport } from "../../api/reports";
 import { downloadBlob } from "../../utils/download";
 import { getApiErrorMessage } from "../../utils/api-error";
@@ -50,6 +55,10 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   SESSION_SUMMARY: "Registro de sesión",
   OTHER: "Otro",
 };
+
+// Bloque Menores: estos documentos otorgan consentimiento, así que en un menor
+// los firma un representante con canConsent (INFORMED_ASSENT no lo requiere).
+const GUARDIAN_CONSENT_DOC_TYPES = ["INFORMED_CONSENT", "TELEMED_AGREEMENT"];
 
 const VOID_REASON_MIN = 5;
 const VOID_REASON_MAX = 500;
@@ -88,6 +97,10 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
   const [voidReason, setVoidReason] = useState("");
   const [voidError, setVoidError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Representante elegido para el documento a subir y para los consentimientos
+  // que se otorgan desde la edición (solo se usan con pacientes menores).
+  const [uploadGuardianId, setUploadGuardianId] = useState("");
+  const [editGuardianId, setEditGuardianId] = useState("");
 
   const [editForm, setEditForm] = useState<Partial<Patient>>({
     fullName: patient.fullName,
@@ -112,6 +125,26 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
   const voidDocument = useVoidPatientDocument(selected.id);
   const historyQuery = usePatientHistory(selected.id, modalTab === "history");
   const updateMutation = useUpdatePatient();
+  const isMinor = !!selected.isMinor;
+  const guardiansQuery = useGuardians(selected.id, isMinor);
+  const consentingGuardians = (guardiansQuery.data ?? []).filter((g) => g.canConsent);
+  // Con un único representante habilitado se preselecciona.
+  const resolveGuardianId = (choice: string) =>
+    consentingGuardians.some((g) => g.id === choice)
+      ? choice
+      : consentingGuardians.length === 1
+        ? consentingGuardians[0].id
+        : "";
+  const needsGuardianForUpload = isMinor && GUARDIAN_CONSENT_DOC_TYPES.includes(docType);
+  const uploadBlocked = needsGuardianForUpload && consentingGuardians.length === 0;
+
+  // Guardar o quitar un representante, o subir un consentimiento, cambia
+  // minorStatus y guardianCount: se relee la ficha abierta.
+  const refreshSelected = () => {
+    getPatient(selected.id)
+      .then((fresh) => setSelected((prev) => ({ ...prev, ...fresh })))
+      .catch(() => undefined);
+  };
 
   const handleOpenEdit = () => {
     if (modalTab === "edit") return;
@@ -128,6 +161,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
       defaultSessionAmount: selected.defaultSessionAmount,
     });
     setEditConsents(selected.consents ?? EMPTY_CONSENTS);
+    setEditGuardianId("");
     setEditReason("");
     setEditError("");
     setModalTab("edit");
@@ -148,18 +182,30 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
     // T6.1: solo se emiten eventos para las finalidades cuyo checkbox
     // efectivamente cambió respecto del estado vigente del paciente.
     const originalConsents = selected.consents ?? EMPTY_CONSENTS;
-    const consentChanges = (Object.keys(editConsents) as ConsentPurpose[])
-      .filter((purpose) => editConsents[purpose] !== originalConsents[purpose])
-      .map((purpose) => ({
-        purpose,
-        action: (editConsents[purpose] ? "GRANT" : "REVOKE") as "GRANT" | "REVOKE",
-      }));
+    const changedPurposes = (Object.keys(editConsents) as ConsentPurpose[]).filter(
+      (purpose) => editConsents[purpose] !== originalConsents[purpose],
+    );
+    // Bloque Menores: el GRANT de un menor lo otorga un representante con
+    // canConsent; un adulto nunca envía grantedBy ni guardianId.
+    const grantingGuardianId = resolveGuardianId(editGuardianId);
+    if (isMinor && changedPurposes.some((purpose) => editConsents[purpose]) && !grantingGuardianId) {
+      setEditError(
+        "Para otorgar el consentimiento de un menor selecciona el representante que lo otorga.",
+      );
+      return;
+    }
+    const consentChanges = changedPurposes.map((purpose) => {
+      const action = (editConsents[purpose] ? "GRANT" : "REVOKE") as "GRANT" | "REVOKE";
+      return isMinor && action === "GRANT"
+        ? { purpose, action, grantedBy: "GUARDIAN" as const, guardianId: grantingGuardianId }
+        : { purpose, action };
+    });
 
     updateMutation.mutate(
       { id: selected.id, data: { ...editForm, reason: editReason }, consentChanges },
       {
         onSuccess: ({ patient: refreshed, failed }) => {
-          setSelected(refreshed);
+          setSelected((prev) => ({ ...prev, ...refreshed }));
           if (failed.length > 0) {
             // Se queda en la pestaña de edición para que el mensaje sea
             // visible y el usuario pueda reintentar los que fallaron.
@@ -193,9 +239,16 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
 
   const handleUpload = (file: File) => {
     setDocError("");
+    const guardianId = needsGuardianForUpload ? resolveGuardianId(uploadGuardianId) : undefined;
+    if (needsGuardianForUpload && !guardianId) {
+      setDocError("Selecciona el representante que otorga el consentimiento.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     uploadDocument.mutate(
-      { file, type: docType },
+      { file, type: docType, guardianId },
       {
+        onSuccess: refreshSelected,
         onSettled: () => {
           if (fileInputRef.current) fileInputRef.current.value = "";
         },
@@ -270,7 +323,10 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
             <h3 id="patient-modal-title" className="font-display text-2xl text-slate-900">
               {selected.fullName}
             </h3>
-            <p className="text-slate-500 text-sm font-mono">{displayRut(selected.rut)}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-slate-500 text-sm font-mono">{displayRut(selected.rut)}</p>
+              <AgeBandBadge ageBand={selected.ageBand} />
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -315,6 +371,14 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
         </div>
 
         <div className="overflow-auto flex-1 p-6">
+          {isMinor && (
+            <div className="mb-4">
+              <MinorStatusAlert
+                minorStatus={selected.minorStatus}
+                enforcementDate={selected.guardianEnforcementDate}
+              />
+            </div>
+          )}
           {modalTab === "detail" && (
             <>
               <div className="space-y-2 text-sm text-slate-700">
@@ -365,6 +429,11 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                   ))}
                 </div>
               </div>
+
+              {(isMinor || selected.guardianCount > 0) && (
+                <GuardiansSection patientId={selected.id} onChanged={refreshSelected} />
+              )}
+              {isMinor && <AssentSection patientId={selected.id} ageBand={selected.ageBand} />}
 
               <div className="mt-4 pt-4 border-t border-slate-100">
                 <p className="font-medium text-slate-700 text-sm mb-3">Documentos legales</p>
@@ -447,6 +516,30 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                     })}
                   </div>
                 )}
+                {needsGuardianForUpload && (
+                  <div className="mb-2">
+                    {consentingGuardians.length === 0 ? (
+                      <p className="text-amber-700 text-xs">
+                        Este documento otorga consentimiento: agrega primero un representante
+                        legal con facultad para consentir.
+                      </p>
+                    ) : (
+                      <select
+                        value={resolveGuardianId(uploadGuardianId)}
+                        onChange={(e) => setUploadGuardianId(e.target.value)}
+                        className="input-field text-xs py-1.5 w-full"
+                        aria-label="Representante que otorga el consentimiento"
+                      >
+                        <option value="">Selecciona el representante que consiente</option>
+                        {consentingGuardians.map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {g.fullName}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <select
                     value={docType}
@@ -464,14 +557,14 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                     type="file"
                     accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,image/*"
                     className="hidden"
-                    disabled={uploadDocument.isPending}
+                    disabled={uploadDocument.isPending || uploadBlocked}
                     onChange={(e) => {
                       if (e.target.files?.[0]) handleUpload(e.target.files[0]);
                     }}
                   />
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={uploadDocument.isPending}
+                    disabled={uploadDocument.isPending || uploadBlocked}
                     className="btn-secondary text-xs py-1.5 flex items-center gap-1 shrink-0"
                   >
                     <UploadIcon size={13} /> Subir
@@ -616,6 +709,26 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                   ))}
                 </div>
               </div>
+              {isMinor && (
+                <FormField
+                  id="edit-consent-guardian"
+                  label="Representante que otorga el consentimiento"
+                >
+                  <select
+                    id="edit-consent-guardian"
+                    className="input-field"
+                    value={resolveGuardianId(editGuardianId)}
+                    onChange={(e) => setEditGuardianId(e.target.value)}
+                  >
+                    <option value="">Selecciona un representante</option>
+                    {consentingGuardians.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.fullName}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+              )}
               <p className="text-xs text-slate-500 -mt-2">
                 Otorgar o revocar una finalidad de consentimiento aquí también queda registrado
                 con el motivo indicado abajo como evidencia (Ley 21.719).

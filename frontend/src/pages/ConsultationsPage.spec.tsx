@@ -20,6 +20,10 @@ function buildPatient(overrides: Partial<Patient> = {}): Patient {
     rut: '11111111-1',
     birthDate: '1990-01-01',
     consents: { TREATMENT: true, TELEMEDICINE: false },
+    isMinor: false,
+    ageBand: 'ADULT',
+    guardianCount: 0,
+    minorStatus: 'NOT_MINOR',
     ...overrides,
   } as unknown as Patient
 }

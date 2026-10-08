@@ -68,8 +68,12 @@ interface IssueOrderRequest {
   context: GatewayContext;
   amount: number;
   groupId: string;
-  payerEmail: string;
+  // null = menor sin representante con email: no se emite la orden.
+  payerEmail: string | null;
 }
+
+const MINOR_WITHOUT_GUARDIAN_EMAIL_ERROR =
+  'Falta el email de un representante legal para emitir el cobro de este paciente menor de edad.';
 
 // design.md "Technical Approach": PaymentsService is the sole owner of the
 // charge lifecycle. It never touches PaymentAccount rows or ciphertext
@@ -542,20 +546,17 @@ export class PaymentsService {
   // when the fallback is actually needed.
   //
   // For a minor the payer is the legal guardian (never the minor's own
-  // email); with no guardian email the therapist fallback applies too, with a
-  // warning so it is not silent.
+  // email). With no guardian email there is NO therapist fallback: Flow sends
+  // its receipt to the payer, so the order is not issued (null) and the
+  // charge stays retryable once a guardian email is loaded.
   private async resolvePayerEmail(
     patient: RecipientPatient | null,
     therapistId: string,
     therapistEmail?: string,
-  ): Promise<string> {
+  ): Promise<string | null> {
     const payerEmail = patient ? resolvePatientPayerEmail(patient) : null;
     if (payerEmail) return payerEmail;
-    if (patient && isMinor(patient.birthDate)) {
-      this.logger.warn(
-        `Paciente menor sin representante con email: pagador técnico de Flow es el terapeuta (therapistId=${therapistId})`,
-      );
-    }
+    if (patient && isMinor(patient.birthDate)) return null;
     if (therapistEmail) return therapistEmail;
     const therapist = await this.prisma.user.findUniqueOrThrow({
       where: { id: therapistId },
@@ -872,6 +873,19 @@ export class PaymentsService {
     const { paymentId, context, amount, groupId, payerEmail } = request;
     const backendUrl =
       this.config.get<string>('BACKEND_PUBLIC_URL') ?? DEFAULT_BACKEND_URL;
+
+    if (!payerEmail) {
+      this.logger.warn(
+        `Cobro no emitido (paymentId=${paymentId}, groupId=${groupId}): menor sin representante con email`,
+      );
+      await this.prisma.payment
+        .update({
+          where: { id: paymentId },
+          data: { lastError: MINOR_WITHOUT_GUARDIAN_EMAIL_ERROR },
+        })
+        .catch(() => undefined);
+      return null;
+    }
 
     // The gateway would reject an amount below its minimum anyway (Flow:
     // code 1901); skip the call and persist a clear, actionable reason.

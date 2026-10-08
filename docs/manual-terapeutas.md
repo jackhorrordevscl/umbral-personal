@@ -104,6 +104,37 @@ Cada una se otorga o revoca por separado. Al registrar cualquier consentimiento,
 
 Importante: revocar un consentimiento **no borra el evento anterior**. El historial completo (otorgamientos y revocaciones) queda visible siempre — es un registro tipo bitácora, no un simple check on/off.
 
+### Pacientes menores de edad y representante legal
+
+Si la fecha de nacimiento indica que el paciente tiene menos de 18 años, la ficha lo marca con su tramo de edad (menor de 14 años, o de 14 a 17 años) y cambia la forma de registrar el consentimiento. El detalle de la decisión está en `docs/decisiones/0007-pacientes-menores-y-representante-legal.md`.
+
+**Cargar al representante.** Al crear la ficha de un menor, esta se guarda primero; el representante se agrega después, desde la ficha, en la sección de representantes legales (hasta 2 por paciente). Cada representante tiene nombre, RUT, relación con el paciente (madre, padre, tutor legal, curador, cuidador u otro), email y teléfono, y estas marcas:
+- **Puede otorgar consentimiento** (en la lista: "Consiente"): puede otorgar el consentimiento del tratamiento.
+- **Es el pagador** (en la lista: "Pagador"): recibe el cobro. Solo uno a la vez: marcar a otro quita la marca al anterior.
+- **Recibe comunicaciones** (en la lista: "Recibe avisos"): se le envían los correos de cobro del paciente.
+- **Puede acceder a informes** (en la lista: "Accede a informes"): queda registrado para la entrega de informes (hoy es solo un dato; se usará con el informe de alta).
+- **Custodia** (única, compartida o desconocida) y **Conflicto entre representantes**.
+
+Un representante que ya firmó un consentimiento no se puede eliminar; si cambió la situación, edítalo o desmarca "Puede otorgar consentimiento".
+
+**Consentimiento de un menor.** Lo otorga el representante, no el paciente. Al registrar el consentimiento de un menor (o al subir el documento de consentimiento informado o de telemedicina) debes elegir qué representante lo otorga; el sistema rechaza el consentimiento de un menor sin representante con la marca "Puede otorgar consentimiento". Revocar un consentimiento sigue siendo posible siempre.
+
+**Asentimiento del paciente.** El documento "Asentimiento informado" y la sección "Asentimiento del menor" dejan constancia de que el niño, niña o adolescente fue informado y oído (menores de 14 años) o de que dio su asentimiento expreso (14 a 17 años). Las acciones son: informado y oído, asentimiento otorgado, rechazado y retirado. El asentimiento **no reemplaza** el consentimiento del representante, y un rechazo muestra un aviso en la ficha pero no impide registrar ni agendar. Es un registro de bitácora: no se edita ni se borra.
+
+**Aviso de regularización y plazo.** Si el menor no tiene un representante con "Puede otorgar consentimiento", o su consentimiento vigente lo otorgó él mismo (como se hacía antes), la ficha muestra un aviso ámbar con la fecha límite: **1 de diciembre de 2026**. Hasta esa fecha el consentimiento antiguo sigue sirviendo para crear consultas; desde entonces el sistema pedirá que el consentimiento vigente lo haya otorgado un representante y rechazará crear o corregir consultas de ese menor hasta que se regularice. Para regularizar: carga al representante y registra un nuevo consentimiento otorgado por él.
+
+**Padres separados o en desacuerdo.** El sistema guarda el tipo de custodia y la marca "Conflicto entre representantes", y las muestra en la ficha, pero **no bloquea** ninguna acción por ello. Qué autorización pedir y cuándo avanzar es una decisión del terapeuta; en caso de duda, conviene pedir asesoría legal.
+
+**Cobros y correos van al representante.** Para un menor, el link de pago y el aviso de cobro vencido se envían al representante con "Recibe comunicaciones" y email (se prefiere el marcado como pagador), con el nombre del paciente en el texto y sin datos clínicos. El correo del propio menor no se usa. Si no hay ningún representante con email, el correo no se envía y el cobro queda como "sin email"; al reenviar el link la app avisa que el menor no tiene representante con email. En ese caso el cobro queda creado pero sin link de pago, porque Flow necesita el email del pagador para emitirlo y el sistema no usa el tuyo en su lugar; el cobro muestra el motivo. Carga el email de un representante y usa "Reintentar cobro" para generar el link. Los recordatorios de sesión siguen llegando a ti.
+
+**Reserva pública de un menor.** En la agenda pública (sección 13), quien reserva marca "Reservo para un menor de edad" e ingresa los datos del paciente y del representante (nombre, RUT, correo y teléfono opcional). El sistema valida que el paciente sea menor de 18 años y que el RUT del representante sea distinto al del paciente. Un menor se identifica por **su propio RUT** (no por el email del representante, porque un mismo representante puede reservar para dos hijos); si ya existe una ficha con ese RUT, solo se reutiliza si el RUT del representante coincide con uno ya registrado. En cualquier otro caso el paciente ve el mismo mensaje genérico de "no fue posible procesar la reserva". Al crear una ficha nueva, el representante queda con todas las marcas activas (consiente, pagador, avisos e informes) y custodia desconocida. La reserva no registra consentimiento: debes cargarlo tú después.
+
+**Deber de denuncia y secreto profesional (guía, sin funcionalidad).** Esta guía requiere revisión legal y no está implementada en la app. Como orientación general, el Código Procesal Penal (art. 175) establece quiénes están obligados a denunciar ciertos delitos de los que toman conocimiento, y el secreto profesional tiene excepciones y tensiones con esa obligación y con el derecho de los padres a ser informados sobre un adolescente. La app no avisa ni decide por ti: ante sospecha de vulneración de derechos o de un delito contra un niño, niña o adolescente, consulta con asesoría legal o con tu colegio profesional antes de actuar, y deja constancia de tu decisión en la ficha.
+
+> 📝 Observaciones UX: (¿quedó claro que el representante se agrega después de guardar la ficha? ¿el aviso de plazo se entiende?)
+>
+>
+
 ### Eliminar una ficha
 
 Es un "soft delete": la ficha desaparece de los listados pero no se borra de la base de datos (obligación legal de custodia por 15 años, Ley 20.584). No hay forma de eliminar definitivamente una ficha desde la app.
@@ -416,6 +447,10 @@ sesión directamente, sin que tengas que agendarlos tú a mano.
   paciente que ya tienes registrado, la reserva se liga automáticamente a su
   ficha existente; si es alguien nuevo, se crea una ficha nueva con esos
   datos mínimos.
+- **Reserva para un menor de edad.** El formulario tiene la opción "Reservo
+  para un menor de edad", que pide además los datos del representante legal.
+  El detalle de cómo se identifica al menor y qué queda registrado está en la
+  sección 3 ("Pacientes menores de edad y representante legal").
 - **De dónde vino el paciente.** Si alguien llega a tu link con parámetros de
   campaña (`utm_source`) o desde un link compartido en otra página, Umbral
   guarda ese origen junto con la ficha nueva. En el Dashboard tienes una

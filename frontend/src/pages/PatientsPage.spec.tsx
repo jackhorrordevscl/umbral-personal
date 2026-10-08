@@ -27,6 +27,10 @@ function buildPatient(overrides: Partial<Patient> = {}): Patient {
     treatingPsychiatrist: '',
     treatingDoctor: '',
     consents: { TREATMENT: true, TELEMEDICINE: false },
+    isMinor: false,
+    ageBand: 'ADULT',
+    guardianCount: 0,
+    minorStatus: 'NOT_MINOR',
     ...overrides,
   } as unknown as Patient
 }
@@ -250,6 +254,33 @@ describe('PatientsPage', () => {
       } finally {
         globalThis.ResizeObserver = original
       }
+    })
+  })
+
+  describe('Pacientes menores (bloque Menores, M5)', () => {
+    it('marca en la lista a los menores sin representante o con consentimiento legado', async () => {
+      mockedApi.get.mockResolvedValueOnce(
+        patientsPage([
+          buildPatient({ id: 'm1', fullName: 'Menor Sin Representante', minorStatus: 'MISSING_GUARDIAN' }),
+          buildPatient({ id: 'm2', fullName: 'Menor Legado', minorStatus: 'LEGACY_CONSENT' }),
+          buildPatient({ id: 'm3', fullName: 'Menor Al Día', minorStatus: 'OK' }),
+        ]),
+      )
+
+      renderPatientsPage()
+      await screen.findAllByText('Menor Sin Representante')
+
+      expect(screen.getAllByText('Menor sin representante').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Menor: consentimiento por regularizar').length).toBeGreaterThan(0)
+    })
+
+    it('un adulto no muestra la marca de menor', async () => {
+      mockedApi.get.mockResolvedValueOnce(patientsPage([buildPatient()]))
+
+      renderPatientsPage()
+      await screen.findAllByText('Paciente Existente')
+
+      expect(screen.queryByText('Menor sin representante')).not.toBeInTheDocument()
     })
   })
 
