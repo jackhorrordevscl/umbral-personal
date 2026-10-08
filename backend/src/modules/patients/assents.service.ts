@@ -46,11 +46,16 @@ export class AssentsService {
     if (dto.documentId) {
       const document = await this.prisma.patientDocument.findFirst({
         where: { id: dto.documentId, patientId, voidedAt: null },
-        select: { id: true },
+        select: { id: true, type: true },
       });
       if (!document) {
         throw new BadRequestException(
           'El documento indicado no existe, está anulado o no pertenece a este paciente.',
+        );
+      }
+      if (document.type !== 'INFORMED_ASSENT') {
+        throw new BadRequestException(
+          'El documento indicado no es un asentimiento informado.',
         );
       }
     }

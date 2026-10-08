@@ -119,7 +119,10 @@ describe('AssentsService', () => {
     });
 
     it('documentId: exige un documento NO anulado del mismo paciente', async () => {
-      prisma.patientDocument.findFirst.mockResolvedValue({ id: 'doc-1' });
+      prisma.patientDocument.findFirst.mockResolvedValue({
+        id: 'doc-1',
+        type: 'INFORMED_ASSENT',
+      });
 
       await service.record(
         'patient-1',
@@ -129,7 +132,7 @@ describe('AssentsService', () => {
 
       expect(prisma.patientDocument.findFirst).toHaveBeenCalledWith({
         where: { id: 'doc-1', patientId: 'patient-1', voidedAt: null },
-        select: { id: true },
+        select: { id: true, type: true },
       });
       expect(prisma.patientAssent.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ documentId: 'doc-1' }) as unknown,
@@ -146,6 +149,22 @@ describe('AssentsService', () => {
           'therapist-1',
         ),
       ).rejects.toThrow(BadRequestException);
+      expect(prisma.patientAssent.create).not.toHaveBeenCalled();
+    });
+
+    it('documentId de otro tipo de documento: 400 y no escribe nada', async () => {
+      prisma.patientDocument.findFirst.mockResolvedValue({
+        id: 'doc-2',
+        type: 'INFORMED_CONSENT',
+      });
+
+      await expect(
+        service.record(
+          'patient-1',
+          { action: 'GRANTED', documentId: 'doc-2' },
+          'therapist-1',
+        ),
+      ).rejects.toThrow('no es un asentimiento informado');
       expect(prisma.patientAssent.create).not.toHaveBeenCalled();
     });
 

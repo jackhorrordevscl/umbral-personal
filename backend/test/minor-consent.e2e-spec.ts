@@ -7,6 +7,8 @@ import * as speakeasy from 'speakeasy';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { uniqueTestRut } from './support/unique-rut';
+import { chileDayKeyFromInstant } from '../src/common/utils/chile-time.util';
+import { MINOR_GUARDIAN_ENFORCEMENT_DATE } from '../src/modules/patients/patients.constants';
 
 // Same in-memory B2 stand-in as patient-consent.e2e-spec.ts.
 jest.mock('../src/common/utils/patient-document-storage.util', () => {
@@ -518,6 +520,16 @@ describe('Minor consent and assent (e2e)', () => {
         .expect(400);
     });
 
+    it('rechaza un documento del mismo paciente que no es un asentimiento (400)', async () => {
+      const doc = await upload(minorId, 'SESSION_SUMMARY').expect(201);
+
+      await request(app.getHttpServer())
+        .post(assentsUrl(minorId))
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ action: 'GRANTED', documentId: (doc.body as Body).id })
+        .expect(400);
+    });
+
     it('rechaza un documento anulado del mismo paciente (400)', async () => {
       const doc = await upload(minorId, 'INFORMED_ASSENT').expect(201);
       const docId = (doc.body as Body).id as string;
@@ -593,46 +605,55 @@ describe('Minor consent and assent (e2e)', () => {
   });
 
   // Antes de MINOR_GUARDIAN_ENFORCEMENT_DATE el consentimiento legado del
-  // paciente sigue valiendo (lectura suave).
-  describe('guardrail de consultas para un menor (antes de la fecha de vigencia)', () => {
-    it('un menor sin consentimiento recibe 403', async () => {
-      const minorId = await createPatient(yearsAgoDate(10));
+  // paciente sigue valiendo (lectura suave). El reloj no se puede falsear en
+  // e2e (invalidaría los JWT), así que estos casos solo corren mientras la
+  // fecha real sea anterior a la de vigencia; la cobertura de ambos lados de
+  // la fecha vive en consultations.service.integration.spec.ts con Date
+  // falseado.
+  const beforeEnforcement =
+    chileDayKeyFromInstant(new Date()) < MINOR_GUARDIAN_ENFORCEMENT_DATE;
+  (beforeEnforcement ? describe : describe.skip)(
+    'guardrail de consultas para un menor (antes de la fecha de vigencia)',
+    () => {
+      it('un menor sin consentimiento recibe 403', async () => {
+        const minorId = await createPatient(yearsAgoDate(10));
 
-      await createConsultation(minorId).expect(403);
-    });
-
-    it('un menor con consentimiento legado del paciente puede tener consultas', async () => {
-      const minorId = await createPatient(yearsAgoDate(10));
-      await prisma.patientConsent.create({
-        data: {
-          patientId: minorId,
-          purpose: 'TREATMENT',
-          action: 'GRANT',
-          recordedById: therapistAId,
-          evidence: 'Consentimiento legado anterior al cambio (fixture)',
-        },
+        await createConsultation(minorId).expect(403);
       });
 
-      await createConsultation(minorId).expect(201);
-    });
+      it('un menor con consentimiento legado del paciente puede tener consultas', async () => {
+        const minorId = await createPatient(yearsAgoDate(10));
+        await prisma.patientConsent.create({
+          data: {
+            patientId: minorId,
+            purpose: 'TREATMENT',
+            action: 'GRANT',
+            recordedById: therapistAId,
+            evidence: 'Consentimiento legado anterior al cambio (fixture)',
+          },
+        });
 
-    it('un menor con consentimiento del representante puede tener consultas', async () => {
-      const minorId = await createPatient(yearsAgoDate(10));
-      const guardianId = await createGuardian(minorId);
-      await postConsent(minorId, {
-        action: 'GRANT',
-        grantedBy: 'GUARDIAN',
-        guardianId,
-      }).expect(201);
+        await createConsultation(minorId).expect(201);
+      });
 
-      await createConsultation(minorId).expect(201);
-    });
+      it('un menor con consentimiento del representante puede tener consultas', async () => {
+        const minorId = await createPatient(yearsAgoDate(10));
+        const guardianId = await createGuardian(minorId);
+        await postConsent(minorId, {
+          action: 'GRANT',
+          grantedBy: 'GUARDIAN',
+          guardianId,
+        }).expect(201);
 
-    it('un adulto con consentimiento no cambia', async () => {
-      const adultId = await createPatient(yearsAgoDate(30));
-      await postConsent(adultId, { action: 'GRANT' }).expect(201);
+        await createConsultation(minorId).expect(201);
+      });
 
-      await createConsultation(adultId).expect(201);
-    });
-  });
+      it('un adulto con consentimiento no cambia', async () => {
+        const adultId = await createPatient(yearsAgoDate(30));
+        await postConsent(adultId, { action: 'GRANT' }).expect(201);
+
+        await createConsultation(adultId).expect(201);
+      });
+    },
+  );
 });

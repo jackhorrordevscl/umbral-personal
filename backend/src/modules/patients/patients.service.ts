@@ -551,18 +551,32 @@ export class PatientsService {
       dto,
     );
 
-    return this.prisma.patientConsent.create({
-      data: {
-        patientId: id,
-        purpose: dto.purpose,
-        action: dto.action,
-        recordedById: userId,
-        evidence: dto.evidence,
-        documentId: documentId ?? null,
-        grantedBy,
-        guardianId,
-      },
-    });
+    try {
+      return await this.prisma.patientConsent.create({
+        data: {
+          patientId: id,
+          purpose: dto.purpose,
+          action: dto.action,
+          recordedById: userId,
+          evidence: dto.evidence,
+          documentId: documentId ?? null,
+          grantedBy,
+          guardianId,
+        },
+      });
+    } catch (err) {
+      // The guardian was deleted between the check and the INSERT (FK).
+      if (
+        guardianId &&
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2003'
+      ) {
+        throw new BadRequestException(
+          'El representante indicado no pertenece a este paciente.',
+        );
+      }
+      throw err;
+    }
   }
 
   // Write policy (strict from deploy, unlike the lenient read policy in
@@ -655,7 +669,15 @@ export class PatientsService {
     if (!isMinor(patient.birthDate)) return;
     const today = chileDayKeyFromInstant(new Date());
     if (today < MINOR_GUARDIAN_ENFORCEMENT_DATE) return;
-    if (!granted.some((e) => e.grantedBy === ConsentGrantor.GUARDIAN)) {
+    // Same rules as computeMinorStatus: every active grant must come from a
+    // guardian and at least one guardian must still be able to consent.
+    const consentingGuardians = await client.legalGuardian.count({
+      where: { patientId, canConsent: true },
+    });
+    if (consentingGuardians === 0) {
+      throw new ForbiddenException(MINOR_NEEDS_GUARDIAN_MESSAGE);
+    }
+    if (granted.some((e) => e.grantedBy !== ConsentGrantor.GUARDIAN)) {
       throw new ForbiddenException(MINOR_LEGACY_CONSENT_MESSAGE);
     }
   }
