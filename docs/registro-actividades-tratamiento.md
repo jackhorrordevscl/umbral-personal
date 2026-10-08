@@ -117,7 +117,11 @@ Chile, pero eso ya no es así:
   que el email transaccional de la fila 4 o si, por derivarse de un dato de
   salud, requiere la misma base habilitante que las filas 1-9. Pendiente de
   revisión legal, igual que el resto de esta sección.
-- El registro de errores opcional (fila 20) envía a **Sentry** los eventos de error ya depurados (sin bodies, cookies ni headers; con emails y RUT redactados en el backend). La región de procesamiento depende de la organización Sentry configurada y no está confirmada en este repositorio; tampoco se ha recopilado aún evidencia de su DPA en `docs/evidencia-compliance/`. Pendiente de confirmar.
+- El registro de errores opcional (fila 20) envía a **Sentry** los eventos de error ya depurados (sin bodies, cookies ni headers; con emails y RUT redactados en el backend). La región de almacenamiento es Estados Unidos (Iowa): el DSN usa el host `ingest.us.sentry.io`, confirmado por el responsable del proyecto el 2026-10-08 (la documentación de Sentry fija la región al crear la organización: https://docs.sentry.io/organization/data-storage-location/). Aún no se ha recopilado evidencia de su DPA en `docs/evidencia-compliance/`. Pendiente de recopilar.
+- El servidor de la aplicación (backend) se aloja en **Render, región Oregón
+  (EE.UU. costa oeste)**, confirmado por el responsable del proyecto el
+  2026-10-08. Procesa todos los datos que pasan por la API; falta recopilar
+  la evidencia de su DPA en `docs/evidencia-compliance/`.
 - El cobro en línea por sesión (fila 13) se procesa vía **Flow, cuya
   infraestructura de checkout corre en AWS us-east-2 (Ohio, Estados
   Unidos)** — verificado por DNS/rangos IP de AWS, ver evidencia más abajo
