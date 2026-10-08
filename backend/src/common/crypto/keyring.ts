@@ -120,7 +120,7 @@ export function encryptWithKeyring(
 function decryptWithKeyId(
   payload: Buffer,
   keyring: Keyring,
-): { plaintext: Buffer; keyId: number } {
+): { plaintext: Buffer; keyId: number; versioned: boolean } {
   if (
     payload.length > HEADER_LENGTH &&
     payload[0] === HEADER_MAGIC[0] &&
@@ -134,6 +134,7 @@ function decryptWithKeyId(
         return {
           plaintext: decryptAesGcm(payload.subarray(HEADER_LENGTH), key),
           keyId,
+          versioned: true,
         };
       } catch {
         // Puede ser un payload legacy cuyo IV imita la cabecera.
@@ -148,6 +149,7 @@ function decryptWithKeyId(
   return {
     plaintext: decryptAesGcm(payload, legacyKey),
     keyId: LEGACY_KEY_ID,
+    versioned: false,
   };
 }
 
@@ -160,6 +162,17 @@ export function decryptWithKeyring(payload: Buffer, keyring: Keyring): Buffer {
 // ninguna clave puede leerlo.
 export function resolvePayloadKeyId(payload: Buffer, keyring: Keyring): number {
   return decryptWithKeyId(payload, keyring).keyId;
+}
+
+// Como resolvePayloadKeyId, pero distingue un payload legacy (sin cabecera)
+// de uno versionado con keyId 0: ambos informan keyId 0 y solo `versioned`
+// los diferencia. Lo usa el script de recifrado (issue #382).
+export function inspectPayload(
+  payload: Buffer,
+  keyring: Keyring,
+): { keyId: number; versioned: boolean } {
+  const { keyId, versioned } = decryptWithKeyId(payload, keyring);
+  return { keyId, versioned };
 }
 
 export function encryptTextWithKeyring(
@@ -204,4 +217,20 @@ export function decryptTextWithKeyring(text: string, keyring: Keyring): Buffer {
 // El prefijo del texto es explícito, así que no hace falta el llavero.
 export function resolveTextKeyId(text: string): number {
   return parseText(text).keyId;
+}
+
+// Clasifica un valor de texto almacenado sin descifrarlo: sin prefijo es
+// texto plano (secreto previo al cifrado en reposo, keyId null), enc:v1 es
+// legacy (id 0) y enc:v2 trae su keyId. Lanza ante un enc:v2 malformado.
+export function inspectText(text: string): {
+  keyId: number | null;
+  format: 'plaintext' | 'v1' | 'v2';
+} {
+  if (!text.startsWith(TEXT_V1_PREFIX) && !text.startsWith(TEXT_V2_PREFIX)) {
+    return { keyId: null, format: 'plaintext' };
+  }
+  return {
+    keyId: parseText(text).keyId,
+    format: text.startsWith(TEXT_V1_PREFIX) ? 'v1' : 'v2',
+  };
 }
