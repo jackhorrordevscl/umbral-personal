@@ -11,7 +11,7 @@ propia clave (ver `backend/src/common/crypto/aes-gcm.ts`):
 
 | Dato | Variable de entorno | Almacenamiento |
 | --- | --- | --- |
-| Documentos de pacientes | `DOCUMENT_ENCRYPTION_KEY` | Archivo `.enc` en disco; la base guarda solo el nombre |
+| Documentos de pacientes | `DOCUMENT_ENCRYPTION_KEY` | Objeto cifrado en el bucket B2 (`B2_PATIENT_DOCUMENTS_*`); la base guarda solo su nombre (`storagePath`) |
 | Tokens de Google | `GOOGLE_TOKEN_ENCRYPTION_KEY` | `refreshTokenEncrypted` (bytes) |
 | Credenciales de pago | `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | `credentialEncrypted` (bytes) |
 | Secreto MFA | `MFA_SECRET_ENCRYPTION_KEY` | `User.mfaSecret` (texto `enc:v1:<base64>`) |
@@ -115,6 +115,11 @@ forma de perder datos en este procedimiento.
   clave nueva desde el primer día.
 - Los datos que ya estén ilegibles por una clave perdida o cambiada antes de
   este ADR no se recuperan con este mecanismo.
+- Limitación conocida: la clave id 0 (la variable `<NOMBRE>` original) es
+  obligatoria al arrancar, así que hoy no se puede retirar del entorno aunque
+  ya no cifre nada. Las claves con id 1 o superior sí. Si se quiere retirar la
+  id 0 hay que hacer opcional esa variable cuando el llavero tenga otra clave
+  activa, en un cambio aparte.
 
 ## Plan de implementación
 
