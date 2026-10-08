@@ -12,12 +12,29 @@ código (versionado de consultas, ledger de consentimientos, bitácora de
 auditoría). Debe actualizarse cada vez que se agregue un modelo o un campo
 que trate datos personales.
 
-Última revisión: 2026-10-06 (sincronizado con el código y con `schema.prisma` a esa fecha).
+Última revisión: 2026-10-08 (sección "Responsable del tratamiento" reescrita por el issue #376; el inventario se sincronizó con el código y con `schema.prisma` el 2026-10-06).
 
 ## Responsable del tratamiento
 
-Umbral - RCE, a través del sistema de gestión de fichas clínicas descrito en
-este repositorio.
+"Umbral - RCE" es el nombre del producto (sistema de gestión de fichas
+clínicas descrito en este repositorio), no una persona jurídica. Los roles se
+distinguen según el tipo de dato (issue #376):
+
+| Datos | Responsable del tratamiento | Encargado del tratamiento |
+|---|---|---|
+| Pacientes y su ficha clínica (filas 1-3, 5-8, 12-14) | El terapeuta tratante, que presta la atención y es el obligado por la Ley 20.584 | Ground Zero Devs, operador de Umbral, que procesa los datos por cuenta del terapeuta |
+| Cuenta y uso de la plataforma por el propio profesional (filas 4, 4b, 15-17, 19-20) | Ground Zero Devs, operador de Umbral | Los procesadores de la tabla "Transferencia internacional de datos" |
+
+Las filas 9-11 y 18 (archivos personales, backups, Google Calendar y bloques
+ocupados) mezclan ambos roles: el contenido es del terapeuta y la
+infraestructura es del operador. Se clasifican en la revisión legal.
+
+**Estado:** propuesta de roles redactada para el issue #376 y aceptada por el
+responsable del proyecto. Falta la confirmación de un abogado: roles, base
+legal y términos de la Ley 21.719 (por ejemplo, "supresión" en vez de
+"cancelación" al describir los derechos). La política pública
+(`/privacidad-general`, sitio aparte) debe alinearse con esta sección: hoy
+nombra a Ground Zero Devs como responsable de todo y a Umbral como encargado.
 
 ## Inventario de actividades de tratamiento
 
