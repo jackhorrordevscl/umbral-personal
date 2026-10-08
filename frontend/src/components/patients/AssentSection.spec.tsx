@@ -83,6 +83,16 @@ describe('AssentSection', () => {
     )
   })
 
+  it('advierte que la nota no debe incluir datos clínicos ni sensibles', async () => {
+    mockAssents([])
+    renderSection()
+
+    await screen.findByText('Sin registros de asentimiento.')
+    expect(
+      screen.getByText('No incluyas datos clínicos ni sensibles.'),
+    ).toBeInTheDocument()
+  })
+
   it('sin nota no envía el campo note', async () => {
     const user = userEvent.setup()
     mockAssents([])

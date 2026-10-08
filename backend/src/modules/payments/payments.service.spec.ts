@@ -1055,6 +1055,101 @@ describe('PaymentsService', () => {
     });
   });
 
+  describe('paciente menor sin representante con email', () => {
+    const guardian = {
+      fullName: 'Ana Soto',
+      email: null as string | null,
+      isPayer: true,
+      receivesCommunications: true,
+    };
+
+    function minorPatient(guardianEmail: string | null) {
+      return buildConsultation(
+        {},
+        {
+          email: 'menor@example.com',
+          birthDate: MINOR_BIRTH_DATE,
+          guardians: [{ ...guardian, email: guardianEmail }],
+        },
+      ).patient;
+    }
+
+    function arrange(
+      guardianEmail: string | null,
+      paymentOverrides: Record<string, unknown> = {},
+    ) {
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment(paymentOverrides),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      prisma.patient.findUnique.mockResolvedValue(minorPatient(guardianEmail));
+    }
+
+    it('retryCharge no emite la orden y deja lastError', async () => {
+      arrange(null);
+
+      await service.retryCharge('group-1');
+
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: {
+          lastError: expect.stringContaining('representante legal') as unknown,
+        },
+      });
+    });
+
+    it('retryCharge con el email del representante ya cargado emite la orden, limpia lastError y envía el link', async () => {
+      arrange('apoderada@example.com');
+
+      await service.retryCharge('group-1');
+
+      expect(gatewayAdapter.createOrder).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          payerEmail: 'apoderada@example.com',
+        }) as unknown,
+      );
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: expect.objectContaining({
+          paymentUrl: 'https://flow.cl/pay/order-token',
+          lastError: null,
+        }) as unknown,
+      });
+      expect(mailService.sendPaymentLinkEmail).toHaveBeenCalledWith(
+        'apoderada@example.com',
+        'Ana Soto',
+        'https://flow.cl/pay/order-token',
+        30000,
+        { patientName: 'Juan Soto', isGuardian: true },
+      );
+    });
+
+    it('updateAmount con orden previa la anula, no emite otra y limpia paymentUrl y gatewayToken', async () => {
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      arrange(null, {
+        amount: 45000,
+        gatewayToken: 'old-token',
+        paymentUrl: 'https://flow.cl/pay/old-token',
+      });
+
+      await service.updateAmount('group-1', 45000);
+
+      expect(gatewayAdapter.voidOrder).toHaveBeenCalledWith(
+        expect.anything(),
+        'old-token',
+      );
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: { paymentUrl: null, gatewayToken: null },
+      });
+    });
+  });
+
   // Botón manual "Reenviar link de pago" (ConsultationsPage, junto al de
   // copiar) -- reenvía el email con el paymentUrl YA emitido, sin volver a
   // llamar al gateway (a diferencia de updateAmount, que sí re-emite orden

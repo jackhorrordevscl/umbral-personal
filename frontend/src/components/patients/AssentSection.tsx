@@ -151,6 +151,9 @@ export default function AssentSection({
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
+          <p className="text-xs text-slate-500 mt-1">
+            No incluyas datos clínicos ni sensibles.
+          </p>
         </FormField>
         {error && <ErrorBanner icon message={error} />}
         <button

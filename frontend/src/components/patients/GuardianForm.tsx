@@ -163,6 +163,7 @@ export default function GuardianForm({
             id="guardian-phone"
             className="input-field"
             value={phone}
+            maxLength={30}
             onChange={(e) => setPhone(e.target.value)}
           />
         </FormField>

@@ -43,6 +43,12 @@ describe('GuardianForm', () => {
     expect(props.onSubmit).not.toHaveBeenCalled()
   })
 
+  it('limita el teléfono a 30 caracteres', () => {
+    renderForm()
+
+    expect(screen.getByLabelText(/teléfono/i)).toHaveAttribute('maxlength', '30')
+  })
+
   it('rechaza un RUT inválido', async () => {
     const user = userEvent.setup()
     const props = renderForm()
