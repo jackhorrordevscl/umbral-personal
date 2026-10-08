@@ -237,8 +237,8 @@ export class PublicSchedulingService {
         .create({
           userId: therapistId,
           type: NotificationType.PATIENT_MISSING_SESSION_AMOUNT,
-          title: 'Nuevo paciente sin monto de sesión configurado',
-          body: `${patient.fullName} se autoagendó por primera vez. No se generará cobro hasta que definas el monto de sesión en su ficha.`,
+          title: '¡Paciente nuevo de AutoAgenda!',
+          body: `${patient.fullName} agendó su primera sesión. Revisa su ficha cuando puedas. Si quieres que se genere cobro, define el monto de sesión en su ficha.`,
           linkPath: '/patients',
         })
         .catch((err: unknown) => {
