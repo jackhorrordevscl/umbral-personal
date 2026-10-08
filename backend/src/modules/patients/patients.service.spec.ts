@@ -221,20 +221,24 @@ describe('PatientsService', () => {
       );
     });
 
-    it('search filtra por nombre y RUT (insensible a mayúsculas) y el total usa el mismo filtro', async () => {
+    // issue #402: el término se normaliza en JS (sin tildes, minúsculas) y los
+    // ids coincidentes se resuelven con una sola consulta cruda.
+    it('search resuelve ids con $queryRaw normalizado y filtra por where.id.in', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ id: 'p-1' }, { id: 'p-2' }]);
       prisma.patient.findMany.mockResolvedValue([]);
       prisma.patient.count.mockResolvedValue(0);
       prisma.patientConsent.findMany.mockResolvedValue([]);
 
       await service.findAll('therapist-1', { search: '  12.345.678-k ' });
 
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+      const values = (prisma.$queryRaw.mock.calls[0] as unknown[]).slice(1);
+      expect(values).toEqual(['therapist-1', '12.345.678-k', '12345678K']);
+
       const expectedWhere = {
         therapistId: 'therapist-1',
         deletedAt: null,
-        OR: [
-          { fullName: { contains: '12.345.678-k', mode: 'insensitive' } },
-          { rut: { contains: '12345678-K' } },
-        ],
+        id: { in: ['p-1', 'p-2'] },
       };
       expect(prisma.patient.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: expectedWhere }),
@@ -244,13 +248,41 @@ describe('PatientsService', () => {
       });
     });
 
-    it('search vacío o solo espacios no agrega filtro', async () => {
+    it('search quita tildes y pasa a minúsculas; sin forma de RUT no usa rutTerm', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ id: 'p-1' }]);
+      prisma.patient.findMany.mockResolvedValue([]);
+      prisma.patient.count.mockResolvedValue(0);
+      prisma.patientConsent.findMany.mockResolvedValue([]);
+
+      await service.findAll('therapist-1', { search: 'JOSÉ Núñez' });
+
+      const values = (prisma.$queryRaw.mock.calls[0] as unknown[]).slice(1);
+      expect(values[0]).toBe('therapist-1');
+      expect(values[1]).toBe('jose nunez');
+      expect(values[2]).toBeNull();
+    });
+
+    it('search sin coincidencias devuelve página vacía sin consultar pacientes', async () => {
+      prisma.$queryRaw.mockResolvedValue([]);
+
+      const result = await service.findAll('therapist-1', {
+        search: 'nadie',
+        page: 3,
+        pageSize: 10,
+      });
+
+      expect(result).toEqual({ data: [], total: 0, page: 3, pageSize: 10 });
+      expect(prisma.patient.findMany).not.toHaveBeenCalled();
+    });
+
+    it('search vacío o solo espacios no agrega filtro ni usa $queryRaw', async () => {
       prisma.patient.findMany.mockResolvedValue([]);
       prisma.patient.count.mockResolvedValue(0);
       prisma.patientConsent.findMany.mockResolvedValue([]);
 
       await service.findAll('therapist-1', { search: '   ' });
 
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
       expect(prisma.patient.count).toHaveBeenCalledWith({
         where: { therapistId: 'therapist-1', deletedAt: null },
       });
