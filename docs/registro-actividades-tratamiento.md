@@ -33,8 +33,8 @@ infraestructura es del operador. Se clasifican en la revisión legal.
 pública (repo `umbral-landing`, página `/privacidad-general`). El abogado del
 proyecto los revisó y los dio por correctos el 2026-10-08, según informó el
 responsable del proyecto; no hay un documento de esa revisión en el repositorio.
-Quedan por clasificar las filas 9-11 y 18, que mezclan ambos roles, y por
-recopilar la evidencia de los DPA de Render y Sentry.
+Quedan por clasificar las filas 9-11 y 18, que mezclan ambos roles (issue
+#414). Los DPA de Render y Sentry ya están en `docs/evidencia-compliance/`.
 
 ## Inventario de actividades de tratamiento
 
@@ -114,11 +114,11 @@ Chile, pero eso ya no es así:
   que el email transaccional de la fila 4 o si, por derivarse de un dato de
   salud, requiere la misma base habilitante que las filas 1-9. Pendiente de
   revisión legal, igual que el resto de esta sección.
-- El registro de errores opcional (fila 20) envía a **Sentry** los eventos de error ya depurados (sin bodies, cookies ni headers; con emails y RUT redactados en el backend). La región de almacenamiento es Estados Unidos (Iowa): el DSN usa el host `ingest.us.sentry.io`, confirmado por el responsable del proyecto el 2026-10-08 (la documentación de Sentry fija la región al crear la organización: https://docs.sentry.io/organization/data-storage-location/). Aún no se ha recopilado evidencia de su DPA en `docs/evidencia-compliance/`. Pendiente de recopilar.
+- El registro de errores opcional (fila 20) envía a **Sentry** los eventos de error ya depurados (sin bodies, cookies ni headers; con emails y RUT redactados en el backend). La región de almacenamiento es Estados Unidos (Iowa): el DSN usa el host `ingest.us.sentry.io`, confirmado por el responsable del proyecto el 2026-10-08 (la documentación de Sentry fija la región al crear la organización: https://docs.sentry.io/organization/data-storage-location/). Su DPA firmado está en `docs/evidencia-compliance/sentry-dpa-firmado-2026-10-08.pdf`.
 - El servidor de la aplicación (backend) se aloja en **Render, región Oregón
   (EE.UU. costa oeste)**, confirmado por el responsable del proyecto el
-  2026-10-08. Procesa todos los datos que pasan por la API; falta recopilar
-  la evidencia de su DPA en `docs/evidencia-compliance/`.
+  2026-10-08. Procesa todos los datos que pasan por la API; su DPA está en
+  `docs/evidencia-compliance/render-dpa-2026-10-08.pdf`.
 - El cobro en línea por sesión (fila 13) se procesa vía **Flow, cuya
   infraestructura de checkout corre en AWS us-east-2 (Ohio, Estados
   Unidos)** — verificado por DNS/rangos IP de AWS, ver evidencia más abajo
@@ -150,6 +150,14 @@ públicas que los proveedores pueden actualizar):
   automáticamente al aceptar los Términos de Servicio (cláusula 12.2:
   *"acceptance of the Agreement shall have the same effect as signing the
   SCCs"*), sin firma separada. Confirmado por fuente oficial.
+- **Render**: `render-dpa-2026-10-08.pdf` — snapshot del DPA de Render
+  (https://render.com/dpa) guardado el 2026-10-08. Falta confirmar si se
+  incorpora automáticamente al aceptar los Términos o requiere aceptación
+  aparte, y si cubre una transferencia desde Chile (el texto cita GDPR,
+  Data Privacy Framework y SCC de la UE).
+- **Sentry**: `sentry-dpa-firmado-2026-10-08.pdf` — DPA aceptado y firmado
+  electrónicamente desde la cuenta del proyecto el 2026-10-08. Misma salvedad
+  sobre la transferencia desde Chile.
 - **Backblaze**: `backblaze-dpa-eea-eu-2026-08-03.pdf` +
   `backblaze-tos-2026-08-03.pdf` — mismo mecanismo de incorporación
   automática, pero el DPA público encontrado está textualmente acotado a
