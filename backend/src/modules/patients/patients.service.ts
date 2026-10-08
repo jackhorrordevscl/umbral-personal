@@ -173,12 +173,9 @@ export class PatientsService {
 
     const term = query?.search?.trim();
     if (term) {
-      // El RUT se guarda normalizado (sin puntos, DV en mayúscula): se busca
-      // con el término normalizado igual que en el alta.
-      where.OR = [
-        { fullName: { contains: term, mode: 'insensitive' } },
-        { rut: { contains: normalizeRut(term) } },
-      ];
+      const ids = await this.findIdsBySearch(userId, term);
+      if (ids.length === 0) return { data: [], total: 0, page, pageSize };
+      where.id = { in: ids };
     }
 
     const [patients, total] = await Promise.all([
@@ -200,6 +197,37 @@ export class PatientsService {
     }));
 
     return { data, total, page, pageSize };
+  }
+
+  // issue #402: busca por nombre sin distinguir tildes ni mayúsculas, y por
+  // RUT con o sin puntos/guion. Se normaliza el término en JS y se resuelven
+  // los ids con una consulta parametrizada, sin migración ni extensión de
+  // PostgreSQL. `translate` va antes de `lower` para no depender del locale de
+  // la DB; `position` evita escapar comodines de LIKE (% y _ son literales).
+  // El RUT se guarda en mayúscula y con guion (12345678-K).
+  private async findIdsBySearch(
+    userId: string,
+    term: string,
+  ): Promise<string[]> {
+    const nameTerm = term.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+    const rutCandidate = term.replace(/[.\-\s]/g, '').toUpperCase();
+    const rutTerm = /^[\dK]+$/.test(rutCandidate) ? rutCandidate : null;
+
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT "id"
+      FROM "Patient"
+      WHERE "therapistId" = ${userId}
+        AND "deletedAt" IS NULL
+        AND (
+          position(${nameTerm} in lower(translate(
+            "fullName",
+            'áàäâéèëêíìïîóòöôúùüûñÁÀÄÂÉÈËÊÍÌÏÎÓÒÖÔÚÙÜÛÑ',
+            'aaaaeeeeiiiioooouuuunAAAAEEEEIIIIOOOOUUUUN'
+          ))) > 0
+          OR position(${rutTerm}::text in replace("rut", '-', '')) > 0
+        )
+    `;
+    return rows.map((r) => r.id);
   }
 
   // issue #290: contadores del dashboard sin traer la lista. withConsent =
