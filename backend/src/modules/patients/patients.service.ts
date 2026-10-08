@@ -20,6 +20,8 @@ import {
   ConsentAction,
   ConsentGrantor,
   ConsentPurpose,
+  CustodyType,
+  GuardianRelationship,
   Patient,
   PatientConsent,
   Prisma,
@@ -764,7 +766,34 @@ export class PatientsService {
     dto: PublicBookingPatientInput,
     origin?: PublicBookingOriginInput,
     client: PrismaService | Prisma.TransactionClient = this.prisma,
+    guardian?: PublicBookingGuardianInput,
   ): Promise<{ patient: Patient; isNew: boolean }> {
+    // Minor-ness is decided by the server from the submitted birthDate, never
+    // by a client flag. These 400s depend only on the request body, so they
+    // reveal nothing about registered patients.
+    if (isMinor(dto.birthDate)) {
+      if (!guardian) {
+        throw new BadRequestException(
+          'Para agendar a un menor de edad se requieren los datos de su representante legal.',
+        );
+      }
+      return this.resolveMinorForPublicBooking(
+        therapistId,
+        dto,
+        guardian,
+        origin,
+        client,
+      );
+    }
+    if (guardian) {
+      throw new BadRequestException(
+        'Los datos del representante legal solo aplican a pacientes menores de edad.',
+      );
+    }
+    if (!dto.email) {
+      throw new BadRequestException('El email del paciente es obligatorio.');
+    }
+
     const normalizedEmail = dto.email.trim().toLowerCase();
 
     const matches = await client.patient.findMany({
@@ -862,6 +891,99 @@ export class PatientsService {
     }
   }
 
+  // Minor public booking. Identity is the patient RUT scoped to the therapist
+  // (a minor often has no email of their own) plus the RUT of one of their
+  // registered guardians. Every identity failure is the same uniform 409 as the
+  // adult flow, and logs carry only the therapistId (no RUT, no email).
+  // Guardians are written through the received client directly (not
+  // GuardiansService, which is therapist-scoped and would create a cycle), so
+  // patient + guardian + consultation share one transaction.
+  private async resolveMinorForPublicBooking(
+    therapistId: string,
+    dto: PublicBookingPatientInput,
+    guardian: PublicBookingGuardianInput,
+    origin: PublicBookingOriginInput | undefined,
+    client: PrismaService | Prisma.TransactionClient,
+  ): Promise<{ patient: Patient; isNew: boolean }> {
+    if (!isValidRut(dto.rut) || !isValidRut(guardian.rut)) {
+      this.logger.warn(
+        `Reserva pública de menor rechazada: RUT con dígito verificador inválido bajo therapistId=${therapistId}`,
+      );
+      throw new ConflictException('No fue posible procesar la reserva.');
+    }
+
+    const rut = normalizeRut(dto.rut);
+    const guardianRut = normalizeRut(guardian.rut);
+
+    const existing = await client.patient.findFirst({
+      where: { therapistId, rut, deletedAt: null },
+    });
+    if (existing) {
+      // Guardian RUTs are stored normalized (GuardiansService/toGuardianData).
+      const matchingGuardian = await client.legalGuardian.findFirst({
+        where: { patientId: existing.id, rut: guardianRut },
+        select: { id: true },
+      });
+      if (!matchingGuardian) {
+        this.logger.warn(
+          `Reserva pública de menor rechazada: identidad no verificada bajo therapistId=${therapistId}`,
+        );
+        throw new ConflictException('No fue posible procesar la reserva.');
+      }
+      return { patient: existing, isNew: false };
+    }
+
+    const email = dto.email?.trim().toLowerCase() || null;
+    try {
+      const patient = await client.patient.create({
+        data: {
+          fullName: dto.fullName,
+          rut,
+          birthDate: new Date(dto.birthDate),
+          occupation: dto.occupation,
+          address: dto.address,
+          phone: dto.phone,
+          email,
+          emergencyContactName: dto.emergencyContactName,
+          emergencyContactPhone: dto.emergencyContactPhone,
+          treatingPsychiatrist: dto.treatingPsychiatrist,
+          treatingDoctor: dto.treatingDoctor,
+          therapistId,
+          acquisitionSource: resolveAcquisitionSource(origin),
+          acquisitionReferrer: origin?.referrer ?? null,
+        },
+      });
+      // The booking guardian is the only one so far: payer, contact and
+      // consent holder by default. The therapist records the consent itself
+      // later; no consent is captured publicly.
+      await client.legalGuardian.create({
+        data: {
+          patientId: patient.id,
+          fullName: guardian.fullName,
+          rut: guardianRut,
+          relationship: guardian.relationship,
+          email: guardian.email.trim().toLowerCase(),
+          phone: guardian.phone || null,
+          isPayer: true,
+          receivesCommunications: true,
+          canAccessReports: true,
+          canConsent: true,
+          custody: CustodyType.UNKNOWN,
+          hasConflict: false,
+        },
+      });
+      return { patient, isNew: true };
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException('No fue posible procesar la reserva.');
+      }
+      throw err;
+    }
+  }
+
   // issue #157: agregación en backend (mismo criterio que getStats en
   // consultations.service.ts, issue #40) para no traer todas las filas al
   // frontend. acquisitionSource null (pacientes creados antes de este
@@ -899,7 +1021,9 @@ export interface PublicBookingPatientInput {
   fullName: string;
   rut: string;
   birthDate: string;
-  email: string;
+  // Required for adults (identity key); optional for minors, whose identity
+  // is the RUT plus a guardian RUT. Enforced in resolveForPublicBooking.
+  email?: string;
   occupation?: string;
   address?: string;
   phone?: string;
@@ -907,4 +1031,15 @@ export interface PublicBookingPatientInput {
   emergencyContactPhone?: string;
   treatingPsychiatrist?: string;
   treatingDoctor?: string;
+}
+
+// Guardian submitted with a public booking for a minor. Same "no cycle"
+// criterion as PublicBookingPatientInput: PublicBookingGuardianDto
+// (public-scheduling/dto) satisfies it structurally.
+export interface PublicBookingGuardianInput {
+  fullName: string;
+  rut: string;
+  relationship: GuardianRelationship;
+  email: string;
+  phone?: string;
 }

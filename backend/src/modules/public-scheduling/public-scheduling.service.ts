@@ -207,6 +207,7 @@ export class PublicSchedulingService {
           dto.patient,
           dto.origin,
           tx,
+          dto.guardian,
         );
         const created = await this.consultationsService.createFromPublicBooking(
           therapistId,
