@@ -32,8 +32,14 @@ describe('PublicBookingForm: nota de privacidad', () => {
     renderForm();
     const note = screen.getByTestId('booking-privacy-note');
     expect(note).toHaveTextContent(
-      'Privacidad. Usamos tu nombre, RUT, fecha de nacimiento y correo solo para gestionar esta reserva. Los recibe tu terapeuta, que es quien los trata. Más información en nuestra política de privacidad.',
+      'Privacidad. Usamos tu nombre, RUT, fecha de nacimiento y correo solo para gestionar esta reserva. Los recibe tu terapeuta. Más información en nuestra política de privacidad.',
     );
+  });
+
+  it('no afirma quién es el responsable del tratamiento', () => {
+    renderForm();
+    const note = screen.getByTestId('booking-privacy-note');
+    expect(note).not.toHaveTextContent(/quien los trata|responsable/i);
   });
 
   it('no repite el titulo "Tus datos" dentro de la nota', () => {
