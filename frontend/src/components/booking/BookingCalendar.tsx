@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { MONTH_LABELS, WEEKDAY_LABELS } from '../../utils/booking-calendar';
 import type { ViewMonth } from '../../utils/booking-calendar';
@@ -34,7 +35,9 @@ function cellClasses(
 ): string {
   const base = `relative h-11 w-full rounded-lg text-sm tabular-nums transition-colors ${FOCUS_RING}`;
   let tone: string;
-  if (isSelected) {
+  // hasSlots va primero: una celda deshabilitada nunca debe verse seleccionada
+  // (p. ej. si un refetch le quitó los horarios al día elegido).
+  if (hasSlots && isSelected) {
     tone = 'bg-sage-600 text-white font-semibold';
   } else if (hasSlots) {
     tone = 'bg-sage-50 text-sage-700 font-medium hover:bg-sage-100';
@@ -44,9 +47,9 @@ function cellClasses(
   return [
     base,
     tone,
-    !isCurrentMonth && !isSelected && !hasSlots ? 'opacity-60' : '',
+    !isCurrentMonth && !hasSlots ? 'opacity-60' : '',
     isToday
-      ? `${TODAY_MARK} ${isSelected ? 'after:bg-white' : 'after:bg-sage-500'}`
+      ? `${TODAY_MARK} ${hasSlots && isSelected ? 'after:bg-white' : 'after:bg-sage-500'}`
       : '',
   ]
     .filter(Boolean)
@@ -64,6 +67,29 @@ export default function BookingCalendar({
   onNextMonth,
   onSelectDay,
 }: BookingCalendarProps) {
+  // Los 42 nombres accesibles solo dependen de `days`: se calculan una vez por
+  // grilla y no en cada render del padre.
+  const dayLabels = useMemo(
+    () =>
+      Object.fromEntries(
+        days.map((day) => [
+          day,
+          `Ver horarios del ${formatChileLongDate(new Date(buildLocalISO(day, '12:00')))}`,
+        ]),
+      ),
+    [days],
+  );
+
+  const daysWithSlots = days.filter((day) => (slotsByDay[day] ?? []).length > 0).length;
+  const monthLabel = `${MONTH_LABELS[viewMonth.month - 1]} ${viewMonth.year}`;
+  // Una sola región live: queda vacía mientras carga y anuncia el resultado al
+  // terminar, así los clics rápidos en el mes no encolan varios anuncios.
+  const availabilityStatus = busy
+    ? ''
+    : daysWithSlots === 0
+      ? `${monthLabel}: sin horarios este mes`
+      : `${monthLabel}: ${daysWithSlots} ${daysWithSlots === 1 ? 'día con horarios' : 'días con horarios'}`;
+
   return (
     <div className="mb-6">
       <div className="flex items-center justify-between mb-3">
@@ -75,9 +101,7 @@ export default function BookingCalendar({
         >
           <ChevronLeft size={18} />
         </button>
-        <p className="font-display text-xl text-slate-900" aria-live="polite">
-          {MONTH_LABELS[viewMonth.month - 1]} {viewMonth.year}
-        </p>
+        <p className="font-display text-xl text-slate-900">{monthLabel}</p>
         <button
           type="button"
           onClick={onNextMonth}
@@ -87,6 +111,10 @@ export default function BookingCalendar({
           <ChevronRight size={18} />
         </button>
       </div>
+
+      <p role="status" className="sr-only">
+        {availabilityStatus}
+      </p>
 
       <div
         className="grid grid-cols-7 gap-1 mb-1 text-center text-xs font-medium uppercase tracking-wide text-slate-400"
@@ -114,8 +142,8 @@ export default function BookingCalendar({
               type="button"
               disabled={!hasSlots}
               onClick={() => onSelectDay(day)}
-              aria-label={`Ver horarios del ${formatChileLongDate(new Date(buildLocalISO(day, '12:00')))}`}
-              aria-pressed={isSelected}
+              aria-label={dayLabels[day]}
+              aria-pressed={isSelected && hasSlots}
               aria-current={isToday ? 'date' : undefined}
               className={cellClasses(
                 hasSlots,
