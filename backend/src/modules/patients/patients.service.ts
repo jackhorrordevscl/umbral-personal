@@ -50,6 +50,8 @@ function resolveAcquisitionSource(origin?: PublicBookingOriginInput): string {
   return 'directo';
 }
 
+const MANUAL_ACQUISITION_LABEL = 'Registro manual';
+
 function isDate(val: unknown): val is Date {
   return (
     val !== null &&
@@ -654,7 +656,9 @@ export class PatientsService {
 
     const counts = new Map<string, number>();
     for (const row of grouped) {
-      const label = row.acquisitionSource ?? 'directo';
+      // issue #401: null = paciente creado a mano (ver schema.prisma);
+      // "directo" queda solo para reservas públicas sin origen ni referrer.
+      const label = row.acquisitionSource ?? MANUAL_ACQUISITION_LABEL;
       counts.set(label, (counts.get(label) ?? 0) + row._count);
     }
 

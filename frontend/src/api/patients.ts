@@ -76,8 +76,8 @@ export function getPatientHistory(id: string) {
 
 // issue #157: agregación en backend (PatientsService.getAcquisitionStats,
 // mismo criterio que getConsultationStats -- issue #40) -- ordenado por
-// count descendente, 'directo' como label para pacientes sin origen
-// registrado.
+// count descendente. 'Registro manual' agrupa a los pacientes creados a mano
+// (issue #401) y 'directo' a las reservas públicas sin origen.
 export interface AcquisitionStat {
   source: string;
   count: number;

@@ -1151,10 +1151,12 @@ describe('PatientsService', () => {
   // issue #157: agregación en backend (mismo criterio que getStats en
   // consultations.service.ts, issue #40).
   describe('getAcquisitionStats', () => {
-    it('agrupa por acquisitionSource, mapea null a "directo" y ordena desc', async () => {
+    // issue #401: null = creado a mano; "directo" = reserva pública sin origen.
+    it('agrupa por acquisitionSource, mapea null a "Registro manual", separa "directo" y ordena desc', async () => {
       prisma.patient.groupBy.mockResolvedValue([
         { acquisitionSource: 'google', _count: 3 },
         { acquisitionSource: null, _count: 5 },
+        { acquisitionSource: 'directo', _count: 2 },
         { acquisitionSource: 'instagram.com', _count: 1 },
       ]);
 
@@ -1166,8 +1168,9 @@ describe('PatientsService', () => {
         _count: true,
       });
       expect(result).toEqual([
-        { source: 'directo', count: 5 },
+        { source: 'Registro manual', count: 5 },
         { source: 'google', count: 3 },
+        { source: 'directo', count: 2 },
         { source: 'instagram.com', count: 1 },
       ]);
     });
