@@ -202,6 +202,9 @@ jobs:
       REMINDERS_ENABLED: 'false'
       GOOGLE_CALENDAR_SYNC_ENABLED: 'false'
       PAYMENTS_ENABLED: 'false'
+      # Public booking e2e (frontend/e2e/public-booking.e2e.ts) needs the
+      # public scheduling endpoints on.
+      PUBLIC_SCHEDULING_ENABLED: 'true'
       PORT: '3001'
     steps:
       - uses: actions/checkout@v4

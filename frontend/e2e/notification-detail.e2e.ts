@@ -42,8 +42,7 @@ function requireEnv(name: string): string {
 }
 
 const TEST_EMAIL = process.env.E2E_TEST_EMAIL ?? 'e2e-playwright@umbral.local';
-const TEST_PASSWORD = requireEnv('E2E_TEST_PASSWORD');
-const TEST_MFA_SECRET_BASE32 = requireEnv('E2E_TEST_MFA_SECRET');
+// Read inside the test (not at import) so other specs still load without these vars.
 
 function base32Decode(base32: string): Buffer {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -77,6 +76,8 @@ function totp(secretBase32: string, stepSeconds = 30, digits = 6): string {
 }
 
 test('el clic en una notificación abre el detalle completo, sin truncar', async ({ page }) => {
+  const TEST_PASSWORD = requireEnv('E2E_TEST_PASSWORD');
+  const TEST_MFA_SECRET_BASE32 = requireEnv('E2E_TEST_MFA_SECRET');
   await page.goto('/login');
   await page.getByLabel('Email').fill(TEST_EMAIL);
   await page.getByLabel('Contraseña', { exact: true }).fill(TEST_PASSWORD);
