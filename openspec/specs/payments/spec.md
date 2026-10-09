@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Automatic per-session charges keyed to a consultation's group, collected through each therapist's own Flow account (each therapist is the sole merchant of record), with hosted checkout, signature-verified webhook confirmation, and a one-shot late-payment alert. Umbral never custodies patient funds.
+Automatic per-session charges keyed to a consultation's group, collected through each therapist's own Flow account (each therapist is the sole merchant of record), with hosted checkout, gateway-verified webhook confirmation, and a one-shot late-payment alert. Umbral never custodies patient funds.
 
 ## Requirements
 
@@ -92,21 +92,29 @@ The system MUST use Flow's hosted checkout with the credentials of the therapist
 - WHEN the patient attempts to complete hosted checkout
 - THEN the system MUST NOT complete the checkout using stale credentials, and MUST surface an error rather than silently failing
 
-### Requirement: Signature-Verified Webhook Confirmation
+### Requirement: Gateway-Verified Webhook Confirmation
 
-The system MUST verify every payment-confirmation webhook with HMAC-SHA256 before processing it and MUST reject any webhook that fails verification. Confirmed payments MUST process idempotently, so a replayed webhook for an already-confirmed charge causes no further change.
+The system MUST NOT trust the content of a payment-confirmation webhook: Flow does not sign this callback and sends only a token. Before processing it, the system MUST re-query the order status at the gateway using the owning therapist's own credentials, and MUST reject the webhook with a uniform error (one that does not reveal which check failed) when the token matches no charge, when the owning payment account is unavailable, when the status lookup fails, or when the gateway does not report the order as paid. Confirmed payments MUST process idempotently, so a replayed webhook for an already-confirmed charge causes no further change.
 
-#### Scenario: Valid signature confirms payment
+#### Scenario: Gateway confirms payment
 
-- GIVEN a pending charge and a webhook with a valid signature reporting payment
+- GIVEN a pending charge and a webhook carrying its token
+- AND the gateway reports the order as paid
 - WHEN the webhook is received
 - THEN the charge transitions to `PAID`
 
-#### Scenario: Invalid signature is rejected
+#### Scenario: Order not reported as paid is rejected
 
-- GIVEN a webhook whose signature does not verify
+- GIVEN a webhook whose token matches a charge
+- AND the gateway does not report the order as paid, or the status lookup fails
+- WHEN the webhook is received
+- THEN it is rejected, no charge state changes and no email is sent
+
+#### Scenario: Unknown token is rejected without calling the gateway
+
+- GIVEN a webhook whose token matches no charge
 - WHEN it is received
-- THEN it is rejected and no charge state changes
+- THEN it is rejected and no gateway call is made
 
 #### Scenario: Replayed webhook is a no-op
 
