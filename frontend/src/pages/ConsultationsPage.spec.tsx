@@ -649,6 +649,87 @@ describe('ConsultationsPage', () => {
       await screen.findByText('No tienes una cuenta de pagos conectada'),
     ).toBeInTheDocument()
   })
+
+  // Issue #425: emitir un link nuevo cuando el anterior quedó inservible
+  // (pago rechazado/anulado). Invalida el link vigente, por eso pide confirmar.
+  it.each(['PENDING', 'LATE'])('muestra "Generar nuevo link" si el cargo está %s y tiene paymentUrl', async (status) => {
+    mockPayment({ status, paymentUrl: 'https://flow.cl/pay/token-1' })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByRole('button', { name: /generar nuevo link/i })).toBeInTheDocument()
+  })
+
+  it.each(['PAID', 'CANCELLED'])('no muestra "Generar nuevo link" si el cargo está %s', async (status) => {
+    mockPayment({ status, paymentUrl: 'https://flow.cl/pay/token-1' })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByText('Motivo de la sesión')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /generar nuevo link/i })).not.toBeInTheDocument()
+  })
+
+  it('no muestra "Generar nuevo link" si el cargo no tiene paymentUrl', async () => {
+    mockPayment({ lastError: 'x' })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByRole('button', { name: /reintentar cobro/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /generar nuevo link/i })).not.toBeInTheDocument()
+  })
+
+  it('generar nuevo link: pide confirmación y no llama a la API hasta confirmar', async () => {
+    mockPayment({ paymentUrl: 'https://flow.cl/pay/token-1', amount: 25000 })
+    mockedApi.patch.mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+    await user.click(await screen.findByRole('button', { name: /generar nuevo link/i }))
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(mockedApi.patch).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: /sí, generar/i }))
+
+    expect(mockedApi.patch).toHaveBeenCalledWith('/payments/group-1', { amount: 25000 })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('generar nuevo link: cancelar la confirmación no llama a la API', async () => {
+    mockPayment({ paymentUrl: 'https://flow.cl/pay/token-1' })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+    await user.click(await screen.findByRole('button', { name: /generar nuevo link/i }))
+    await user.click(await screen.findByRole('button', { name: /cancelar/i }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(mockedApi.patch).not.toHaveBeenCalled()
+  })
+
+  it('generar nuevo link que falla: muestra el mensaje de error', async () => {
+    mockPayment({ paymentUrl: 'https://flow.cl/pay/token-1' })
+    mockedApi.patch.mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { message: 'La pasarela rechazó la orden' } },
+    })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+    await user.click(await screen.findByRole('button', { name: /generar nuevo link/i }))
+    await user.click(await screen.findByRole('button', { name: /sí, generar/i }))
+
+    expect(await screen.findByText('La pasarela rechazó la orden')).toBeInTheDocument()
+  })
 })
 
 // Issue #290: el selector de pacientes busca en el servidor y resuelve el

@@ -38,6 +38,20 @@ export function useCorrectConsultation() {
   });
 }
 
+// Issue #425: emite un link de pago nuevo (PATCH /payments/:groupId con el
+// monto vigente): el backend anula la orden anterior en la pasarela, crea otra
+// y envía el link por email al paciente. Se refresca la lista siempre.
+export function useRegeneratePaymentLink() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, amount }: { groupId: string; amount: number }) =>
+      api.patch(`/payments/${groupId}`, { amount }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['consultations'] });
+    },
+  });
+}
+
 // Issue #271: reintenta crear la orden de cobro de un cargo sin paymentUrl
 // (POST /payments/:groupId/retry-charge). El backend responde 200 aun si la
 // pasarela vuelve a rechazar (deja lastError seteado), así que se refresca
