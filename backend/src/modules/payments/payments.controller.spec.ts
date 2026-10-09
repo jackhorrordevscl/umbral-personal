@@ -549,4 +549,140 @@ describe('PaymentsController', () => {
       },
     );
   });
+
+  // issue #424: GET /payments/return-status es público y de solo lectura; la
+  // respuesta es SOLO { status } (sin PII ni ids) y todo lo que no sea un
+  // PAID/REJECTED confirmado por el gateway se ve igual que un token
+  // desconocido: PENDING.
+  describe('returnStatus', () => {
+    let warn: jest.SpyInstance;
+
+    beforeEach(() => {
+      warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+      paymentsService.findByToken.mockResolvedValue({
+        id: 'payment-1',
+        therapistId: 'therapist-1',
+      });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+    });
+    afterEach(() => warn.mockRestore());
+
+    it('devuelve PAID cuando el gateway reporta el cobro pagado, sin loguear', async () => {
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PAID' });
+
+      await expect(controller.returnStatus('flow-token')).resolves.toEqual({
+        status: 'PAID',
+      });
+      expect(gatewayAdapter.getOrderStatus).toHaveBeenCalledWith(
+        expect.anything(),
+        'flow-token',
+      );
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('devuelve REJECTED y registra el estado crudo sin el token', async () => {
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'REJECTED' });
+
+      await expect(controller.returnStatus('flow-token')).resolves.toEqual({
+        status: 'REJECTED',
+      });
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('status=REJECTED'),
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('paymentId=payment-1'),
+      );
+    });
+
+    it('devuelve PENDING cuando el gateway reporta pendiente', async () => {
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PENDING' });
+
+      await expect(controller.returnStatus('flow-token')).resolves.toEqual({
+        status: 'PENDING',
+      });
+    });
+
+    it('con un estado fuera de lo conocido devuelve PENDING', async () => {
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'ANULADO' });
+
+      await expect(controller.returnStatus('flow-token')).resolves.toEqual({
+        status: 'PENDING',
+      });
+    });
+
+    it('con token desconocido devuelve PENDING sin consultar contexto ni gateway', async () => {
+      paymentsService.findByToken.mockResolvedValue(null);
+
+      await expect(controller.returnStatus('desconocido')).resolves.toEqual({
+        status: 'PENDING',
+      });
+      expect(
+        paymentAccountService.resolveGatewayContext,
+      ).not.toHaveBeenCalled();
+      expect(gatewayAdapter.getOrderStatus).not.toHaveBeenCalled();
+    });
+
+    it('sin token devuelve PENDING sin buscar el cobro', async () => {
+      await expect(controller.returnStatus(undefined)).resolves.toEqual({
+        status: 'PENDING',
+      });
+      expect(paymentsService.findByToken).not.toHaveBeenCalled();
+    });
+
+    it('sin contexto de gateway devuelve PENDING sin consultar el gateway', async () => {
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(null);
+
+      await expect(controller.returnStatus('flow-token')).resolves.toEqual({
+        status: 'PENDING',
+      });
+      expect(gatewayAdapter.getOrderStatus).not.toHaveBeenCalled();
+    });
+
+    it('si el gateway falla devuelve PENDING sin propagar el error', async () => {
+      gatewayAdapter.getOrderStatus.mockRejectedValue(new Error('Flow 401'));
+
+      await expect(controller.returnStatus('flow-token')).resolves.toEqual({
+        status: 'PENDING',
+      });
+    });
+
+    it('nunca registra el token crudo en ninguna rama', async () => {
+      const token = 'secret-token-xyz';
+      gatewayAdapter.getOrderStatus.mockResolvedValueOnce({
+        status: 'REJECTED',
+      });
+      await controller.returnStatus(token);
+      gatewayAdapter.getOrderStatus.mockRejectedValueOnce(new Error('boom'));
+      await controller.returnStatus(token);
+      paymentAccountService.resolveGatewayContext.mockResolvedValueOnce(null);
+      await controller.returnStatus(token);
+      paymentsService.findByToken.mockResolvedValueOnce(null);
+      await controller.returnStatus(token);
+
+      for (const call of warn.mock.calls as unknown[][]) {
+        expect(String(call[0])).not.toContain(token);
+      }
+    });
+
+    it('la ruta usa el throttler "payment-return" (no lo saltea)', () => {
+      const reflector = new Reflector();
+      const handler = (controller as unknown as Record<string, () => unknown>)
+        .returnStatus;
+
+      expect(
+        reflector.get<boolean | undefined>(
+          THROTTLER_SKIP + 'payment-return',
+          handler,
+        ),
+      ).toBeUndefined();
+      expect(
+        reflector.get<boolean | undefined>(
+          THROTTLER_SKIP + 'payment-confirm',
+          handler,
+        ),
+      ).toBe(true);
+    });
+  });
 });
