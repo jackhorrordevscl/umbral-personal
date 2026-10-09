@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { expectNoA11yViolations } from './helpers/axe';
 
 // Public booking flow (issue #419): a patient without an account opens the
 // therapist's public link, picks a slot, fills in the form and confirms.
@@ -43,6 +44,7 @@ test('un paciente reserva el primer horario disponible desde el link público', 
     await expect(daysGroup).toHaveAttribute('aria-busy', 'false');
   }
   await expect(availableDays.first()).toBeVisible();
+  await expectNoA11yViolations(page, { label: 'public booking: loaded profile' });
   await availableDays.first().click();
 
   // First slot of that day. `exact` matters: "Días con horarios disponibles"
@@ -61,6 +63,7 @@ test('un paciente reserva el primer horario disponible desde el link público', 
   await page.getByLabel('Fecha de nacimiento').fill(PATIENT.birthDate);
   await page.getByLabel('Email').fill(PATIENT.email);
   await expect(page.getByTestId('booking-privacy-note')).toBeVisible();
+  await expectNoA11yViolations(page, { label: 'public booking: slot selected with form' });
 
   const bookingResponse = page.waitForResponse(
     (response) => response.url().includes('/book') && response.request().method() === 'POST',
@@ -71,4 +74,5 @@ test('un paciente reserva el primer horario disponible desde el link público', 
   // Success screen.
   await expect(page.getByRole('heading', { name: '¡Listo!' })).toBeVisible();
   await expect(page.getByText(/Tu sesión quedó agendada para el/)).toBeVisible();
+  await expectNoA11yViolations(page, { label: 'public booking: success screen' });
 });
