@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { createHmac } from 'node:crypto';
+import { expectNoA11yViolations } from './helpers/axe';
 
 // Verificación manual (issue reportado con captura de pantalla): el modal de
 // detalle de notificaciones que reemplaza el truncamiento del dropdown
@@ -79,14 +80,22 @@ test('el clic en una notificación abre el detalle completo, sin truncar', async
   const TEST_PASSWORD = requireEnv('E2E_TEST_PASSWORD');
   const TEST_MFA_SECRET_BASE32 = requireEnv('E2E_TEST_MFA_SECRET');
   await page.goto('/login');
+  await expect(page.getByRole('button', { name: 'Ingresar' })).toBeVisible();
+  await expectNoA11yViolations(page, { label: 'login page' });
   await page.getByLabel('Email').fill(TEST_EMAIL);
   await page.getByLabel('Contraseña', { exact: true }).fill(TEST_PASSWORD);
   await page.getByRole('button', { name: 'Ingresar' }).click();
 
-  await page.getByLabel('Código de verificación MFA de 6 dígitos').fill(totp(TEST_MFA_SECRET_BASE32));
+  const mfaInput = page.getByLabel('Código de verificación MFA de 6 dígitos');
+  await expect(mfaInput).toBeVisible();
+  await expectNoA11yViolations(page, { label: 'MFA step' });
+  await mfaInput.fill(totp(TEST_MFA_SECRET_BASE32));
   await page.getByRole('button', { name: 'Verificar' }).click();
 
   await expect(page).toHaveURL(/\/dashboard/);
+  // Greeting only renders once the dashboard has loaded its user data.
+  await expect(page.getByText(/^Hola, /)).toBeVisible();
+  await expectNoA11yViolations(page, { label: 'dashboard' });
 
   await page.getByRole('button', { name: /notificaciones/i }).click();
   await page.screenshot({ path: 'e2e/screenshots/01-dropdown-truncado.png' });
@@ -96,6 +105,7 @@ test('el clic en una notificación abre el detalle completo, sin truncar', async
   const dialog = page.getByRole('dialog', { name: /Es necesario revisar los documentos legales/ });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText(/preferimos avisar antes de que lo notes por tu cuenta/)).toBeVisible();
+  await expectNoA11yViolations(page, { label: 'notification detail modal' });
   await page.screenshot({ path: 'e2e/screenshots/02-detalle-completo.png' });
 
   await dialog.getByRole('button', { name: 'Ir ahora' }).click();
@@ -108,5 +118,6 @@ test('el clic en una notificación abre el detalle completo, sin truncar', async
   await expect(
     page.getByRole('heading', { name: 'Pacientes', exact: true }),
   ).toBeVisible({ timeout: 15000 });
+  await expectNoA11yViolations(page, { label: 'patients page' });
   await page.screenshot({ path: 'e2e/screenshots/03-navego-a-patients.png' });
 });
