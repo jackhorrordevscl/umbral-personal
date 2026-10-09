@@ -92,4 +92,17 @@ describe('Layout (#298, #356)', () => {
     expect(getAside()).toHaveAttribute('inert')
     expect(opener).toHaveFocus()
   })
+
+  it('ofrece "Saltar al contenido" como primer elemento enfocable y apunta al main', async () => {
+    mockMatchMedia(true)
+    const user = userEvent.setup()
+    renderLayout()
+
+    await user.tab()
+
+    const skip = screen.getByRole('link', { name: 'Saltar al contenido' })
+    expect(skip).toHaveAttribute('href', '#main-content')
+    expect(skip).toHaveFocus()
+    expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content')
+  })
 })
