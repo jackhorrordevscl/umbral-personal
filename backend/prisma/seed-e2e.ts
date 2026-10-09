@@ -3,11 +3,15 @@ dotenv.config();
 import { NotificationType, PrismaClient } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
+import { randomBytes } from 'node:crypto';
 import { MfaSecretCryptoService } from '../src/modules/auth/mfa-secret-crypto.service';
 
-// Seed for the Playwright e2e (frontend/e2e/notification-detail.e2e.ts).
-// Creates a PROFESSIONAL account with MFA already enabled plus the
-// notification the test clicks on. Idempotent (upsert / find-or-create).
+// Seed for the Playwright e2e (frontend/e2e/*.e2e.ts). Idempotent
+// (upsert / find-or-create). It creates two independent accounts:
+//  - a PROFESSIONAL with MFA already enabled plus the notification that
+//    notification-detail.e2e.ts clicks on;
+//  - a second PROFESSIONAL with a public profile, a slug and a weekly
+//    schedule for public-booking.e2e.ts (no MFA, no usable password).
 //
 // Safety: this writes a user with a known password and a known TOTP secret,
 // so it must never touch a real database. It refuses to run in production and
@@ -22,6 +26,23 @@ import { MfaSecretCryptoService } from '../src/modules/auth/mfa-secret-crypto.se
 const DEFAULT_EMAIL = 'e2e-playwright@umbral.local';
 const BASE32_RE = /^[A-Z2-7]{16,}=*$/i;
 const LOCAL_DATABASE_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
+
+// Public-booking therapist (frontend/e2e/public-booking.e2e.ts). The e2e opens
+// /book/<slug>, so keep PUBLIC_BOOKING_SLUG in sync with that spec.
+const PUBLIC_BOOKING_EMAIL = 'e2e-public-booking@umbral.local';
+const PUBLIC_BOOKING_SLUG = 'e2e-reserva-publica';
+const PUBLIC_BOOKING_NAME = 'Terapeuta E2E Reserva';
+const PUBLIC_BOOKING_SPECIALTY = 'Psicología clínica E2E';
+const PUBLIC_BOOKING_BIO =
+  'Perfil de prueba para el e2e de la reserva pública.';
+const SESSION_MINUTES = 60;
+// Every ISO weekday (1=Mon .. 7=Sun) from 09:00 to 18:00 Chile time. Slots
+// come from this weekly rule, not from fixed dates, so whatever day the suite
+// runs there are always bookable slots beyond the 24h lead time and inside the
+// 60-day horizon (computeAvailableSlots). Seven days a week also makes weekends
+// and the odd public holiday irrelevant.
+const WEEKLY_START_MINUTE = 9 * 60;
+const WEEKLY_END_MINUTE = 18 * 60;
 
 const NOTIFICATION_TITLE =
   'Es necesario revisar los documentos legales de los pacientes';
@@ -38,6 +59,56 @@ function requireEnv(name: string): string {
     throw new Error(`seed-e2e: missing required env var ${name}`);
   }
   return value;
+}
+
+async function seedPublicBookingTherapist(prisma: PrismaClient) {
+  // Nobody logs in as this account: the hash is of random bytes that are
+  // discarded, so there is no credential to leak. It is only used on create
+  // (the update below never touches the password).
+  const passwordHash = await argon2.hash(randomBytes(32).toString('hex'));
+  const profile = {
+    name: PUBLIC_BOOKING_NAME,
+    slug: PUBLIC_BOOKING_SLUG,
+    specialty: PUBLIC_BOOKING_SPECIALTY,
+    bio: PUBLIC_BOOKING_BIO,
+    sessionDurationMinutes: SESSION_MINUTES,
+    mustChangePassword: false,
+    mfaEnabled: false,
+    emailVerified: true,
+    deletedAt: null,
+  };
+  const therapist = await prisma.user.upsert({
+    where: { email: PUBLIC_BOOKING_EMAIL },
+    update: profile,
+    create: {
+      email: PUBLIC_BOOKING_EMAIL,
+      role: 'PROFESSIONAL',
+      passwordHash,
+      ...profile,
+    },
+  });
+
+  // Reset the schedule so the result does not depend on previous runs. This
+  // therapist is exclusive to the e2e, so replacing its rules is safe.
+  await prisma.$transaction([
+    prisma.availabilityBlockout.deleteMany({
+      where: { therapistId: therapist.id },
+    }),
+    prisma.therapistAvailability.deleteMany({
+      where: { therapistId: therapist.id },
+    }),
+    prisma.therapistAvailability.createMany({
+      data: [1, 2, 3, 4, 5, 6, 7].map((dayOfWeek) => ({
+        therapistId: therapist.id,
+        dayOfWeek,
+        startMinute: WEEKLY_START_MINUTE,
+        endMinute: WEEKLY_END_MINUTE,
+      })),
+    }),
+  ]);
+  console.log(
+    `E2E public booking therapist ready: /book/${PUBLIC_BOOKING_SLUG}`,
+  );
 }
 
 async function main() {
@@ -63,6 +134,13 @@ async function main() {
     throw new Error(
       'seed-e2e: refusing to run: DATABASE_URL must point to localhost/127.0.0.1',
     );
+  }
+
+  const publicPrisma = new PrismaClient();
+  try {
+    await seedPublicBookingTherapist(publicPrisma);
+  } finally {
+    await publicPrisma.$disconnect();
   }
 
   const email = (process.env.E2E_TEST_EMAIL || DEFAULT_EMAIL).toLowerCase();
