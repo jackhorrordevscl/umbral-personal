@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Automatic per-session charges keyed to a consultation's group, collected through each therapist's own Flow account (Comercios Asociados split mode), with hosted checkout, signature-verified webhook confirmation, and a one-shot late-payment alert. Umbral never custodies patient funds.
+Automatic per-session charges keyed to a consultation's group, collected through each therapist's own Flow account (each therapist is the sole merchant of record), with hosted checkout, signature-verified webhook confirmation, and a one-shot late-payment alert. Umbral never custodies patient funds.
 
 ## Requirements
 
