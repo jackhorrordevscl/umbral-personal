@@ -162,3 +162,131 @@ jobs:
 
       - name: npm audit (producción)
         run: npm audit --omit=dev --audit-level=high
+
+  # Issue #383 (part 3): Playwright e2e against a real backend + Postgres.
+  # Independent of the backend/frontend jobs (own database, own build). Only
+  # dummy values below: nothing here is a real secret, and the test account is
+  # created by backend/prisma/seed-e2e.ts (refuses to run outside this opt-in).
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: umbral_ci
+          POSTGRES_PASSWORD: umbral_ci
+          POSTGRES_DB: umbral_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    # Minimal subset of the backend job's env: what AppModule needs to boot.
+    # Keep in sync with the `backend` job when a new required env var appears.
+    env:
+      DATABASE_URL: postgresql://umbral_ci:umbral_ci@localhost:5432/umbral_ci
+      DIRECT_URL: postgresql://umbral_ci:umbral_ci@localhost:5432/umbral_ci
+      JWT_SECRET: ci-only-jwt-secret-never-used-outside-github-actions
+      JWT_EXPIRES_IN: 8h
+      MFA_APP_NAME: Umbral - RCE (CI)
+      # The four *_ENCRYPTION_KEY variables are generated per run in the next
+      # step (no literal keys in the repo).
+      SEED_ADMIN_EMAIL: admin@umbral.cl
+      SEED_ADMIN_PASSWORD: Umbral2024!
+      REMINDERS_ENABLED: 'false'
+      GOOGLE_CALENDAR_SYNC_ENABLED: 'false'
+      PAYMENTS_ENABLED: 'false'
+      PORT: '3001'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Generate throwaway e2e credentials
+        run: |
+          PASSWORD="$(openssl rand -hex 16)"
+          MFA_SECRET="$(node -e "const a='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let b='';for(const x of require('crypto').randomBytes(20))b+=x.toString(2).padStart(8,'0');let s='';for(let i=0;i<b.length;i+=5)s+=a[parseInt(b.slice(i,i+5),2)];console.log(s)")"
+          echo "::add-mask::$PASSWORD"
+          echo "::add-mask::$MFA_SECRET"
+          echo "E2E_TEST_PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
+          echo "E2E_TEST_MFA_SECRET=$MFA_SECRET" >> "$GITHUB_ENV"
+          # Each key must decode to 32 bytes (base64). Generated per run so
+          # the workflow carries no literal encryption keys.
+          for NAME in DOCUMENT GOOGLE_TOKEN PAYMENT_CREDENTIALS MFA_SECRET; do
+            KEY="$(openssl rand -base64 32)"
+            echo "::add-mask::$KEY"
+            echo "${NAME}_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
+          done
+
+      - name: Backend dependencies
+        run: npm ci
+
+      - name: Migrar base de datos de CI
+        run: npx prisma migrate deploy
+
+      - name: Generar Prisma Client
+        run: npx prisma generate
+
+      - name: Seed (admin + cuenta e2e con MFA)
+        run: |
+          npm run seed
+          npm run seed:e2e
+        env:
+          E2E_SEED_CONFIRM: '1'
+
+      - name: Build y arranque del backend
+        run: |
+          npm run build
+          nohup npm run start:prod > "$RUNNER_TEMP/backend.log" 2>&1 &
+
+      - name: Esperar health del backend
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:3001/api/v1/health > /dev/null 2>&1; then
+              echo "Backend healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend did not become healthy within 60s. Log:"
+          cat "$RUNNER_TEMP/backend.log"
+          exit 1
+
+      - name: Frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Instalar Chromium de Playwright
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright e2e
+        working-directory: frontend
+        run: npm run test:e2e
+
+      - name: Log del backend (en fallo)
+        if: failure()
+        run: cat "$RUNNER_TEMP/backend.log" || true
+
+      - name: Subir reporte y capturas de Playwright (en fallo)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+            frontend/e2e/screenshots/
+          retention-days: 14
