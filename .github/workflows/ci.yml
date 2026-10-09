@@ -16,6 +16,12 @@ jobs:
     services:
       postgres:
         image: postgres:16
+        # Pull autenticado: los pulls anónimos de Docker Hub comparten un
+        # límite por IP en los runners de GitHub y hacían fallar el job en
+        # "Initialize containers" (toomanyrequests) antes de correr tests.
+        credentials:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         env:
           POSTGRES_USER: umbral_ci
           POSTGRES_PASSWORD: umbral_ci
@@ -176,6 +182,12 @@ jobs:
     services:
       postgres:
         image: postgres:16
+        # Pull autenticado: los pulls anónimos de Docker Hub comparten un
+        # límite por IP en los runners de GitHub y hacían fallar el job en
+        # "Initialize containers" (toomanyrequests) antes de correr tests.
+        credentials:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         env:
           POSTGRES_USER: umbral_ci
           POSTGRES_PASSWORD: umbral_ci
