@@ -7,6 +7,7 @@ import Layout from '../../components/Layout'
 import DashboardPage from '../../pages/DashboardPage'
 import ConsultationsPage from '../../pages/ConsultationsPage'
 import PaymentsPage from '../../pages/PaymentsPage'
+import PatientsPage from '../../pages/PatientsPage'
 import api from '../../api/client'
 import type { Patient } from '../../types/patient'
 import { expectNoA11yViolations } from '../axe'
@@ -105,6 +106,13 @@ describe('a11y: authenticated pages', () => {
   it('PaymentsPage has no axe violations', async () => {
     const { container } = renderPage(<PaymentsPage />)
     await screen.findByRole('button', { name: /comenzar/i })
+    await expectNoA11yViolations(container)
+  })
+
+  it('PatientsPage (virtualized table and cards) has no axe violations', async () => {
+    const { container } = renderPage(<PatientsPage />)
+    // Both lists are in the DOM at once (CSS hides one); wait for rows to mount in each.
+    expect(await screen.findAllByText('Paciente de Prueba')).toHaveLength(2)
     await expectNoA11yViolations(container)
   })
 })
