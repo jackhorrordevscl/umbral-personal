@@ -253,6 +253,46 @@ describe('PatientsPage', () => {
     })
   })
 
+  describe('Semántica de listas virtualizadas', () => {
+    it('expone las tarjetas móviles como listitem con el total de pacientes', async () => {
+      mockedApi.get.mockResolvedValueOnce(
+        patientsPage([
+          buildPatient({ fullName: 'Paciente Tarjeta' }),
+          buildPatient({ id: 'patient-2', fullName: 'Otro Paciente', rut: '22222222-2' }),
+        ]),
+      )
+
+      const { container } = renderPatientsPage()
+      const cards = container.querySelector('[class~="md:hidden"]') as HTMLElement
+      await within(cards).findByText('Paciente Tarjeta')
+
+      const items = within(cards).getAllByRole('listitem')
+      expect(items).toHaveLength(2)
+      items.forEach((item, i) => {
+        expect(item).toHaveAttribute('aria-setsize', '2')
+        expect(item).toHaveAttribute('aria-posinset', String(i + 1))
+      })
+    })
+
+    it('expone en la tabla de escritorio el total de filas y la posición de cada una', async () => {
+      mockedApi.get.mockResolvedValueOnce(
+        patientsPage([
+          buildPatient({ fullName: 'Paciente Tabla' }),
+          buildPatient({ id: 'patient-2', fullName: 'Otro Paciente', rut: '22222222-2' }),
+        ]),
+      )
+
+      renderPatientsPage()
+      const table = screen.getByRole('table', { name: 'Pacientes' })
+      await within(table).findByText('Paciente Tabla')
+
+      // The header counts as row 1.
+      expect(table).toHaveAttribute('aria-rowcount', '3')
+      const rows = within(table).getAllByRole('row')
+      expect(rows.map((r) => r.getAttribute('aria-rowindex'))).toEqual(['1', '2', '3'])
+    })
+  })
+
   describe('Declaración retroactiva de consentimiento (issue #131)', () => {
     it('declara consentimiento en bloque para los pacientes seleccionados y limpia la selección', async () => {
       const user = userEvent.setup()
