@@ -30,6 +30,7 @@ function buildPatient(overrides: Partial<Patient> = {}): Patient {
     treatingPsychiatrist: null,
     treatingDoctor: null,
     isActive: true,
+    treatmentStatus: 'ACTIVE',
     deletedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -1626,6 +1627,43 @@ describe('PatientsService', () => {
       expect(prisma.patient.create).not.toHaveBeenCalled();
     });
 
+    // Informe de alta (T1): un paciente con el tratamiento cerrado no admite
+    // reservas públicas nuevas. Mismo 409 uniforme: el endpoint es anónimo y
+    // no debe revelar el estado clínico.
+    it.each(['DISCHARGED', 'REFERRED', 'DROPPED_OUT'] as const)(
+      'paciente con tratamiento %s -> 409 uniforme, sin revelar el estado',
+      async (treatmentStatus) => {
+        prisma.patient.findMany.mockResolvedValue([
+          buildPatient({ email: 'paciente@ejemplo.cl', treatmentStatus }),
+        ]);
+
+        const error = (await service
+          .resolveForPublicBooking('therapist-1', dto as never)
+          .catch((e: unknown) => e)) as ConflictException;
+
+        expect(error).toBeInstanceOf(ConflictException);
+        expect(error.message).toBe('No fue posible procesar la reserva.');
+        const message = JSON.stringify(error.getResponse());
+        expect(message).not.toMatch(/alta|tratamiento|deserci|deriv/i);
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+      },
+    );
+
+    it('paciente con tratamiento ACTIVE sigue pudiendo reservar', async () => {
+      const existing = buildPatient({
+        email: 'paciente@ejemplo.cl',
+        treatmentStatus: 'ACTIVE',
+      });
+      prisma.patient.findMany.mockResolvedValue([existing]);
+
+      const result = await service.resolveForPublicBooking(
+        'therapist-1',
+        dto as never,
+      );
+
+      expect(result).toEqual({ patient: existing, isNew: false });
+    });
+
     it('el mensaje del 409 por RUT distinto no revela qué campo falló ni el RUT guardado', async () => {
       prisma.patient.findMany.mockResolvedValue([
         buildPatient({ email: 'paciente@ejemplo.cl', rut: '22222222-2' }),
@@ -2033,6 +2071,34 @@ describe('PatientsService', () => {
         expect(prisma.patient.create).not.toHaveBeenCalled();
         expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
       });
+
+      it.each(['DISCHARGED', 'REFERRED', 'DROPPED_OUT'] as const)(
+        'menor existente con tratamiento %s, aunque el representante coincida -> 409 uniforme',
+        async (treatmentStatus) => {
+          prisma.patient.findFirst.mockResolvedValue(
+            buildPatient({
+              id: 'minor-1',
+              rut: '11111111-1',
+              birthDate: new Date(minorDto.birthDate),
+              treatmentStatus,
+            }),
+          );
+          prisma.legalGuardian.findFirst.mockResolvedValue({
+            id: 'guardian-1',
+          });
+
+          await expect(
+            service.resolveForPublicBooking(
+              'therapist-1',
+              minorDto as never,
+              undefined,
+              undefined,
+              guardian as never,
+            ),
+          ).rejects.toThrow('No fue posible procesar la reserva.');
+          expect(prisma.patient.create).not.toHaveBeenCalled();
+        },
+      );
 
       it('representante con el mismo RUT que el menor -> 400, sin tocar la base', async () => {
         await expect(

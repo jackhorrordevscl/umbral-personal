@@ -218,6 +218,68 @@ describe('Public booking for a minor (e2e)', () => {
     expect(slot).toBeNull();
   });
 
+  it('a minor whose treatment is closed gets the uniform 409 and nothing is booked, then books again once reopened', async () => {
+    await prisma.patient.update({
+      where: { id: minorPatientId },
+      data: { treatmentStatus: 'DISCHARGED' },
+    });
+
+    try {
+      const response = await book({
+        slotStart: thirdSlot.toISOString(),
+        patient: minorPatient,
+        guardian,
+      }).expect(409);
+
+      expect(JSON.stringify(response.body)).toContain(
+        'No fue posible procesar la reserva.',
+      );
+      expect(JSON.stringify(response.body)).not.toMatch(/alta|tratamiento/i);
+      const slot = await prisma.bookedSlot.findFirst({
+        where: { therapistId, slotStart: thirdSlot },
+      });
+      expect(slot).toBeNull();
+    } finally {
+      await prisma.patient.update({
+        where: { id: minorPatientId },
+        data: { treatmentStatus: 'ACTIVE' },
+      });
+    }
+  });
+
+  it('an adult whose treatment is closed gets the uniform 409 and is not booked', async () => {
+    const adultRut = uniqueTestRut();
+    const adultEmail = `cerrado.${runId}@ejemplo.cl`;
+    await prisma.patient.create({
+      data: {
+        fullName: 'Paciente Adulto Cerrado',
+        rut: adultRut,
+        birthDate: new Date(birthDateYearsAgo(30)),
+        email: adultEmail,
+        treatmentStatus: 'DROPPED_OUT',
+        therapistId,
+      },
+    });
+
+    const response = await book({
+      slotStart: thirdSlot.toISOString(),
+      patient: {
+        fullName: 'Paciente Adulto Cerrado',
+        rut: adultRut,
+        birthDate: birthDateYearsAgo(30),
+        email: adultEmail,
+      },
+    }).expect(409);
+
+    expect(JSON.stringify(response.body)).toContain(
+      'No fue posible procesar la reserva.',
+    );
+    const slot = await prisma.bookedSlot.findFirst({
+      where: { therapistId, slotStart: thirdSlot },
+    });
+    expect(slot).toBeNull();
+  });
+
   it('a minor without a guardian is rejected with 400', async () => {
     await book({
       slotStart: thirdSlot.toISOString(),

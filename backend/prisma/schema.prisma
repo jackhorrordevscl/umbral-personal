@@ -176,7 +176,7 @@ model MfaRecoveryCode {
 }
 
 model Patient {
-  id                    String    @id @default(uuid())
+  id                    String          @id @default(uuid())
   fullName              String
   rut                   String
   birthDate             DateTime
@@ -188,10 +188,10 @@ model Patient {
   emergencyContactPhone String?
   treatingPsychiatrist  String?
   treatingDoctor        String?
-  isActive              Boolean   @default(true)
+  isActive              Boolean         @default(true)
   deletedAt             DateTime?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
   // sdd/online-payment-integration PR 1: monto de sesión por defecto usado
   // por PaymentsService.ensureCharge para snapshotear el amount de una
   // carga al crearla -- nullable porque un paciente sin monto configurado
@@ -205,6 +205,10 @@ model Patient {
   // guarda la URL cruda del referrer para detalle/debug.
   acquisitionSource     String?
   acquisitionReferrer   String?
+  // Informe de alta (T1): estado del tratamiento. La baja por deletedAt queda
+  // solo para eliminar la ficha; cerrar un tratamiento (alta, derivación,
+  // deserción) cambia este estado y bloquea nuevas reservas públicas.
+  treatmentStatus       TreatmentStatus @default(ACTIVE)
 
   therapistId   String
   therapist     User              @relation(fields: [therapistId], references: [id])
@@ -223,6 +227,31 @@ model Patient {
   // (migración 20261001160000_patient_rut_unique_active_only), por eso no hay
   // @@unique aquí ni `therapistId_rut` en el cliente.
   @@index([therapistId])
+}
+
+enum TreatmentStatus {
+  ACTIVE
+  DISCHARGED
+  REFERRED
+  DROPPED_OUT
+}
+
+// Motivo principal de una deserción (selección única). Síntesis propia, no un
+// estándar validado. Lo usará TreatmentDischarge.dropoutReason (T2).
+enum DropoutReason {
+  IMPROVEMENT_WITHOUT_AGREED_DISCHARGE
+  NO_PERCEIVED_IMPROVEMENT
+  DISSATISFACTION_WITH_BOND_OR_APPROACH
+  COST
+  SCHEDULE_CONFLICT
+  LOW_MOTIVATION_OR_STIGMA
+  PREFERS_ALTERNATIVE
+  THERAPIST_REFERRAL
+  RELOCATION_OR_ACCESS
+  HEALTH_ISSUE
+  OTHER_LIFE_EVENT
+  OTHER
+  NO_CONTACT
 }
 
 model PatientDocument {
@@ -259,35 +288,41 @@ enum DocumentType {
   PATIENT_REPORT
   SESSION_SUMMARY
   EXAM_RESULT
+  DISCHARGE_REPORT
   OTHER
 }
 
 model Consultation {
-  id              String      @id @default(uuid())
+  id                     String      @id @default(uuid())
   // Comparte el mismo valor entre todas las versiones (original + correcciones)
   // de una misma consulta clínica. En la primera versión, groupId === id.
-  groupId         String
-  patientId       String
-  patient         Patient     @relation(fields: [patientId], references: [id])
-  therapistId     String
-  therapist       User        @relation(fields: [therapistId], references: [id])
-  sessionDate     DateTime
+  groupId                String
+  patientId              String
+  patient                Patient     @relation(fields: [patientId], references: [id])
+  therapistId            String
+  therapist              User        @relation(fields: [therapistId], references: [id])
+  sessionDate            DateTime
   // Duración reservada de esta sesión (issue #336): la ocupación del horario es
   // [sessionDate, sessionDate + durationMinutes), independiente de cambios
   // posteriores en User.sessionDurationMinutes.
-  durationMinutes Int
-  consultReason   String
-  intervention    String
-  agreements      String?
-  nextSessionDate DateTime?
-  sessionType     SessionType @default(IN_PERSON)
-  createdAt       DateTime    @default(now())
-  scheduledAt     DateTime
-  patientRut      String
+  durationMinutes        Int
+  consultReason          String
+  intervention           String
+  agreements             String?
+  nextSessionDate        DateTime?
+  sessionType            SessionType @default(IN_PERSON)
+  createdAt              DateTime    @default(now())
+  scheduledAt            DateTime
+  patientRut             String
   // Paridad con Patient: ninguna ruta expone un delete físico hoy, pero el
   // modelo ya queda listo para soft delete si alguna vez se agrega esa
   // funcionalidad, en vez de tentar a alguien a usar .delete().
-  deletedAt       DateTime?
+  deletedAt              DateTime?
+  // Informe de alta (T1): cancelación de consultas futuras al cerrar el
+  // tratamiento. cancelledByDischargeId todavía no tiene FK: el modelo
+  // TreatmentDischarge nace en T2, que agregará la relación.
+  cancelledAt            DateTime?
+  cancelledByDischargeId String?
 
   // Versionado inmutable: corregir una consulta nunca modifica la fila
   // original, crea una fila nueva que apunta correctsId a la anterior.
@@ -360,6 +395,13 @@ enum AuditAction {
   PAYMENT_ACCOUNT_CONNECTED
   PAYMENT_ACCOUNT_DISCONNECTED
   LOGOUT_ALL
+  // Informe de alta (T1): cierre de tratamiento, cancelación de consultas
+  // futuras por el cierre y ciclo de vida del informe.
+  TREATMENT_CLOSED
+  CONSULTATION_CANCELLED
+  DISCHARGE_ISSUE
+  DISCHARGE_DELIVER
+  DISCHARGE_CORRECT
 }
 
 // El nombre (modelo y @@map) viene de la versión institucional multi-

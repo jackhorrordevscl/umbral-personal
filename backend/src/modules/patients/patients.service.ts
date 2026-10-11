@@ -25,6 +25,7 @@ import {
   Patient,
   PatientConsent,
   Prisma,
+  TreatmentStatus,
 } from '@prisma/client';
 import { getAgeBand, isMinor } from '../../common/utils/age.util';
 import { chileDayKeyFromInstant } from '../../common/utils/chile-time.util';
@@ -853,6 +854,15 @@ export class PatientsService {
         );
         throw new ConflictException('No fue posible procesar la reserva.');
       }
+      // Informe de alta (T1): un tratamiento cerrado no admite reservas
+      // públicas nuevas. Mismo 409 uniforme: el endpoint es anónimo y no debe
+      // revelar el estado clínico del paciente.
+      if (matches[0].treatmentStatus !== TreatmentStatus.ACTIVE) {
+        this.logger.warn(
+          `Reserva pública rechazada: tratamiento cerrado bajo therapistId=${therapistId}`,
+        );
+        throw new ConflictException('No fue posible procesar la reserva.');
+      }
       return { patient: matches[0], isNew: false };
     }
 
@@ -977,6 +987,13 @@ export class PatientsService {
       if (!matchingGuardian || !isMinor(existing.birthDate)) {
         this.logger.warn(
           `Reserva pública de menor rechazada: identidad no verificada bajo therapistId=${therapistId}`,
+        );
+        throw new ConflictException('No fue posible procesar la reserva.');
+      }
+      // Informe de alta (T1): mismo bloqueo que en el flujo de adultos.
+      if (existing.treatmentStatus !== TreatmentStatus.ACTIVE) {
+        this.logger.warn(
+          `Reserva pública de menor rechazada: tratamiento cerrado bajo therapistId=${therapistId}`,
         );
         throw new ConflictException('No fue posible procesar la reserva.');
       }
