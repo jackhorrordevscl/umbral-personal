@@ -10,6 +10,9 @@ import { DischargesService } from './discharges.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { AuditService } from '../audit/audit.service';
+import { AvailabilityService } from '../availability/availability.service';
+import { PaymentsService } from '../payments/payments.service';
+import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import {
   computeDischargeHash,
   dischargeHashInputFromRow,
@@ -65,7 +68,13 @@ describe('DischargesService', () => {
       updateMany: jest.Mock;
       findUniqueOrThrow: jest.Mock;
     };
-    consultation: { count: jest.Mock; findFirst: jest.Mock };
+    consultation: {
+      count: jest.Mock;
+      findFirst: jest.Mock;
+      findMany: jest.Mock;
+      updateMany: jest.Mock;
+    };
+    bookedSlot: { deleteMany: jest.Mock };
     user: { findUnique: jest.Mock };
     $queryRaw: jest.Mock;
     $transaction: jest.Mock;
@@ -75,6 +84,9 @@ describe('DischargesService', () => {
     assertTreatmentConsent: jest.Mock;
   };
   let auditService: { log: jest.Mock };
+  let availabilityService: { invalidate: jest.Mock };
+  let paymentsService: { cancelUnpaid: jest.Mock };
+  let calendarSync: { deleteEventsForGroups: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -95,7 +107,10 @@ describe('DischargesService', () => {
       consultation: {
         count: jest.fn().mockResolvedValue(0),
         findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      bookedSlot: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       user: {
         findUnique: jest.fn().mockResolvedValue({ name: 'Ana Pérez' }),
       },
@@ -110,10 +125,18 @@ describe('DischargesService', () => {
       assertTreatmentConsent: jest.fn().mockResolvedValue(undefined),
     };
     auditService = { log: jest.fn().mockResolvedValue({}) };
+    availabilityService = { invalidate: jest.fn() };
+    paymentsService = { cancelUnpaid: jest.fn().mockResolvedValue(undefined) };
+    calendarSync = {
+      deleteEventsForGroups: jest.fn().mockResolvedValue(undefined),
+    };
     service = new DischargesService(
       prisma as unknown as PrismaService,
       patientsService as unknown as PatientsService,
       auditService as unknown as AuditService,
+      availabilityService as unknown as AvailabilityService,
+      paymentsService as unknown as PaymentsService,
+      calendarSync as unknown as CalendarSyncService,
     );
   });
 
@@ -401,6 +424,221 @@ describe('DischargesService', () => {
       expect(closed.detail).toContain('dropoutReason=OTHER');
       expect(JSON.stringify(calls)).not.toContain('detalle privado');
       expect(closed.ipAddress).toBe('1.2.3.4');
+    });
+
+    describe('cancelación de consultas futuras (T2b)', () => {
+      const futureRows = [
+        { id: 'c-1', groupId: 'g-1' },
+        { id: 'c-2', groupId: 'g-2' },
+      ];
+
+      function mockFutures(rows = futureRows) {
+        prisma.consultation.findMany.mockResolvedValue(rows);
+        prisma.consultation.updateMany.mockResolvedValue({
+          count: rows.length,
+        });
+      }
+
+      const anyDate: Date = expect.any(Date) as Date;
+
+      // Deja correr los efectos posteriores al commit (promesas aisladas).
+      const flush = () => new Promise((r) => setImmediate(r));
+
+      it('cancela solo las futuras vigentes del paciente y terapeuta, y libera los BookedSlot en la misma transacción', async () => {
+        mockFutures();
+
+        const issued = await service.issue('dis-1', 'therapist-1');
+
+        const find = firstCallArg<{ where: Record<string, unknown> }>(
+          prisma.consultation.findMany,
+        );
+        expect(find.where).toEqual({
+          patientId: 'patient-1',
+          therapistId: 'therapist-1',
+          correctedBy: null,
+          deletedAt: null,
+          sessionDate: { gt: anyDate },
+        });
+        const update = firstCallArg<{
+          where: { id: { in: string[] } };
+          data: Record<string, unknown>;
+        }>(prisma.consultation.updateMany);
+        expect(update.where).toEqual(
+          expect.objectContaining({ id: { in: ['c-1', 'c-2'] } }),
+        );
+        expect(update.data).toEqual({
+          cancelledAt: anyDate,
+          cancelledByDischargeId: 'dis-1',
+          deletedAt: anyDate,
+        });
+        // cancelledAt y deletedAt comparten el mismo instante.
+        expect(update.data.cancelledAt).toBe(update.data.deletedAt);
+        expect(prisma.bookedSlot.deleteMany).toHaveBeenCalledWith({
+          where: { groupId: { in: ['g-1', 'g-2'] } },
+        });
+        expect(issued.cancelledConsultations).toBe(2);
+        // Todo ocurre dentro de la única transacción.
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      });
+
+      it('no usa Patient.deletedAt: el paciente solo cambia de treatmentStatus', async () => {
+        mockFutures();
+        await service.issue('dis-1', 'therapist-1');
+        expect(prisma.patient.update).toHaveBeenCalledTimes(1);
+        expect(
+          firstCallArg<{ data: Record<string, unknown> }>(prisma.patient.update)
+            .data,
+        ).toEqual({ treatmentStatus: 'DISCHARGED' });
+      });
+
+      it('sin consultas futuras omite el paso sin error', async () => {
+        const issued = await service.issue('dis-1', 'therapist-1');
+        await flush();
+
+        expect(prisma.consultation.updateMany).not.toHaveBeenCalled();
+        expect(prisma.bookedSlot.deleteMany).not.toHaveBeenCalled();
+        expect(paymentsService.cancelUnpaid).not.toHaveBeenCalled();
+        expect(calendarSync.deleteEventsForGroups).not.toHaveBeenCalled();
+        expect(issued.cancelledConsultations).toBe(0);
+        const actions = (auditService.log.mock.calls as unknown[][]).map(
+          (c) => (c[0] as { action: string }).action,
+        );
+        expect(actions).not.toContain('CONSULTATION_CANCELLED');
+      });
+
+      it('colapsa versiones del mismo grupo en un solo groupId', async () => {
+        mockFutures([
+          { id: 'c-1', groupId: 'g-1' },
+          { id: 'c-1b', groupId: 'g-1' },
+        ]);
+        await service.issue('dis-1', 'therapist-1');
+        await flush();
+        expect(prisma.bookedSlot.deleteMany).toHaveBeenCalledWith({
+          where: { groupId: { in: ['g-1'] } },
+        });
+        expect(paymentsService.cancelUnpaid).toHaveBeenCalledTimes(1);
+      });
+
+      it('dispara los efectos posteriores al commit con los groupId cancelados', async () => {
+        mockFutures();
+        await service.issue('dis-1', 'therapist-1');
+        await flush();
+
+        expect(availabilityService.invalidate).toHaveBeenCalledWith(
+          'therapist-1',
+        );
+        expect(paymentsService.cancelUnpaid).toHaveBeenCalledWith('g-1');
+        expect(paymentsService.cancelUnpaid).toHaveBeenCalledWith('g-2');
+        expect(calendarSync.deleteEventsForGroups).toHaveBeenCalledWith(
+          'therapist-1',
+          ['g-1', 'g-2'],
+        );
+      });
+
+      it('los efectos posteriores no corren si la transacción falla', async () => {
+        mockFutures();
+        prisma.treatmentDischarge.updateMany.mockResolvedValue({ count: 0 });
+        await expect(service.issue('dis-1', 'therapist-1')).rejects.toThrow(
+          ConflictException,
+        );
+        await flush();
+        expect(availabilityService.invalidate).not.toHaveBeenCalled();
+        expect(paymentsService.cancelUnpaid).not.toHaveBeenCalled();
+        expect(calendarSync.deleteEventsForGroups).not.toHaveBeenCalled();
+      });
+
+      describe('aislamiento de fallos posteriores al commit', () => {
+        let loggerSpy: jest.SpyInstance;
+        beforeEach(() => {
+          mockFutures();
+          loggerSpy = jest
+            .spyOn(Logger.prototype, 'error')
+            .mockImplementation(() => undefined);
+        });
+        afterEach(() => loggerSpy.mockRestore());
+
+        it('un rechazo de la pasarela de pago no impide el cierre ni los demás efectos', async () => {
+          paymentsService.cancelUnpaid.mockRejectedValueOnce(
+            new Error('flow caído'),
+          );
+          const issued = await service.issue('dis-1', 'therapist-1');
+          await flush();
+
+          expect(issued.status).toBe('ISSUED');
+          expect(paymentsService.cancelUnpaid).toHaveBeenCalledTimes(2);
+          expect(calendarSync.deleteEventsForGroups).toHaveBeenCalled();
+          expect(availabilityService.invalidate).toHaveBeenCalled();
+          expect(loggerSpy).toHaveBeenCalledWith(
+            expect.stringContaining('flow caído'),
+          );
+        });
+
+        it('un rechazo de Google no impide el cierre ni los demás efectos', async () => {
+          calendarSync.deleteEventsForGroups.mockRejectedValue(
+            new Error('google caído'),
+          );
+          const issued = await service.issue('dis-1', 'therapist-1');
+          await flush();
+
+          expect(issued.status).toBe('ISSUED');
+          expect(paymentsService.cancelUnpaid).toHaveBeenCalledTimes(2);
+          expect(loggerSpy).toHaveBeenCalledWith(
+            expect.stringContaining('google caído'),
+          );
+        });
+
+        it('un fallo síncrono de la invalidación de caché no impide los demás efectos', async () => {
+          availabilityService.invalidate.mockImplementation(() => {
+            throw new Error('cache rota');
+          });
+          const issued = await service.issue('dis-1', 'therapist-1');
+          await flush();
+
+          expect(issued.status).toBe('ISSUED');
+          expect(paymentsService.cancelUnpaid).toHaveBeenCalledTimes(2);
+          expect(calendarSync.deleteEventsForGroups).toHaveBeenCalled();
+          expect(loggerSpy).toHaveBeenCalledWith(
+            expect.stringContaining('cache rota'),
+          );
+        });
+      });
+
+      it('audita una fila CONSULTATION_CANCELLED por groupId sin motivo ni texto libre, y cuenta en TREATMENT_CLOSED', async () => {
+        const row = buildRow({
+          closureReason: 'DROPPED_OUT',
+          dropoutReason: 'OTHER',
+          dropoutNote: 'detalle privado del terapeuta',
+        });
+        prisma.treatmentDischarge.findFirst.mockResolvedValue(row);
+        prisma.treatmentDischarge.findUniqueOrThrow.mockResolvedValue({
+          ...row,
+          status: 'ISSUED',
+          issuedAt: new Date(),
+          contentHash: 'h',
+        });
+        mockFutures();
+
+        await service.issue('dis-1', 'therapist-1', { ipAddress: '1.2.3.4' });
+
+        const calls = (auditService.log.mock.calls as unknown[][]).map(
+          (c) => c[0] as Record<string, string>,
+        );
+        const cancelled = calls.filter(
+          (c) => c.action === 'CONSULTATION_CANCELLED',
+        );
+        expect(cancelled.map((c) => c.resourceId)).toEqual(['g-1', 'g-2']);
+        for (const c of cancelled) {
+          expect(c.resource).toBe('Consultation');
+          expect(c.userId).toBe('therapist-1');
+          expect(c.detail).toContain('status=DROPPED_OUT');
+          expect(c.detail).toContain('dischargeId=dis-1');
+          expect(c.ipAddress).toBe('1.2.3.4');
+        }
+        expect(JSON.stringify(calls)).not.toContain('detalle privado');
+        expect(JSON.stringify(cancelled)).not.toContain('dropoutReason');
+        const closed = calls.find((c) => c.action === 'TREATMENT_CLOSED');
+        expect(closed?.detail).toContain('cancelledConsultations=2');
+      });
     });
 
     it('un fallo de auditoría no revierte ni rompe la emisión (fail-open)', async () => {

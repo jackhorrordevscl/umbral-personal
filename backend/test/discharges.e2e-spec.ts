@@ -626,6 +626,236 @@ describe('Treatment discharges (e2e)', () => {
     });
   });
 
+  describe('cancelación de consultas futuras al cerrar (T2b)', () => {
+    let patientId: string;
+    let dischargeId: string;
+    let otherPatientId: string; // paciente del terapeuta B
+    const ids = {
+      future1: '',
+      future2: '',
+      past: '',
+      alreadyDeleted: '',
+      oldVersion: '',
+      newVersion: '',
+      other: '',
+    };
+    let paymentGroupId: string;
+    let paidGroupId: string;
+
+    async function seed(
+      forPatientId: string,
+      therapistId: string,
+      sessionDate: Date,
+      extra: {
+        groupId?: string;
+        deletedAt?: Date | null;
+        correctsId?: string;
+        bookedSlot?: boolean;
+      } = {},
+    ): Promise<string> {
+      const patient = await prisma.patient.findUniqueOrThrow({
+        where: { id: forPatientId },
+      });
+      const id = `e2e-t2b-${runId}-${Math.random().toString(36).slice(2, 10)}`;
+      const groupId = extra.groupId ?? id;
+      await prisma.consultation.create({
+        data: {
+          id,
+          groupId,
+          patientId: forPatientId,
+          therapistId,
+          sessionDate,
+          durationMinutes: 50,
+          consultReason: 'NOTA CLINICA PRIVADA',
+          intervention: 'INTERVENCION PRIVADA',
+          scheduledAt: sessionDate,
+          patientRut: patient.rut,
+          deletedAt: extra.deletedAt ?? null,
+          correctsId: extra.correctsId ?? null,
+        },
+      });
+      if (extra.bookedSlot) {
+        await prisma.bookedSlot.create({
+          data: { therapistId, groupId, slotStart: sessionDate },
+        });
+      }
+      return id;
+    }
+
+    const consultationRow = (id: string) =>
+      prisma.consultation.findUniqueOrThrow({ where: { id } });
+
+    beforeAll(async () => {
+      patientId = await createPatient();
+      const otherPatient = await prisma.patient.create({
+        data: {
+          fullName: 'Paciente Terapeuta B',
+          rut: uniqueTestRut(),
+          birthDate: new Date('1990-01-01T12:00:00.000Z'),
+          therapistId: therapistBId,
+        },
+      });
+      otherPatientId = otherPatient.id;
+      patientIds.push(otherPatientId);
+
+      // Horas distintas para no chocar con @@unique([therapistId, slotStart]).
+      const base = (days: number, hour: number) => {
+        const d = daysFromNow(days);
+        d.setUTCHours(hour, 0, 0, 0);
+        return d;
+      };
+      ids.future1 = await seed(patientId, therapistAId, base(20, 13), {
+        bookedSlot: true,
+      });
+      ids.future2 = await seed(patientId, therapistAId, base(21, 14));
+      ids.past = await seed(patientId, therapistAId, daysFromNow(-10));
+      ids.alreadyDeleted = await seed(patientId, therapistAId, base(22, 15), {
+        deletedAt: new Date(),
+      });
+      // Cadena corregida: la versión vieja (correctedBy != null) no se toca,
+      // la nueva sí; ambas comparten groupId y por tanto el BookedSlot.
+      ids.oldVersion = await seed(patientId, therapistAId, base(23, 16), {
+        bookedSlot: true,
+      });
+      ids.newVersion = await seed(patientId, therapistAId, base(23, 17), {
+        groupId: ids.oldVersion,
+        correctsId: ids.oldVersion,
+      });
+      ids.other = await seed(otherPatientId, therapistBId, base(20, 13), {
+        bookedSlot: true,
+      });
+
+      // Cobros: uno pendiente (se cancela) y uno pagado (se conserva).
+      paymentGroupId = ids.future2;
+      paidGroupId = ids.future1;
+      await prisma.payment.create({
+        data: {
+          groupId: paymentGroupId,
+          patientId,
+          therapistId: therapistAId,
+          amount: 30000,
+          status: 'PENDING',
+          dueDate: daysFromNow(21),
+        },
+      });
+      await prisma.payment.create({
+        data: {
+          groupId: paidGroupId,
+          patientId,
+          therapistId: therapistAId,
+          amount: 30000,
+          status: 'PAID',
+          paidAt: new Date(),
+          dueDate: daysFromNow(20),
+        },
+      });
+
+      dischargeId = await createReadyDraft(patientId, {
+        closureReason: 'DROPPED_OUT',
+        dropoutReason: 'COST',
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.payment.deleteMany({ where: { patientId } });
+      await prisma.bookedSlot.deleteMany({
+        where: { therapistId: { in: [therapistAId, therapistBId] } },
+      });
+      // Las consultas de estos pacientes las borra el afterAll global.
+    });
+
+    it('al emitir cancela las futuras vigentes con cancelledByDischargeId y responde el conteo', async () => {
+      const res = await post(tokenA, `discharges/${dischargeId}/issue`).expect(
+        201,
+      );
+      expect((res.body as Body).cancelledConsultations).toBe(3);
+
+      for (const id of [ids.future1, ids.future2, ids.newVersion]) {
+        const row = await consultationRow(id);
+        expect(row.cancelledByDischargeId).toBe(dischargeId);
+        expect(row.cancelledAt).not.toBeNull();
+        expect(row.deletedAt).not.toBeNull();
+      }
+      // El paciente NO se da de baja: sigue visible y con su RUT.
+      const patient = await prisma.patient.findUniqueOrThrow({
+        where: { id: patientId },
+      });
+      expect(patient.deletedAt).toBeNull();
+      expect(patient.treatmentStatus).toBe('DROPPED_OUT');
+    });
+
+    it('no toca pasadas, ya borradas ni versiones corregidas', async () => {
+      for (const id of [ids.past, ids.oldVersion]) {
+        const row = await consultationRow(id);
+        expect(row.cancelledAt).toBeNull();
+        expect(row.cancelledByDischargeId).toBeNull();
+        expect(row.deletedAt).toBeNull();
+      }
+      const deleted = await consultationRow(ids.alreadyDeleted);
+      expect(deleted.cancelledAt).toBeNull();
+      expect(deleted.cancelledByDischargeId).toBeNull();
+    });
+
+    it('libera los BookedSlot de las canceladas y respeta los de otro terapeuta', async () => {
+      await expect(
+        prisma.bookedSlot.findMany({
+          where: {
+            groupId: { in: [ids.future1, ids.future2, ids.oldVersion] },
+          },
+        }),
+      ).resolves.toHaveLength(0);
+      await expect(
+        prisma.bookedSlot.findMany({ where: { groupId: ids.other } }),
+      ).resolves.toHaveLength(1);
+    });
+
+    it('aislamiento: las consultas del terapeuta B no se tocan', async () => {
+      const row = await consultationRow(ids.other);
+      expect(row.cancelledAt).toBeNull();
+      expect(row.deletedAt).toBeNull();
+    });
+
+    it('deja el cobro pendiente CANCELLED y conserva el pagado', async () => {
+      const pending = await prisma.payment.findUniqueOrThrow({
+        where: { groupId: paymentGroupId },
+      });
+      expect(pending.status).toBe('CANCELLED');
+      const paid = await prisma.payment.findUniqueOrThrow({
+        where: { groupId: paidGroupId },
+      });
+      expect(paid.status).toBe('PAID');
+    });
+
+    it('audita una fila CONSULTATION_CANCELLED por grupo, sin el motivo de deserción', async () => {
+      const logs = await prisma.auditLog.findMany({
+        where: {
+          userId: therapistAId,
+          action: 'CONSULTATION_CANCELLED',
+          resourceId: { in: [ids.future1, ids.future2, ids.oldVersion] },
+        },
+      });
+      // future1, future2 y el grupo de la versión corregida (groupId = oldVersion).
+      expect(logs).toHaveLength(3);
+      for (const log of logs) {
+        expect(log.resource).toBe('Consultation');
+        expect(log.detail).toContain('status=DROPPED_OUT');
+        expect(log.detail).toContain(`dischargeId=${dischargeId}`);
+        expect(log.detail).not.toContain('COST');
+      }
+      const closed = await prisma.auditLog.findFirst({
+        where: { action: 'TREATMENT_CLOSED', resourceId: patientId },
+      });
+      expect(closed?.detail).toContain('cancelledConsultations=3');
+    });
+
+    it('un cierre sin consultas futuras funciona sin error', async () => {
+      const emptyPatient = await createPatient();
+      const id = await createReadyDraft(emptyPatient);
+      const res = await post(tokenA, `discharges/${id}/issue`).expect(201);
+      expect((res.body as Body).cancelledConsultations).toBe(0);
+    });
+  });
+
   describe('mass assignment', () => {
     let patientId: string;
 

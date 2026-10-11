@@ -638,6 +638,7 @@ export class ConsultationsService {
       const lockedPatient = await tx.$queryRaw<{ id: string }[]>`
         SELECT id FROM "Patient"
         WHERE id = ${patientId} AND "deletedAt" IS NULL
+          AND "treatmentStatus" = 'ACTIVE'
         FOR SHARE`;
       if (lockedPatient.length === 0) {
         throw new ConflictException(

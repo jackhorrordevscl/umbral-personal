@@ -10,6 +10,9 @@ import { Prisma, TreatmentDischarge } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { AuditService } from '../audit/audit.service';
+import { AvailabilityService } from '../availability/availability.service';
+import { PaymentsService } from '../payments/payments.service';
+import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 import {
   chileDayKeyFromInstant,
@@ -43,6 +46,16 @@ export interface DischargeVerification {
   isCurrent: boolean;
 }
 
+// Respuesta de issue: el informe más el número de consultas futuras que el
+// cierre canceló (campo aditivo, no rompe a los clientes existentes).
+export type DischargeIssueResult = TreatmentDischarge & {
+  cancelledConsultations: number;
+};
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 const NO_CONSENT_MESSAGE =
   'El paciente no tiene un consentimiento informado vigente. Registra el consentimiento antes de emitir el informe de alta.';
 
@@ -58,6 +71,9 @@ export class DischargesService {
     private prisma: PrismaService,
     private patientsService: PatientsService,
     private auditService: AuditService,
+    private availabilityService: AvailabilityService,
+    private paymentsService: PaymentsService,
+    private calendarSync: CalendarSyncService,
   ) {}
 
   // POST /patients/:patientId/discharges
@@ -203,10 +219,10 @@ export class DischargesService {
     id: string,
     therapistId: string,
     ctx: DischargeRequestContext = {},
-  ): Promise<TreatmentDischarge> {
+  ): Promise<DischargeIssueResult> {
     const draft = await this.findOwned(id, therapistId);
 
-    const issued = await this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // Lock de la fila del paciente (orden de locks documentado en
       // ConsultationsService.lockTherapistSchedule: User y luego Patient; aquí
       // solo hace falta Patient). Serializa la emisión con la baja, otra
@@ -276,9 +292,10 @@ export class DischargesService {
       const row = await tx.treatmentDischarge.findUniqueOrThrow({
         where: { id },
       });
-      await this.applyClosureInTransaction(tx, row);
-      return row;
+      const cancelledGroupIds = await this.applyClosureInTransaction(tx, row);
+      return { row, cancelledGroupIds };
     });
+    const { row: issued, cancelledGroupIds } = result;
 
     // Auditoría explícita tras el commit. Fail-open, igual que el interceptor
     // global: la emisión ya es definitiva y un fallo del log no debe revertirla
@@ -298,30 +315,123 @@ export class DischargesService {
       resource: 'Patient',
       resourceId: issued.patientId,
       // Sin dropoutNote ni destino de derivación: son texto libre del terapeuta.
-      detail: `status=${issued.closureReason}${issued.dropoutReason ? ` dropoutReason=${issued.dropoutReason}` : ''} dischargeId=${issued.id}`,
+      detail: `status=${issued.closureReason}${issued.dropoutReason ? ` dropoutReason=${issued.dropoutReason}` : ''} dischargeId=${issued.id} cancelledConsultations=${cancelledGroupIds.length}`,
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
     });
+    // Una fila por consulta cancelada. El detail lleva el estado de cierre y el
+    // id del informe, nunca el motivo de deserción ni texto libre: la fila se
+    // lee desde la ficha de la consulta, no desde el informe.
+    for (const groupId of cancelledGroupIds) {
+      await logAuditFailOpen(this.auditService, this.logger, {
+        userId: therapistId,
+        action: 'CONSULTATION_CANCELLED',
+        resource: 'Consultation',
+        resourceId: groupId,
+        detail: `status=${issued.closureReason} dischargeId=${issued.id}`,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      });
+    }
 
-    return issued;
+    await this.runPostCommitEffects(therapistId, cancelledGroupIds);
+
+    return { ...issued, cancelledConsultations: cancelledGroupIds.length };
   }
 
   // Efectos del cierre dentro de la transacción de emisión, ya con el lock del
-  // paciente tomado.
-  // TODO(T2b): aquí se enchufa la cancelación de consultas futuras del
-  // paciente (versión vigente, sessionDate > now, deletedAt null): setear
-  // cancelledAt / cancelledByDischargeId / deletedAt y borrar sus BookedSlot
-  // por groupId, todo en esta misma transacción. Los efectos posteriores al
-  // commit (cobros, Google, caché de disponibilidad) van en issue(), después
-  // del $transaction.
+  // paciente tomado. Devuelve los groupId de las consultas canceladas.
+  //
+  // Las consultas se marcan con cancelledAt, cancelledByDischargeId y también
+  // deletedAt: así recordatorios, calendario y disponibilidad (que ya filtran
+  // deletedAt) dejan de verlas sin tocar esos módulos. Patient.deletedAt NO se
+  // usa: liberaría el RUT por el índice parcial único y ocultaría al paciente.
+  //
+  // Carrera con la reserva pública: createFromPublicBooking toma User y luego
+  // Patient FOR SHARE, y este camino toma Patient FOR UPDATE, así que se
+  // serializan. Si la reserva confirma antes, su consulta se ve en el findMany
+  // de abajo (el lock se mantiene hasta el commit) y su BookedSlot se borra
+  // junto con ella. Si la reserva espera detrás de este cierre, depende de que
+  // su FOR SHARE rechace pacientes no activos (ver el integration spec).
   private async applyClosureInTransaction(
     tx: Prisma.TransactionClient,
     discharge: TreatmentDischarge,
-  ): Promise<void> {
+  ): Promise<string[]> {
     await tx.patient.update({
       where: { id: discharge.patientId },
       data: { treatmentStatus: discharge.closureReason },
     });
+
+    const now = new Date();
+    const future = await tx.consultation.findMany({
+      where: {
+        patientId: discharge.patientId,
+        therapistId: discharge.therapistId,
+        correctedBy: null,
+        deletedAt: null,
+        sessionDate: { gt: now },
+      },
+      select: { id: true, groupId: true },
+    });
+    if (future.length === 0) return [];
+
+    const groupIds = [...new Set(future.map((c) => c.groupId))];
+    await tx.consultation.updateMany({
+      where: {
+        id: { in: future.map((c) => c.id) },
+        therapistId: discharge.therapistId,
+        deletedAt: null,
+      },
+      data: {
+        cancelledAt: now,
+        cancelledByDischargeId: discharge.id,
+        deletedAt: now,
+      },
+    });
+    await tx.bookedSlot.deleteMany({ where: { groupId: { in: groupIds } } });
+    return groupIds;
+  }
+
+  // Efectos posteriores al commit: no bloqueantes y con fallos aislados (mismo
+  // patrón que PatientsService.softDelete). El cierre ya es definitivo; un
+  // fallo de la pasarela, de Google o de la caché solo se registra en logs. El
+  // reconciler de Google es el respaldo del borrado de eventos.
+  private async runPostCommitEffects(
+    therapistId: string,
+    groupIds: string[],
+  ): Promise<void> {
+    try {
+      this.availabilityService.invalidate(therapistId);
+    } catch (err) {
+      this.logger.error(
+        `Fallo al invalidar la caché de disponibilidad tras el cierre (therapistId=${therapistId}): ${errorMessage(err)}`,
+      );
+    }
+    if (groupIds.length === 0) return;
+
+    // Fire-and-forget, igual que softDelete: el borrado de eventos de Google
+    // no debe retrasar la respuesta.
+    void this.calendarSync
+      .deleteEventsForGroups(therapistId, groupIds)
+      .catch((err: unknown) => {
+        this.logger.error(
+          `Fallo no bloqueante al eliminar eventos de Google Calendar tras el cierre (therapistId=${therapistId}): ${errorMessage(err)}`,
+        );
+      });
+
+    // El estado financiero se resuelve antes de responder (como en softDelete),
+    // pero cada cobro está aislado: un rechazo no frena a los demás.
+    await Promise.all(
+      groupIds.map((groupId) =>
+        Promise.resolve()
+          .then(() => this.paymentsService.cancelUnpaid(groupId))
+          .catch((err: unknown) => {
+            this.logger.error(
+              `Fallo al cancelar el cobro pendiente tras el cierre (groupId=${groupId}): ${errorMessage(err)}`,
+            );
+          }),
+      ),
+    );
   }
 
   // POST /discharges/:id/correct

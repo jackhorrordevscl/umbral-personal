@@ -192,6 +192,33 @@ export class CalendarSyncService {
     }
   }
 
+  // Cierre de tratamiento (informe de alta): borra los eventos de Google de los
+  // groupId cancelados. A diferencia de deletePatientEvents no relee las
+  // consultas (que el cierre ya marcó como borradas): recibe los groupId
+  // exactos. Fire-and-forget desde DischargesService; cada grupo está aislado
+  // y el reconciler es el respaldo de lo que falle aquí.
+  async deleteEventsForGroups(
+    therapistId: string,
+    groupIds: string[],
+  ): Promise<void> {
+    if (!this.enabled || groupIds.length === 0) return;
+
+    const connection = await this.prisma.googleCalendarConnection.findUnique({
+      where: { therapistId },
+    });
+    if (!connection || connection.status !== 'CONNECTED') return;
+
+    for (const groupId of groupIds) {
+      await this.deleteLinkForGroup(connection, groupId).catch(
+        (err: unknown) => {
+          this.logger.error(
+            `Fallo al eliminar el evento de Google para groupId=${groupId}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        },
+      );
+    }
+  }
+
   private async reconcileConnection(
     connection: GoogleCalendarConnection,
   ): Promise<void> {
