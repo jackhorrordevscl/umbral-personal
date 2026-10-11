@@ -1,3 +1,4 @@
+import ConfirmDialog from '../ui/ConfirmDialog';
 import ErrorBanner from '../ui/ErrorBanner';
 import FormField from '../ui/FormField';
 import RichTextEditor from '../ui/RichTextEditor';
@@ -10,6 +11,7 @@ import { isValidTimeString } from '../../utils/availability';
 import { getApiErrorMessage } from '../../utils/api-error';
 import { activateOnKey } from '../../utils/activate-on-key';
 import { ALLOWED_SUMMARY_EXTENSIONS } from '../../utils/consultation-summary';
+import axios from 'axios';
 import { useMemo, useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
 
@@ -59,6 +61,8 @@ export default function ConsultationForm({
   // (mismo criterio que emitCalendarSync/emitPaymentCharge en el backend:
   // lo accesorio nunca revierte ni bloquea lo clínico).
   const [pendingUploadGroupId, setPendingUploadGroupId] = useState<string | null>(null);
+  // The patient's treatment is closed: the server asks for an explicit reopen.
+  const [confirmReopen, setConfirmReopen] = useState(false);
 
   const [patientSearch, setPatientSearch] = useState('');
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
@@ -123,7 +127,10 @@ export default function ConsultationForm({
       return;
     }
     setFormError('');
+    await saveConsultation(false);
+  };
 
+  const saveConsultation = async (reopenPatient: boolean) => {
     try {
       const created = await createMutation.mutateAsync({
         patientId: form.patientId,
@@ -135,6 +142,7 @@ export default function ConsultationForm({
           ? buildLocalISO(form.nextSessionDate, form.nextSessionTime)
           : undefined,
         sessionType: form.sessionType,
+        ...(reopenPatient ? { reopenPatient: true } : {}),
       });
 
       if (summaryFile) {
@@ -146,6 +154,14 @@ export default function ConsultationForm({
       setFormError('');
       onSuccess();
     } catch (err) {
+      if (
+        axios.isAxiosError(err) &&
+        err.response?.status === 409 &&
+        err.response.data?.code === 'PATIENT_TREATMENT_CLOSED'
+      ) {
+        setConfirmReopen(true);
+        return;
+      }
       setFormError(getApiErrorMessage(err, 'Error al guardar sesión'));
     }
   };
@@ -181,6 +197,7 @@ export default function ConsultationForm({
   }
 
   return (
+    <>
     <form onSubmit={handleSubmit}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FormField id="consult-patientId" label="Paciente" required className="md:col-span-2">
@@ -311,5 +328,18 @@ export default function ConsultationForm({
         <button type="button" onClick={onCancel} className="btn-secondary">Cancelar</button>
       </div>
     </form>
+    {confirmReopen && (
+      <ConfirmDialog
+        title="Tratamiento cerrado"
+        message="El paciente tiene el tratamiento cerrado. ¿Reabrirlo y agendar la consulta?"
+        confirmLabel="Reabrir y agendar"
+        onConfirm={() => {
+          setConfirmReopen(false);
+          void saveConsultation(true);
+        }}
+        onCancel={() => setConfirmReopen(false)}
+      />
+    )}
+    </>
   );
 }

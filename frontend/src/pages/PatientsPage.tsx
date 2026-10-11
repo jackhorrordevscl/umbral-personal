@@ -17,6 +17,7 @@ import * as documentsApi from "../api/documents";
 import PatientForm, { type PatientFormValues, type StagedDocument } from "../components/patients/PatientForm";
 import PatientModal from "../components/patients/PatientModal";
 import PatientsPagination from "../components/patients/PatientsPagination";
+import TreatmentStatusBadge from "../components/patients/TreatmentStatusBadge";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import EmptyState from "../components/ui/EmptyState";
 import ErrorBanner from "../components/ui/ErrorBanner";
@@ -75,6 +76,10 @@ function MinorStatusBadge({ patient }: { patient: Patient }) {
   );
 }
 
+// The list only flags closed treatments; "En tratamiento" is the default state.
+const closedStatus = (p: Patient) =>
+  p.treatmentStatus && p.treatmentStatus !== "ACTIVE" ? p.treatmentStatus : undefined;
+
 const hasAnyConsent = (p: Patient) => Boolean(p.consents?.TREATMENT || p.consents?.TELEMEDICINE);
 
 // Issue #206: con años de datos acumulados, `filtered.map(...)` montaba
@@ -129,6 +134,7 @@ function PatientTableRow({
         <p className="font-medium text-slate-800">{p.fullName}</p>
         <p className="text-xs text-slate-500">{p.email}</p>
         <MinorStatusBadge patient={p} />
+        <TreatmentStatusBadge status={closedStatus(p)} />
       </div>
       <div role="cell" className="text-slate-600 font-mono text-xs">
         {displayRut(p.rut)}
@@ -214,6 +220,7 @@ function PatientCardRow({
             <p className="font-medium text-slate-800">{p.fullName}</p>
             <p className="text-xs text-slate-500 font-mono">{displayRut(p.rut)}</p>
             <MinorStatusBadge patient={p} />
+            <TreatmentStatusBadge status={closedStatus(p)} />
           </div>
           <span
             className={`text-xs px-2 py-1 rounded-full shrink-0 ${

@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ConsultationForm from './ConsultationForm'
+import axios from 'axios'
 import api from '../../api/client'
 
 // Issue #294: el select de pacientes ignoraba carga y error y se veía como
@@ -15,15 +16,16 @@ vi.mock('../../api/client', () => ({
 const mockedApi = vi.mocked(api)
 
 function renderForm() {
+  const onSuccess = vi.fn()
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   render(
     <QueryClientProvider client={queryClient}>
-      <ConsultationForm onSuccess={vi.fn()} onCancel={vi.fn()} />
+      <ConsultationForm onSuccess={onSuccess} onCancel={vi.fn()} />
     </QueryClientProvider>,
   )
-  return { queryClient }
+  return { queryClient, onSuccess }
 }
 
 const patient = { id: 'patient-1', fullName: 'Paciente de Prueba', rut: '11111111-1' }
@@ -175,5 +177,63 @@ describe('ConsultationForm — validación de horas', () => {
       await screen.findByText('La hora de la próxima sesión no es válida'),
     ).toBeInTheDocument()
     expect(mockedApi.post).not.toHaveBeenCalled()
+  })
+})
+
+describe('ConsultationForm — paciente con tratamiento cerrado', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApi.get.mockResolvedValue({ data: { data: [patient], total: 1, page: 1, pageSize: 20 } })
+  })
+
+  const closedError = Object.assign(new Error('closed'), {
+    isAxiosError: true,
+    response: { status: 409, data: { code: 'PATIENT_TREATMENT_CLOSED', message: 'cerrado' } },
+  })
+
+  async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>) {
+    await screen.findByRole('option', { name: /Paciente de Prueba/ })
+    await user.selectOptions(screen.getByLabelText(/Paciente/), 'patient-1')
+    await user.type(screen.getByLabelText(/Fecha de sesión/), '2026-10-05')
+    await user.type(screen.getByRole('textbox', { name: 'Motivo de consulta' }), 'Ansiedad')
+    await user.type(
+      screen.getByRole('textbox', { name: 'Intervención realizada / Registro de evolución clínica' }),
+      'Respiración',
+    )
+    await user.click(screen.getByRole('button', { name: 'Guardar sesión' }))
+  }
+
+  it('pide confirmar la reapertura y reenvía con reopenPatient', async () => {
+    expect(axios.isAxiosError(closedError)).toBe(true)
+    mockedApi.post
+      .mockRejectedValueOnce(closedError)
+      .mockResolvedValueOnce({ data: { id: 'c1', groupId: 'g1' } })
+    const user = userEvent.setup()
+    const { onSuccess } = renderForm()
+    await fillAndSubmit(user)
+
+    expect(
+      await screen.findByText('El paciente tiene el tratamiento cerrado. ¿Reabrirlo y agendar la consulta?'),
+    ).toBeInTheDocument()
+    expect(mockedApi.post.mock.calls[0][1]).not.toHaveProperty('reopenPatient')
+
+    await user.click(screen.getByRole('button', { name: 'Reabrir y agendar' }))
+
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalledTimes(2))
+    expect(mockedApi.post.mock.calls[1][1]).toMatchObject({ patientId: 'patient-1', reopenPatient: true })
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled())
+  })
+
+  it('si se cancela el diálogo no reenvía', async () => {
+    mockedApi.post.mockRejectedValueOnce(closedError)
+    const user = userEvent.setup()
+    renderForm()
+    await fillAndSubmit(user)
+
+    await screen.findByText(/tiene el tratamiento cerrado/)
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancelar' }))
+
+    expect(screen.queryByText(/tiene el tratamiento cerrado/)).not.toBeInTheDocument()
+    expect(mockedApi.post).toHaveBeenCalledTimes(1)
   })
 })

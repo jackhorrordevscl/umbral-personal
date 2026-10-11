@@ -34,6 +34,8 @@ import { downloadDocument } from "../../api/documents";
 import { getPatient, getPatientConsentStatus } from "../../api/patients";
 import { useGuardians } from "../../hooks/useGuardians";
 import AgeBandBadge from "./AgeBandBadge";
+import TreatmentStatusBadge from "./TreatmentStatusBadge";
+import DischargeSection from "../discharges/DischargeSection";
 import AssentSection from "./AssentSection";
 import GuardiansSection from "./GuardiansSection";
 import MinorStatusAlert from "./MinorStatusAlert";
@@ -326,6 +328,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-slate-500 text-sm font-mono">{displayRut(selected.rut)}</p>
               <AgeBandBadge ageBand={selected.ageBand} />
+              <TreatmentStatusBadge status={selected.treatmentStatus} />
             </div>
           </div>
           <button
@@ -434,6 +437,11 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                 <GuardiansSection patientId={selected.id} onChanged={refreshSelected} />
               )}
               {isMinor && <AssentSection patientId={selected.id} ageBand={selected.ageBand} />}
+              <DischargeSection
+                patientId={selected.id}
+                treatmentStatus={selected.treatmentStatus}
+                onChanged={refreshSelected}
+              />
 
               <div className="mt-4 pt-4 border-t border-slate-100">
                 <p className="font-medium text-slate-700 text-sm mb-3">Documentos legales</p>

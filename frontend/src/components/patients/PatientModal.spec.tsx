@@ -378,3 +378,29 @@ describe('PatientModal — pacientes menores (bloque Menores, M5)', () => {
     expect(body).not.toHaveProperty('guardianId')
   })
 })
+
+describe('PatientModal — cierre del tratamiento (T5b)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApi.get.mockResolvedValue({ data: [] })
+  })
+
+  it('muestra el estado del tratamiento y la sección de cierre', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PatientModal
+          patient={{ ...patient, treatmentStatus: 'DISCHARGED' } as Patient}
+          initialTab="detail"
+          onClose={() => undefined}
+        />
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByText('Alta')).toBeInTheDocument()
+    expect(screen.getByText('Cierre del tratamiento')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Dar de alta/ })).not.toBeInTheDocument()
+  })
+})
