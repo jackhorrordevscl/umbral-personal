@@ -1030,6 +1030,55 @@ describe('DischargesService', () => {
     });
   });
 
+  describe('cancellationPreview', () => {
+    it('exige acceso, consulta solo vigentes futuras y cuenta grupos distintos', async () => {
+      const d1 = new Date('2030-01-01T10:00:00Z');
+      const d2 = new Date('2030-01-02T10:00:00Z');
+      prisma.consultation.findMany.mockResolvedValue([
+        { id: 'c1', groupId: 'g1', sessionDate: d1 },
+        { id: 'c1b', groupId: 'g1', sessionDate: d1 },
+        { id: 'c2', groupId: 'g2', sessionDate: d2 },
+      ]);
+
+      const result = await service.cancellationPreview(
+        'patient-1',
+        'therapist-1',
+      );
+
+      expect(patientsService.assertAccess).toHaveBeenCalledWith(
+        'patient-1',
+        'therapist-1',
+      );
+      const where = firstCallArg<{
+        where: {
+          patientId: string;
+          therapistId: string;
+          correctedBy: null;
+          deletedAt: null;
+          sessionDate: { gt: Date };
+        };
+      }>(prisma.consultation.findMany).where;
+      expect(where).toMatchObject({
+        patientId: 'patient-1',
+        therapistId: 'therapist-1',
+        correctedBy: null,
+        deletedAt: null,
+      });
+      expect(where.sessionDate.gt).toBeInstanceOf(Date);
+      expect(result.count).toBe(2);
+      expect(result.consultations).toHaveLength(3);
+      expect(prisma.consultation.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('sin consultas futuras devuelve count 0', async () => {
+      const result = await service.cancellationPreview(
+        'patient-1',
+        'therapist-1',
+      );
+      expect(result).toEqual({ count: 0, consultations: [] });
+    });
+  });
+
   describe('findByPatient', () => {
     it('exige acceso al paciente y filtra por terapeuta', async () => {
       prisma.treatmentDischarge.findMany.mockResolvedValue([]);

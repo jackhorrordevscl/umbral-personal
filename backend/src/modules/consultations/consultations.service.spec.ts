@@ -47,7 +47,9 @@ describe('ConsultationsService', () => {
       findMany: jest.Mock;
       count: jest.Mock;
       findFirst: jest.Mock;
+      findUnique: jest.Mock;
     };
+    patient: { update: jest.Mock };
     consultationHistory: { findMany: jest.Mock; create: jest.Mock };
     calendarEventLink: { findMany: jest.Mock };
     payment: { findMany: jest.Mock };
@@ -75,7 +77,14 @@ describe('ConsultationsService', () => {
         findMany: jest.fn(),
         count: jest.fn(),
         findFirst: jest.fn(),
+        // Relectura del original dentro de la tx de correct(): por defecto
+        // vigente y en el pasado.
+        findUnique: jest.fn().mockResolvedValue({
+          sessionDate: new Date('2026-01-10T12:00:00'),
+          deletedAt: null,
+        }),
       },
+      patient: { update: jest.fn().mockResolvedValue({}) },
       consultationHistory: {
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn(),
@@ -96,9 +105,11 @@ describe('ConsultationsService', () => {
       user: {
         findUnique: jest.fn().mockResolvedValue({ sessionDurationMinutes: 50 }),
       },
-      // Lock FOR SHARE del paciente en createFromPublicBooking: por defecto
-      // el paciente existe y no está eliminado.
-      $queryRaw: jest.fn().mockResolvedValue([{ id: 'patient-1' }]),
+      // Lock del paciente (create/correct/createFromPublicBooking): por
+      // defecto existe, no está eliminado y su tratamiento está activo.
+      $queryRaw: jest
+        .fn()
+        .mockResolvedValue([{ id: 'patient-1', treatmentStatus: 'ACTIVE' }]),
       $transaction: jest.fn((arg: unknown) => {
         if (typeof arg === 'function') {
           return (arg as (tx: unknown) => unknown)(prisma);
@@ -130,6 +141,67 @@ describe('ConsultationsService', () => {
       paymentsService as unknown as PaymentsService,
       availabilityService as unknown as AvailabilityService,
     );
+  });
+
+  describe('create: tratamiento cerrado (T5a)', () => {
+    const baseDto = {
+      patientId: 'patient-1',
+      sessionDate: '2026-01-10',
+      consultReason: 'Motivo',
+      intervention: 'Intervención',
+    };
+
+    it('con paciente ACTIVE no lo toca', async () => {
+      prisma.consultation.create.mockResolvedValue(buildConsultation());
+      await service.create(baseDto as never, 'therapist-1');
+      expect(prisma.patient.update).not.toHaveBeenCalled();
+      expect(prisma.consultation.create).toHaveBeenCalled();
+    });
+
+    it('con paciente cerrado y sin reopenPatient responde 409 PATIENT_TREATMENT_CLOSED', async () => {
+      prisma.$queryRaw.mockResolvedValue([
+        { id: 'patient-1', treatmentStatus: 'DISCHARGED' },
+      ]);
+      const err = await service
+        .create(baseDto as never, 'therapist-1')
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toMatchObject({
+        code: 'PATIENT_TREATMENT_CLOSED',
+      });
+      expect(prisma.consultation.create).not.toHaveBeenCalled();
+      expect(prisma.patient.update).not.toHaveBeenCalled();
+    });
+
+    it('con paciente cerrado y reopenPatient=true lo reabre y crea la consulta en la misma tx', async () => {
+      prisma.$queryRaw.mockResolvedValue([
+        { id: 'patient-1', treatmentStatus: 'DROPPED_OUT' },
+      ]);
+      prisma.consultation.create.mockResolvedValue(buildConsultation());
+      await service.create(
+        { ...baseDto, reopenPatient: true } as never,
+        'therapist-1',
+      );
+      expect(prisma.patient.update).toHaveBeenCalledWith({
+        where: { id: 'patient-1' },
+        data: { treatmentStatus: 'ACTIVE' },
+      });
+      expect(prisma.consultation.create).toHaveBeenCalled();
+    });
+
+    it('un paciente ajeno (assertAccess falla) no se toca', async () => {
+      patientsService.assertAccess.mockRejectedValue(
+        new NotFoundException('Paciente no encontrado'),
+      );
+      await expect(
+        service.create(
+          { ...baseDto, reopenPatient: true } as never,
+          'therapist-2',
+        ),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.patient.update).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
   });
 
   describe('create', () => {
@@ -556,6 +628,101 @@ describe('ConsultationsService', () => {
     });
   });
 
+  describe('correct: carrera con el cierre (T5a)', () => {
+    const closed = [{ id: 'patient-1', treatmentStatus: 'DISCHARGED' }];
+    const futureIso = '2030-01-10T12:00:00';
+
+    it('rechaza (409) corregir una consulta futura si el paciente ya no está ACTIVE', async () => {
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(
+          buildConsultation({ sessionDate: new Date(futureIso) }),
+        )
+        .mockResolvedValueOnce(null);
+      prisma.consultation.findUnique.mockResolvedValue({
+        sessionDate: new Date(futureIso),
+        deletedAt: null,
+      });
+      prisma.$queryRaw.mockResolvedValue(closed);
+
+      await expect(
+        service.correct(
+          'consultation-1',
+          { consultReason: 'Nuevo' } as never,
+          'therapist-1',
+        ),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.consultation.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza (409) mover una consulta pasada a una fecha futura con el paciente cerrado', async () => {
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation())
+        .mockResolvedValueOnce(null);
+      prisma.$queryRaw.mockResolvedValue(closed);
+
+      await expect(
+        service.correct(
+          'consultation-1',
+          { sessionDate: futureIso } as never,
+          'therapist-1',
+        ),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.consultation.create).not.toHaveBeenCalled();
+    });
+
+    it('sigue permitiendo corregir las notas de una sesión pasada con el paciente cerrado', async () => {
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation())
+        .mockResolvedValueOnce(null);
+      prisma.$queryRaw.mockResolvedValue(closed);
+      prisma.consultation.create.mockResolvedValue(
+        buildConsultation({ id: 'consultation-2' }),
+      );
+
+      const result = await service.correct(
+        'consultation-1',
+        { consultReason: 'Nota corregida' } as never,
+        'therapist-1',
+      );
+      expect(result.id).toBe('consultation-2');
+    });
+
+    it('releída dentro de la tx: 409 si otra corrección ya sucedió al original', async () => {
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation())
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'otra-correccion' });
+
+      await expect(
+        service.correct(
+          'consultation-1',
+          { consultReason: 'Nuevo' } as never,
+          'therapist-1',
+        ),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.consultation.create).not.toHaveBeenCalled();
+    });
+
+    it('releída dentro de la tx: 404 si el cierre canceló la consulta entre medio', async () => {
+      prisma.consultation.findFirst
+        .mockResolvedValueOnce(buildConsultation())
+        .mockResolvedValueOnce(null);
+      prisma.consultation.findUnique.mockResolvedValue({
+        sessionDate: new Date(futureIso),
+        deletedAt: new Date(),
+      });
+
+      await expect(
+        service.correct(
+          'consultation-1',
+          { consultReason: 'Nuevo' } as never,
+          'therapist-1',
+        ),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.consultation.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe('correct', () => {
     it('rechaza corregir la consulta si el paciente no tiene consentimiento vigente (issue #131)', async () => {
       prisma.consultation.findFirst.mockResolvedValueOnce(buildConsultation());
@@ -656,9 +823,12 @@ describe('ConsultationsService', () => {
         nextSessionDate: new Date('2026-06-01T13:00:00Z'),
       });
       prisma.consultation.findFirst
+        // Por llamada a correct(): findOne, chequeo previo y relectura en la tx.
         .mockResolvedValueOnce(withNext)
         .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(withNext)
+        .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(null);
       prisma.consultation.create.mockResolvedValue(
         buildConsultation({ id: 'consultation-2' }),
