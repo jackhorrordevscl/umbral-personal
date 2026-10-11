@@ -24,7 +24,9 @@ describe('BookPublicSlotDto', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it('rechaza si patient no trae email (obligatorio para resolver identidad)', async () => {
+  // Minor booking: email is optional at the DTO level (a minor may have none);
+  // PatientsService.resolveForPublicBooking requires it for adults by birthDate.
+  it('acepta patient sin email (la obligatoriedad para adultos la decide el servicio)', async () => {
     const { email: _email, ...withoutEmail } = validPatient;
     const dto = plainToInstance(BookPublicSlotDto, {
       slotStart: '2026-09-05T13:00:00.000Z',
@@ -32,11 +34,7 @@ describe('BookPublicSlotDto', () => {
     });
     const errors = await validate(dto);
 
-    const patientErrors = errors.find((e) => e.property === 'patient');
-    expect(patientErrors).toBeDefined();
-    expect(patientErrors?.children?.some((c) => c.property === 'email')).toBe(
-      true,
-    );
+    expect(errors).toHaveLength(0);
   });
 
   it('rechaza si patient trae un email con formato inválido', async () => {
@@ -180,6 +178,83 @@ describe('BookPublicSlotDto', () => {
       expect(
         originErrors?.children?.some((c) => c.property === 'referrer'),
       ).toBe(true);
+    });
+  });
+
+  describe('guardian (minor booking)', () => {
+    const validGuardian = {
+      fullName: 'Representante Legal',
+      rut: '12.345.678-5',
+      relationship: 'MOTHER',
+      email: 'madre@ejemplo.cl',
+    };
+
+    const guardianErrorProps = async (
+      guardian: Record<string, unknown>,
+    ): Promise<string[]> => {
+      const dto = plainToInstance(BookPublicSlotDto, {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: validPatient,
+        guardian,
+      });
+      const errors = await validate(dto);
+      const guardianErrors = errors.find((e) => e.property === 'guardian');
+      return (guardianErrors?.children ?? []).map((c) => c.property);
+    };
+
+    it('acepta un guardian válido (phone opcional)', async () => {
+      expect(await guardianErrorProps(validGuardian)).toEqual([]);
+      expect(
+        await guardianErrorProps({ ...validGuardian, phone: '+56911111111' }),
+      ).toEqual([]);
+    });
+
+    it('es opcional: sin guardian no hay error', async () => {
+      const dto = plainToInstance(BookPublicSlotDto, {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: validPatient,
+      });
+      expect(await validate(dto)).toHaveLength(0);
+    });
+
+    it('exige el email del representante', async () => {
+      const { email: _email, ...withoutEmail } = validGuardian;
+      expect(await guardianErrorProps(withoutEmail)).toContain('email');
+    });
+
+    it('rechaza un email con formato inválido o de más de 254 caracteres', async () => {
+      expect(
+        await guardianErrorProps({ ...validGuardian, email: 'no-es-email' }),
+      ).toContain('email');
+      expect(
+        await guardianErrorProps({
+          ...validGuardian,
+          email: `${'a'.repeat(250)}@ejemplo.cl`,
+        }),
+      ).toContain('email');
+    });
+
+    it('rechaza una relación fuera del enum', async () => {
+      expect(
+        await guardianErrorProps({ ...validGuardian, relationship: 'VECINO' }),
+      ).toContain('relationship');
+    });
+
+    it('rechaza un RUT con forma inválida', async () => {
+      expect(
+        await guardianErrorProps({ ...validGuardian, rut: 'no-es-rut' }),
+      ).toContain('rut');
+    });
+
+    it('exige el nombre del representante', async () => {
+      const { fullName: _fullName, ...withoutName } = validGuardian;
+      expect(await guardianErrorProps(withoutName)).toContain('fullName');
+    });
+
+    it('rechaza un teléfono de más de 30 caracteres', async () => {
+      expect(
+        await guardianErrorProps({ ...validGuardian, phone: '9'.repeat(31) }),
+      ).toContain('phone');
     });
   });
 });

@@ -48,7 +48,11 @@ export function getPublicScheduleTracker(
     ip: string;
     headers?: Record<string, string | string[] | undefined>;
     params?: Record<string, string | string[] | undefined>;
-    body?: { email?: unknown; patient?: { email?: unknown } };
+    body?: {
+      email?: unknown;
+      patient?: { email?: unknown; rut?: unknown };
+      guardian?: { email?: unknown };
+    };
   },
   trustedProxyHops = 1,
 ): string {
@@ -61,12 +65,23 @@ export function getPublicScheduleTracker(
     ? rawTherapistId[0]
     : (rawTherapistId ?? 'unknown');
 
-  const rawEmail = req.body?.patient?.email ?? req.body?.email;
-  if (typeof rawEmail === 'string' && rawEmail.length > 0) {
-    const emailHash = createHash('sha256')
-      .update(rawEmail.trim().toLowerCase())
+  // Minor booking: a minor may have no email of their own, so the key falls
+  // back to the guardian email and then to the patient RUT. The first
+  // non-empty string wins, so an adult (patient.email present) keeps exactly
+  // the same key as before.
+  const identity = [
+    req.body?.patient?.email,
+    req.body?.email,
+    req.body?.guardian?.email,
+    req.body?.patient?.rut,
+  ].find(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  );
+  if (identity) {
+    const identityHash = createHash('sha256')
+      .update(identity.trim().toLowerCase())
       .digest('hex');
-    return `${clientIp}:${therapistId}:${emailHash}`;
+    return `${clientIp}:${therapistId}:${identityHash}`;
   }
 
   return `${clientIp}:${therapistId}`;

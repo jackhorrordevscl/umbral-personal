@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import PublicBookingForm from './PublicBookingForm';
 
@@ -32,8 +33,19 @@ describe('PublicBookingForm: nota de privacidad', () => {
     renderForm();
     const note = screen.getByTestId('booking-privacy-note');
     expect(note).toHaveTextContent(
-      'Privacidad. Usamos tu nombre, RUT, fecha de nacimiento y correo solo para gestionar esta reserva. Los recibe tu terapeuta. Más información en nuestra política de privacidad.',
+      'Privacidad. Usamos los datos que ingresas (los tuyos o, si reservas por un menor, los del paciente y los de su representante legal: nombre, RUT, fecha de nacimiento y correo) solo para gestionar la reserva y la atención. Los recibe tu terapeuta. Más información en nuestra política de privacidad.',
     );
+  });
+
+  it('mantiene una sola nota, la misma, al reservar por un menor', async () => {
+    renderForm();
+    const before = screen.getByTestId('booking-privacy-note').textContent;
+    await userEvent.setup().click(
+      screen.getByLabelText('Reservo para un menor de edad'),
+    );
+    const notes = screen.getAllByTestId('booking-privacy-note');
+    expect(notes).toHaveLength(1);
+    expect(notes[0].textContent).toBe(before);
   });
 
   it('no afirma quién es el responsable del tratamiento', () => {

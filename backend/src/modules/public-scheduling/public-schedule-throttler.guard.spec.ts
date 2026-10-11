@@ -7,6 +7,7 @@ import {
   ThrottlerModuleOptions,
   ThrottlerStorage,
 } from '@nestjs/throttler';
+import { createHash } from 'crypto';
 import {
   buildPublicBookingExtraLimits,
   getPublicScheduleTracker,
@@ -111,6 +112,55 @@ describe('getPublicScheduleTracker', () => {
         3,
       ),
     ).toBe('203.0.113.9:t1');
+  });
+
+  // Minor booking: a minor may have no email; the key falls back to the
+  // guardian email and then to the patient RUT, always hashed.
+  describe('reserva de menores', () => {
+    const sha256 = (value: string) =>
+      createHash('sha256').update(value).digest('hex');
+    const base = { ip: '10.0.0.5', params: { therapistId: 'therapist-1' } };
+
+    it('con patient.email el tracker es idéntico al de un adulto aunque venga guardian', () => {
+      const adult = getPublicScheduleTracker({
+        ...base,
+        body: { patient: { email: 'paciente@ejemplo.cl' } },
+      });
+      const withGuardian = getPublicScheduleTracker({
+        ...base,
+        body: {
+          patient: { email: 'Paciente@Ejemplo.cl', rut: '11.111.111-1' },
+          guardian: { email: 'madre@ejemplo.cl' },
+        },
+      });
+      expect(withGuardian).toBe(adult);
+      expect(adult).toBe(
+        `10.0.0.5:therapist-1:${sha256('paciente@ejemplo.cl')}`,
+      );
+    });
+
+    it('sin patient.email usa el hash del email del representante', () => {
+      const tracker = getPublicScheduleTracker({
+        ...base,
+        body: {
+          patient: { rut: '11.111.111-1' },
+          guardian: { email: ' Madre@Ejemplo.cl ' },
+        },
+      });
+      expect(tracker).toBe(
+        `10.0.0.5:therapist-1:${sha256('madre@ejemplo.cl')}`,
+      );
+      expect(tracker.toLowerCase()).not.toContain('madre');
+    });
+
+    it('sin ningún email usa el hash del RUT del paciente, sin exponerlo', () => {
+      const tracker = getPublicScheduleTracker({
+        ...base,
+        body: { patient: { rut: ' 11.111.111-K ' } },
+      });
+      expect(tracker).toBe(`10.0.0.5:therapist-1:${sha256('11.111.111-k')}`);
+      expect(tracker).not.toContain('11.111.111');
+    });
   });
 });
 

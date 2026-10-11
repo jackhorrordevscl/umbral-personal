@@ -357,3 +357,90 @@ describe('MailService: escape de HTML en templates (issue #300)', () => {
     );
   });
 });
+
+describe('MailService: destinatario representante legal (menores)', () => {
+  beforeEach(() => {
+    sendMock.mockReset();
+    sendMock.mockResolvedValue({ data: { id: 'email-1' }, error: null });
+  });
+
+  type Payload = { to: string; subject: string; html: string };
+
+  it('sendPaymentLinkEmail con isGuardian se dirige al representante y nombra al paciente', async () => {
+    const service = new MailService(
+      buildConfig({ RESEND_API_KEY: 'test-key' }),
+    );
+
+    await service.sendPaymentLinkEmail(
+      'apoderada@example.com',
+      'Ana Soto',
+      'https://flow.cl/pay/token-1',
+      30000,
+      { patientName: 'Juan Soto', isGuardian: true },
+    );
+
+    const payload = sendMock.mock.calls[0][0] as Payload;
+    expect(payload.to).toBe('apoderada@example.com');
+    expect(payload.html).toContain('Hola Ana Soto');
+    expect(payload.html).toContain(
+      'Le escribimos por el pago de las sesiones de Juan Soto',
+    );
+    expect(payload.html).toContain('https://flow.cl/pay/token-1');
+    expect(payload.html).not.toContain('Tu sesión');
+  });
+
+  it('sendPaymentLinkEmail sin opciones mantiene la redacción para adultos', async () => {
+    const service = new MailService(
+      buildConfig({ RESEND_API_KEY: 'test-key' }),
+    );
+
+    await service.sendPaymentLinkEmail(
+      'paciente@example.com',
+      'Juan Soto',
+      'https://flow.cl/pay/token-1',
+      30000,
+    );
+
+    const payload = sendMock.mock.calls[0][0] as Payload;
+    expect(payload.html).toContain('Tu sesión tiene un cobro pendiente');
+    expect(payload.html).not.toContain('Le escribimos');
+  });
+
+  it('sendLatePaymentEmail con isGuardian se dirige al representante y nombra al paciente', async () => {
+    const service = new MailService(
+      buildConfig({ RESEND_API_KEY: 'test-key' }),
+    );
+
+    await service.sendLatePaymentEmail(
+      'apoderada@example.com',
+      'Ana Soto',
+      30000,
+      new Date('2026-06-16T14:00:00.000Z'),
+      { patientName: 'Juan Soto', isGuardian: true },
+    );
+
+    const payload = sendMock.mock.calls[0][0] as Payload;
+    expect(payload.html).toContain('Hola Ana Soto');
+    expect(payload.html).toContain(
+      'Le escribimos por el cobro de las sesiones de Juan Soto',
+    );
+    expect(payload.html).toContain('$30.000');
+  });
+
+  it('escapa el nombre del paciente en la redacción del representante', async () => {
+    const service = new MailService(
+      buildConfig({ RESEND_API_KEY: 'test-key' }),
+    );
+
+    await service.sendPaymentLinkEmail(
+      'apoderada@example.com',
+      'Ana',
+      'https://flow.cl/pay/token-1',
+      1000,
+      { patientName: '<b>x</b>', isGuardian: true },
+    );
+
+    const payload = sendMock.mock.calls[0][0] as Payload;
+    expect(payload.html).not.toContain('<b>x</b>');
+  });
+});

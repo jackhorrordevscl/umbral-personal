@@ -8,6 +8,7 @@ import { PaymentGatewayRegistry } from './payment-gateway.registry';
 import { PaymentAccountService } from './payment-account.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { resolvePatientRecipient } from '../../common/utils/resolve-patient-recipient';
 import { PaymentsService } from './payments.service';
 import {
   CANCELLABLE_STATUSES,
@@ -113,16 +114,45 @@ export class PaymentReconciliationService {
 
     const patient = await this.prisma.patient.findUnique({
       where: { id: payment.patientId },
-      select: { email: true, fullName: true },
+      select: {
+        email: true,
+        fullName: true,
+        birthDate: true,
+        guardians: {
+          select: {
+            fullName: true,
+            email: true,
+            isPayer: true,
+            receivesCommunications: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
     });
     if (!patient) return;
 
-    if (patient.email) {
-      await this.mailService.sendLatePaymentEmail(
-        patient.email,
-        patient.fullName,
-        payment.amount,
-        payment.dueDate,
+    // A minor's notice goes to the legal guardian, never to the minor.
+    const recipient = resolvePatientRecipient(patient);
+    if (recipient.email) {
+      if (recipient.kind === 'GUARDIAN') {
+        await this.mailService.sendLatePaymentEmail(
+          recipient.email,
+          recipient.recipientName,
+          payment.amount,
+          payment.dueDate,
+          { patientName: recipient.patientName, isGuardian: true },
+        );
+      } else {
+        await this.mailService.sendLatePaymentEmail(
+          recipient.email,
+          recipient.recipientName,
+          payment.amount,
+          payment.dueDate,
+        );
+      }
+    } else if (recipient.kind === 'GUARDIAN') {
+      this.logger.warn(
+        `Paciente menor sin representante con email: aviso de cobro vencido no enviado (paymentId=${payment.id})`,
       );
     }
 
