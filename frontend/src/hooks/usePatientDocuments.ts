@@ -16,8 +16,24 @@ export function usePatientDocuments(patientId: string | undefined) {
 export function useUploadPatientDocument(patientId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ file, type, consultationGroupId }: { file: File; type: string; consultationGroupId?: string }) =>
-      documentsApi.uploadPatientDocument(patientId as string, file, type, consultationGroupId),
+    mutationFn: ({
+      file,
+      type,
+      consultationGroupId,
+      guardianId,
+    }: {
+      file: File;
+      type: string;
+      consultationGroupId?: string;
+      guardianId?: string;
+    }) =>
+      documentsApi.uploadPatientDocument(
+        patientId as string,
+        file,
+        type,
+        consultationGroupId,
+        guardianId,
+      ),
     // Issue #292: subir un consentimiento registra un GRANT en el backend, así
     // que también se refresca la lista de pacientes (estado de consentimiento).
     onSuccess: () => {

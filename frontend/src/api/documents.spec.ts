@@ -43,6 +43,15 @@ describe('documents api', () => {
     expect(form.has('consultationGroupId')).toBe(false)
   })
 
+  it('sends guardianId when provided and omits it otherwise', async () => {
+    mockedApi.post.mockResolvedValue({ data: {} })
+    await uploadPatientDocument('p1', new File(['x'], 'a.pdf'), 'INFORMED_CONSENT', undefined, 'g1')
+    expect((mockedApi.post.mock.calls[0][1] as FormData).get('guardianId')).toBe('g1')
+
+    await uploadPatientDocument('p1', new File(['x'], 'a.pdf'), 'INFORMED_CONSENT')
+    expect((mockedApi.post.mock.calls[1][1] as FormData).has('guardianId')).toBe(false)
+  })
+
   it('downloads a document as a blob', async () => {
     const blob = new Blob(['x'])
     mockedApi.get.mockResolvedValue({ data: blob })
