@@ -1,8 +1,10 @@
 import { NormalizedEmail } from '../../../common/validators/normalized-email.decorator';
 import { PersonName } from '../../../common/validators/person-name.decorator';
+import { IsRut } from '../../../common/validators/is-rut.decorator';
 import { Transform } from 'class-transformer';
 import {
   IsString,
+  Matches,
   IsUrl,
   MinLength,
   MaxLength,
@@ -47,6 +49,30 @@ export class UpdateProfileDto {
   @MaxLength(200)
   @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
   website?: string;
+
+  // RUT del propio profesional, para firmar informes de alta. No es público.
+  // '' (o solo espacios) es válido y borra el campo; ValidateIf evita que
+  // IsRut rechace ese string vacío. El servicio lo guarda normalizado.
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @ValidateIf((_obj, value) => value !== '')
+  @IsRut()
+  rut?: string;
+
+  // Registro profesional (texto libre, ej. N° en la Superintendencia de
+  // Salud). No es público. '' limpia el campo; sin caracteres de control.
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @MaxLength(50)
+  @Matches(/^[^p{Cc}]*$/u, {
+    message: 'El registro profesional contiene caracteres no válidos',
+  })
+  professionalRegistration?: string;
 
   @IsOptional()
   @IsString()

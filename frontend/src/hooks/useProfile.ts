@@ -24,6 +24,10 @@ export interface Profile {
   specialty: string | null;
   // Sitio web opcional (http/https), mostrado en la autoagenda pública.
   website: string | null;
+  // Datos del propio profesional para firmar informes de alta. Nunca se
+  // muestran en el perfil público. null si aún no los cargó.
+  rut: string | null;
+  professionalRegistration: string | null;
   // Slug público del nombre (link /book/<slug>). null en cuentas anteriores a
   // la migración que lo introdujo; el link cae al id en ese caso.
   slug: string | null;
@@ -57,6 +61,9 @@ export type UpdateProfilePayload = Partial<{
   specialty: string;
   // '' borra el sitio web guardado.
   website: string;
+  // '' borra el valor guardado. Se usan para firmar informes de alta.
+  rut: string;
+  professionalRegistration: string;
   email: string;
   password: string;
   currentPassword: string;

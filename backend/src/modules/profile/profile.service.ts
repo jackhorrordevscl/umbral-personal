@@ -18,6 +18,7 @@ import {
   deleteAvatarObject,
   isAvatarNotFoundError,
 } from '../../common/utils/avatar-storage.util';
+import { isValidRut, normalizeRut } from '../../common/utils/rut.util';
 import { generateUniqueSlug } from '../../common/utils/slug.util';
 import * as argon2 from 'argon2';
 
@@ -34,6 +35,9 @@ const PROFILE_SELECT = {
   bio: true,
   specialty: true,
   website: true,
+  // Datos del propio profesional para firmar informes de alta; nunca públicos.
+  rut: true,
+  professionalRegistration: true,
   // Slug público: el frontend arma el link de la agenda (/book/<slug>).
   slug: true,
 } as const;
@@ -63,6 +67,8 @@ export class ProfileService {
         bio: true,
         specialty: true,
         website: true,
+        rut: true,
+        professionalRegistration: true,
         slug: true,
       },
     });
@@ -166,6 +172,8 @@ export class ProfileService {
       bio?: string;
       specialty?: string;
       website?: string | null;
+      rut?: string | null;
+      professionalRegistration?: string | null;
       passwordHash?: string;
       passwordChangedAt?: Date;
       pendingEmail?: null;
@@ -188,6 +196,19 @@ export class ProfileService {
     // website: '' borra el campo (null), a diferencia de bio/specialty que
     // guardan el string vacío.
     if (dto.website !== undefined) data.website = dto.website || null;
+    // rut / professionalRegistration: '' limpia a null. El DTO ya valida el RUT
+    // (IsRut); se revalida acá por si el service se invoca sin pasar por él, y
+    // se guarda normalizado.
+    if (dto.rut) {
+      if (!isValidRut(dto.rut)) {
+        throw new BadRequestException('El RUT no es válido');
+      }
+    }
+    if (dto.rut !== undefined)
+      data.rut = dto.rut ? normalizeRut(dto.rut) : null;
+    if (dto.professionalRegistration !== undefined) {
+      data.professionalRegistration = dto.professionalRegistration || null;
+    }
     if (dto.password) {
       data.passwordHash = await argon2.hash(dto.password);
       // Issue #76 (PR B): JwtStrategy.validate() invalida cualquier token

@@ -14,6 +14,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { PatientsModule } from './modules/patients/patients.module';
 import { ConsultationsModule } from './modules/consultations/consultations.module';
+import { DischargesModule } from './modules/discharges/discharges.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { DocumentsModule } from './modules/documents/documents.module';
@@ -56,6 +57,7 @@ import { HealthController } from './health/health.controller';
     ProfileModule,
     PatientsModule,
     ConsultationsModule,
+    DischargesModule,
     ReportsModule,
     DocumentsModule,
     NotificationsModule,

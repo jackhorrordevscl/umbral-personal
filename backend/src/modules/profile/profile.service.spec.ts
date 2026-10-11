@@ -720,3 +720,83 @@ describe('ProfileService', () => {
     });
   });
 });
+
+describe('ProfileService rut y professionalRegistration', () => {
+  let prisma: { user: { findFirst: jest.Mock; update: jest.Mock } };
+  let service: ProfileService;
+
+  beforeEach(() => {
+    prisma = {
+      user: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'user-1',
+          email: 'a@b.cl',
+          name: 'Ana',
+          slug: 'ana',
+          passwordHash: 'h',
+        }),
+        update: jest.fn().mockResolvedValue({ id: 'user-1' }),
+      },
+    };
+    service = new ProfileService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      { get: jest.fn() } as never,
+    );
+  });
+
+  it('guarda el RUT normalizado y el registro profesional sin pedir currentPassword', async () => {
+    await service.update('user-1', {
+      rut: '12.345.678-5',
+      professionalRegistration: 'N° 1234',
+    });
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { rut: '12345678-5', professionalRegistration: 'N° 1234' },
+        select: expect.objectContaining({
+          rut: true,
+          professionalRegistration: true,
+        }) as unknown as Record<string, boolean>,
+      }) as unknown as Record<string, unknown>,
+    );
+  });
+
+  it('limpia a null con string vacío', async () => {
+    await service.update('user-1', { rut: '', professionalRegistration: '' });
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { rut: null, professionalRegistration: null },
+      }) as unknown as Record<string, unknown>,
+    );
+  });
+
+  it('no toca rut ni registro si no vienen en el dto', async () => {
+    await service.update('user-1', { bio: 'Hola' });
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { bio: 'Hola' },
+      }) as unknown as Record<string, unknown>,
+    );
+  });
+
+  it('rechaza un RUT con dígito verificador inválido sin escribir', async () => {
+    await expect(
+      service.update('user-1', { rut: '12345678-9' }),
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('findOne los devuelve en el select', async () => {
+    prisma.user.findFirst.mockResolvedValue({ id: 'user-1', email: 'a@b.cl' });
+    await service.findOne('user-1');
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          rut: true,
+          professionalRegistration: true,
+        }) as unknown as Record<string, boolean>,
+      }) as unknown as Record<string, unknown>,
+    );
+  });
+});

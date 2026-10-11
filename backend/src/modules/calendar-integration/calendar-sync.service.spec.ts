@@ -412,6 +412,91 @@ describe('CalendarSyncService', () => {
     });
   });
 
+  describe('deleteEventsForGroups (cierre de tratamiento)', () => {
+    function linkFor(groupId: string) {
+      return {
+        id: `link-${groupId}`,
+        connectionId: 'connection-1',
+        groupId,
+        googleEventId: `event-${groupId}`,
+      };
+    }
+
+    it('borra el evento de cada groupId con la conexión CONNECTED del terapeuta', async () => {
+      prisma.googleCalendarConnection.findUnique.mockResolvedValue(
+        buildConnection(),
+      );
+      prisma.calendarEventLink.findUnique.mockImplementation(
+        ({ where }: { where: { connectionId_groupId: { groupId: string } } }) =>
+          Promise.resolve(linkFor(where.connectionId_groupId.groupId)),
+      );
+      googleCalendarClient.deleteEvent.mockResolvedValue(undefined);
+
+      await service.deleteEventsForGroups('therapist-1', ['g-1', 'g-2']);
+
+      expect(prisma.googleCalendarConnection.findUnique).toHaveBeenCalledWith({
+        where: { therapistId: 'therapist-1' },
+      });
+      expect(googleCalendarClient.deleteEvent).toHaveBeenCalledTimes(2);
+      expect(googleCalendarClient.deleteEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        'primary',
+        'event-g-1',
+      );
+      expect(googleCalendarClient.deleteEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        'primary',
+        'event-g-2',
+      );
+    });
+
+    it('no hace nada con una lista vacía ni consulta la conexión', async () => {
+      await service.deleteEventsForGroups('therapist-1', []);
+      expect(prisma.googleCalendarConnection.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('no hace nada si no hay conexión CONNECTED', async () => {
+      prisma.googleCalendarConnection.findUnique.mockResolvedValue(
+        buildConnection({ status: 'DISCONNECTED' }),
+      );
+      await service.deleteEventsForGroups('therapist-1', ['g-1']);
+      expect(googleCalendarClient.deleteEvent).not.toHaveBeenCalled();
+    });
+
+    it('no hace nada si GOOGLE_CALENDAR_SYNC_ENABLED=false', async () => {
+      config.get.mockImplementation((key: string) =>
+        key === 'GOOGLE_CALENDAR_SYNC_ENABLED' ? 'false' : undefined,
+      );
+      service = buildService();
+      await service.deleteEventsForGroups('therapist-1', ['g-1']);
+      expect(prisma.googleCalendarConnection.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('un fallo en un grupo se loguea y no impide borrar los demás', async () => {
+      prisma.googleCalendarConnection.findUnique.mockResolvedValue(
+        buildConnection(),
+      );
+      prisma.calendarEventLink.findUnique.mockImplementation(
+        ({ where }: { where: { connectionId_groupId: { groupId: string } } }) =>
+          Promise.resolve(linkFor(where.connectionId_groupId.groupId)),
+      );
+      googleCalendarClient.deleteEvent
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValue(undefined);
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await expect(
+        service.deleteEventsForGroups('therapist-1', ['g-1', 'g-2']),
+      ).resolves.toBeUndefined();
+
+      expect(googleCalendarClient.deleteEvent).toHaveBeenCalledTimes(2);
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('g-1'));
+      errorSpy.mockRestore();
+    });
+  });
+
   describe('invalid_grant → DISCONNECTED + notificación única (T6.5/T6.6)', () => {
     function setupInvalidGrant(updateManyCount: number) {
       prisma.consultation.findFirst.mockResolvedValue(buildConsultation());

@@ -93,6 +93,13 @@ model User {
   // Sitio web público del terapeuta (http/https), opcional. Se muestra en el
   // perfil público de la autoagenda; validado en UpdateProfileDto.
   website                    String?
+  // Datos del propio profesional para firmar informes de alta: RUT (forma
+  // canónica de normalizeRut) y registro profesional (texto libre, ej. N° de
+  // registro de la Superintendencia de Salud). Opcionales y sin @unique. NO se
+  // exponen nunca en el perfil público ni en login/JWT; solo en GET/PATCH
+  // /profile del propio usuario y en el snapshot del informe emitido.
+  rut                        String?
+  professionalRegistration   String?
   // Slug público del terapeuta para el link de la agenda (/book/<slug>).
   // Se regenera cuando cambia el nombre (sin historial: el link viejo deja de
   // resolver, el UUID sigue funcionando). Nullable solo por compatibilidad con
@@ -129,6 +136,7 @@ model User {
   // sdd/public-booking-payment-calendar PR 1: overlay cache de intervalos
   // ocupados leídos de Google Calendar (CalendarBusyService, PR 2).
   calendarBusyBlocks    CalendarBusyBlock[]
+  discharges            TreatmentDischarge[]
 }
 
 // Issue #124: signup público sin invitación. Código de un solo uso,
@@ -211,13 +219,14 @@ model Patient {
   treatmentStatus       TreatmentStatus @default(ACTIVE)
 
   therapistId   String
-  therapist     User              @relation(fields: [therapistId], references: [id])
+  therapist     User                 @relation(fields: [therapistId], references: [id])
   consultations Consultation[]
   documents     PatientDocument[]
   history       PatientHistory[]
   consents      PatientConsent[]
   assents       PatientAssent[]
   guardians     LegalGuardian[]
+  discharges    TreatmentDischarge[]
 
   // issue #314: el RUT es único por terapeuta, no global -- un 409 solo
   // revela fichas propias y dos terapeutas pueden atender a la misma persona.
@@ -293,14 +302,14 @@ enum DocumentType {
 }
 
 model Consultation {
-  id                     String      @id @default(uuid())
+  id                     String              @id @default(uuid())
   // Comparte el mismo valor entre todas las versiones (original + correcciones)
   // de una misma consulta clínica. En la primera versión, groupId === id.
   groupId                String
   patientId              String
-  patient                Patient     @relation(fields: [patientId], references: [id])
+  patient                Patient             @relation(fields: [patientId], references: [id])
   therapistId            String
-  therapist              User        @relation(fields: [therapistId], references: [id])
+  therapist              User                @relation(fields: [therapistId], references: [id])
   sessionDate            DateTime
   // Duración reservada de esta sesión (issue #336): la ocupación del horario es
   // [sessionDate, sessionDate + durationMinutes), independiente de cambios
@@ -310,19 +319,20 @@ model Consultation {
   intervention           String
   agreements             String?
   nextSessionDate        DateTime?
-  sessionType            SessionType @default(IN_PERSON)
-  createdAt              DateTime    @default(now())
+  sessionType            SessionType         @default(IN_PERSON)
+  createdAt              DateTime            @default(now())
   scheduledAt            DateTime
   patientRut             String
   // Paridad con Patient: ninguna ruta expone un delete físico hoy, pero el
   // modelo ya queda listo para soft delete si alguna vez se agrega esa
   // funcionalidad, en vez de tentar a alguien a usar .delete().
   deletedAt              DateTime?
-  // Informe de alta (T1): cancelación de consultas futuras al cerrar el
-  // tratamiento. cancelledByDischargeId todavía no tiene FK: el modelo
-  // TreatmentDischarge nace en T2, que agregará la relación.
+  // Informe de alta: cancelación de consultas futuras al cerrar el
+  // tratamiento. cancelledByDischargeId apunta al informe que originó el cierre
+  // (T2); si ese informe se borrara, la consulta queda cancelada sin referencia.
   cancelledAt            DateTime?
   cancelledByDischargeId String?
+  cancelledByDischarge   TreatmentDischarge? @relation("DischargeCancelledConsultations", fields: [cancelledByDischargeId], references: [id], onDelete: SetNull)
 
   // Versionado inmutable: corregir una consulta nunca modifica la fila
   // original, crea una fila nueva que apunta correctsId a la anterior.
@@ -342,6 +352,82 @@ model Consultation {
   @@index([groupId])
   @@index([patientId])
   @@index([therapistId, sessionDate])
+}
+
+enum DischargeSource {
+  GENERATED
+  UPLOADED
+}
+
+enum DischargeStatus {
+  DRAFT
+  ISSUED
+}
+
+// Informe de alta / cierre de tratamiento (epicrisis). Versionado inmutable con
+// el mismo patrón que Consultation: una vez emitido (ISSUED) nunca se modifica;
+// corregirlo crea una fila nueva (correctsId) que hereda groupId.
+//
+// CIFRADO: los textos del informe (consultReason, diagnosis, evolutionSummary,
+// statusAtDischarge, recommendations) se guardan SIN cifrar en esta tarea. Las
+// notas clínicas de Consultation tampoco están cifradas hoy (ADR 0004
+// pendiente) y cifrar columnas de texto exige registrar un dataset nuevo en
+// src/common/crypto/reencrypt.ts. Seguimiento: cifrarlos junto con las notas.
+model TreatmentDischarge {
+  id          String  @id @default(uuid())
+  patientId   String
+  patient     Patient @relation(fields: [patientId], references: [id])
+  therapistId String
+  therapist   User    @relation(fields: [therapistId], references: [id])
+  // Comparte el valor entre todas las versiones; en la primera, groupId === id.
+  groupId     String
+  // Posición en la cadena de versiones (1 = original). Entra en el hash.
+  version     Int     @default(1)
+
+  correctsId  String?             @unique
+  corrects    TreatmentDischarge? @relation("DischargeVersion", fields: [correctsId], references: [id])
+  correctedBy TreatmentDischarge? @relation("DischargeVersion")
+
+  source DischargeSource @default(GENERATED)
+  status DischargeStatus @default(DRAFT)
+
+  // Estado al que pasa el paciente al emitir (nunca ACTIVE; lo valida el servicio).
+  closureReason       TreatmentStatus
+  // Solo con closureReason = DROPPED_OUT (obligatorio).
+  dropoutReason       DropoutReason?
+  // Solo con dropoutReason = OTHER; texto breve, sin datos sensibles.
+  dropoutNote         String?
+  // Solo con closureReason = REFERRED; destino opcional y breve.
+  referralDestination String?
+
+  admissionDate     DateTime @db.Date
+  dischargeDate     DateTime @db.Date
+  sessionCount      Int
+  consultReason     String   @default("")
+  diagnosis         String?
+  evolutionSummary  String   @default("")
+  statusAtDischarge String   @default("")
+  recommendations   String   @default("")
+
+  // Snapshot del firmante al emitir (tomado del User; la ficha de usuario aún
+  // no guarda RUT ni registro profesional, quedan null hasta que existan).
+  signerName                     String?
+  signerRut                      String?
+  signerProfessionalRegistration String?
+
+  issuedAt    DateTime?
+  contentHash String?
+  // PatientDocument con el PDF (T3); sin FK ni lógica todavía.
+  documentId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cancelledConsultations Consultation[] @relation("DischargeCancelledConsultations")
+
+  @@index([patientId])
+  @@index([therapistId])
+  @@index([groupId])
 }
 
 enum SessionType {

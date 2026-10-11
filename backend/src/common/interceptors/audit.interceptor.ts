@@ -46,6 +46,7 @@ const CLINICAL_RESOURCES = new Set([
   'Report',
   'Document',
   'SharedFile',
+  'Discharge',
 ]);
 
 @Injectable()
