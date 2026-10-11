@@ -1,6 +1,10 @@
 import { ConfigService } from '@nestjs/config';
-import { decryptAesGcm, encryptAesGcm } from '../../common/crypto/aes-gcm';
-import { buildKeyring, encryptWithKeyring } from '../../common/crypto/keyring';
+import { encryptAesGcm } from '../../common/crypto/aes-gcm';
+import {
+  buildKeyring,
+  decryptWithKeyring,
+  encryptWithKeyring,
+} from '../../common/crypto/keyring';
 import { GoogleTokenCryptoService } from './google-token-crypto.service';
 
 function buildService(
@@ -111,19 +115,70 @@ describe('GoogleTokenCryptoService', () => {
       ).toBe(true);
     });
 
-    it('sigue escribiendo el formato legacy aunque haya clave activa rotada', () => {
+    it('escribe el formato 0x02 con la clave id 0 por defecto', () => {
+      const encrypted = buildService(validKey).encrypt(plaintext);
+
+      expect([...encrypted.subarray(0, 4)]).toEqual([0x55, 0x4b, 0x02, 0]);
+      // Cabecera (4) + IV (12) + tag (16) + ciphertext.
+      expect(encrypted.length).toBe(plaintext.length + 32);
+    });
+
+    it('escribe 0x02 con la clave activa rotada (id 1) y la lee de vuelta', () => {
       const service = buildService(validKey, rotatedEnv);
 
       const encrypted = service.encrypt(plaintext);
 
-      // Layout legacy puro [IV12][tag16][ct]: sin cabecera de 4 bytes y
-      // descifrable directamente con la clave id 0.
-      expect(encrypted.length).toBe(plaintext.length + 28);
+      expect([...encrypted.subarray(0, 4)]).toEqual([0x55, 0x4b, 0x02, 1]);
+      expect(service.decrypt(encrypted).equals(plaintext)).toBe(true);
+    });
+
+    it('lo escrito solo se lee con un servicio que comparte el llavero', () => {
+      const encrypted = buildService(validKey, rotatedEnv).encrypt(plaintext);
+
       expect(
-        decryptAesGcm(encrypted, Buffer.from(validKey, 'base64')).equals(
-          plaintext,
-        ),
+        buildService(validKey, rotatedEnv).decrypt(encrypted).equals(plaintext),
       ).toBe(true);
+      // Sin la clave id 1 en el llavero no hay forma de leerlo.
+      expect(() => buildService(validKey).decrypt(encrypted)).toThrow();
+    });
+
+    it('no se lee con otra etiqueta de dataset aunque la clave sea la misma', () => {
+      const foreign = buildKeyring(
+        validKey,
+        undefined,
+        undefined,
+        'DOCUMENT_ENCRYPTION_KEY',
+      );
+      const encrypted = buildService(validKey).encrypt(plaintext);
+
+      expect(() => decryptWithKeyring(encrypted, foreign)).toThrow();
+      expect(() =>
+        buildService(validKey).decrypt(encryptWithKeyring(plaintext, foreign)),
+      ).toThrow();
+    });
+
+    it('rechaza una cabecera 0x02 alterada (el keyId entra al AAD)', () => {
+      const encrypted = buildService(validKey, rotatedEnv).encrypt(plaintext);
+      encrypted[3] = 0; // dice id 0, pero se cifró con la clave id 1
+
+      expect(() =>
+        buildService(validKey, rotatedEnv).decrypt(encrypted),
+      ).toThrow();
+    });
+
+    it('lee una tabla mezclada con filas legacy, 0x01 y 0x02', () => {
+      const key = Buffer.from(validKey, 'base64');
+      const legacy = encryptAesGcm(plaintext, key);
+      const v1 = Buffer.concat([
+        Buffer.from([0x55, 0x4b, 0x01, 0]),
+        encryptAesGcm(plaintext, key),
+      ]);
+      const service = buildService(validKey, rotatedEnv);
+      const v2 = service.encrypt(plaintext);
+
+      for (const row of [legacy, v1, v2]) {
+        expect(service.decrypt(row).equals(plaintext)).toBe(true);
+      }
     });
   });
 });

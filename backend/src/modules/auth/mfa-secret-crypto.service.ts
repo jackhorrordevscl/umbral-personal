@@ -1,9 +1,9 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { encryptAesGcm } from '../../common/crypto/aes-gcm';
 import {
   buildKeyring,
   decryptTextWithKeyring,
+  encryptTextWithKeyring,
   Keyring,
 } from '../../common/crypto/keyring';
 
@@ -13,11 +13,15 @@ const ENV_VAR_NAME = 'MFA_SECRET_ENCRYPTION_KEY';
 // base32 (A-Z, 2-7), so it can never contain ':' -- a value without this
 // prefix is unambiguously a legacy plaintext secret written before the
 // encryption at rest, and is passed through untouched by decrypt().
-export const MFA_SECRET_CIPHER_PREFIX = 'enc:v1:';
+export const MFA_SECRET_CIPHER_PREFIX = 'enc:v1:'; // legacy: solo se lee
 
-// ADR 0005 (issue #382): formato versionado enc:v2:<keyId>:<base64>. Por ahora
-// solo se lee; la escritura sigue siendo enc:v1 hasta T3b.
+// ADR 0005 (issue #382): formato versionado enc:v2:<keyId>:<base64>. Solo se
+// lee: ya no se escribe.
 const MFA_SECRET_CIPHER_PREFIX_V2 = 'enc:v2:';
+
+// ADR 0005 (issue #382): enc:v3:<keyId>:<base64> agrega AAD (prefijo, keyId y
+// dataset autenticados). Es el formato que escribe encrypt() desde T3b.
+const MFA_SECRET_CIPHER_PREFIX_V3 = 'enc:v3:';
 
 // Dedicated AES-256-GCM key (never shared with DOCUMENT_ENCRYPTION_KEY,
 // GOOGLE_TOKEN_ENCRYPTION_KEY or PAYMENT_CREDENTIALS_ENCRYPTION_KEY), same
@@ -38,13 +42,14 @@ export class MfaSecretCryptoService implements OnModuleInit {
     );
   }
 
-  /** Encrypts a base32 TOTP secret into `enc:v1:<base64(iv|tag|ciphertext)>`. */
+  /**
+   * Encrypts a base32 TOTP secret into `enc:v3:<keyId>:<base64(iv|tag|ct)>`
+   * with the active key of the keyring (id 0 by default). The key id and the
+   * dataset label are authenticated (AAD), so a value moved to another dataset
+   * or with an altered key id fails to decrypt.
+   */
   encrypt(secret: string): string {
-    // Read-only migration (ADR 0005, T3a): still writes enc:v1 with key id 0.
-    const key = this.keyring.keys.get(0);
-    if (!key) throw new Error(`${ENV_VAR_NAME}: keyring has no key id 0`);
-    const payload = encryptAesGcm(Buffer.from(secret, 'utf8'), key);
-    return `${MFA_SECRET_CIPHER_PREFIX}${payload.toString('base64')}`;
+    return encryptTextWithKeyring(Buffer.from(secret, 'utf8'), this.keyring);
   }
 
   /**
@@ -54,15 +59,16 @@ export class MfaSecretCryptoService implements OnModuleInit {
    */
   decrypt(stored: string): string {
     if (!this.isEncrypted(stored)) return stored;
-    // enc:v1 is key id 0 and enc:v2 carries its key id; both go through the
-    // keyring, which keeps the GCM authentication failure behavior.
+    // enc:v1 is key id 0; enc:v2 and enc:v3 carry their key id. All go through
+    // the keyring, which keeps the GCM authentication failure behavior.
     return decryptTextWithKeyring(stored, this.keyring).toString('utf8');
   }
 
   isEncrypted(stored: string): boolean {
     return (
       stored.startsWith(MFA_SECRET_CIPHER_PREFIX) ||
-      stored.startsWith(MFA_SECRET_CIPHER_PREFIX_V2)
+      stored.startsWith(MFA_SECRET_CIPHER_PREFIX_V2) ||
+      stored.startsWith(MFA_SECRET_CIPHER_PREFIX_V3)
     );
   }
 }

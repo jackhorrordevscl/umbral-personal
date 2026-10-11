@@ -406,7 +406,7 @@ export default function LoginPage() {
             Sistema de gestión clínica conforme a Ley 20.584
           </p>
         </div>
-        <div className="text-slate-500 text-xs">
+        <div className="text-slate-400 text-xs">
           © 2026 Umbral - RCE — Datos protegidos bajo Ley 19.628
         </div>
       </div>

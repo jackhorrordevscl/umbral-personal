@@ -11,7 +11,8 @@ import PaymentStatusBadge from '../components/payments/PaymentStatusBadge';
 import ReminderEmailStatusBadge from '../components/reminders/ReminderEmailStatusBadge';
 import api from '../api/client';
 import { useDebouncedValue, usePatient, usePatients } from '../hooks/usePatients';
-import { useConsultations, useCorrectConsultation, useRetryCharge } from '../hooks/useConsultations';
+import { useConsultations, useCorrectConsultation, useRegeneratePaymentLink, useRetryCharge } from '../hooks/useConsultations';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
 import { usePatientDocuments, useUploadPatientDocument } from '../hooks/usePatientDocuments';
 import { downloadDocument } from '../api/documents';
 import { downloadBlob } from '../utils/download';
@@ -131,6 +132,47 @@ function ResendPaymentLinkButton({ groupId }: { groupId: string }) {
       {status === 'sent' ? <Check size={11} /> : <Send size={11} />}
       {label}
     </button>
+  );
+}
+
+// Issue #425: con un pago rechazado o anulado el link vigente queda inservible
+// y no había forma de emitir otro. PATCH /payments/:groupId con el monto
+// actual anula la orden anterior, crea una nueva y la envía por email. Como
+// invalida un link que el paciente aún podría tener, se pide confirmación.
+function RegeneratePaymentLinkButton({ groupId, amount }: { groupId: string; amount: number }) {
+  const regenerate = useRegeneratePaymentLink();
+  const [confirming, setConfirming] = useState(false);
+
+  const handleConfirm = () => {
+    setConfirming(false);
+    regenerate.mutate({ groupId, amount });
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        disabled={regenerate.isPending}
+        title={regenerate.isError ? getApiErrorMessage(regenerate.error, 'No se pudo generar el nuevo link.') : 'Anular el link actual y enviar uno nuevo al paciente'}
+        className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors inline-flex items-center gap-1 disabled:opacity-50"
+      >
+        <RefreshCw size={11} />
+        {regenerate.isPending ? 'Generando...' : 'Generar nuevo link'}
+      </button>
+      {regenerate.isError && (
+        <ErrorBanner className="w-full" message={getApiErrorMessage(regenerate.error, 'No se pudo generar el nuevo link.')} />
+      )}
+      {confirming && (
+        <ConfirmDialog
+          title="Generar nuevo link de pago"
+          message="El link actual dejará de funcionar y se enviará un link nuevo al email del paciente. ¿Deseas continuar?"
+          confirmLabel="Sí, generar"
+          onConfirm={handleConfirm}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -702,6 +744,7 @@ export default function ConsultationsPage() {
                             <>
                               <CopyPaymentLinkButton paymentUrl={c.payment.paymentUrl} />
                               <ResendPaymentLinkButton groupId={c.payment.groupId} />
+                              <RegeneratePaymentLinkButton groupId={c.payment.groupId} amount={c.payment.amount} />
                             </>
                           )}
                           {c.payment && !c.payment.paymentUrl &&

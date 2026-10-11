@@ -16,6 +16,9 @@ export default {
           900: '#0f172a',
           800: '#1e293b',
           700: '#334155',
+          // Slightly darker than Tailwind's #64748b so text-slate-500 reaches
+          // WCAG AA (>= 4.5:1) on the cream page backgrounds.
+          500: '#607187',
         },
         sage: {
           50:  '#f2f7f4',

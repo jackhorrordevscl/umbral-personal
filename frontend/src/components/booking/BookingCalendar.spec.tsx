@@ -99,6 +99,7 @@ describe('BookingCalendar', () => {
     expect(props.onSelectDay).toHaveBeenCalledWith('2026-11-03');
   });
 
+  // Sin alternativa por comportamiento: la atenuación es solo visual.
   it('no atenúa un día con horarios fuera del mes para no perder contraste', () => {
     renderCalendar();
     const cell = screen.getByRole('button', { name: dayName('2026-11-03') });
@@ -120,34 +121,53 @@ describe('BookingCalendar', () => {
     expect(props.onSelectDay).toHaveBeenCalledWith('2026-10-08');
   });
 
-  it('marca aria-pressed solo en el día seleccionado, con clases sage', () => {
+  it('marca aria-pressed solo en el día seleccionado', () => {
     renderCalendar({ selectedDay: '2026-10-08' });
     const selected = screen.getByRole('button', {
       name: dayName('2026-10-08'),
     });
     expect(selected).toHaveAttribute('aria-pressed', 'true');
-    expect(selected.className).toContain('bg-sage-600');
+    expect(selected).toBeEnabled();
     expect(
       screen.getByRole('button', { name: dayName('2026-10-06') }),
     ).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('marca aria-current="date" solo en hoy y le agrega una señal que no es de color', () => {
+  it('marca aria-current="date" solo en hoy', () => {
     renderCalendar();
     const current = cells().filter(
       (c) => c.getAttribute('aria-current') === 'date',
     );
     expect(current).toHaveLength(1);
     expect(current[0]).toHaveAccessibleName(dayName('2026-10-06'));
-    // Punto inferior (after:) como indicador adicional al color.
-    expect(current[0].className).toContain('after:rounded-full');
   });
 
-  it('usa celdas de 44px de alto', () => {
+  it('un día seleccionado que ya no tiene horarios queda deshabilitado y sin aria-pressed', () => {
+    renderCalendar({ selectedDay: '2026-10-07' });
+    const cell = screen.getByRole('button', { name: dayName('2026-10-07') });
+    expect(cell).toBeDisabled();
+    expect(cell).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('anuncia en una sola región live la cantidad de días con horarios al terminar la carga', () => {
     renderCalendar();
-    for (const cell of cells()) {
-      expect(cell.className).toContain('h-11');
-    }
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Octubre 2026: 3 días con horarios',
+    );
+  });
+
+  it('anuncia que no hay horarios este mes cuando no hay ninguno', () => {
+    renderCalendar({ slotsByDay: {} });
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Octubre 2026: sin horarios este mes',
+    );
+  });
+
+  it('no anuncia nada mientras carga y la etiqueta del mes no es live', () => {
+    const { container } = renderCalendar({ busy: true });
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(container.querySelectorAll('[aria-live]')).toHaveLength(0);
   });
 
   it('dispara los callbacks de navegación de mes', async () => {
@@ -218,20 +238,15 @@ describe('BookingCalendar', () => {
     expect(cell.querySelector('[aria-hidden="true"]')).toBeNull();
   });
 
-  it('conserva las clases sage del día seleccionado con la cantidad visible', () => {
+  it('mantiene la cantidad visible y oculta a lectores en el día seleccionado', () => {
     renderCalendar({ selectedDay: '2026-10-08' });
     const selected = screen.getByRole('button', {
       name: dayName('2026-10-08'),
     });
-    expect(selected.className).toContain('bg-sage-600');
+    expect(selected).toHaveAttribute('aria-pressed', 'true');
     expect(within(selected).getByText('2')).toHaveAttribute(
       'aria-hidden',
       'true',
     );
-  });
-
-  it('no usa la paleta emerald', () => {
-    const { container } = renderCalendar({ selectedDay: '2026-10-08' });
-    expect(container.innerHTML).not.toContain('emerald');
   });
 });

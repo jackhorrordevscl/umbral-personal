@@ -126,7 +126,7 @@ describe('MFA recovery codes (e2e)', () => {
       const { id } = await createUserWithMfaEnabled('confirm.encrypted');
 
       const user = await prisma.user.findUnique({ where: { id } });
-      expect(user!.mfaSecret).toMatch(/^enc:v1:/);
+      expect(user!.mfaSecret).toMatch(/^enc:v3:/);
     });
   });
 

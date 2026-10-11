@@ -18,7 +18,9 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json --forceExit",
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node prisma/seed.ts",
+    "seed:e2e": "ts-node prisma/seed-e2e.ts",
+    "crypto:reencrypt": "ts-node scripts/reencrypt-keys.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1138.0",
@@ -112,10 +114,10 @@
     "coverageDirectory": "../coverage",
     "coverageThreshold": {
       "global": {
-        "statements": 40,
-        "branches": 35,
-        "functions": 35,
-        "lines": 40
+        "statements": 80,
+        "branches": 70,
+        "functions": 75,
+        "lines": 80
       }
     },
     "testEnvironment": "node"

@@ -269,4 +269,62 @@ export class PaymentsController {
   ) {
     res.redirect(302, this.paymentsService.resolveReturnRedirectUrl(token));
   }
+
+  // Issue #424: la pantalla /pago-recibido consulta el estado real del cobro
+  // para no mentirle al paciente tras un rechazo. Público y de solo lectura
+  // (nunca muta nada, el webhook sigue siendo la única fuente de
+  // confirmación). Responde SOLO { status } -- sin PII ni ids -- y cualquier
+  // caso que no sea un PAID/REJECTED confirmado por el gateway (token
+  // ausente o desconocido, cuenta no disponible, error del gateway) se ve
+  // igual: PENDING, para no revelar si un token existe. Comparte el throttler
+  // 'payment-return' con el redirect. No colisiona con las rutas
+  // ':groupId': esas son PATCH/POST y esta es un GET con ruta literal.
+  @UseGuards(ThrottlerGuard)
+  @SkipThrottle(PAYMENT_RETURN_SKIP)
+  @Get('return-status')
+  async returnStatus(
+    @Query('token') token: string | undefined,
+  ): Promise<{ status: 'PAID' | 'PENDING' | 'REJECTED' }> {
+    if (typeof token !== 'string' || token.length === 0) {
+      return { status: 'PENDING' };
+    }
+    const payment = await this.paymentsService.findByToken(token);
+    if (!payment) {
+      return { status: 'PENDING' };
+    }
+
+    const context = await this.paymentAccountService.resolveGatewayContext(
+      payment.therapistId,
+    );
+    if (!context) {
+      this.logger.warn(
+        `Estado de retorno: la cuenta de pagos del cobro no está disponible (paymentId=${payment.id}).`,
+      );
+      return { status: 'PENDING' };
+    }
+
+    let gatewayStatus: GatewayOrderStatus;
+    try {
+      gatewayStatus = (
+        await this.gatewayRegistry
+          .get(context.provider)
+          .getOrderStatus(context.credentials, token)
+      ).status;
+    } catch (err) {
+      this.logger.warn(
+        `Estado de retorno: no se pudo consultar el gateway (paymentId=${payment.id}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { status: 'PENDING' };
+    }
+
+    if (gatewayStatus !== 'PAID') {
+      this.logger.warn(
+        `Estado de retorno: el gateway no reporta el cobro como pagado (paymentId=${payment.id}, status=${gatewayStatus}).`,
+      );
+    }
+    if (gatewayStatus === 'PAID' || gatewayStatus === 'REJECTED') {
+      return { status: gatewayStatus };
+    }
+    return { status: 'PENDING' };
+  }
 }

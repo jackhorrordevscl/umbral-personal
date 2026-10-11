@@ -194,8 +194,12 @@ describe('Documents encryption at rest (e2e)', () => {
         (res.body as Record<string, unknown>).storagePath as string,
       );
       expect(raw.includes(Buffer.from(PLAINTEXT_MARKER))).toBe(false);
-      // IV (12) + authTag (16) + ciphertext (mismo largo que el original)
-      expect(raw.length).toBe(12 + 16 + Buffer.from(PLAINTEXT_MARKER).length);
+      // Formato 0x02 (ADR 0005): cabecera (4: magic 55 4B, version 02, keyId 00)
+      // + IV (12) + authTag (16) + ciphertext (mismo largo que el original)
+      expect(raw.subarray(0, 4)).toEqual(Buffer.from([0x55, 0x4b, 0x02, 0x00]));
+      expect(raw.length).toBe(
+        4 + 12 + 16 + Buffer.from(PLAINTEXT_MARKER).length,
+      );
     });
 
     it('rechaza subir a un paciente ajeno (404) sin escribir nada a disco', async () => {

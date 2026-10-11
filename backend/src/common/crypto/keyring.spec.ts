@@ -6,6 +6,8 @@ import {
   decryptWithKeyring,
   encryptTextWithKeyring,
   encryptWithKeyring,
+  inspectPayload,
+  inspectText,
   resolvePayloadKeyId,
   resolveTextKeyId,
 } from './keyring';
@@ -114,7 +116,7 @@ describe('keyring', () => {
       const payload = encryptWithKeyring(plaintext, ring);
 
       expect(payload.subarray(0, 4)).toEqual(
-        Buffer.from([0x55, 0x4b, 0x01, 0x00]),
+        Buffer.from([0x55, 0x4b, 0x02, 0x00]),
       );
       expect(decryptWithKeyring(payload, ring).equals(plaintext)).toBe(true);
     });
@@ -127,10 +129,11 @@ describe('keyring', () => {
 
       expect(payload[3]).toBe(5);
       expect(decryptWithKeyring(payload, ring).equals(plaintext)).toBe(true);
-      expect(() => decryptAesGcm(payload.subarray(4), key0)).toThrow();
-      expect(decryptAesGcm(payload.subarray(4), key5).equals(plaintext)).toBe(
-        true,
-      );
+      const aad = Buffer.concat([payload.subarray(0, 4), Buffer.from(NAME)]);
+      expect(() => decryptAesGcm(payload.subarray(4), key0, aad)).toThrow();
+      expect(
+        decryptAesGcm(payload.subarray(4), key5, aad).equals(plaintext),
+      ).toBe(true);
     });
 
     it('lee un payload legacy producido por encryptAesGcm', () => {
@@ -197,14 +200,195 @@ describe('keyring', () => {
     });
   });
 
-  describe('texto (enc:v2 / enc:v1)', () => {
-    it('hace roundtrip con el formato enc:v2:<keyId>:', () => {
+  describe('formato 0x02 con AAD', () => {
+    const DOC = 'DOCUMENT_ENCRYPTION_KEY';
+    const GOOGLE = 'GOOGLE_TOKEN_ENCRYPTION_KEY';
+    const ringFor = (name: string, activeId?: string) =>
+      buildKeyring(raw0, `5:${raw5},7:${raw7}`, activeId, name);
+
+    // Construye a mano un payload 0x01 (T3a, sin AAD).
+    function v1Payload(plaintext: Buffer, keyId: number, key: Buffer) {
+      return Buffer.concat([
+        Buffer.from([0x55, 0x4b, 0x01, keyId]),
+        encryptAesGcm(plaintext, key),
+      ]);
+    }
+
+    it('emite exactamente 55 4B 02 <keyId>', () => {
+      const payload = encryptWithKeyring(Buffer.from('a'), ringFor(DOC, '7'));
+
+      expect(payload.subarray(0, 4)).toEqual(
+        Buffer.from([0x55, 0x4b, 0x02, 0x07]),
+      );
+      expect(payload.length).toBe(4 + 12 + 16 + 1);
+    });
+
+    it('hace roundtrip con claves de ids distintos', () => {
+      for (const active of ['0', '5', '7']) {
+        const ring = ringFor(DOC, active);
+        const payload = encryptWithKeyring(Buffer.from('dato'), ring);
+
+        expect(payload[3]).toBe(Number(active));
+        expect(decryptWithKeyring(payload, ring).toString()).toBe('dato');
+      }
+    });
+
+    it('lee 0x01 sin AAD, 0x02 y legacy con el mismo llavero', () => {
+      const ring = ringFor(DOC, '7');
+
+      const v1 = v1Payload(Buffer.from('uno'), 5, key5);
+      const v2 = encryptWithKeyring(Buffer.from('dos'), ring);
+      const legacy = encryptAesGcm(Buffer.from('tres'), key0);
+
+      expect(decryptWithKeyring(v1, ring).toString()).toBe('uno');
+      expect(decryptWithKeyring(v2, ring).toString()).toBe('dos');
+      expect(decryptWithKeyring(legacy, ring).toString()).toBe('tres');
+    });
+
+    it('falla con la etiqueta de otro dataset (mismas claves)', () => {
+      const payload = encryptWithKeyring(Buffer.from('doc'), ringFor(DOC, '5'));
+
+      expect(() => decryptWithKeyring(payload, ringFor(GOOGLE, '5'))).toThrow();
+    });
+
+    it('usa las etiquetas documents, google, payment y mfa', () => {
+      const names: [string, string][] = [
+        ['DOCUMENT_ENCRYPTION_KEY', 'documents'],
+        ['GOOGLE_TOKEN_ENCRYPTION_KEY', 'google'],
+        ['PAYMENT_CREDENTIALS_ENCRYPTION_KEY', 'payment'],
+        ['MFA_SECRET_ENCRYPTION_KEY', 'mfa'],
+      ];
+      for (const [name, label] of names) {
+        const ring = ringFor(name, '5');
+        const payload = encryptWithKeyring(Buffer.from('x'), ring);
+        const aad = Buffer.concat([payload.subarray(0, 4), Buffer.from(label)]);
+
+        expect(decryptAesGcm(payload.subarray(4), key5, aad).toString()).toBe(
+          'x',
+        );
+      }
+    });
+
+    it('para un nombre desconocido usa el propio nombre como etiqueta', () => {
+      const ring = ringWith('5');
+      const payload = encryptWithKeyring(Buffer.from('x'), ring);
+      const aad = Buffer.concat([payload.subarray(0, 4), Buffer.from(NAME)]);
+
+      expect(decryptAesGcm(payload.subarray(4), key5, aad).toString()).toBe(
+        'x',
+      );
+    });
+
+    it('falla si se altera el keyId de la cabecera aunque la clave sea la misma', () => {
+      const sameKeyRing = buildKeyring(raw0, `5:${raw5},7:${raw5}`, '5', DOC);
+      const payload = encryptWithKeyring(Buffer.from('x'), sameKeyRing);
+      payload[3] = 7;
+
+      expect(() => decryptWithKeyring(payload, sameKeyRing)).toThrow();
+    });
+
+    it('falla si se degrada la versión de la cabecera a 0x01', () => {
+      const ring = ringFor(DOC, '5');
+      const payload = encryptWithKeyring(Buffer.from('x'), ring);
+      payload[2] = 0x01;
+
+      expect(() => decryptWithKeyring(payload, ring)).toThrow();
+    });
+
+    it('falla si se altera el tag o el ciphertext', () => {
+      const ring = ringFor(DOC, '5');
+      const tagTampered = encryptWithKeyring(Buffer.from('abc'), ring);
+      tagTampered[4 + 12] ^= 0x01;
+      const ctTampered = encryptWithKeyring(Buffer.from('abc'), ring);
+      ctTampered[ctTampered.length - 1] ^= 0x01;
+
+      expect(() => decryptWithKeyring(tagTampered, ring)).toThrow();
+      expect(() => decryptWithKeyring(ctTampered, ring)).toThrow();
+    });
+
+    it('falla con un keyId fuera del llavero sin degradar a legacy', () => {
+      const writer = buildKeyring(raw0, `9:${raw7}`, '9', DOC);
+      const payload = encryptWithKeyring(Buffer.from('x'), writer);
+
+      expect(() => decryptWithKeyring(payload, ringFor(DOC))).toThrow();
+    });
+
+    it('lanza un Error con payloads más cortos que cabecera+IV+tag', () => {
+      const ring = ringFor(DOC, '5');
+      for (const length of [0, 3, 4, 5, 20, 31]) {
+        const short = Buffer.alloc(length);
+        short.set([0x55, 0x4b, 0x02, 0x05].slice(0, length));
+
+        expect(() => decryptWithKeyring(short, ring)).toThrow();
+      }
+    });
+
+    it('lee como legacy un payload cuyo IV empieza con 55 4B 02', () => {
+      const ring = ringFor(DOC, '5');
+      const plaintext = Buffer.from('legacy con IV que imita 0x02');
+      const iv = Buffer.concat([
+        Buffer.from([0x55, 0x4b, 0x02, 0x05]),
+        Buffer.alloc(8, 4),
+      ]);
+      const legacy = legacyPayloadWithIv(iv, plaintext, key0);
+
+      expect(decryptWithKeyring(legacy, ring).equals(plaintext)).toBe(true);
+      expect(inspectPayload(legacy, ring)).toEqual({
+        keyId: 0,
+        versioned: false,
+        formatVersion: 'legacy',
+      });
+    });
+  });
+
+  describe('texto (enc:v3 / enc:v2 / enc:v1)', () => {
+    it('hace roundtrip con el formato enc:v3:<keyId>:', () => {
       const ring = ringWith('5');
 
       const text = encryptTextWithKeyring(Buffer.from('JBSWY3DP'), ring);
 
-      expect(text.startsWith('enc:v2:5:')).toBe(true);
+      expect(text.startsWith('enc:v3:5:')).toBe(true);
       expect(decryptTextWithKeyring(text, ring).toString()).toBe('JBSWY3DP');
+    });
+
+    it('hace roundtrip de enc:v3 con ids distintos y lee enc:v2 sin AAD', () => {
+      for (const active of ['0', '5', '7']) {
+        const ring = ringWith(active);
+        const text = encryptTextWithKeyring(Buffer.from('mfa'), ring);
+
+        expect(text.startsWith(`enc:v3:${active}:`)).toBe(true);
+        expect(decryptTextWithKeyring(text, ring).toString()).toBe('mfa');
+      }
+      const v2 = `enc:v2:5:${encryptAesGcm(Buffer.from('viejo'), key5).toString('base64')}`;
+
+      expect(decryptTextWithKeyring(v2, ringWith('7')).toString()).toBe(
+        'viejo',
+      );
+    });
+
+    it('enc:v3 falla con otra etiqueta de dataset', () => {
+      const build = (name: string) =>
+        buildKeyring(raw0, `5:${raw5}`, '5', name);
+      const text = encryptTextWithKeyring(
+        Buffer.from('mfa'),
+        build('MFA_SECRET_ENCRYPTION_KEY'),
+      );
+
+      expect(() =>
+        decryptTextWithKeyring(text, build('GOOGLE_TOKEN_ENCRYPTION_KEY')),
+      ).toThrow();
+    });
+
+    it('enc:v3 falla si se cambia el keyId o la versión del prefijo', () => {
+      const ring = buildKeyring(raw0, `5:${raw5},7:${raw5}`, '5', NAME);
+      const text = encryptTextWithKeyring(Buffer.from('mfa'), ring);
+
+      expect(() =>
+        decryptTextWithKeyring(text.replace('enc:v3:5:', 'enc:v3:7:'), ring),
+      ).toThrow();
+      expect(() =>
+        decryptTextWithKeyring(text.replace('enc:v3:5:', 'enc:v2:5:'), ring),
+      ).toThrow();
     });
 
     it('lee enc:v1:<base64> como clave id 0', () => {
@@ -215,7 +399,7 @@ describe('keyring', () => {
       expect(resolveTextKeyId(legacy)).toBe(0);
     });
 
-    it('lanza con un keyId desconocido en enc:v2', () => {
+    it('lanza con un keyId desconocido en enc:v3', () => {
       const writer = buildKeyring(raw0, `9:${raw7}`, '9', NAME);
       const text = encryptTextWithKeyring(Buffer.from('mfa'), writer);
 
@@ -251,7 +435,7 @@ describe('keyring', () => {
       expect(resolvePayloadKeyId(legacy, ringWith('5'))).toBe(0);
     });
 
-    it('informa el keyId de un texto enc:v2', () => {
+    it('informa el keyId de un texto enc:v3', () => {
       const text = encryptTextWithKeyring(Buffer.from('a'), ringWith('7'));
 
       expect(resolveTextKeyId(text)).toBe(7);
@@ -261,6 +445,90 @@ describe('keyring', () => {
       const payload = encryptAesGcm(Buffer.from('a'), Buffer.alloc(32, 99));
 
       expect(() => resolvePayloadKeyId(payload, ringWith())).toThrow();
+    });
+  });
+
+  describe('inspectPayload / inspectText', () => {
+    it('distingue un payload legacy de uno versionado con id 0', () => {
+      const ring = ringWith();
+      const legacy = encryptAesGcm(Buffer.from('a'), key0);
+      const versioned = encryptWithKeyring(Buffer.from('a'), ring);
+
+      expect(inspectPayload(legacy, ring)).toEqual({
+        keyId: 0,
+        versioned: false,
+        formatVersion: 'legacy',
+      });
+      expect(inspectPayload(versioned, ring)).toEqual({
+        keyId: 0,
+        versioned: true,
+        formatVersion: 'v2',
+      });
+    });
+
+    it('informa el keyId de un payload versionado con otra clave', () => {
+      const ring = ringWith('5');
+      const payload = encryptWithKeyring(Buffer.from('a'), ring);
+
+      expect(inspectPayload(payload, ring)).toEqual({
+        keyId: 5,
+        versioned: true,
+        formatVersion: 'v2',
+      });
+    });
+
+    it('distingue un payload 0x01 de uno 0x02', () => {
+      const ring = ringWith('5');
+      const v1 = Buffer.concat([
+        Buffer.from([0x55, 0x4b, 0x01, 0x05]),
+        encryptAesGcm(Buffer.from('a'), key5),
+      ]);
+
+      expect(inspectPayload(v1, ring)).toEqual({
+        keyId: 5,
+        versioned: true,
+        formatVersion: 'v1',
+      });
+    });
+
+    it('trata como legacy un payload cuyo IV imita la cabecera', () => {
+      const iv = Buffer.concat([
+        Buffer.from([0x55, 0x4b, 0x01, 0x05]),
+        Buffer.alloc(8, 1),
+      ]);
+      const payload = legacyPayloadWithIv(iv, Buffer.from('a'), key0);
+
+      expect(inspectPayload(payload, ringWith('5'))).toEqual({
+        keyId: 0,
+        versioned: false,
+        formatVersion: 'legacy',
+      });
+    });
+
+    it('lanza si el payload no se puede descifrar', () => {
+      const payload = encryptAesGcm(Buffer.from('a'), Buffer.alloc(32, 99));
+
+      expect(() => inspectPayload(payload, ringWith())).toThrow();
+    });
+
+    it('clasifica texto plano, enc:v1, enc:v2 y enc:v3', () => {
+      const ring = ringWith('7');
+      const v1 = `enc:v1:${encryptAesGcm(Buffer.from('a'), key0).toString('base64')}`;
+      const v2 = `enc:v2:7:${encryptAesGcm(Buffer.from('a'), key7).toString('base64')}`;
+      const v3 = encryptTextWithKeyring(Buffer.from('a'), ring);
+
+      expect(inspectText('JBSWY3DPEHPK3PXP')).toEqual({
+        keyId: null,
+        format: 'plaintext',
+      });
+      expect(inspectText(v1)).toEqual({ keyId: 0, format: 'v1' });
+      expect(inspectText(v2)).toEqual({ keyId: 7, format: 'v2' });
+      expect(inspectText(v3)).toEqual({ keyId: 7, format: 'v3' });
+    });
+
+    it('lanza ante un enc:v2 o enc:v3 con keyId inválido', () => {
+      expect(() => inspectText('enc:v2:x:abc')).toThrow();
+      expect(() => inspectText('enc:v3:x:abc')).toThrow();
     });
   });
 });

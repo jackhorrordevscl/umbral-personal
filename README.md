@@ -270,6 +270,20 @@ copia offsite de backups en **Backblaze B2** (ver
 > una VM Oracle Cloud Always Free (always-on real, sin cold start) queda
 > planificada en el issue #10 para cuando el uso real lo confirme necesario.
 
+> **Ping externo para mantener despierto el backend (issue #422):** un
+> monitor externo (UptimeRobot) hace un `GET` cada 10 minutos a
+> `https://umbralapi.groundzerodevs.com/api/v1/health`, con lo que el servicio
+> no llega a los 15 minutos de inactividad y los procesos programados
+> (recordatorios, reconciliación de pagos, sincronización de calendario)
+> siguen corriendo. Como el endpoint ejecuta un `SELECT 1`, el ping también
+> mantiene activa la base. Es un parche reversible, no una garantía: un
+> deploy o un reinicio igual deja el servicio frío un momento. Para
+> desactivarlo, pausar o borrar el monitor en el panel de UptimeRobot.
+> **Límite de horas:** un servicio encendido todo el mes consume 720-744 de
+> las 750 horas gratis del workspace de Render; por eso Umbral debe ser el
+> único servicio free del workspace. Si se agregara otro, las horas se
+> agotan y Render suspende todos los servicios free hasta el mes siguiente.
+
 > **Topología de red y acceso al origen (issue #307):** el tráfico entra por
 > el dominio propio `umbralapi.groundzerodevs.com`, que pasa por Cloudflare y
 > luego por la infraestructura de Render hasta la app; por eso
@@ -562,9 +576,9 @@ umbral-personal/
   responde `501`; firma inválida responde `401`. El estado más reciente por
   sesión se muestra como badge (enviado/entregado/abierto/no enviado) en la
   lista de consultas
-- Notificación al terapeuta cuando un paciente se autoagenda sin tener un
-  monto de cobro (`defaultSessionAmount`) configurado, para que complete el
-  monto a mano en vez de perder ese cargo en silencio
+- Notificación al terapeuta cuando un paciente nuevo se autoagenda: avisa que
+  agendó su primera sesión y recuerda definir el monto de cobro
+  (`defaultSessionAmount`) en su ficha, para no perder ese cargo en silencio
   (`PATIENT_MISSING_SESSION_AMOUNT`)
 - Tipos de notificación (`NotificationType`): `SESSION_REMINDER`,
   `GOOGLE_CALENDAR_DISCONNECTED`, `PAYMENT_LATE`,
@@ -1163,6 +1177,8 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `REMINDERS_ENABLED` | Si es `false`, desactiva el cron de recordatorios de sesión (`RemindersService`, cada 5 min) sin necesitar un deploy/revert | `false` en CI/e2e |
 | `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar la credencial del merchant Flow de cada terapeuta en reposo — distinta de `DOCUMENT_ENCRYPTION_KEY`/`GOOGLE_TOKEN_ENCRYPTION_KEY` (sdd/online-payment-integration) | Generar con `openssl rand -base64 32` |
 | `MFA_SECRET_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar el secreto TOTP de cada usuario (`User.mfaSecret`) en reposo — distinta de las demás claves de cifrado (issue #302). Los secretos guardados en texto plano antes de este cambio siguen funcionando y se re-cifran solos en el siguiente login con MFA. **No rotar sin re-cifrar**: cambiarla deja ilegibles los secretos ya cifrados | Generar con `openssl rand -base64 32` |
+| `DOCUMENT_ENCRYPTION_KEY_KEYRING` / `GOOGLE_TOKEN_ENCRYPTION_KEY_KEYRING` / `PAYMENT_CREDENTIALS_ENCRYPTION_KEY_KEYRING` / `MFA_SECRET_ENCRYPTION_KEY_KEYRING` | Opcionales (issue #382, ADR 0005). Agregan claves de cifrado al llavero del dato correspondiente con el formato `id:base64,id:base64` (ids enteros de 1 a 255, sin repetir, cada clave de 32 bytes en base64). La variable original sigue siendo la clave id 0. Solo se usan al rotar una clave | Ver [docs/rotacion-y-respaldo-de-claves.md](docs/rotacion-y-respaldo-de-claves.md) |
+| `DOCUMENT_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `GOOGLE_TOKEN_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `PAYMENT_CREDENTIALS_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `MFA_SECRET_ENCRYPTION_KEY_ACTIVE_KEY_ID` | Opcionales (issue #382). Id de la clave con la que se cifran los datos nuevos; debe ser `0` o existir en el `_KEYRING` correspondiente. Si falta, se usa la id 0. Un valor mal formado hace fallar el arranque | Ver [docs/rotacion-y-respaldo-de-claves.md](docs/rotacion-y-respaldo-de-claves.md) |
 | `PAYMENTS_ENABLED` | Si es `false`, desactiva por completo la creación de cargos, el checkout, los emails de pago y el cron de vencimiento sin necesitar un deploy/revert | `false` en CI/e2e |
 | `INVITE_CREATOR_EMAIL` | Issue #124: único email autorizado a generar códigos de invitación (`POST /auth/invitations`), requeridos para completar `POST /auth/signup`. Mecanismo temporal sin rol ADMIN (decisión explícita) — sin setear, nadie puede generar invitaciones y el signup público queda efectivamente cerrado | `terapeuta@ejemplo.cl` |
 | `PUBLIC_SCHEDULING_ENABLED` | Habilita el portal público de auto-agenda (sdd/patient-self-scheduling): tanto la lectura de disponibilidad como la reserva. **Sin default** — sin setear, ambos endpoints públicos se registran deshabilitados (a diferencia de `PAYMENTS_ENABLED`/`GOOGLE_CALENDAR_SYNC_ENABLED`, acá "ausente" es deshabilitado, no habilitado, por ser superficie pública nueva) | `true` |

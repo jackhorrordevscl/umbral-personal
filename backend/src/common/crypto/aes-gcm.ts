@@ -13,22 +13,47 @@ const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 export const AES_GCM_KEY_LENGTH = 32;
 
-export function encryptAesGcm(plaintext: Buffer, key: Buffer): Buffer {
+// `aad` (datos adicionales autenticados) es opcional: sin él los bytes y el
+// comportamiento son los de siempre. Con él, el descifrado solo funciona si
+// se entrega exactamente el mismo AAD (issue #382, formato 0x02).
+export function encryptAesGcm(
+  plaintext: Buffer,
+  key: Buffer,
+  aad?: Buffer,
+): Buffer {
   const iv = randomBytes(IV_LENGTH);
-  const cipher = createCipheriv(ALGORITHM, key, iv);
+  const cipher = createCipheriv(ALGORITHM, key, iv, {
+    authTagLength: AUTH_TAG_LENGTH,
+  });
+  if (aad) {
+    cipher.setAAD(aad);
+  }
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
   return Buffer.concat([iv, authTag, ciphertext]);
 }
 
-export function decryptAesGcm(payload: Buffer, key: Buffer): Buffer {
+// authTagLength fijo en 16: sin él Node aceptaría un tag truncado.
+export function decryptAesGcm(
+  payload: Buffer,
+  key: Buffer,
+  aad?: Buffer,
+): Buffer {
+  if (payload.length < IV_LENGTH + AUTH_TAG_LENGTH) {
+    throw new Error('Payload cifrado demasiado corto');
+  }
   const iv = payload.subarray(0, IV_LENGTH);
   const authTag = payload.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
   const ciphertext = payload.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
 
-  const decipher = createDecipheriv(ALGORITHM, key, iv);
+  const decipher = createDecipheriv(ALGORITHM, key, iv, {
+    authTagLength: AUTH_TAG_LENGTH,
+  });
   decipher.setAuthTag(authTag);
+  if (aad) {
+    decipher.setAAD(aad);
+  }
 
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 }

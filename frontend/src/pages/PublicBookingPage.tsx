@@ -46,9 +46,24 @@ export default function PublicBookingPage() {
   // React Query deduplica, así que no agrega requests.
   const { data: profile } = usePublicTherapistProfile(therapistId);
   const [viewMonth, setViewMonth] = useState<ViewMonth>(chileTodayViewMonth);
-  // "Hoy" se fija una sola vez al montar y se inyecta al calendario, que queda
-  // puro y testeable con fechas fijas (mismo criterio America/Santiago).
-  const [todayKey] = useState(() => toChileDayKey(new Date().toISOString()));
+  // "Hoy" se inyecta al calendario, que queda puro y testeable con fechas fijas
+  // (mismo criterio America/Santiago). issue #371 (punto 1): se recalcula al
+  // volver a la pestaña y con un chequeo periódico, para que una pestaña abierta
+  // pasada la medianoche no siga marcando el día anterior. Si el día no cambió,
+  // setState conserva el mismo valor y no hay render extra.
+  const [todayKey, setTodayKey] = useState(() => toChileDayKey(new Date().toISOString()));
+  useEffect(() => {
+    const refresh = () => setTodayKey(toChileDayKey(new Date().toISOString()));
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    const intervalId = setInterval(refresh, 60_000);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      clearInterval(intervalId);
+    };
+  }, []);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<PublicSlot | null>(null);
   const [takenMessage, setTakenMessage] = useState('');

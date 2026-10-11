@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, STORAGE_SYNC_DELAY_MS } from './AuthContext'
 import { useAuth, type User } from './useAuth'
 import api from '../api/client'
+import { ACTIVITY_STORAGE_KEY } from '../hooks/useIdleTimeout'
 
 vi.mock('../api/client', () => ({ default: { post: vi.fn() } }))
 
@@ -271,6 +272,62 @@ describe('AuthProvider / useAuth', () => {
       settle()
 
       expect(result.current.isAuthenticated).toBe(true)
+    })
+  })
+
+  describe('expiración del JWT y marca de actividad (issue #367)', () => {
+    const b64url = (o: object) =>
+      btoa(JSON.stringify(o))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '')
+    const jwt = (payload: object) =>
+      `${b64url({ alg: 'HS256' })}.${b64url(payload)}.sig`
+    const nowSec = () => Math.floor(Date.now() / 1000)
+
+    it('descarta al arrancar un token con exp vencido y limpia el storage', () => {
+      localStorage.setItem('token', jwt({ exp: nowSec() - 60 }))
+      localStorage.setItem('user', JSON.stringify(user))
+
+      const { result } = renderHook(() => useAuth(), { wrapper })
+
+      expect(result.current.isAuthenticated).toBe(false)
+      expect(localStorage.getItem('token')).toBeNull()
+      expect(localStorage.getItem('user')).toBeNull()
+    })
+
+    it('conserva un token con exp futuro', () => {
+      const token = jwt({ exp: nowSec() + 3600 })
+      localStorage.setItem('token', token)
+      localStorage.setItem('user', JSON.stringify(user))
+
+      const { result } = renderHook(() => useAuth(), { wrapper })
+
+      expect(result.current.token).toBe(token)
+    })
+
+    it.each([jwt({ sub: 'u1' }), 'a.%%%.c'])(
+      'conserva un token sin exp legible (%s)',
+      (token) => {
+        localStorage.setItem('token', token)
+        localStorage.setItem('user', JSON.stringify(user))
+
+        const { result } = renderHook(() => useAuth(), { wrapper })
+
+        expect(result.current.isAuthenticated).toBe(true)
+      },
+    )
+
+    it('login fija la marca de actividad en ahora y logout la borra', () => {
+      localStorage.setItem(ACTIVITY_STORAGE_KEY, '1')
+      const { result } = renderHook(() => useAuth(), { wrapper })
+
+      act(() => result.current.login('new-token', user))
+      const stored = Number(localStorage.getItem(ACTIVITY_STORAGE_KEY))
+      expect(Math.abs(stored - Date.now())).toBeLessThan(5000)
+
+      act(() => result.current.logout())
+      expect(localStorage.getItem(ACTIVITY_STORAGE_KEY)).toBeNull()
     })
   })
 

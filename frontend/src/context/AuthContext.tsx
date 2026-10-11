@@ -3,6 +3,32 @@ import type { ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AuthContext, type User } from './useAuth';
 import api from '../api/client';
+import { ACTIVITY_STORAGE_KEY } from '../hooks/useIdleTimeout';
+
+// Issue #367: true solo si el JWT trae un `exp` legible y ya pasó. Sin `exp`
+// legible (token opaco, payload ilegible) se conserva: el 401 sigue siendo la
+// red de seguridad.
+function isJwtExpired(token: string): boolean {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return false;
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const { exp } = JSON.parse(atob(padded));
+    return typeof exp === 'number' && exp * 1000 <= Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function setActivityMark(value: number | null) {
+  try {
+    if (value === null) localStorage.removeItem(ACTIVITY_STORAGE_KEY);
+    else localStorage.setItem(ACTIVITY_STORAGE_KEY, String(value));
+  } catch {
+    // Storage no disponible: el control de inactividad queda en el temporizador.
+  }
+}
 
 // Leído una sola vez, como inicializador perezoso de useState en vez de un
 // useEffect: evita el re-render en cascada de setState-en-efecto (issue
@@ -12,6 +38,12 @@ function readStoredAuth(): { user: User | null; token: string | null } {
   const storedToken = localStorage.getItem('token');
   const storedUser = localStorage.getItem('user');
   if (!storedToken || !storedUser) return { user: null, token: null };
+
+  if (isJwtExpired(storedToken)) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    return { user: null, token: null };
+  }
 
   try {
     return { user: JSON.parse(storedUser), token: storedToken };
@@ -55,6 +87,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
     localStorage.setItem('token', newToken);
     localStorage.setItem('user', JSON.stringify(newUser));
+    // Una marca de una sesión anterior no debe cerrar esta recién abierta.
+    setActivityMark(Date.now());
     setCanRestoreRoute(true);
     setAuth({ token: newToken, user: newUser });
   };
@@ -76,6 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    setActivityMark(null);
     queryClient.clear();
     setCanRestoreRoute(!!options?.expired);
     setAuth({ token: null, user: null });

@@ -254,4 +254,72 @@ describe('Patients list, search and summary (e2e)', () => {
       .set('Authorization', `Bearer ${therapistAToken}`)
       .expect(400);
   });
+
+  // issue #402: búsqueda sin tildes y RUT sin guion contra Postgres real.
+  // Va al final porque crea pacientes que alteran los totales de arriba.
+  describe('search sin tildes y RUT sin guion (issue #402)', () => {
+    let joseRut: string;
+
+    async function search(token: string, term: string): Promise<ListBody> {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/patients?search=${encodeURIComponent(term)}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      return res.body as ListBody;
+    }
+
+    const names = (body: ListBody) => body.data.map((p) => p.fullName).sort();
+
+    beforeAll(async () => {
+      joseRut = uniqueTestRut();
+      for (const [name, rut] of [
+        ['José Pérez', joseRut],
+        ['Úrsula Núñez', uniqueTestRut()],
+        ['jose minusculas', uniqueTestRut()],
+        ['Descuento 100% real', uniqueTestRut()],
+        ['Guion_bajo', uniqueTestRut()],
+      ] as const) {
+        const res = await createPatient(therapistAToken, name, rut).expect(201);
+        patientIds.push((res.body as { id: string }).id);
+      }
+      // Paciente ajeno que también coincide con "jose".
+      await createPatient(
+        therapistBToken,
+        'José Ajeno',
+        uniqueTestRut(),
+      ).expect(201);
+    });
+
+    it('"jose" encuentra "José Pérez" y no devuelve pacientes de otro terapeuta', async () => {
+      const body = await search(therapistAToken, 'jose');
+      expect(names(body)).toEqual(['José Pérez', 'jose minusculas']);
+      expect(body.total).toBe(2);
+    });
+
+    it('"JOSÉ" encuentra también "jose minusculas"', async () => {
+      const body = await search(therapistAToken, 'JOSÉ');
+      expect(names(body)).toEqual(['José Pérez', 'jose minusculas']);
+    });
+
+    it('"nunez" encuentra "Úrsula Núñez"', async () => {
+      const body = await search(therapistAToken, 'nunez');
+      expect(names(body)).toEqual(['Úrsula Núñez']);
+    });
+
+    it('el RUT se encuentra sin guion, con puntos sin guion y con guion', async () => {
+      const [digits, dv] = joseRut.split('-');
+      const dotted = `${digits.slice(0, -6)}.${digits.slice(-6, -3)}.${digits.slice(-3)}${dv}`;
+      for (const term of [`${digits}${dv}`, dotted, joseRut]) {
+        const body = await search(therapistAToken, term);
+        expect(names(body)).toEqual(['José Pérez']);
+      }
+    });
+
+    it('% y _ se tratan como texto literal, no como comodines', async () => {
+      expect(names(await search(therapistAToken, '%'))).toEqual([
+        'Descuento 100% real',
+      ]);
+      expect(names(await search(therapistAToken, '_'))).toEqual(['Guion_bajo']);
+    });
+  });
 });

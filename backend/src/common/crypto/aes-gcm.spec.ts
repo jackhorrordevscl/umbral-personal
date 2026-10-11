@@ -48,6 +48,53 @@ describe('aes-gcm', () => {
     });
   });
 
+  describe('AAD y largo de tag', () => {
+    const aad = Buffer.from('cabecera-y-dataset');
+
+    it('hace roundtrip con el mismo AAD', () => {
+      const plaintext = Buffer.from('con aad');
+
+      const encrypted = encryptAesGcm(plaintext, validKey, aad);
+
+      expect(decryptAesGcm(encrypted, validKey, aad).equals(plaintext)).toBe(
+        true,
+      );
+    });
+
+    it('rechaza descifrar con un AAD distinto o ausente', () => {
+      const encrypted = encryptAesGcm(Buffer.from('con aad'), validKey, aad);
+
+      expect(() =>
+        decryptAesGcm(encrypted, validKey, Buffer.from('otro')),
+      ).toThrow();
+      expect(() => decryptAesGcm(encrypted, validKey)).toThrow();
+    });
+
+    it('rechaza un AAD aunque el payload se cifrara sin AAD', () => {
+      const encrypted = encryptAesGcm(Buffer.from('sin aad'), validKey);
+
+      expect(() => decryptAesGcm(encrypted, validKey, aad)).toThrow();
+    });
+
+    it('sin AAD mantiene el esquema [IV12][tag16][ct]', () => {
+      const encrypted = encryptAesGcm(Buffer.from('abc'), validKey);
+
+      expect(encrypted.length).toBe(12 + 16 + 3);
+    });
+
+    it('rechaza un tag truncado (authTagLength fijo en 16)', () => {
+      const plaintext = Buffer.from('contenido largo para truncar');
+      const encrypted = encryptAesGcm(plaintext, validKey);
+      // Un tag de 4 bytes seguido del ciphertext desplazado no debe aceptarse.
+      const truncated = Buffer.concat([
+        encrypted.subarray(0, 12),
+        encrypted.subarray(12, 16),
+      ]);
+
+      expect(() => decryptAesGcm(truncated, validKey)).toThrow();
+    });
+  });
+
   describe('loadBase64Key', () => {
     it('decodifica una clave base64 válida de 32 bytes', () => {
       const raw = validKey.toString('base64');

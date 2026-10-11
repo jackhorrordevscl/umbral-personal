@@ -56,6 +56,12 @@ export default function Layout() {
 
   return (
     <div className="flex h-dvh bg-cream-100">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-sage-700 focus:outline-none focus:ring-2 focus:ring-sage-400"
+      >
+        Saltar al contenido
+      </a>
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-20 lg:hidden"
@@ -132,7 +138,7 @@ export default function Layout() {
           <div className="flex-1" />
           <NotificationBell />
         </header>
-        <main className="flex-1 overflow-auto">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto focus:outline-none">
           <Outlet />
         </main>
       </div>

@@ -121,6 +121,7 @@ function PatientTableRow({
   return (
     <div
       role="row"
+      aria-rowindex={index + 2}
       style={{ ...style, gridTemplateColumns: PATIENT_TABLE_COLUMNS }}
       className="grid items-center gap-4 px-6 border-b border-slate-50 hover:bg-cream-50 transition-colors"
     >
@@ -193,6 +194,7 @@ function PatientTableRow({
 }
 
 function PatientCardRow({
+  ariaAttributes,
   index,
   style,
   items,
@@ -205,7 +207,7 @@ function PatientCardRow({
 }: RowComponentProps<PatientRowSharedProps>) {
   const p = items[index];
   return (
-    <div style={style} className="pb-3">
+    <div {...ariaAttributes} style={style} className="pb-3">
       <div className="card p-4">
         <div className="flex items-start justify-between mb-2">
           <div>
@@ -632,9 +634,10 @@ export default function PatientsPage() {
       )}
 
       {/* Tabla desktop */}
-      <div className="hidden md:block card p-0 overflow-hidden" role="table" aria-label="Pacientes">
+      <div className="hidden md:block card p-0 overflow-hidden" role="table" aria-label="Pacientes" aria-rowcount={filtered.length + 1}>
         <div
           role="row"
+          aria-rowindex={1}
           style={{ gridTemplateColumns: PATIENT_TABLE_COLUMNS }}
           className="grid gap-4 bg-slate-50 border-b border-slate-100 px-6"
         >

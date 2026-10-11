@@ -187,3 +187,38 @@ describe('PublicBookingPage: día seleccionado sin horarios tras un refetch', ()
       .forEach((b) => expect(b).toHaveAttribute('aria-pressed', 'false'));
   });
 });
+
+describe('PublicBookingPage: hoy tras la medianoche', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('recalcula el día actual al recuperar el foco de la pestaña', async () => {
+    // Solo se simula Date: los timers reales mantienen funcionando React Query.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // 12:00 en Chile (UTC-3/-4 según fecha): lejos de cualquier medianoche.
+    vi.setSystemTime(new Date('2026-10-06T16:00:00Z'));
+    mockAvailability([]);
+    renderPage();
+
+    const group = await screen.findByRole('group', {
+      name: 'Días con horarios disponibles',
+    });
+    const current = () =>
+      within(group)
+        .getAllByRole('button')
+        .find((b) => b.getAttribute('aria-current') === 'date');
+    expect(current()).toHaveAccessibleName(`Ver horarios del ${dayLabel('2026-10-06')}`);
+
+    vi.setSystemTime(new Date('2026-10-07T16:00:00Z'));
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    expect(current()).toHaveAccessibleName(`Ver horarios del ${dayLabel('2026-10-07')}`);
+  });
+});
