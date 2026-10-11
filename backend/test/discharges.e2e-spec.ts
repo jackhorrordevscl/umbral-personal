@@ -4,9 +4,22 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
+import { createHash } from 'crypto';
+import * as patientDocumentStorage from '../src/common/utils/patient-document-storage.util';
 import { AppModule } from '../src/app.module';
+import { DocumentEncryptionService } from '../src/modules/documents/document-encryption.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { uniqueTestRut } from './support/unique-rut';
+
+// T3: el PDF del informe se guarda cifrado en B2, que el CI no tiene. Se
+// reemplaza el storage por un Map en memoria, igual que documents.e2e-spec.ts
+// (ver test/support/patient-document-storage.mock.ts).
+jest.mock('../src/common/utils/patient-document-storage.util', () => {
+  const mockModule = jest.requireActual<
+    typeof import('./support/patient-document-storage.mock')
+  >('./support/patient-document-storage.mock');
+  return mockModule.createPatientDocumentStorageMock();
+});
 
 type Body = Record<string, unknown>;
 
@@ -217,6 +230,10 @@ describe('Treatment discharges (e2e)', () => {
           where: { patientId: { in: patientIds } },
         });
         await prisma.treatmentDischarge.deleteMany({
+          where: { patientId: { in: patientIds } },
+        });
+        // La FK TreatmentDischarge.documentId es Restrict: primero los informes.
+        await prisma.patientDocument.deleteMany({
           where: { patientId: { in: patientIds } },
         });
         await prisma.patientConsent.deleteMany({
@@ -1098,6 +1115,291 @@ describe('Treatment discharges (e2e)', () => {
         `discharges/${correctionId}/verify`,
       ).expect(200);
       expect((restored.body as Body).valid).toBe(true);
+    });
+  });
+
+  describe('PDF del informe (T3)', () => {
+    const storage = patientDocumentStorage as unknown as {
+      writePatientDocumentBuffer: jest.Mock;
+      readPatientDocumentBuffer: jest.Mock;
+    };
+
+    function sha256(buffer: Buffer): string {
+      return createHash('sha256').update(buffer).digest('hex');
+    }
+
+    async function issueReady(): Promise<{
+      patientId: string;
+      id: string;
+      body: Body;
+    }> {
+      const patientId = await createPatient();
+      const id = await createReadyDraft(patientId);
+      const res = await post(tokenA, `discharges/${id}/issue`).expect(201);
+      return { patientId, id, body: res.body as Body };
+    }
+
+    function getPdf(token: string, id: string) {
+      return request(app.getHttpServer())
+        .get(`/api/v1/discharges/${id}/pdf`)
+        .set('Authorization', `Bearer ${token}`)
+        .buffer(true)
+        .parse((res, cb) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => cb(null, Buffer.concat(chunks)));
+        });
+    }
+
+    describe('emisión, descarga y verificación', () => {
+      let patientId: string;
+      let id: string;
+      let issueBody: Body;
+
+      beforeAll(async () => {
+        ({ patientId, id, body: issueBody } = await issueReady());
+      });
+
+      it('al emitir guarda el PDF cifrado como DISCHARGE_REPORT y lo vincula', async () => {
+        expect(issueBody.documentId).toEqual(expect.any(String));
+        expect(issueBody.pdfSha256).toMatch(/^[0-9a-f]{64}$/);
+
+        const doc = await prisma.patientDocument.findUniqueOrThrow({
+          where: { id: issueBody.documentId as string },
+        });
+        expect(doc.type).toBe('DISCHARGE_REPORT');
+        expect(doc.patientId).toBe(patientId);
+        expect(doc.uploadedBy).toBe(therapistAId);
+        expect(doc.storagePath).toMatch(/\.pdf\.enc$/);
+
+        const raw = await patientDocumentStorage.readPatientDocumentBuffer(
+          doc.storagePath,
+        );
+        // Cifrado con el llavero (cabecera 0x02), no PDF en claro.
+        expect(raw.subarray(0, 4)).toEqual(
+          Buffer.from([0x55, 0x4b, 0x02, 0x00]),
+        );
+        expect(raw.includes(Buffer.from('%PDF-'))).toBe(false);
+
+        const row = await prisma.treatmentDischarge.findUniqueOrThrow({
+          where: { id },
+        });
+        expect(row.documentId).toBe(doc.id);
+      });
+
+      it('GET /pdf devuelve el PDF descifrado con sus cabeceras', async () => {
+        const res = await getPdf(tokenA, id).expect(200);
+        const bytes = res.body as Buffer;
+
+        expect(res.headers['content-type']).toContain('application/pdf');
+        expect(res.headers['content-disposition']).toMatch(
+          /^attachment; filename="informe-alta-v1-\d{4}-\d{2}-\d{2}\.pdf"$/,
+        );
+        expect(Number(res.headers['content-length'])).toBe(bytes.length);
+        expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+        expect(sha256(bytes)).toBe(issueBody.pdfSha256);
+      });
+
+      it('verify informa pdf.intact=true sin exponer contenido', async () => {
+        const res = await get(tokenA, `discharges/${id}/verify`).expect(200);
+        const body = res.body as Body;
+        expect(body.valid).toBe(true);
+        expect(body.pdf).toEqual({ present: true, intact: true });
+        expect(body).not.toHaveProperty('pdfSha256');
+        expect(body).not.toHaveProperty('evolutionSummary');
+      });
+
+      it('verify detecta un PDF alterado en el storage y uno ausente', async () => {
+        const doc = await prisma.patientDocument.findUniqueOrThrow({
+          where: { id: issueBody.documentId as string },
+        });
+        const original = await patientDocumentStorage.readPatientDocumentBuffer(
+          doc.storagePath,
+        );
+        const encryption = app.get(DocumentEncryptionService, {
+          strict: false,
+        });
+
+        // Alterado: otro contenido, bien cifrado.
+        await patientDocumentStorage.writePatientDocumentBuffer(
+          doc.storagePath,
+          encryption.encrypt(Buffer.from('%PDF-1.4 alterado')),
+        );
+        const tampered = await get(tokenA, `discharges/${id}/verify`).expect(
+          200,
+        );
+        expect((tampered.body as Body).valid).toBe(true);
+        expect((tampered.body as Body).pdf).toEqual({
+          present: true,
+          intact: false,
+        });
+
+        // Ausente.
+        await patientDocumentStorage.deletePatientDocumentObject(
+          doc.storagePath,
+        );
+        const missing = await get(tokenA, `discharges/${id}/verify`).expect(
+          200,
+        );
+        expect((missing.body as Body).pdf).toEqual({
+          present: true,
+          intact: false,
+        });
+
+        await patientDocumentStorage.writePatientDocumentBuffer(
+          doc.storagePath,
+          original,
+        );
+        const restored = await get(tokenA, `discharges/${id}/verify`).expect(
+          200,
+        );
+        expect((restored.body as Body).pdf).toEqual({
+          present: true,
+          intact: true,
+        });
+      });
+
+      it('contentHash no incluye documentId ni pdfSha256: vincular el PDF no lo cambió', async () => {
+        const row = await prisma.treatmentDischarge.findUniqueOrThrow({
+          where: { id },
+        });
+        expect(row.contentHash).toBe(issueBody.contentHash);
+      });
+
+      it('otro terapeuta recibe 404 uniforme', async () => {
+        await getPdf(tokenB, id).expect(404);
+        await getPdf(tokenA, '00000000-0000-4000-8000-000000000000').expect(
+          404,
+        );
+      });
+
+      it('sin token da 401', async () => {
+        await request(app.getHttpServer())
+          .get(`/api/v1/discharges/${id}/pdf`)
+          .expect(401);
+      });
+
+      it('audita la descarga con el paciente y la marca download', async () => {
+        await getPdf(tokenA, id).expect(200);
+        // El interceptor registra sin esperar la respuesta: se reintenta.
+        let log: { detail: string | null } | null = null;
+        for (let i = 0; i < 20 && !log; i++) {
+          log = await prisma.auditLog.findFirst({
+            where: {
+              userId: therapistAId,
+              action: 'VIEW',
+              resource: 'Discharge',
+              resourceId: id,
+              detail: { contains: '/pdf' },
+            },
+          });
+          if (!log) await new Promise((r) => setTimeout(r, 100));
+        }
+        expect(log).not.toBeNull();
+        expect(log?.detail).toContain('download');
+        expect(log?.detail).toContain(`patientId=${patientId}`);
+      });
+
+      it('el PDF no se puede anular por el endpoint genérico de documentos (409)', async () => {
+        await request(app.getHttpServer())
+          .post(`/api/v1/documents/${issueBody.documentId as string}/void`)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send({ reason: 'Intento de anular el informe' })
+          .expect(409);
+      });
+
+      it('el documento vinculado no se puede borrar de la base (FK Restrict)', async () => {
+        await expect(
+          prisma.patientDocument.delete({
+            where: { id: issueBody.documentId as string },
+          }),
+        ).rejects.toThrow();
+      });
+    });
+
+    it('un borrador da 409 en /pdf', async () => {
+      const patientId = await createPatient();
+      const id = await createReadyDraft(patientId);
+      await getPdf(tokenA, id).expect(409);
+    });
+
+    it('si falla el storage al emitir, la emisión se completa y el primer GET /pdf lo genera', async () => {
+      const patientId = await createPatient();
+      const id = await createReadyDraft(patientId);
+      storage.writePatientDocumentBuffer.mockRejectedValueOnce(
+        new Error('B2 caído'),
+      );
+
+      const issued = await post(tokenA, `discharges/${id}/issue`).expect(201);
+      const body = issued.body as Body;
+      expect(body.status).toBe('ISSUED');
+      expect(body.documentId).toBeNull();
+      expect(await patientStatus(patientId)).toBe('DISCHARGED');
+      expect(
+        await prisma.patientDocument.count({
+          where: { patientId, type: 'DISCHARGE_REPORT' },
+        }),
+      ).toBe(0);
+
+      const res = await getPdf(tokenA, id).expect(200);
+      expect((res.body as Buffer).subarray(0, 5).toString('latin1')).toBe(
+        '%PDF-',
+      );
+      const row = await prisma.treatmentDischarge.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(row.documentId).not.toBeNull();
+      expect(row.pdfSha256).toBe(sha256(res.body as Buffer));
+      // La verificación del contenido no se vio afectada.
+      const verify = await get(tokenA, `discharges/${id}/verify`).expect(200);
+      expect((verify.body as Body).valid).toBe(true);
+    });
+
+    it('dos GET /pdf concurrentes no dejan dos documentos vigentes', async () => {
+      const patientId = await createPatient();
+      const id = await createReadyDraft(patientId);
+      storage.writePatientDocumentBuffer.mockRejectedValueOnce(
+        new Error('B2 caído'),
+      );
+      await post(tokenA, `discharges/${id}/issue`).expect(201);
+
+      const [a, b] = await Promise.all([
+        getPdf(tokenA, id).expect(200),
+        getPdf(tokenA, id).expect(200),
+      ]);
+
+      const docs = await prisma.patientDocument.findMany({
+        where: { patientId, type: 'DISCHARGE_REPORT' },
+      });
+      expect(docs).toHaveLength(1);
+      const row = await prisma.treatmentDischarge.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(row.documentId).toBe(docs[0].id);
+      // Ambas respuestas sirven el documento ganador, no dos PDF distintos.
+      expect(sha256(a.body as Buffer)).toBe(row.pdfSha256);
+      expect(sha256(b.body as Buffer)).toBe(row.pdfSha256);
+    });
+
+    it('una corrección emitida genera su propio PDF, distinto del de la versión anterior', async () => {
+      const { id } = await issueReady();
+      const correction = await post(tokenA, `discharges/${id}/correct`).expect(
+        201,
+      );
+      const correctionId = (correction.body as Body).id as string;
+      const issued = await post(
+        tokenA,
+        `discharges/${correctionId}/issue`,
+      ).expect(201);
+      const body = issued.body as Body;
+      expect(body.documentId).toEqual(expect.any(String));
+
+      const original = await prisma.treatmentDischarge.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(body.documentId).not.toBe(original.documentId);
+      const res = await getPdf(tokenA, correctionId).expect(200);
+      expect(res.headers['content-disposition']).toContain('informe-alta-v2-');
     });
   });
 });

@@ -13,6 +13,7 @@ import { AuditService } from '../audit/audit.service';
 import { AvailabilityService } from '../availability/availability.service';
 import { PaymentsService } from '../payments/payments.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
+import { DocumentsService } from '../documents/documents.service';
 import {
   computeDischargeHash,
   dischargeHashInputFromRow,
@@ -141,7 +142,12 @@ describe('DischargesService', () => {
       availabilityService as unknown as AvailabilityService,
       paymentsService as unknown as PaymentsService,
       calendarSync as unknown as CalendarSyncService,
+      {} as unknown as DocumentsService,
     );
+    // T3: la generación del PDF tras emitir se prueba en
+    // discharges.service.pdf.spec.ts; aquí se neutraliza para que las pruebas
+    // de issue() sigan contando solo sus propias llamadas a prisma.
+    jest.spyOn(service, 'ensurePdf').mockResolvedValue(buildRow());
   });
 
   describe('createDraft', () => {
@@ -385,6 +391,46 @@ describe('DischargesService', () => {
       expect(patientLock).toBeLessThan(
         prisma.patient.findFirst.mock.invocationCallOrder[0],
       );
+    });
+
+    it('T3: genera el PDF tras el commit y devuelve documentId y pdfSha256', async () => {
+      const ensure = jest.spyOn(service, 'ensurePdf').mockResolvedValue(
+        buildRow({
+          status: 'ISSUED',
+          documentId: 'doc-pdf',
+          pdfSha256: 'f'.repeat(64),
+        }),
+      );
+      const issued = await service.issue('dis-1', 'therapist-1');
+
+      expect(ensure).toHaveBeenCalledWith('dis-1', 'therapist-1');
+      // Después del commit: la transacción ya terminó.
+      expect(prisma.$transaction.mock.invocationCallOrder[0]).toBeLessThan(
+        ensure.mock.invocationCallOrder[0],
+      );
+      expect(issued.documentId).toBe('doc-pdf');
+      expect(issued.pdfSha256).toBe('f'.repeat(64));
+    });
+
+    it('T3: si falla la generación del PDF, la emisión igual se completa y el fallo se registra', async () => {
+      jest.spyOn(service, 'ensurePdf').mockRejectedValue(new Error('B2 caído'));
+      const errorLog = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      const issued = await service.issue('dis-1', 'therapist-1');
+
+      expect(issued.status).toBe('ISSUED');
+      expect(issued.documentId).toBeNull();
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining('Fallo al generar el PDF del informe'),
+      );
+      // El cierre y la auditoría de la emisión ocurrieron igual.
+      expect(prisma.patient.update).toHaveBeenCalled();
+      expect(auditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DISCHARGE_ISSUE' }),
+      );
+      errorLog.mockRestore();
     });
 
     it('rechaza con 409 emitir un informe nuevo (no corrección) si el paciente ya no está ACTIVE', async () => {

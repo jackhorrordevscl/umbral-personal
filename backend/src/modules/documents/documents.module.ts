@@ -8,5 +8,7 @@ import { PatientsModule } from '../patients/patients.module';
   imports: [PatientsModule],
   controllers: [DocumentsController],
   providers: [DocumentsService, DocumentEncryptionService],
+  // T3: el módulo discharges guarda y lee el PDF del informe de alta.
+  exports: [DocumentsService, DocumentEncryptionService],
 })
 export class DocumentsModule {}
