@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { BookPublicSlotDto } from './book-public-slot.dto';
+import { chileDayKeyFromInstant } from '../../../common/utils/chile-time.util';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.7): valida slotStart +
 // patient anidado (con @ValidateNested + @Type, mismo patrón que
@@ -89,6 +90,19 @@ describe('BookPublicSlotDto', () => {
     it('acepta un RUT con forma válida aunque el dígito verificador no coincida', async () => {
       expect(
         await patientErrorProps({ ...validPatient, rut: '12345678-9' }),
+      ).toEqual([]);
+    });
+
+    it('rechaza una birthDate futura y acepta la de hoy', async () => {
+      const today = chileDayKeyFromInstant(new Date());
+      const tomorrow = chileDayKeyFromInstant(
+        new Date(Date.now() + 86_400_000),
+      );
+      expect(
+        await patientErrorProps({ ...validPatient, birthDate: tomorrow }),
+      ).toContain('birthDate');
+      expect(
+        await patientErrorProps({ ...validPatient, birthDate: today }),
       ).toEqual([]);
     });
 

@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
@@ -60,6 +64,12 @@ function buildFile(
  * `shared-files.service.spec.ts`.
  */
 describe('DocumentsService', () => {
+  const ADULT_BIRTH_DATE = new Date('1990-01-01T12:00:00.000Z');
+  const GUARDIAN_ID = '3f2b8c1e-5a4d-4e6f-8a9b-0c1d2e3f4a5b';
+  // With the system time pinned to 2026-10-08 these are an 11-year-old
+  // (UNDER_14) and a 16-year-old (AGE_14_17).
+  const MINOR_BIRTH_DATE = new Date('2015-01-01T12:00:00.000Z');
+  const TEENAGER_BIRTH_DATE = new Date('2010-01-01T12:00:00.000Z');
   let service: DocumentsService;
   let prisma: {
     patientDocument: {
@@ -67,10 +77,13 @@ describe('DocumentsService', () => {
       findMany: jest.Mock;
       findUnique: jest.Mock;
     };
+    patientAssent: { create: jest.Mock };
+    $transaction: jest.Mock;
   };
   let patientsService: {
     assertAccess: jest.Mock;
     recordConsent: jest.Mock;
+    assertGuardianCanSign: jest.Mock;
   };
   let encryption: { encrypt: jest.Mock; decrypt: jest.Mock };
 
@@ -85,10 +98,19 @@ describe('DocumentsService', () => {
         findMany: jest.fn(),
         findUnique: jest.fn(),
       },
+      patientAssent: {
+        create: jest.fn().mockResolvedValue({ id: 'assent-1' }),
+      },
+      // Callback form only: the document and its assent share the tx client.
+      $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     patientsService = {
-      assertAccess: jest.fn().mockResolvedValue({ id: 'patient-1' }),
+      assertAccess: jest.fn().mockResolvedValue({
+        id: 'patient-1',
+        birthDate: ADULT_BIRTH_DATE,
+      }),
       recordConsent: jest.fn().mockResolvedValue({ id: 'consent-1' }),
+      assertGuardianCanSign: jest.fn().mockResolvedValue(undefined),
     };
     encryption = {
       encrypt: jest.fn().mockReturnValue(Buffer.from('encrypted')),
@@ -159,7 +181,7 @@ describe('DocumentsService', () => {
       );
     });
 
-    it('INFORMED_ASSENT: NO registra consentimiento automático (Art. 25)', async () => {
+    it('INFORMED_ASSENT: NO registra consentimiento automático', async () => {
       await service.uploadDocument(
         'patient-1',
         'therapist-1',
@@ -168,6 +190,172 @@ describe('DocumentsService', () => {
       );
 
       expect(patientsService.recordConsent).not.toHaveBeenCalled();
+    });
+
+    it('INFORMED_ASSENT de un adulto: solo guarda el documento, sin asentimiento', async () => {
+      await service.uploadDocument(
+        'patient-1',
+        'therapist-1',
+        buildFile(),
+        'INFORMED_ASSENT',
+      );
+
+      expect(prisma.patientAssent.create).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    describe('paciente menor de edad (M2b)', () => {
+      beforeEach(() => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-10-08T15:00:00Z'));
+        patientsService.assertAccess.mockResolvedValue({
+          id: 'patient-1',
+          birthDate: MINOR_BIRTH_DATE,
+        });
+      });
+      afterEach(() => jest.useRealTimers());
+
+      it('INFORMED_CONSENT sin guardianId: 400 antes de guardar el archivo', async () => {
+        await expect(
+          service.uploadDocument(
+            'patient-1',
+            'therapist-1',
+            buildFile(),
+            'INFORMED_CONSENT',
+          ),
+        ).rejects.toThrow(BadRequestException);
+
+        expect(mockWritePatientDocumentBuffer).not.toHaveBeenCalled();
+        expect(prisma.patientDocument.create).not.toHaveBeenCalled();
+        expect(patientsService.recordConsent).not.toHaveBeenCalled();
+      });
+
+      it('TELEMED_AGREEMENT sin guardianId: 400 antes de guardar el archivo', async () => {
+        await expect(
+          service.uploadDocument(
+            'patient-1',
+            'therapist-1',
+            buildFile(),
+            'TELEMED_AGREEMENT',
+          ),
+        ).rejects.toThrow(BadRequestException);
+        expect(mockWritePatientDocumentBuffer).not.toHaveBeenCalled();
+      });
+
+      it('un representante ajeno o sin canConsent: rechaza antes de guardar el archivo', async () => {
+        patientsService.assertGuardianCanSign.mockRejectedValue(
+          new BadRequestException('no pertenece'),
+        );
+
+        await expect(
+          service.uploadDocument(
+            'patient-1',
+            'therapist-1',
+            buildFile(),
+            'INFORMED_CONSENT',
+            undefined,
+            GUARDIAN_ID,
+          ),
+        ).rejects.toThrow(BadRequestException);
+
+        expect(patientsService.assertGuardianCanSign).toHaveBeenCalledWith(
+          'patient-1',
+          GUARDIAN_ID,
+          true,
+        );
+        expect(mockWritePatientDocumentBuffer).not.toHaveBeenCalled();
+      });
+
+      it('INFORMED_CONSENT con guardianId: el GRANT se registra otorgado por el representante', async () => {
+        await service.uploadDocument(
+          'patient-1',
+          'therapist-1',
+          buildFile(),
+          'INFORMED_CONSENT',
+          undefined,
+          GUARDIAN_ID,
+        );
+
+        expect(patientsService.recordConsent).toHaveBeenCalledWith(
+          'patient-1',
+          expect.objectContaining({
+            purpose: 'TREATMENT',
+            action: 'GRANT',
+            grantedBy: 'GUARDIAN',
+            guardianId: GUARDIAN_ID,
+          }),
+          'therapist-1',
+          'doc-1',
+        );
+      });
+
+      it('otros tipos de documento no exigen representante', async () => {
+        await service.uploadDocument(
+          'patient-1',
+          'therapist-1',
+          buildFile(),
+          'OTHER',
+        );
+
+        expect(prisma.patientDocument.create).toHaveBeenCalledTimes(1);
+        expect(patientsService.assertGuardianCanSign).not.toHaveBeenCalled();
+      });
+
+      it('INFORMED_ASSENT (menor de 14): guarda el documento y un asentimiento GRANTED en la misma transaccion', async () => {
+        await service.uploadDocument(
+          'patient-1',
+          'therapist-1',
+          buildFile({ originalname: 'asentimiento.pdf' }),
+          'INFORMED_ASSENT',
+        );
+
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(prisma.patientAssent.create).toHaveBeenCalledWith({
+          data: {
+            patientId: 'patient-1',
+            ageBand: 'UNDER_14',
+            action: 'GRANTED',
+            documentId: 'doc-1',
+            recordedById: 'therapist-1',
+          },
+        });
+        expect(patientsService.recordConsent).not.toHaveBeenCalled();
+      });
+
+      it('INFORMED_ASSENT (14 a 17): el tramo se calcula en el servidor', async () => {
+        patientsService.assertAccess.mockResolvedValue({
+          id: 'patient-1',
+          birthDate: TEENAGER_BIRTH_DATE,
+        });
+
+        await service.uploadDocument(
+          'patient-1',
+          'therapist-1',
+          buildFile(),
+          'INFORMED_ASSENT',
+        );
+
+        expect(prisma.patientAssent.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({ ageBand: 'AGE_14_17' }) as unknown,
+        });
+      });
+    });
+
+    it('adulto con guardianId: lo ignora y el consentimiento queda otorgado por el paciente', async () => {
+      await service.uploadDocument(
+        'patient-1',
+        'therapist-1',
+        buildFile(),
+        'INFORMED_CONSENT',
+        undefined,
+        GUARDIAN_ID,
+      );
+
+      const dto = (
+        patientsService.recordConsent.mock.calls as unknown[][]
+      )[0][1] as Record<string, unknown>;
+      expect(dto.grantedBy).toBeUndefined();
+      expect(dto.guardianId).toBeUndefined();
+      expect(patientsService.assertGuardianCanSign).not.toHaveBeenCalled();
     });
 
     it('OTHER: NO registra consentimiento automático', async () => {
@@ -383,6 +571,8 @@ describe('DocumentsService', () => {
         action: 'GRANT',
         documentId: 'doc-1',
         document: { voidedAt: new Date() },
+        grantedBy: 'PATIENT',
+        guardianId: null,
       });
       await service.voidDocument('doc-1', dto, 'therapist-1');
       expect(tx.patientConsent.create).toHaveBeenCalledWith({
@@ -392,9 +582,29 @@ describe('DocumentsService', () => {
           action: 'REVOKE',
           recordedById: 'therapist-1',
           documentId: 'doc-1',
+          grantedBy: 'PATIENT',
+          guardianId: null,
           evidence:
             'Documento anulado: consentimiento.pdf (id doc-1). Motivo: Archivo equivocado',
         },
+      });
+    });
+
+    it('el REVOKE de un consentimiento de menor hereda grantedBy/guardianId del GRANT que revoca (M2b)', async () => {
+      tx.patientConsent.findFirst.mockResolvedValue({
+        action: 'GRANT',
+        documentId: 'doc-1',
+        document: { voidedAt: new Date() },
+        grantedBy: 'GUARDIAN',
+        guardianId: 'guardian-1',
+      });
+      await service.voidDocument('doc-1', dto, 'therapist-1');
+      expect(tx.patientConsent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          action: 'REVOKE',
+          grantedBy: 'GUARDIAN',
+          guardianId: 'guardian-1',
+        }) as unknown,
       });
     });
 

@@ -13,6 +13,7 @@ import { PersonName } from '../../../common/validators/person-name.decorator';
 
 import { IsRut } from '../../../common/validators/is-rut.decorator';
 import { IsStrictDateString } from '../../../common/validators/is-strict-date-string.decorator';
+import { IsNotFutureDate } from '../../../common/validators/is-not-future-date.decorator';
 import { MAX_AMOUNT_CLP } from '../../payments/payments.constants';
 
 export class CreatePatientDto {
@@ -23,6 +24,7 @@ export class CreatePatientDto {
   rut: string;
 
   @IsStrictDateString()
+  @IsNotFutureDate()
   birthDate: string;
 
   @IsOptional()

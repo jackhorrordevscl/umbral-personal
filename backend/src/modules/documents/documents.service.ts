@@ -1,11 +1,14 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AssentAction,
   ConsentAction,
+  ConsentGrantor,
   ConsentPurpose,
   DocumentType,
   Prisma,
@@ -16,6 +19,7 @@ import { PatientsService } from '../patients/patients.service';
 import { VoidDocumentDto } from './dto/void-document.dto';
 import { DocumentEncryptionService } from './document-encryption.service';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
+import { getAgeBand } from '../../common/utils/age.util';
 import { assertFileContentMatchesMimetype } from '../../common/utils/file-signature.util';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
@@ -30,7 +34,10 @@ import {
 // evita que el terapeuta tenga que hacerlo a mano en un segundo paso.
 // INFORMED_ASSENT (asentimiento de un menor) queda fuera a propósito: el
 // asentimiento del menor no reemplaza el consentimiento del representante
-// legal (Art. 25) -- ese flujo no está implementado todavía (ver T4/#131).
+// legal (Ley 20.584 art. 14; el NNA debe ser informado y oído según los
+// arts. 4 y 25 de la Ley 21.331 y la Ley 21.430). Se registra en el ledger
+// PatientAssent, nunca como consentimiento. Para un menor, los tipos de
+// consentimiento exigen el representante que firma (guardianId).
 const CONSENT_DOCUMENT_PURPOSE: Partial<Record<DocumentType, ConsentPurpose>> =
   {
     INFORMED_CONSENT: ConsentPurpose.TREATMENT,
@@ -60,11 +67,34 @@ export class DocumentsService {
     file: Express.Multer.File,
     type: DocumentType,
     consultationGroupId?: string,
+    guardianId?: string,
   ) {
     // Lanza NotFoundException si el paciente no existe o el usuario no
     // tiene acceso a él -- se valida ANTES de subir nada a B2, así no queda
     // un objeto huérfano que limpiar.
-    await this.patientsService.assertAccess(patientId, userId);
+    const patient = await this.patientsService.assertAccess(patientId, userId);
+
+    // M2b: la edad se calcula en el servidor. Para un menor, el documento de
+    // consentimiento lo firma su representante: se exige y valida ANTES de
+    // guardar el archivo (si no, quedaría un documento sin evento en el
+    // ledger). Para un adulto el guardianId se ignora.
+    const ageBand = getAgeBand(patient.birthDate);
+    const minorAgeBand = ageBand === 'ADULT' ? null : ageBand;
+    const purpose = CONSENT_DOCUMENT_PURPOSE[type];
+    let consentGuardianId: string | undefined;
+    if (purpose && minorAgeBand) {
+      if (!guardianId) {
+        throw new BadRequestException(
+          'El paciente es menor de edad: indica el representante legal que firma el consentimiento.',
+        );
+      }
+      await this.patientsService.assertGuardianCanSign(
+        patientId,
+        guardianId,
+        true,
+      );
+      consentGuardianId = guardianId;
+    }
 
     // El `fileFilter` del controller solo mira el header `mimetype`
     // declarado por el cliente (spoofable); esta es la validación real de
@@ -83,21 +113,39 @@ export class DocumentsService {
       throw err;
     }
 
-    const doc = await this.prisma.patientDocument.create({
-      data: {
-        patientId,
-        uploadedBy: userId,
-        type,
-        fileName: file.originalname,
-        storagePath,
-        consultationGroupId,
-      },
-    });
+    const createDocument = (client: PrismaService | Prisma.TransactionClient) =>
+      client.patientDocument.create({
+        data: {
+          patientId,
+          uploadedBy: userId,
+          type,
+          fileName: file.originalname,
+          storagePath,
+          consultationGroupId,
+        },
+      });
+    // El asentimiento de un menor se registra junto con su documento: o
+    // quedan ambos o ninguno. Para un adulto solo se guarda el documento.
+    const doc =
+      type === DocumentType.INFORMED_ASSENT && minorAgeBand
+        ? await this.prisma.$transaction(async (tx) => {
+            const created = await createDocument(tx);
+            await tx.patientAssent.create({
+              data: {
+                patientId,
+                ageBand: minorAgeBand,
+                action: AssentAction.GRANTED,
+                documentId: created.id,
+                recordedById: userId,
+              },
+            });
+            return created;
+          })
+        : await createDocument(this.prisma);
     this.logger.log(
       `Documento subido: id=${doc.id} patientId=${patientId} userId=${userId}`,
     );
 
-    const purpose = CONSENT_DOCUMENT_PURPOSE[type];
     if (purpose) {
       try {
         await this.patientsService.recordConsent(
@@ -106,6 +154,10 @@ export class DocumentsService {
             purpose,
             action: ConsentAction.GRANT,
             evidence: `Documento subido: ${file.originalname} (id ${doc.id})`,
+            ...(consentGuardianId && {
+              grantedBy: ConsentGrantor.GUARDIAN,
+              guardianId: consentGuardianId,
+            }),
           },
           userId,
           doc.id,
@@ -223,6 +275,9 @@ export class DocumentsService {
   // Agrega un REVOKE solo cuando el consentimiento vigente depende de un
   // documento anulado y no queda otro documento vigente del mismo propósito.
   // Un GRANT manual/en bloque (documentId null) o un REVOKE previo no se tocan.
+  // El REVOKE hereda grantedBy/guardianId del GRANT que revoca: es el mismo
+  // consentimiento (el de un menor lo firmó su representante), así el ledger
+  // queda coherente sin una regla aparte.
   private async revokeConsentIfOrphaned(
     tx: Prisma.TransactionClient,
     doc: PatientDocument,
@@ -264,6 +319,8 @@ export class DocumentsService {
         action: ConsentAction.REVOKE,
         recordedById: userId,
         documentId: doc.id,
+        grantedBy: latest.grantedBy,
+        guardianId: latest.guardianId,
         evidence: `Documento anulado: ${doc.fileName} (id ${doc.id}). Motivo: ${doc.voidReason}`,
       },
     });

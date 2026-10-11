@@ -2,6 +2,7 @@ import { IsEmail, IsOptional, IsString, MaxLength } from 'class-validator';
 import { PersonName } from '../../../common/validators/person-name.decorator';
 import { IsRutFormat } from '../../../common/validators/is-rut.decorator';
 import { IsStrictDateString } from '../../../common/validators/is-strict-date-string.decorator';
+import { IsNotFutureDate } from '../../../common/validators/is-not-future-date.decorator';
 import type { PublicBookingPatientInput } from '../../patients/patients.service';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.7, design.md "Identity
@@ -30,6 +31,7 @@ export class PublicBookingPatientDto implements PublicBookingPatientInput {
   rut: string;
 
   @IsStrictDateString()
+  @IsNotFutureDate()
   birthDate: string;
 
   @IsEmail()

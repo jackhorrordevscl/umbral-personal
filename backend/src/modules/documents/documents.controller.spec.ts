@@ -76,4 +76,26 @@ describe('DocumentsController.upload', () => {
 
     expect(service.uploadDocument).toHaveBeenCalled();
   });
+
+  it('pasa el guardianId del cuerpo al servicio (M2b)', async () => {
+    const file = {
+      buffer: Buffer.from('x'),
+    } as unknown as Express.Multer.File;
+    const guardianId = '3f2b8c1e-5a4d-4e6f-8a9b-0c1d2e3f4a5b';
+
+    await controller.upload(
+      file,
+      { patientId: 'p-1', type: 'INFORMED_CONSENT', guardianId } as never,
+      user,
+    );
+
+    expect(service.uploadDocument).toHaveBeenCalledWith(
+      'p-1',
+      'user-1',
+      file,
+      'INFORMED_CONSENT',
+      undefined,
+      guardianId,
+    );
+  });
 });
