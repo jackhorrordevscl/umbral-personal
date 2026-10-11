@@ -6,9 +6,10 @@ import {
   Patch,
   Post,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { DischargesService } from './discharges.service';
 import { CreateDischargeDto } from './dto/create-discharge.dto';
 import { UpdateDischargeDto } from './dto/update-discharge.dto';
@@ -18,6 +19,7 @@ import {
   type RequestUser,
 } from '../../common/decorators/current-user.decorator';
 import { SkipAudit } from '../../common/decorators/skip-audit.decorator';
+import { AuditRead } from '../../common/decorators/audit-read.decorator';
 import { getRequestClientIp } from '../../common/utils/client-ip.util';
 
 function auditContext(req: Request) {
@@ -85,6 +87,30 @@ export class DischargesController {
     @Req() req: Request,
   ) {
     return this.dischargesService.correct(id, user.id, auditContext(req));
+  }
+
+  // PDF del informe. AuditRead marca la lectura como descarga y registra el
+  // paciente (resourceId sigue siendo el informe), igual que la descarga de
+  // documentos. Si el PDF aún no existe, el servicio lo genera.
+  @AuditRead({ detail: 'download' })
+  @Get('discharges/:id/pdf')
+  async pdf(
+    @Param('id') id: string,
+    @CurrentUser() user: RequestUser,
+    @Req() req: Request & { auditPatientId?: string },
+    @Res() res: Response,
+  ) {
+    const { buffer, fileName, patientId } = await this.dischargesService.getPdf(
+      id,
+      user.id,
+    );
+    req.auditPatientId = patientId;
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
   }
 
   @Get('discharges/:id/verify')

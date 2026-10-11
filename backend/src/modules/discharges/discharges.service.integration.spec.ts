@@ -15,6 +15,7 @@ import { PaymentAccountService } from '../payments/payment-account.service';
 import { PaymentCredentialCryptoService } from '../payments/payment-credential-crypto.service';
 import { MailService } from '../mail/mail.service';
 import { AvailabilityService } from '../availability/availability.service';
+import { DocumentsService } from '../documents/documents.service';
 import { DischargesService } from './discharges.service';
 
 // Fecha futura determinista: `daysAhead` días después de hoy (UTC) a `hourUtc`.
@@ -250,7 +251,12 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
       availability,
       buildPaymentsService(),
       calendarSync,
+      // T3: el PDF no se ejercita aquí (carreras de cierre sobre base real).
+      {} as unknown as DocumentsService,
     );
+    jest
+      .spyOn(dischargesService, 'ensurePdf')
+      .mockResolvedValue({ documentId: null, pdfSha256: null } as never);
   }, 30000);
 
   afterAll(async () => {

@@ -22,6 +22,10 @@ const mockWritePatientDocumentBuffer =
   patientDocumentStorage.writePatientDocumentBuffer as jest.MockedFunction<
     typeof patientDocumentStorage.writePatientDocumentBuffer
   >;
+const mockDeletePatientDocumentObject =
+  patientDocumentStorage.deletePatientDocumentObject as jest.MockedFunction<
+    typeof patientDocumentStorage.deletePatientDocumentObject
+  >;
 const mockReadPatientDocumentBuffer =
   patientDocumentStorage.readPatientDocumentBuffer as jest.MockedFunction<
     typeof patientDocumentStorage.readPatientDocumentBuffer
@@ -76,6 +80,7 @@ describe('DocumentsService', () => {
       create: jest.Mock;
       findMany: jest.Mock;
       findUnique: jest.Mock;
+      delete: jest.Mock;
     };
     patientAssent: { create: jest.Mock };
     $transaction: jest.Mock;
@@ -97,6 +102,7 @@ describe('DocumentsService', () => {
         }),
         findMany: jest.fn(),
         findUnique: jest.fn(),
+        delete: jest.fn().mockResolvedValue({}),
       },
       patientAssent: {
         create: jest.fn().mockResolvedValue({ id: 'assent-1' }),
@@ -118,6 +124,7 @@ describe('DocumentsService', () => {
     };
     mockAssertFileContentMatchesMimetype.mockImplementation(() => undefined);
     mockWritePatientDocumentBuffer.mockResolvedValue(undefined);
+    mockDeletePatientDocumentObject.mockResolvedValue(undefined);
 
     service = new DocumentsService(
       prisma as unknown as PrismaService,
@@ -416,6 +423,153 @@ describe('DocumentsService', () => {
         Buffer.from('encrypted'),
       );
     });
+
+    it('T3: rechaza DISCHARGE_REPORT con 400 antes de tocar acceso, B2 o la base', async () => {
+      await expect(
+        service.uploadDocument(
+          'patient-1',
+          'therapist-1',
+          buildFile(),
+          'DISCHARGE_REPORT',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.uploadDocument(
+          'patient-1',
+          'therapist-1',
+          buildFile(),
+          'DISCHARGE_REPORT',
+        ),
+      ).rejects.toThrow(
+        'Este tipo de documento solo se genera desde el informe de alta',
+      );
+      expect(patientsService.assertAccess).not.toHaveBeenCalled();
+      expect(mockWritePatientDocumentBuffer).not.toHaveBeenCalled();
+      expect(prisma.patientDocument.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('storeGeneratedDocument (T3)', () => {
+    const pdf = Buffer.from('%PDF-1.7\ngenerado');
+    const input = {
+      patientId: 'patient-1',
+      userId: 'therapist-1',
+      type: 'DISCHARGE_REPORT' as const,
+      fileName: 'informe-alta-v1-2026-10-11.pdf',
+      buffer: pdf,
+    };
+
+    it('valida acceso, cifra con el llavero, escribe en B2 y crea la fila', async () => {
+      const doc = await service.storeGeneratedDocument(input);
+
+      expect(patientsService.assertAccess).toHaveBeenCalledWith(
+        'patient-1',
+        'therapist-1',
+      );
+      expect(encryption.encrypt).toHaveBeenCalledWith(pdf);
+      expect(mockWritePatientDocumentBuffer).toHaveBeenCalledWith(
+        expect.stringMatching(/^[0-9a-f-]{36}\.pdf\.enc$/) as unknown,
+        Buffer.from('encrypted'),
+      );
+      const key = mockWritePatientDocumentBuffer.mock.calls[0][0];
+      expect(prisma.patientDocument.create).toHaveBeenCalledWith({
+        data: {
+          patientId: 'patient-1',
+          uploadedBy: 'therapist-1',
+          type: 'DISCHARGE_REPORT',
+          fileName: 'informe-alta-v1-2026-10-11.pdf',
+          storagePath: key,
+          consultationGroupId: undefined,
+        },
+      });
+      expect(doc).toEqual(expect.objectContaining({ id: 'doc-1' }));
+    });
+
+    it('no valida el mimetype como un upload de usuario ni registra consentimiento', async () => {
+      await service.storeGeneratedDocument(input);
+      expect(mockAssertFileContentMatchesMimetype).not.toHaveBeenCalled();
+      expect(patientsService.recordConsent).not.toHaveBeenCalled();
+    });
+
+    it('si el insert falla tras escribir en B2, borra el objeto y relanza', async () => {
+      const boom = new Error('db caída');
+      prisma.patientDocument.create.mockRejectedValue(boom);
+
+      await expect(service.storeGeneratedDocument(input)).rejects.toBe(boom);
+
+      const key = mockWritePatientDocumentBuffer.mock.calls[0][0];
+      expect(mockDeletePatientDocumentObject).toHaveBeenCalledWith(key);
+    });
+
+    it('si además falla el borrado del objeto, relanza el error original', async () => {
+      const boom = new Error('db caída');
+      prisma.patientDocument.create.mockRejectedValue(boom);
+      mockDeletePatientDocumentObject.mockRejectedValue(new Error('b2 caído'));
+
+      await expect(service.storeGeneratedDocument(input)).rejects.toBe(boom);
+    });
+
+    it('si falla la escritura en B2, no crea la fila ni borra nada', async () => {
+      const boom = new Error('b2 caído');
+      mockWritePatientDocumentBuffer.mockRejectedValue(boom);
+
+      await expect(service.storeGeneratedDocument(input)).rejects.toBe(boom);
+      expect(prisma.patientDocument.create).not.toHaveBeenCalled();
+      expect(mockDeletePatientDocumentObject).not.toHaveBeenCalled();
+    });
+
+    it('un paciente ajeno (assertAccess falla) no escribe nada', async () => {
+      patientsService.assertAccess.mockRejectedValue(new NotFoundException());
+      await expect(service.storeGeneratedDocument(input)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(mockWritePatientDocumentBuffer).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('discardGeneratedDocument (T3)', () => {
+    it('borra la fila y el objeto de un documento sobrante', async () => {
+      prisma.patientDocument.findUnique.mockResolvedValue({
+        id: 'doc-9',
+        storagePath: 'abc.pdf.enc',
+        type: 'DISCHARGE_REPORT',
+      });
+      await service.discardGeneratedDocument('doc-9');
+
+      expect(prisma.patientDocument.delete).toHaveBeenCalledWith({
+        where: { id: 'doc-9' },
+      });
+      expect(mockDeletePatientDocumentObject).toHaveBeenCalledWith(
+        'abc.pdf.enc',
+      );
+    });
+
+    it('si la fila está referenciada (FK Restrict), no borra el objeto', async () => {
+      prisma.patientDocument.findUnique.mockResolvedValue({
+        id: 'doc-9',
+        storagePath: 'abc.pdf.enc',
+        type: 'DISCHARGE_REPORT',
+      });
+      prisma.patientDocument.delete.mockRejectedValue(
+        new Error('Foreign key constraint'),
+      );
+      await expect(service.discardGeneratedDocument('doc-9')).rejects.toThrow(
+        'Foreign key constraint',
+      );
+      expect(mockDeletePatientDocumentObject).not.toHaveBeenCalled();
+    });
+
+    it('solo descarta documentos DISCHARGE_REPORT', async () => {
+      prisma.patientDocument.findUnique.mockResolvedValue({
+        id: 'doc-9',
+        storagePath: 'abc.pdf.enc',
+        type: 'OTHER',
+      });
+      await expect(service.discardGeneratedDocument('doc-9')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(prisma.patientDocument.delete).not.toHaveBeenCalled();
+    });
   });
 
   describe('getDecryptedFile', () => {
@@ -528,6 +682,59 @@ describe('DocumentsService', () => {
         service.voidDocument('doc-1', dto, 'therapist-1'),
       ).rejects.toThrow(NotFoundException);
       expect(tx.patientDocument.updateMany).not.toHaveBeenCalled();
+    });
+
+    describe('documentos DISCHARGE_REPORT (T3)', () => {
+      const dischargeDoc = {
+        ...consentDoc,
+        id: 'doc-pdf',
+        type: 'DISCHARGE_REPORT',
+        fileName: 'informe-alta-v1-2026-10-11.pdf',
+        voidedAt: null,
+      };
+
+      beforeEach(() => {
+        prisma.patientDocument.findUnique.mockResolvedValue(dischargeDoc);
+        tx.patientDocument.findUniqueOrThrow.mockResolvedValue({
+          ...dischargeDoc,
+          voidedAt: new Date(),
+        });
+      });
+
+      it('el endpoint genérico rechaza anularlo con 409 y no escribe', async () => {
+        await expect(
+          service.voidDocument('doc-pdf', dto, 'therapist-1'),
+        ).rejects.toThrow(ConflictException);
+        expect(tx.patientDocument.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('un tercero no puede anularlo: el 404 uniforme va antes del 409', async () => {
+        patientsService.assertAccess.mockRejectedValue(new NotFoundException());
+        await expect(
+          service.voidDocument('doc-pdf', dto, 'otro'),
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('el método interno del módulo discharges sí lo anula', async () => {
+        const voided = await service.voidDischargeDocument(
+          'doc-pdf',
+          dto,
+          'therapist-1',
+        );
+        expect(tx.patientDocument.updateMany).toHaveBeenCalledTimes(1);
+        expect(voided).toEqual(expect.objectContaining({ id: 'doc-pdf' }));
+      });
+
+      it('el método interno rechaza documentos que no son DISCHARGE_REPORT', async () => {
+        prisma.patientDocument.findUnique.mockResolvedValue({
+          ...consentDoc,
+          voidedAt: null,
+        });
+        await expect(
+          service.voidDischargeDocument('doc-1', dto, 'therapist-1'),
+        ).rejects.toThrow(ConflictException);
+        expect(tx.patientDocument.updateMany).not.toHaveBeenCalled();
+      });
     });
 
     it('409 si el documento ya estaba anulado', async () => {

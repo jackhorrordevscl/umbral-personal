@@ -5,6 +5,7 @@ import { PatientsModule } from '../patients/patients.module';
 import { AvailabilityModule } from '../availability/availability.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { CalendarIntegrationModule } from '../calendar-integration/calendar-integration.module';
+import { DocumentsModule } from '../documents/documents.module';
 
 // Informe de alta / cierre de tratamiento (T2). PrismaService y AuditService
 // son globales; PatientsModule aporta assertAccess y assertTreatmentConsent.
@@ -12,12 +13,15 @@ import { CalendarIntegrationModule } from '../calendar-integration/calendar-inte
 // los efectos posteriores al commit (caché de slots, cobros y eventos de
 // Google). Sin ciclo: ninguno de ellos importa este módulo, y los tres ya
 // exportan el servicio que se inyecta.
+// T3: DocumentsModule exporta DocumentsService, que guarda y lee (cifrado) el
+// PDF del informe; no importa este módulo, así que no hay ciclo.
 @Module({
   imports: [
     PatientsModule,
     AvailabilityModule,
     PaymentsModule,
     CalendarIntegrationModule,
+    DocumentsModule,
   ],
   controllers: [DischargesController],
   providers: [DischargesService],

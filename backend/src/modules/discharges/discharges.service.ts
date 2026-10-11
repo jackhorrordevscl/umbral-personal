@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { Prisma, TreatmentDischarge } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
@@ -13,6 +13,8 @@ import { AuditService } from '../audit/audit.service';
 import { AvailabilityService } from '../availability/availability.service';
 import { PaymentsService } from '../payments/payments.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
+import { DocumentsService } from '../documents/documents.service';
+import { isMinor } from '../../common/utils/age.util';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 import {
   chileDayKeyFromInstant,
@@ -26,6 +28,7 @@ import {
   dischargeHashInputFromRow,
   hashesMatch,
 } from './util/discharge-hash.util';
+import { buildDischargePdf } from './pdf/discharge-pdf.builder';
 
 // Contexto de la request para la auditoría explícita de issue/correct (esos
 // handlers llevan @SkipAudit para no duplicar la fila del interceptor).
@@ -44,6 +47,19 @@ export interface DischargeVerification {
   contentHash: string | null;
   // false si ya existe una corrección posterior (esta versión fue superada).
   isCurrent: boolean;
+  // T3: estado del PDF guardado. Campo aditivo; nunca expone contenido.
+  // present: el informe tiene un PDF vinculado. intact: sus bytes descifrados
+  // coinciden con pdfSha256 (null si no hay PDF, no hay hash guardado o no se
+  // pudo leer por un fallo de infraestructura; false si el objeto no existe o
+  // no coincide).
+  pdf: { present: boolean; intact: boolean | null };
+}
+
+// Descarga del PDF ya descifrado, lista para servir.
+export interface DischargePdfFile {
+  buffer: Buffer;
+  fileName: string;
+  patientId: string;
 }
 
 // Respuesta de issue: el informe más el número de consultas futuras que el
@@ -74,6 +90,7 @@ export class DischargesService {
     private availabilityService: AvailabilityService,
     private paymentsService: PaymentsService,
     private calendarSync: CalendarSyncService,
+    private documentsService: DocumentsService,
   ) {}
 
   // POST /patients/:patientId/discharges
@@ -382,7 +399,135 @@ export class DischargesService {
 
     await this.runPostCommitEffects(therapistId, cancelledGroupIds);
 
-    return { ...issued, cancelledConsultations: cancelledGroupIds.length };
+    // PDF en modo mejor esfuerzo: la emisión ya es definitiva y un fallo de
+    // generación o de storage no la revierte ni la bloquea. Si falla, el primer
+    // GET /pdf lo genera (ensurePdf es idempotente).
+    const withPdf = await this.ensurePdf(issued.id, therapistId).catch(
+      (err: unknown) => {
+        this.logger.error(
+          `Fallo al generar el PDF del informe tras la emisión (dischargeId=${issued.id}): ${errorMessage(err)}`,
+        );
+        return null;
+      },
+    );
+
+    return {
+      ...issued,
+      documentId: withPdf?.documentId ?? issued.documentId,
+      pdfSha256: withPdf?.pdfSha256 ?? issued.pdfSha256,
+      cancelledConsultations: cancelledGroupIds.length,
+    };
+  }
+
+  // Genera y guarda el PDF de un informe GENERATED emitido, una sola vez.
+  // Idempotente: si ya hay documentId lo devuelve tal cual. Es la ÚNICA
+  // mutación permitida sobre una fila ISSUED y no toca contentHash (que no
+  // incluye documentId ni pdfSha256). Dos llamadas concurrentes pueden generar
+  // cada una su PDF, pero solo una fija documentId (updateMany condicionado a
+  // documentId null); la que pierde descarta su documento sobrante y devuelve
+  // el ganador, así nunca quedan dos documentos vigentes.
+  async ensurePdf(
+    id: string,
+    therapistId: string,
+  ): Promise<TreatmentDischarge> {
+    const row = await this.findOwned(id, therapistId);
+    if (row.status !== 'ISSUED' || !row.issuedAt || !row.contentHash) {
+      throw new ConflictException(
+        'El informe aún no está emitido: no hay PDF que descargar.',
+      );
+    }
+    // Un informe subido por el terapeuta (T3b) trae su propio PDF.
+    if (row.documentId || row.source !== 'GENERATED') return row;
+
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: row.patientId, therapistId, deletedAt: null },
+      select: { fullName: true, rut: true, birthDate: true },
+    });
+    if (!patient) throw new NotFoundException('Paciente no encontrado');
+
+    // Representante(s) solo si el paciente era menor de 18 al emitir y pueden
+    // acceder a informes (canAccessReports); si no hay, la sección se omite.
+    const guardians = isMinor(patient.birthDate, row.issuedAt)
+      ? await this.prisma.legalGuardian.findMany({
+          where: { patientId: row.patientId, canAccessReports: true },
+          orderBy: { createdAt: 'asc' },
+          select: { fullName: true, rut: true, relationship: true },
+        })
+      : [];
+
+    const buffer = await buildDischargePdf({
+      discharge: {
+        id: row.id,
+        version: row.version,
+        closureReason: row.closureReason,
+        referralDestination: row.referralDestination,
+        admissionDate: row.admissionDate,
+        dischargeDate: row.dischargeDate,
+        sessionCount: row.sessionCount,
+        consultReason: row.consultReason,
+        diagnosis: row.diagnosis,
+        evolutionSummary: row.evolutionSummary,
+        statusAtDischarge: row.statusAtDischarge,
+        recommendations: row.recommendations,
+        signerName: row.signerName,
+        signerRut: row.signerRut,
+        signerProfessionalRegistration: row.signerProfessionalRegistration,
+        issuedAt: row.issuedAt,
+        contentHash: row.contentHash,
+      },
+      patient,
+      guardians,
+    });
+    const pdfSha256 = createHash('sha256').update(buffer).digest('hex');
+
+    const stored = await this.documentsService.storeGeneratedDocument({
+      patientId: row.patientId,
+      userId: therapistId,
+      type: 'DISCHARGE_REPORT',
+      fileName: `informe-alta-v${row.version}-${chileDayKeyFromInstant(row.issuedAt)}.pdf`,
+      buffer,
+    });
+
+    let claimed: { count: number };
+    try {
+      claimed = await this.prisma.treatmentDischarge.updateMany({
+        where: { id, therapistId, status: 'ISSUED', documentId: null },
+        data: { documentId: stored.id, pdfSha256 },
+      });
+    } catch (err) {
+      await this.discardSurplusDocument(stored.id);
+      throw err;
+    }
+    if (claimed.count === 0) {
+      // Otra llamada ganó la carrera: este documento quedó sobrante.
+      await this.discardSurplusDocument(stored.id);
+    }
+    return this.findOwned(id, therapistId);
+  }
+
+  private async discardSurplusDocument(documentId: string): Promise<void> {
+    try {
+      await this.documentsService.discardGeneratedDocument(documentId);
+    } catch (err) {
+      this.logger.error(
+        `No se pudo descartar un PDF sobrante de informe de alta (documentId=${documentId}): ${errorMessage(err)}`,
+      );
+    }
+  }
+
+  // GET /discharges/:id/pdf: el PDF del informe, descifrado. Aislado por
+  // terapeuta (404 uniforme); un borrador da 409. Si todavía no existe lo
+  // genera (por ejemplo, si falló tras la emisión).
+  async getPdf(id: string, therapistId: string): Promise<DischargePdfFile> {
+    const row = await this.ensurePdf(id, therapistId);
+    if (!row.documentId) {
+      throw new NotFoundException('Este informe no tiene un PDF disponible.');
+    }
+    const { doc, buffer } = await this.documentsService.getDecryptedFile(
+      row.documentId,
+      therapistId,
+    );
+    return { buffer, fileName: doc.fileName, patientId: row.patientId };
   }
 
   // Efectos del cierre dentro de la transacción de emisión, ya con los locks de
@@ -612,7 +757,36 @@ export class DischargesService {
       issuedAt: row.issuedAt,
       contentHash: row.contentHash,
       isCurrent: row.correctedBy === null,
+      pdf: await this.checkPdfIntegrity(row, therapistId),
     };
+  }
+
+  // Compara el SHA-256 de los bytes descifrados con el guardado al generar el
+  // PDF. No expone contenido. Un objeto ausente en el storage cuenta como no
+  // íntegro; un fallo de infraestructura deja el resultado en null (no se
+  // puede afirmar nada) y se registra sin datos del paciente.
+  private async checkPdfIntegrity(
+    row: { id: string; documentId: string | null; pdfSha256: string | null },
+    therapistId: string,
+  ): Promise<{ present: boolean; intact: boolean | null }> {
+    if (!row.documentId) return { present: false, intact: null };
+    if (!row.pdfSha256) return { present: true, intact: null };
+    try {
+      const { buffer } = await this.documentsService.getDecryptedFile(
+        row.documentId,
+        therapistId,
+      );
+      const actual = createHash('sha256').update(buffer).digest('hex');
+      return { present: true, intact: hashesMatch(row.pdfSha256, actual) };
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        return { present: true, intact: false };
+      }
+      this.logger.error(
+        `No se pudo leer el PDF para verificar su integridad (dischargeId=${row.id}): ${errorMessage(err)}`,
+      );
+      return { present: true, intact: null };
+    }
   }
 
   // Aislamiento por terapeuta: un informe ajeno es indistinguible de uno

@@ -26,6 +26,7 @@ import { extname } from 'path';
 import {
   readPatientDocumentBuffer,
   writePatientDocumentBuffer,
+  deletePatientDocumentObject,
   isPatientDocumentNotFoundError,
 } from '../../common/utils/patient-document-storage.util';
 
@@ -43,6 +44,9 @@ const CONSENT_DOCUMENT_PURPOSE: Partial<Record<DocumentType, ConsentPurpose>> =
     INFORMED_CONSENT: ConsentPurpose.TREATMENT,
     TELEMED_AGREEMENT: ConsentPurpose.TELEMEDICINE,
   };
+
+const DISCHARGE_REPORT_UPLOAD_MESSAGE =
+  'Este tipo de documento solo se genera desde el informe de alta';
 
 @Injectable()
 export class DocumentsService {
@@ -69,6 +73,13 @@ export class DocumentsService {
     consultationGroupId?: string,
     guardianId?: string,
   ) {
+    // T3: el informe de alta se genera desde el módulo discharges (o lo aporta
+    // el terapeuta por su flujo propio), que lo vincula al informe y lo hashea.
+    // Subirlo por aquí dejaría un PDF suelto, sin vínculo ni verificación.
+    if (type === DocumentType.DISCHARGE_REPORT) {
+      throw new BadRequestException(DISCHARGE_REPORT_UPLOAD_MESSAGE);
+    }
+
     // Lanza NotFoundException si el paciente no existe o el usuario no
     // tiene acceso a él -- se valida ANTES de subir nada a B2, así no queda
     // un objeto huérfano que limpiar.
@@ -177,6 +188,78 @@ export class DocumentsService {
     return doc;
   }
 
+  // T3: guarda un documento generado por el sistema (p. ej. el PDF del informe
+  // de alta) con el mismo cifrado y almacenamiento que una subida. No pasa por
+  // el fileFilter ni por la validación de mimetype del usuario, y no registra
+  // consentimiento. El llamador ya decidió que este usuario puede escribir en
+  // la ficha del paciente; igual se revalida el acceso por defensa en
+  // profundidad. Si el insert falla tras escribir en B2 se intenta borrar el
+  // objeto para no dejar huérfanos.
+  async storeGeneratedDocument(input: {
+    patientId: string;
+    userId: string;
+    type: DocumentType;
+    fileName: string;
+    buffer: Buffer;
+    consultationGroupId?: string;
+  }): Promise<PatientDocument> {
+    await this.patientsService.assertAccess(input.patientId, input.userId);
+
+    const storagePath = `${randomUUID()}${extname(input.fileName)}.enc`;
+    const encrypted = this.encryption.encrypt(input.buffer);
+    try {
+      await writePatientDocumentBuffer(storagePath, encrypted);
+    } catch (err) {
+      this.logger.error(
+        `Fallo al subir documento generado a B2: patientId=${input.patientId} storagePath=${storagePath}: ${err instanceof Error ? err.message : err}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw err;
+    }
+
+    try {
+      const doc = await this.prisma.patientDocument.create({
+        data: {
+          patientId: input.patientId,
+          uploadedBy: input.userId,
+          type: input.type,
+          fileName: input.fileName,
+          storagePath,
+          consultationGroupId: input.consultationGroupId,
+        },
+      });
+      this.logger.log(
+        `Documento generado: id=${doc.id} type=${input.type} patientId=${input.patientId} userId=${input.userId}`,
+      );
+      return doc;
+    } catch (err) {
+      try {
+        await deletePatientDocumentObject(storagePath);
+      } catch (cleanupErr) {
+        this.logger.error(
+          `No se pudo borrar el objeto huérfano de B2 tras fallar el insert: storagePath=${storagePath}: ${cleanupErr instanceof Error ? cleanupErr.message : cleanupErr}`,
+        );
+      }
+      throw err;
+    }
+  }
+
+  // T3: descarta un documento generado que quedó sobrante (la carrera de dos
+  // generaciones concurrentes del mismo PDF). Solo para DISCHARGE_REPORT y solo
+  // si nada lo referencia: la FK Restrict de TreatmentDischarge.documentId
+  // hace fallar el delete de uno vigente, y en ese caso el objeto no se toca.
+  async discardGeneratedDocument(id: string): Promise<void> {
+    const doc = await this.prisma.patientDocument.findUnique({ where: { id } });
+    if (!doc) return;
+    if (doc.type !== DocumentType.DISCHARGE_REPORT) {
+      throw new ConflictException(
+        'Solo se puede descartar un documento de informe de alta.',
+      );
+    }
+    await this.prisma.patientDocument.delete({ where: { id } });
+    await deletePatientDocumentObject(doc.storagePath);
+  }
+
   // Devuelve el contenido ya descifrado, listo para servir. La validación de
   // acceso ya la hace `getDocument` (vía `patientsService.findOne`).
   async getDecryptedFile(id: string, userId: string) {
@@ -233,6 +316,26 @@ export class DocumentsService {
   // sigue permitida. Todo ocurre en una transacción: la marca de anulación y
   // el eventual REVOKE del ledger se confirman juntos o no se confirma nada.
   async voidDocument(id: string, dto: VoidDocumentDto, userId: string) {
+    return this.voidDocumentInternal(id, dto, userId, 'generic');
+  }
+
+  // T3: anulación de un PDF de informe de alta (p. ej. al reemplazarlo por una
+  // versión nueva, T3b). Solo la invoca el módulo discharges; el endpoint
+  // genérico de anulación lo rechaza con 409.
+  async voidDischargeDocument(
+    id: string,
+    dto: VoidDocumentDto,
+    userId: string,
+  ) {
+    return this.voidDocumentInternal(id, dto, userId, 'discharge');
+  }
+
+  private async voidDocumentInternal(
+    id: string,
+    dto: VoidDocumentDto,
+    userId: string,
+    caller: 'generic' | 'discharge',
+  ) {
     const existing = await this.prisma.patientDocument.findUnique({
       where: { id },
     });
@@ -240,6 +343,18 @@ export class DocumentsService {
 
     // Mismo 404 uniforme que el resto del módulo si el documento es ajeno.
     await this.patientsService.assertAccess(existing.patientId, userId);
+
+    const isDischargeReport = existing.type === DocumentType.DISCHARGE_REPORT;
+    if (caller === 'generic' && isDischargeReport) {
+      throw new ConflictException(
+        'El PDF de un informe de alta no se anula desde aquí: corrige el informe para reemplazarlo.',
+      );
+    }
+    if (caller === 'discharge' && !isDischargeReport) {
+      throw new ConflictException(
+        'Solo se puede anular por esta vía un documento de informe de alta.',
+      );
+    }
 
     const voided = await this.prisma.$transaction(async (tx) => {
       // Condición en el WHERE: dos anulaciones concurrentes no pueden pasar

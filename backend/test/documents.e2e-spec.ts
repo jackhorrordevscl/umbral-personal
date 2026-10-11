@@ -232,6 +232,70 @@ describe('Documents encryption at rest (e2e)', () => {
     });
   });
 
+  // T3: el PDF del informe de alta solo lo genera el módulo discharges.
+  describe('DISCHARGE_REPORT por los endpoints genéricos (T3)', () => {
+    it('rechaza subirlo con 400 y no deja ninguna fila', async () => {
+      const before = await prisma.patientDocument.count({
+        where: { patientId, type: 'DISCHARGE_REPORT' },
+      });
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/documents/upload')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .field('patientId', patientId)
+        .field('type', 'DISCHARGE_REPORT')
+        .attach('file', Buffer.from('%PDF-1.4\nfalso informe'), {
+          filename: 'informe.pdf',
+          contentType: 'application/pdf',
+        })
+        .expect(400);
+      expect((res.body as Record<string, unknown>).message).toBe(
+        'Este tipo de documento solo se genera desde el informe de alta',
+      );
+      expect(
+        await prisma.patientDocument.count({
+          where: { patientId, type: 'DISCHARGE_REPORT' },
+        }),
+      ).toBe(before);
+    });
+
+    it('un DISCHARGE_REPORT existente se lista pero no se puede anular (409)', async () => {
+      const doc = await prisma.patientDocument.create({
+        data: {
+          patientId,
+          uploadedBy: therapistAId,
+          type: 'DISCHARGE_REPORT',
+          fileName: 'informe-alta-v1.pdf',
+          storagePath: `e2e-${runId}.pdf.enc`,
+        },
+      });
+
+      const list = await request(app.getHttpServer())
+        .get(`/api/v1/documents/patient/${patientId}`)
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .expect(200);
+      expect(
+        (list.body as Array<{ id: string }>).some((d) => d.id === doc.id),
+      ).toBe(true);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/documents/${doc.id}/void`)
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .send({ reason: 'Intento de anular el informe' })
+        .expect(409);
+      const after = await prisma.patientDocument.findUniqueOrThrow({
+        where: { id: doc.id },
+      });
+      expect(after.voidedAt).toBeNull();
+
+      // Otro terapeuta sigue recibiendo el 404 uniforme, no el 409.
+      await request(app.getHttpServer())
+        .post(`/api/v1/documents/${doc.id}/void`)
+        .set('Authorization', `Bearer ${therapistBToken}`)
+        .send({ reason: 'Intento de anular el informe' })
+        .expect(404);
+    });
+  });
+
   describe('GET /documents/:id/download', () => {
     it('devuelve el contenido original ya descifrado', async () => {
       const res = await request(app.getHttpServer())

@@ -285,6 +285,8 @@ model PatientDocument {
   // Eventos del ledger de consentimiento que dependen de este documento.
   consentEvents       PatientConsent[]
   assentEvents        PatientAssent[]
+  // Informes de alta cuyo PDF es este documento (T3).
+  dischargeReports    TreatmentDischarge[] @relation("DischargePdfDocument")
 
   @@index([patientId])
   @@index([consultationGroupId])
@@ -417,8 +419,13 @@ model TreatmentDischarge {
 
   issuedAt    DateTime?
   contentHash String?
-  // PatientDocument con el PDF (T3); sin FK ni lógica todavía.
+  // PatientDocument con el PDF (generado por el sistema en T3, o aportado por
+  // el terapeuta en T3b). No entra al contentHash: se fija una sola vez sobre
+  // una fila ISSUED (única mutación permitida) y nunca altera la verificación.
   documentId  String?
+  document    PatientDocument? @relation("DischargePdfDocument", fields: [documentId], references: [id], onDelete: Restrict)
+  // SHA-256 en hex de los bytes del PDF guardado (integridad en reposo).
+  pdfSha256   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -428,6 +435,7 @@ model TreatmentDischarge {
   @@index([patientId])
   @@index([therapistId])
   @@index([groupId])
+  @@index([documentId])
 }
 
 enum SessionType {
