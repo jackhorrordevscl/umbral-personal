@@ -19,6 +19,10 @@ export const MFA_SECRET_CIPHER_PREFIX = 'enc:v1:';
 // solo se lee; la escritura sigue siendo enc:v1 hasta T3b.
 const MFA_SECRET_CIPHER_PREFIX_V2 = 'enc:v2:';
 
+// ADR 0005 (issue #382): enc:v3:<keyId>:<base64> agrega AAD (prefijo, keyId y
+// dataset autenticados). Se lee desde U1; la escritura se activa en U2.
+const MFA_SECRET_CIPHER_PREFIX_V3 = 'enc:v3:';
+
 // Dedicated AES-256-GCM key (never shared with DOCUMENT_ENCRYPTION_KEY,
 // GOOGLE_TOKEN_ENCRYPTION_KEY or PAYMENT_CREDENTIALS_ENCRYPTION_KEY), same
 // payload scheme and startup validation as the other crypto services, via the
@@ -62,7 +66,8 @@ export class MfaSecretCryptoService implements OnModuleInit {
   isEncrypted(stored: string): boolean {
     return (
       stored.startsWith(MFA_SECRET_CIPHER_PREFIX) ||
-      stored.startsWith(MFA_SECRET_CIPHER_PREFIX_V2)
+      stored.startsWith(MFA_SECRET_CIPHER_PREFIX_V2) ||
+      stored.startsWith(MFA_SECRET_CIPHER_PREFIX_V3)
     );
   }
 }

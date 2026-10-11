@@ -104,7 +104,7 @@ describe('runReencrypt', () => {
     const stored = port.values.get('a') as Buffer;
     expect(decryptWithKeyring(stored, ring).toString()).toBe('secreto');
     expect(stored.subarray(0, 4)).toEqual(
-      Buffer.from([0x55, 0x4b, 0x01, 0x01]),
+      Buffer.from([0x55, 0x4b, 0x02, 0x01]),
     );
     expect(report.datasets[0]).toMatchObject({
       scanned: 1,
@@ -166,7 +166,68 @@ describe('runReencrypt', () => {
     expect(report.datasets[0]).toMatchObject({ upToDate: 1, reencrypted: 1 });
   });
 
-  it('cifra a enc:v2 el texto plano y el enc:v1 del MFA', async () => {
+  it('trata un 0x01 como pendiente aunque tenga la clave activa', async () => {
+    const ring = ringActive1();
+    const v1 = Buffer.concat([
+      Buffer.from([0x55, 0x4b, 0x01, 0x01]),
+      encryptAesGcm(Buffer.from('t3a'), key1),
+    ]);
+    const current = encryptWithKeyring(Buffer.from('nuevo'), ring);
+    const dry = binaryPort(ring, { old: v1, cur: current });
+
+    const dryReport = await runReencrypt([dry], { apply: false });
+
+    expect(dryReport.datasets[0]).toMatchObject({
+      upToDate: 1,
+      wouldReencrypt: 1,
+    });
+    expect(dry.writes).toEqual([]);
+
+    const port = binaryPort(ring, { old: v1, cur: current });
+    const report = await runReencrypt([port], { apply: true });
+
+    expect(report.datasets[0]).toMatchObject({ upToDate: 1, reencrypted: 1 });
+    expect(port.writes).toEqual(['old']);
+    const stored = port.values.get('old') as Buffer;
+    expect(stored.subarray(0, 4)).toEqual(
+      Buffer.from([0x55, 0x4b, 0x02, 0x01]),
+    );
+    expect(decryptWithKeyring(stored, ring).toString()).toBe('t3a');
+    expect(port.values.get('cur')).toBe(current);
+  });
+
+  it('trata 0x02 con otra clave que la activa como pendiente', async () => {
+    const before = ringId0();
+    const after = ringActive1();
+    const port = binaryPort(after, {
+      a: encryptWithKeyring(Buffer.from('x'), before),
+    });
+
+    const report = await runReencrypt([port], { apply: false });
+
+    expect(report.datasets[0]).toMatchObject({
+      upToDate: 0,
+      wouldReencrypt: 1,
+    });
+  });
+
+  it('trata enc:v2 como pendiente y enc:v3 con clave activa como al día', async () => {
+    const ring = ringActive1();
+    const v2 = `enc:v2:1:${encryptAesGcm(Buffer.from('MFRGGZDF'), key1).toString('base64')}`;
+    const v3 = encryptTextWithKeyring(Buffer.from('GEZDGNBV'), ring);
+    const port = textPort(ring, { v2, v3 });
+
+    const report = await runReencrypt([port], { apply: true });
+
+    expect(report.datasets[0]).toMatchObject({ upToDate: 1, reencrypted: 1 });
+    expect(port.writes).toEqual(['v2']);
+    const stored = port.values.get('v2') as string;
+    expect(stored.startsWith('enc:v3:1:')).toBe(true);
+    expect(decryptTextWithKeyring(stored, ring).toString()).toBe('MFRGGZDF');
+    expect(port.values.get('v3')).toBe(v3);
+  });
+
+  it('cifra a enc:v3 el texto plano y el enc:v1 del MFA', async () => {
     const ring = ringActive1();
     const port = textPort(ring, {
       plain: 'JBSWY3DPEHPK3PXP',
@@ -178,7 +239,7 @@ describe('runReencrypt', () => {
 
     for (const id of ['plain', 'v1']) {
       const stored = port.values.get(id) as string;
-      expect(stored.startsWith('enc:v2:1:')).toBe(true);
+      expect(stored.startsWith('enc:v3:1:')).toBe(true);
     }
     expect(
       decryptTextWithKeyring(

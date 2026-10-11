@@ -13,9 +13,10 @@ import {
 // en memoria; el wrapper delgado que los implementa vive en
 // backend/scripts/reencrypt-keys.ts.
 //
-// "Al día" significa formato versionado Y keyId === clave activa. Un dato
-// legacy (sin cabecera, clave id 0) siempre se reescribe, aunque la clave
-// activa sea la id 0, para que quede con cabecera.
+// "Al día" significa formato más nuevo (0x02 con AAD / enc:v3) Y keyId ===
+// clave activa. Todo lo demás se reescribe: legacy (sin cabecera, clave id 0),
+// 0x01 / enc:v2 (versionados sin AAD) y texto plano, aunque la clave activa
+// sea la que ya los cifra.
 
 export type DatasetName = 'mfa' | 'google' | 'payment' | 'documents';
 
@@ -51,6 +52,8 @@ export interface Inspection {
   // null = texto plano sin cifrar (solo MFA).
   keyId: number | null;
   versioned: boolean;
+  // true solo si el valor ya está en el formato más nuevo (0x02 / enc:v3).
+  latest: boolean;
 }
 
 export interface ValueCodec {
@@ -77,7 +80,13 @@ export interface DatasetPort {
 export function binaryCodec(keyring: Keyring): ValueCodec {
   return {
     activeKeyId: keyring.activeKeyId,
-    inspect: (value) => inspectPayload(value as Buffer, keyring),
+    inspect: (value) => {
+      const { keyId, versioned, formatVersion } = inspectPayload(
+        value as Buffer,
+        keyring,
+      );
+      return { keyId, versioned, latest: formatVersion === 'v2' };
+    },
     decrypt: (value) => decryptWithKeyring(value as Buffer, keyring),
     encrypt: (plaintext) => encryptWithKeyring(plaintext, keyring),
   };
@@ -88,7 +97,11 @@ export function textCodec(keyring: Keyring): ValueCodec {
     activeKeyId: keyring.activeKeyId,
     inspect: (value) => {
       const { keyId, format } = inspectText(value as string);
-      return { keyId, versioned: format === 'v2' };
+      return {
+        keyId,
+        versioned: format === 'v2' || format === 'v3',
+        latest: format === 'v3',
+      };
     },
     // El texto sin prefijo es un secreto en claro previo al cifrado en reposo.
     decrypt: (value) => {
@@ -191,7 +204,7 @@ async function processRow(
     report.usingRetireKey += 1;
   }
 
-  if (inspection.versioned && inspection.keyId === port.codec.activeKeyId) {
+  if (inspection.latest && inspection.keyId === port.codec.activeKeyId) {
     report.upToDate += 1;
     return;
   }
