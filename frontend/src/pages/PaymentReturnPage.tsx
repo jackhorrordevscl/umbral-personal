@@ -12,13 +12,17 @@ import { usePaymentReturnStatus } from '../hooks/usePaymentReturnStatus';
 // mientras carga o ante cualquier error se muestra "procesando". En el
 // rechazo NO se invita a reintentar el mismo link porque Flow no permite
 // reutilizarlo: se pide uno nuevo al terapeuta.
+// Issue #433: con un rechazo o abandono en el banco real Flow sigue
+// informando la orden como pendiente, y el estado no permite distinguirlo de
+// un pago en curso. Por eso el mensaje de "procesando" también orienta a quien
+// no completó el pago a pedir un nuevo link.
 export default function PaymentReturnPage() {
   const [searchParams] = useSearchParams();
   const { data: status } = usePaymentReturnStatus(searchParams.get('token'));
 
   let title = '¡Gracias!';
   let message =
-    'Tu pago está siendo procesado. En cuanto quede confirmado vas a recibir un correo de tu terapeuta.';
+    'Tu pago está siendo procesado. Si ya lo completaste, vas a recibir un correo de tu terapeuta en cuanto quede confirmado. Si lo cancelaste o no pudiste completarlo, pide a tu terapeuta un nuevo link de pago.';
   if (status === 'PAID') {
     title = 'Pago recibido';
     message = 'Recibimos tu pago. Tu terapeuta ya fue notificado. ¡Gracias!';

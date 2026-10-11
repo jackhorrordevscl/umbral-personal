@@ -62,6 +62,22 @@ describe('PaymentReturnPage', () => {
     expect(screen.queryByText(/No pudimos completar/)).not.toBeInTheDocument()
   })
 
+  // Issue #433: con un rechazo o abandono en el banco real Flow sigue
+  // informando la orden como pendiente, así que el mensaje de procesando debe
+  // orientar también a quien no completó el pago.
+  it('en PENDING orienta a pedir un nuevo link si el pago no se completó', async () => {
+    mockedApi.get.mockResolvedValue({ data: { status: 'PENDING' } })
+
+    renderPage('/pago-recibido?token=abc')
+
+    expect(
+      await screen.findByText(
+        /Si lo cancelaste o no pudiste completarlo, pide a tu terapeuta un nuevo link de pago\./,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Tu pago está siendo procesado/)).toBeInTheDocument()
+  })
+
   it('muestra el mensaje de procesando mientras carga', () => {
     mockedApi.get.mockReturnValue(new Promise(() => {}))
 
