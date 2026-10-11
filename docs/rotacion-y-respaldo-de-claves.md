@@ -43,13 +43,74 @@ Reglas:
 - Un `.env` con secretos de producción no debe quedar dentro del repositorio ni
   en una carpeta de descargas.
 
+## 2.1 Migrar los datos existentes al formato con AAD (T3b)
+
+Desde el release de T3b-U2 el backend **escribe** el formato `0x02` (binario) y
+`enc:v3` (MFA), que autentican la cabecera y la etiqueta del dataset (ADR 0005,
+sección 1.1). Lo que ya existe sigue legible en su formato anterior (legacy,
+`0x01`, `enc:v1`, `enc:v2`) hasta que se re-cifre. Esta migración se hace **una
+sola vez** y es independiente de rotar claves: se re-cifra con la clave activa
+actual (id 0 si no se configuró otra).
+
+Orden:
+
+1. **Respaldo manual de la base.** Ejecutar `backup.yml` (workflow_dispatch)
+   justo antes de desplegar. El respaldo de la base **no cubre los documentos**:
+   viven en el bucket B2 de documentos, y el bucket debe tener activado "keep
+   all versions" para poder recuperar el objeto original tras re-cifrarlo.
+2. **Desplegar** el release de T3b-U2 en Render (a mano). Desde ese momento los
+   datos nuevos se escriben con AAD. No hay variables nuevas obligatorias.
+3. **Dry-run** (no escribe) desde `backend/`, con las variables de producción
+   cargadas solo en esa sesión de terminal:
+
+   ```
+   npm run crypto:reencrypt
+   ```
+
+   El informe cuenta, por dataset y clave, qué está al día y qué hay que migrar.
+4. **`--apply` por dataset, en este orden**, revisando el informe y que el
+   código de salida sea `0` antes de seguir con el siguiente:
+
+   ```
+   npm run crypto:reencrypt -- --only google --apply
+   npm run crypto:reencrypt -- --only payment --apply
+   npm run crypto:reencrypt -- --only mfa --apply
+   npm run crypto:reencrypt -- --only documents --apply
+   ```
+
+   `documents` va al final porque reescribe objetos en B2 (el más lento y el
+   único sin respaldo en la base). Probar primero con `--limit 10` si se quiere
+   (ver limitaciones).
+5. **Repetir el dry-run.** Todo debe quedar "al día" y con 0 fallas.
+
+Piso de rollback: una vez desplegado el release que **lee** `0x02`/`enc:v3`
+(T3b-U1) no se vuelve a un build anterior; tras T3b-U2 tampoco se baja de
+T3b-U1. Antes de T3b-U1 el piso es #395 (lectura por llavero). Un build sin
+lectura de `0x02` no puede leer lo que escribió T3b-U2.
+
+### Limitaciones conocidas del script
+
+- **`--limit` no avanza.** Cuenta las filas leídas (migradas o ya al día), no las
+  migradas, y siempre empieza por el principio: repetir el mismo `--limit`
+  revisa normalmente las mismas primeras N filas. Sirve solo para la prueba acotada; la
+  migración real se hace sin `--limit`.
+- **Fila MFA en texto plano.** Un `User.mfaSecret` sin prefijo `enc:` (previo al
+  cifrado en reposo) se cuenta en el grupo `plaintext` del informe y `--apply`
+  lo cifra. Revisar que ese conteo sea el esperado antes de aplicar.
+- **Documentos con objeto faltante.** Si una fila de `PatientDocument` apunta a
+  un objeto que ya no existe en B2, se informa como falla `missing-object`, no
+  detiene la corrida y deja el código de salida en `1`. Mientras haya filas así,
+  `--check-retire` tampoco da luz verde: hay que resolverlas (restaurar el
+  objeto desde una versión anterior del bucket o dar de baja el documento) y
+  repetir.
+
 ## 3. Rotación de una clave
 
 ### Antes de empezar
 
-- [ ] El release que **escribe** en formato versionado está desplegado y se
-      observó sin problemas. Sin él, el script reescribe pero el código sigue
-      generando datos con la clave vieja.
+- [ ] El release que **escribe** en formato versionado (T3b-U2) está desplegado,
+      la migración de la sección 2.1 terminó y se observó sin problemas. Sin el
+      release, el código sigue generando datos con la clave vieja.
 - [ ] Todas las claves y las credenciales de B2 están respaldadas (sección 2).
 - [ ] Hay un respaldo reciente de la base.
 - [ ] Se eligió una ventana de poco uso.
@@ -144,8 +205,9 @@ Los ejemplos de abajo usan documentos.
 - Antes del paso 8 no se perdió nada: la clave vieja sigue en el llavero y todo
   sigue legible. Detener la corrida, corregir y repetir.
 - No retirar nunca una clave con filas pendientes ni con filas que fallaron.
-- No volver a un build anterior al release de lectura por llavero: no puede
-  leer datos con cabecera de versión.
+- No volver a un build anterior al release que lee `0x02`/`enc:v3` (T3b-U1):
+  no puede leer datos con esa cabecera. Tras escribir con T3b-U2 el piso es
+  T3b-U1; antes de T3b-U1 el piso es #395 (lectura por llavero).
 
 ### Limitación conocida: la clave id 0
 
@@ -174,7 +236,7 @@ Todos desde `backend/`:
 | `npm run crypto:reencrypt` | Cuenta por dataset y por clave. No escribe |
 | `npm run crypto:reencrypt -- --only mfa,google,payment,documents` | Limita los datasets |
 | `npm run crypto:reencrypt -- --limit N` | Máximo de filas por dataset |
-| `npm run crypto:reencrypt -- --apply` | Re-cifra con la clave activa |
+| `npm run crypto:reencrypt -- --apply` | Re-cifra con la clave activa (y migra al formato con AAD) |
 | `npm run crypto:reencrypt -- --check-retire NOMBRE=id` | Verifica que una clave ya no se usa (no se combina con `--apply` ni `--limit`) |
 
 Códigos de salida: `0` sin fallas, `1` si alguna fila falló o hubo un error

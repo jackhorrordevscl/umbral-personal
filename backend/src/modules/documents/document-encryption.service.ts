@@ -1,9 +1,9 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { encryptAesGcm } from '../../common/crypto/aes-gcm';
 import {
   buildKeyring,
   decryptWithKeyring,
+  encryptWithKeyring,
   Keyring,
 } from '../../common/crypto/keyring';
 
@@ -37,22 +37,15 @@ export class DocumentEncryptionService implements OnModuleInit {
     );
   }
 
-  // ADR 0005 (issue #382, T3a): migración de solo lectura. Se sigue cifrando
-  // con la clave id 0 (la variable de entorno original) en formato legacy, para
-  // que la versión anterior del servicio pueda leer lo que se escribe mientras
-  // dura el despliegue. La escritura versionada se activa en T3b.
+  // ADR 0005 (issue #382, T3b): cifra con la clave activa del llavero (id 0 por
+  // defecto) en el formato 0x02, que autentica la cabecera y la etiqueta del
+  // dataset (AAD). Una versión anterior a la que lee 0x02 no puede leer esto.
   encrypt(plaintext: Buffer): Buffer {
-    return encryptAesGcm(plaintext, this.legacyKey());
+    return encryptWithKeyring(plaintext, this.keyring);
   }
 
-  // Lee tanto el formato legacy como el versionado a través del llavero.
+  // Lee los formatos legacy, 0x01 y 0x02 a través del llavero.
   decrypt(payload: Buffer): Buffer {
     return decryptWithKeyring(payload, this.keyring);
-  }
-
-  private legacyKey(): Buffer {
-    const key = this.keyring.keys.get(0);
-    if (!key) throw new Error(`${ENV_VAR_NAME}: llavero sin clave id 0`);
-    return key;
   }
 }

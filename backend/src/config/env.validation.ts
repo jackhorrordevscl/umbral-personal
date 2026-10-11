@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { buildKeyring } from '../common/crypto/keyring';
 
 // SHA-256 de los valores de ejemplo que aparecen en README.md e install.sh
 // (nunca el valor en claro, para no gatillar escaneo de secretos en el repo):
@@ -43,6 +44,20 @@ const DOCUMENT_ENCRYPTION_KEY_BYTE_LENGTH = 32;
 const GOOGLE_TOKEN_ENCRYPTION_KEY_BYTE_LENGTH = 32;
 const PAYMENT_CREDENTIALS_ENCRYPTION_KEY_BYTE_LENGTH = 32;
 const MFA_SECRET_ENCRYPTION_KEY_BYTE_LENGTH = 32;
+
+// Issue #382 (ADR 0005): nombres de las cuatro claves de cifrado que admiten
+// un llavero opcional (<NOMBRE>_KEYRING y <NOMBRE>_ACTIVE_KEY_ID).
+const KEYRING_ENV_VAR_NAMES = [
+  'DOCUMENT_ENCRYPTION_KEY',
+  'GOOGLE_TOKEN_ENCRYPTION_KEY',
+  'PAYMENT_CREDENTIALS_ENCRYPTION_KEY',
+  'MFA_SECRET_ENCRYPTION_KEY',
+] as const;
+
+// Clave id 0 de relleno: buildKeyring la exige, pero aquí solo se validan
+// <NOMBRE>_KEYRING y <NOMBRE>_ACTIVE_KEY_ID. La clave id 0 real la valida cada
+// servicio al arrancar y, en producción, validateEnv más abajo.
+const KEYRING_VALIDATION_PLACEHOLDER_KEY = Buffer.alloc(32).toString('base64');
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -218,6 +233,24 @@ const B2_BUCKET_PREFIXES = [
   'B2_PATIENT_DOCUMENTS',
 ] as const;
 
+// Ambas variables son opcionales. Si alguna está definida se valida con el
+// mismo parser que usa el servicio en runtime (buildKeyring), en cualquier
+// entorno, para que un valor mal formado falle en el arranque y no al primer
+// cifrado o descifrado.
+function validateKeyringVars(config: Record<string, unknown>): void {
+  for (const name of KEYRING_ENV_VAR_NAMES) {
+    const keyring = config[`${name}_KEYRING`];
+    const activeKeyId = config[`${name}_ACTIVE_KEY_ID`];
+    if (keyring === undefined && activeKeyId === undefined) continue;
+    buildKeyring(
+      KEYRING_VALIDATION_PLACEHOLDER_KEY,
+      typeof keyring === 'string' ? keyring : undefined,
+      typeof activeKeyId === 'string' ? activeKeyId : undefined,
+      name,
+    );
+  }
+}
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '';
 }
@@ -276,6 +309,7 @@ export function validateEnv(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
   validateMainTsEnvVars(config);
+  validateKeyringVars(config);
 
   if (config.NODE_ENV === 'production') {
     const secret =

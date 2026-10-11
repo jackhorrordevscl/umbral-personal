@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { encryptAesGcm } from '../../common/crypto/aes-gcm';
 import {
   buildKeyring,
+  decryptTextWithKeyring,
   encryptTextWithKeyring,
 } from '../../common/crypto/keyring';
 import {
@@ -36,7 +37,7 @@ describe('MfaSecretCryptoService', () => {
 
     const stored = service.encrypt(secret);
 
-    expect(stored.startsWith(MFA_SECRET_CIPHER_PREFIX)).toBe(true);
+    expect(stored.startsWith('enc:v3:0:')).toBe(true);
     expect(service.isEncrypted(stored)).toBe(true);
     expect(service.decrypt(stored)).toBe(secret);
   });
@@ -61,16 +62,12 @@ describe('MfaSecretCryptoService', () => {
   it('throws on a tampered ciphertext (GCM authentication)', () => {
     const service = buildService(validKey);
     const stored = service.encrypt(secret);
-    const payload = Buffer.from(
-      stored.slice(MFA_SECRET_CIPHER_PREFIX.length),
-      'base64',
-    );
+    const [, , id, body] = stored.split(':');
+    const payload = Buffer.from(body, 'base64');
     payload[payload.length - 1] ^= 0xff;
 
     expect(() =>
-      service.decrypt(
-        `${MFA_SECRET_CIPHER_PREFIX}${payload.toString('base64')}`,
-      ),
+      service.decrypt(`enc:v3:${id}:${payload.toString('base64')}`),
     ).toThrow();
   });
 
@@ -81,6 +78,7 @@ describe('MfaSecretCryptoService', () => {
       service.decrypt(`${MFA_SECRET_CIPHER_PREFIX}garbage`),
     ).toThrow();
     expect(() => service.decrypt(MFA_SECRET_CIPHER_PREFIX)).toThrow();
+    expect(() => service.decrypt('enc:v3:0:garbage')).toThrow();
   });
 
   it('does not decrypt a value encrypted under a different key', () => {
@@ -100,9 +98,8 @@ describe('MfaSecretCryptoService', () => {
     );
   });
 
-  // ADR 0005 (issue #382, T3a): migración de solo lectura. El servicio lee
-  // enc:v1 y enc:v2 a través del llavero, pero sigue escribiendo enc:v1 hasta
-  // que T3b active la escritura versionada.
+  // ADR 0005 (issue #382): el servicio lee enc:v1, enc:v2 y enc:v3 a través
+  // del llavero, y escribe enc:v3 (con AAD) con la clave activa.
   describe('keyring reads (ADR 0005)', () => {
     const rotatedKey = Buffer.alloc(32, 99).toString('base64');
     const rotatedEnv = {
@@ -158,11 +155,67 @@ describe('MfaSecretCryptoService', () => {
       expect(service.decrypt(secret)).toBe(secret);
     });
 
-    it('still writes enc:v1 even with a rotated active key', () => {
+    it('writes enc:v3 with key id 0 by default', () => {
+      const stored = buildService(validKey).encrypt(secret);
+
+      expect(stored.startsWith('enc:v3:0:')).toBe(true);
+    });
+
+    it('writes enc:v3 with the rotated active key (id 1) and reads it back', () => {
+      const service = buildService(validKey, rotatedEnv);
+
+      const stored = service.encrypt(secret);
+
+      expect(stored.startsWith('enc:v3:1:')).toBe(true);
+      expect(service.decrypt(stored)).toBe(secret);
+    });
+
+    it('reads what it wrote only with a service that shares the keyring', () => {
       const stored = buildService(validKey, rotatedEnv).encrypt(secret);
 
-      expect(stored.startsWith('enc:v1:')).toBe(true);
-      expect(stored.startsWith('enc:v2:')).toBe(false);
+      expect(buildService(validKey, rotatedEnv).decrypt(stored)).toBe(secret);
+      // Without key id 1 in the keyring there is no way to read it.
+      expect(() => buildService(validKey).decrypt(stored)).toThrow();
+    });
+
+    it('does not read with another dataset label even with the same key', () => {
+      const foreign = buildKeyring(
+        validKey,
+        undefined,
+        undefined,
+        'GOOGLE_TOKEN_ENCRYPTION_KEY',
+      );
+      const stored = buildService(validKey).encrypt(secret);
+
+      expect(() => decryptTextWithKeyring(stored, foreign)).toThrow();
+      expect(() =>
+        buildService(validKey).decrypt(
+          encryptTextWithKeyring(Buffer.from(secret), foreign),
+        ),
+      ).toThrow();
+    });
+
+    it('rejects an enc:v3 value whose key id was altered (the id is in the AAD)', () => {
+      const stored = buildService(validKey, rotatedEnv).encrypt(secret);
+      const altered = stored.replace('enc:v3:1:', 'enc:v3:0:');
+
+      expect(() =>
+        buildService(validKey, rotatedEnv).decrypt(altered),
+      ).toThrow();
+    });
+
+    it('reads a mixed table of enc:v1, enc:v2, enc:v3 and plaintext rows', () => {
+      const key = Buffer.from(validKey, 'base64');
+      const service = buildService(validKey, rotatedEnv);
+      const v1 = `${MFA_SECRET_CIPHER_PREFIX}${encryptAesGcm(
+        Buffer.from(secret),
+        key,
+      ).toString('base64')}`;
+      const rows = [v1, v2Text(0, validKey), service.encrypt(secret), secret];
+
+      for (const row of rows) {
+        expect(service.decrypt(row)).toBe(secret);
+      }
     });
 
     it('throws on a tampered enc:v2 value (GCM authentication)', () => {
