@@ -670,4 +670,125 @@ describe('validateEnv', () => {
       expect(validateEnv(config)).toBe(config);
     });
   });
+
+  // Issue #382 (ADR 0005): <NOMBRE>_KEYRING y <NOMBRE>_ACTIVE_KEY_ID son
+  // opcionales, pero si se definen se validan con las mismas reglas que el
+  // llavero de runtime, en cualquier entorno.
+  describe('llaveros de cifrado (issue #382)', () => {
+    const names = [
+      'DOCUMENT_ENCRYPTION_KEY',
+      'GOOGLE_TOKEN_ENCRYPTION_KEY',
+      'PAYMENT_CREDENTIALS_ENCRYPTION_KEY',
+      'MFA_SECRET_ENCRYPTION_KEY',
+    ];
+    const extraKey = Buffer.alloc(32, 21).toString('base64');
+    const otherKey = Buffer.alloc(32, 22).toString('base64');
+
+    it('no exige ninguna de las variables nuevas', () => {
+      const config = { NODE_ENV: 'test' };
+
+      expect(validateEnv(config)).toBe(config);
+    });
+
+    it.each(names)(
+      'acepta un llavero válido y su clave activa para %s',
+      (name) => {
+        const config = {
+          NODE_ENV: 'test',
+          [`${name}_KEYRING`]: `1:${extraKey}, 2:${otherKey}`,
+          [`${name}_ACTIVE_KEY_ID`]: '2',
+        };
+
+        expect(validateEnv(config)).toBe(config);
+      },
+    );
+
+    it.each(names)(
+      'acepta como activa la clave id 0 sin llavero para %s',
+      (name) => {
+        const config = { NODE_ENV: 'test', [`${name}_ACTIVE_KEY_ID`]: '0' };
+
+        expect(validateEnv(config)).toBe(config);
+      },
+    );
+
+    it.each(names)(
+      'rechaza una entrada sin formato id:base64 en %s_KEYRING',
+      (name) => {
+        expect(() =>
+          validateEnv({ NODE_ENV: 'test', [`${name}_KEYRING`]: extraKey }),
+        ).toThrow(new RegExp(`${name}_KEYRING inválida`));
+      },
+    );
+
+    it.each(names)(
+      'rechaza un id fuera de 1-255 o no entero en %s_KEYRING',
+      (name) => {
+        for (const id of ['0', '256', 'x', '1.5']) {
+          expect(() =>
+            validateEnv({
+              NODE_ENV: 'test',
+              [`${name}_KEYRING`]: `${id}:${extraKey}`,
+            }),
+          ).toThrow(new RegExp(`${name}_KEYRING inválida`));
+        }
+      },
+    );
+
+    it.each(names)('rechaza ids duplicados en %s_KEYRING', (name) => {
+      expect(() =>
+        validateEnv({
+          NODE_ENV: 'test',
+          [`${name}_KEYRING`]: `1:${extraKey},1:${otherKey}`,
+        }),
+      ).toThrow(/duplicado/);
+    });
+
+    it.each(names)(
+      'rechaza una clave que no decodifica a 32 bytes en %s_KEYRING',
+      (name) => {
+        expect(() =>
+          validateEnv({
+            NODE_ENV: 'test',
+            [`${name}_KEYRING`]: `1:${Buffer.alloc(16, 1).toString('base64')}`,
+          }),
+        ).toThrow(new RegExp(`${name}_KEYRING inválida`));
+      },
+    );
+
+    it.each(names)(
+      'rechaza una %s_ACTIVE_KEY_ID que no existe en el llavero',
+      (name) => {
+        expect(() =>
+          validateEnv({
+            NODE_ENV: 'test',
+            [`${name}_KEYRING`]: `1:${extraKey}`,
+            [`${name}_ACTIVE_KEY_ID`]: '2',
+          }),
+        ).toThrow(new RegExp(`${name}_ACTIVE_KEY_ID inválida`));
+        expect(() =>
+          validateEnv({ NODE_ENV: 'test', [`${name}_ACTIVE_KEY_ID`]: '1' }),
+        ).toThrow(new RegExp(`${name}_ACTIVE_KEY_ID inválida`));
+      },
+    );
+
+    it.each(names)('rechaza una %s_ACTIVE_KEY_ID no numérica', (name) => {
+      for (const id of ['abc', '-1', '256']) {
+        expect(() =>
+          validateEnv({ NODE_ENV: 'test', [`${name}_ACTIVE_KEY_ID`]: id }),
+        ).toThrow(new RegExp(`${name}_ACTIVE_KEY_ID inválida`));
+      }
+    });
+
+    it('también valida el llavero en producción', () => {
+      expect(() =>
+        validateEnv({
+          ...productionBase,
+          MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
+          ...productionRequiredVars,
+          DOCUMENT_ENCRYPTION_KEY_KEYRING: 'basura',
+        }),
+      ).toThrow(/DOCUMENT_ENCRYPTION_KEY_KEYRING inválida/);
+    });
+  });
 });

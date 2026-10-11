@@ -21,6 +21,8 @@ Problemas actuales:
 - El payload es `[IV12][tag16][ciphertext]`, sin versión ni identificador de
   clave. Solo el secreto MFA lleva un prefijo (`enc:v1:`), y versiona el
   formato, no la clave.
+- Nada autentica a qué dato pertenece un payload: un valor cifrado de un
+  dataset, copiado a otro que use la misma clave, se descifra sin error.
 - `credentialVersion` en pagos versiona la forma de la credencial, no la clave.
 - Cambiar cualquiera de las cuatro variables deja ilegible todo lo cifrado con
   la anterior. En la práctica no hay rotación.
@@ -36,10 +38,50 @@ Los datos nuevos se escriben con una cabecera que identifica el formato y la
 clave:
 
 ```
-[0x55 0x4B][formato = 0x01][keyId: 1 byte][IV12][tag16][ciphertext]
+[0x55 0x4B][formato = 0x02][keyId: 1 byte][IV12][tag16][ciphertext]
 ```
 
-El secreto MFA, que es texto, usa `enc:v2:<keyId>:<base64(IV|tag|ct)>`.
+El secreto MFA, que es texto, usa `enc:v3:<keyId>:<base64(IV|tag|ct)>`.
+
+Formatos que el código sabe leer:
+
+| Dato | Formato | AAD | Se escribe |
+| --- | --- | --- | --- |
+| Binario | legacy `[IV12][tag16][ct]` (clave id 0) | no | no |
+| Binario | `0x01` (T3a, #395) | no | no |
+| Binario | `0x02` | sí | **sí** |
+| MFA | `enc:v1:<b64>` (clave id 0) | no | no |
+| MFA | `enc:v2:<keyId>:<b64>` | no | no |
+| MFA | `enc:v3:<keyId>:<b64>` | sí | **sí** |
+
+El formato `0x01` y `enc:v2` quedan **solo de lectura**: T3a nunca los escribió
+en producción; se conservan solo para leerlos si aparecen, y el script de
+re-cifrado los trata como "a migrar" a `0x02`/`enc:v3`.
+
+### 1.1 Datos adicionales autenticados (AAD)
+
+Desde el formato `0x02` / `enc:v3` el cifrado AES-GCM autentica, además del
+contenido, datos que no viajan cifrados:
+
+- Binario: `[0x55 0x4B][0x02][keyId]` seguido de la etiqueta UTF-8 del dataset.
+- MFA: la cadena UTF-8 `enc:v3:<keyId>:` seguida de la etiqueta del dataset.
+
+Las etiquetas son fijas y viven en un mapa explícito en `keyring.ts` (no se
+derivan del nombre de la variable, para que renombrarla no invalide datos):
+
+| Variable | Etiqueta |
+| --- | --- |
+| `DOCUMENT_ENCRYPTION_KEY` | `documents` |
+| `GOOGLE_TOKEN_ENCRYPTION_KEY` | `google` |
+| `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | `payment` |
+| `MFA_SECRET_ENCRYPTION_KEY` | `mfa` |
+
+Efecto: una cabecera alterada (por ejemplo cambiar el `keyId`) o un payload
+movido a otro dataset falla la autenticación de GCM aunque ambos usen la misma
+clave. No se liga el id de la fila: complicaría los re-cifrados y el riesgo que
+cubre (intercambiar filas del mismo dataset) exige acceso de escritura a la base,
+que ya permite cosas peores. El tag de GCM se fija en 16 bytes al descifrar
+(`authTagLength`), para que Node no acepte un tag truncado.
 
 ### 2. Lectura de datos existentes
 
@@ -47,15 +89,16 @@ Los datos sin cabecera se tratan como clave **id 0**, que es la variable de
 entorno actual sin cambios. Como el IV legacy es aleatorio, la cabecera por sí
 sola no prueba que el dato sea nuevo. La lectura sigue este orden:
 
-1. Si empieza con la cabecera y el `keyId` existe en el llavero, intenta
-   descifrar con esa clave.
+1. Si empieza con la cabecera (`0x01` o `0x02`) y el `keyId` existe en el
+   llavero, intenta descifrar con esa clave (con AAD si es `0x02`).
 2. Si la autenticación de GCM falla, o no hay cabecera, reintenta como legacy
    con la clave id 0.
 3. Si ambos fallan, el comportamiento es el actual de cada servicio (por
    ejemplo, `MfaService.revealSecret` devuelve `null`).
 
 GCM autentica el payload, así que un intento equivocado falla y nunca devuelve
-datos erróneos. Los valores `enc:v1:` de MFA se leen como id 0.
+datos erróneos. Los valores `enc:v1:` de MFA se leen como id 0. Un `0x02` alterado o de otro
+dataset falla también el reintento legacy, así que no se degrada con éxito.
 
 ### 3. Llavero
 
@@ -109,6 +152,16 @@ forma de perder datos en este procedimiento.
   adelante: una versión anterior del backend no puede leer datos escritos con
   cabecera. Por eso la escritura versionada se activa en un PR posterior a la
   lectura, y se despliega en dos pasos.
+- **Piso de rollback.** El build que lee `0x02`/`enc:v3` (U1 de T3b) es el piso:
+  una vez desplegado no se vuelve a un build anterior. Lo mismo vale para el
+  build que escribe (U2): no se baja de U1, que sí lo lee. Antes de U1 no se
+  baja de #395 (lectura por llavero, T3a); un build anterior a #395 no lee
+  ninguna cabecera. Volver a un build sin lectura de `0x02` tras haber
+  escrito datos deja esos datos ilegibles.
+- Los documentos viven en el bucket B2, no en la base: el respaldo de la base
+  no los cubre. Antes de re-cifrarlos el bucket debe conservar todas las
+  versiones de cada objeto ("keep all versions"), para poder volver al
+  original si algo sale mal.
 - Se agrega código y pruebas al módulo de cifrado compartido, y cada servicio
   pasa a depender del llavero en lugar de una sola clave.
 - El cifrado de las notas clínicas (ADR 0004, paso 2) usará este formato y una
@@ -127,3 +180,7 @@ forma de perder datos en este procedimiento.
 2. Llavero y formato versionado en `aes-gcm.ts`, con lectura de datos legacy.
 3. Migración de los cuatro servicios y de la validación de entorno.
 4. Script de re-cifrado y runbook de rotación y respaldo.
+5. T3b-U1: formato `0x02`/`enc:v3` con AAD, solo lectura; el script distingue
+   versión de formato.
+6. T3b-U2: los cuatro servicios escriben `0x02`/`enc:v3`; validación de
+   `<NOMBRE>_KEYRING` y `<NOMBRE>_ACTIVE_KEY_ID` en `env.validation.ts`.

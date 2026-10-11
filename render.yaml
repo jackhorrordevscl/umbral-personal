@@ -77,6 +77,27 @@ services:
       # Render ANTES de desplegar: sin ella el arranque falla.
       - key: MFA_SECRET_ENCRYPTION_KEY
         sync: false
+      # Issue #382 (ADR 0005): llavero opcional de cada clave de cifrado.
+      # <NOMBRE>_KEYRING agrega claves "id:base64,id:base64" (ids 1-255) y
+      # <NOMBRE>_ACTIVE_KEY_ID elige con cuál se cifra (por defecto 0, la
+      # variable original). Pueden quedar vacías; solo se usan al rotar una
+      # clave (docs/rotacion-y-respaldo-de-claves.md).
+      - key: DOCUMENT_ENCRYPTION_KEY_KEYRING
+        sync: false
+      - key: DOCUMENT_ENCRYPTION_KEY_ACTIVE_KEY_ID
+        sync: false
+      - key: GOOGLE_TOKEN_ENCRYPTION_KEY_KEYRING
+        sync: false
+      - key: GOOGLE_TOKEN_ENCRYPTION_KEY_ACTIVE_KEY_ID
+        sync: false
+      - key: PAYMENT_CREDENTIALS_ENCRYPTION_KEY_KEYRING
+        sync: false
+      - key: PAYMENT_CREDENTIALS_ENCRYPTION_KEY_ACTIVE_KEY_ID
+        sync: false
+      - key: MFA_SECRET_ENCRYPTION_KEY_KEYRING
+        sync: false
+      - key: MFA_SECRET_ENCRYPTION_KEY_ACTIVE_KEY_ID
+        sync: false
       # Google Calendar (OAuth) y flag del sync.
       - key: GOOGLE_CLIENT_ID
         sync: false

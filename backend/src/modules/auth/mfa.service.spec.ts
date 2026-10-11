@@ -184,7 +184,7 @@ describe('MfaService', () => {
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
         data: {
-          mfaSecret: expect.stringMatching(/^enc:v1:/) as unknown as string,
+          mfaSecret: expect.stringMatching(/^enc:v3:/) as unknown as string,
           lastUsedStep: null,
         },
       });
@@ -513,7 +513,7 @@ describe('MfaService', () => {
         id: 'user-1',
         mfaSecret: 'BASE32SECRET',
       });
-      expect(reencrypt.data.mfaSecret).toMatch(/^enc:v1:/);
+      expect(reencrypt.data.mfaSecret).toMatch(/^enc:v3:/);
       expect(crypto.decrypt(reencrypt.data.mfaSecret)).toBe('BASE32SECRET');
     });
 
@@ -626,7 +626,7 @@ describe('MfaService', () => {
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
         data: {
-          mfaSecret: expect.stringMatching(/^enc:v1:/) as unknown as string,
+          mfaSecret: expect.stringMatching(/^enc:v3:/) as unknown as string,
           lastUsedStep: null,
         },
       });
