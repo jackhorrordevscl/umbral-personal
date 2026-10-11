@@ -3,7 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { PaymentProvider } from '@prisma/client';
 import { PaymentsService } from './payments.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { GatewayContext, GatewayCredentials } from './payment-gateway.client';
+import {
+  GatewayContext,
+  GatewayCredentials,
+  PaymentGatewayError,
+} from './payment-gateway.client';
 import { PaymentGatewayRegistry } from './payment-gateway.registry';
 import { PaymentAccountService } from './payment-account.service';
 import { MailService } from '../mail/mail.service';
@@ -867,6 +871,89 @@ describe('PaymentsService', () => {
       );
       expect(gatewayAdapter.createOrder).toHaveBeenCalled();
       errorSpy.mockRestore();
+    });
+
+    // issue #434: Flow responde 1701 al anular una orden que ya no admite
+    // cancelación. Si la orden ya estaba rechazada no hay nada que anular y no
+    // es un fallo; si estaba pagada (carrera real, issue #111) sigue siendo ERROR.
+    describe('anulación de una orden que Flow no permite cancelar (issue #434)', () => {
+      const flow1701 = () =>
+        new PaymentGatewayError(
+          'rejected',
+          'Flow devolvió 400 (POST /payment/cancel): {"code":1701,"message":"The status of this transaction does not allow cancellation"}',
+        );
+      let errorSpy: jest.SpyInstance;
+      let warnSpy: jest.SpyInstance;
+
+      beforeEach(() => {
+        arrangeWithPreviousOrder();
+        gatewayAdapter.voidOrder.mockRejectedValue(flow1701());
+        errorSpy = jest
+          .spyOn(Logger.prototype, 'error')
+          .mockImplementation(() => undefined);
+        warnSpy = jest
+          .spyOn(Logger.prototype, 'warn')
+          .mockImplementation(() => undefined);
+      });
+
+      afterEach(() => {
+        errorSpy.mockRestore();
+        warnSpy.mockRestore();
+      });
+
+      it('si la orden ya estaba rechazada, no loguea ERROR, avisa con warn y reemite', async () => {
+        gatewayAdapter.getOrderStatus.mockResolvedValue({
+          status: 'REJECTED',
+        });
+
+        await service.updateAmount('group-1', 45000);
+
+        expect(gatewayAdapter.getOrderStatus).toHaveBeenCalledWith(
+          expect.anything(),
+          'old-token',
+        );
+        expect(errorSpy).not.toHaveBeenCalled();
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('old-token') as unknown,
+        );
+        expect(gatewayAdapter.createOrder).toHaveBeenCalled();
+      });
+
+      it('si la orden estaba pagada sigue logueando ERROR', async () => {
+        gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PAID' });
+
+        await service.updateAmount('group-1', 45000);
+
+        expect(errorSpy).toHaveBeenCalledWith(
+          expect.stringContaining('old-token') as unknown,
+        );
+      });
+
+      it('si no se puede consultar el estado de la orden sigue logueando ERROR', async () => {
+        gatewayAdapter.getOrderStatus.mockRejectedValue(
+          new PaymentGatewayError('transient', 'Error de red hacia Flow'),
+        );
+
+        await service.updateAmount('group-1', 45000);
+
+        expect(errorSpy).toHaveBeenCalledWith(
+          expect.stringContaining('old-token') as unknown,
+        );
+        expect(gatewayAdapter.createOrder).toHaveBeenCalled();
+      });
+
+      it('un fallo de credenciales al anular no consulta el estado y loguea ERROR', async () => {
+        gatewayAdapter.voidOrder.mockRejectedValue(
+          new PaymentGatewayError('credentials', 'apiKey/firma inválida'),
+        );
+
+        await service.updateAmount('group-1', 45000);
+
+        expect(gatewayAdapter.getOrderStatus).not.toHaveBeenCalled();
+        expect(errorSpy).toHaveBeenCalledWith(
+          expect.stringContaining('old-token') as unknown,
+        );
+      });
     });
 
     it('un cargo sin orden previa no llama a voidOrder', async () => {
