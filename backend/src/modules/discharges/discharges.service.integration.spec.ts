@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -76,7 +77,7 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
     );
   }
 
-  async function createClosablePatient(label: string) {
+  async function createConsentedPatient(label: string) {
     const patient = await prisma.patient.create({
       data: {
         fullName: `Paciente ${label}`,
@@ -95,6 +96,11 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
         evidence: 'Consentimiento otorgado en fixture de test (integration)',
       },
     });
+    return patient;
+  }
+
+  async function createClosablePatient(label: string) {
+    const patient = await createConsentedPatient(label);
     const draft = await dischargesService.createDraft(
       patient.id,
       { closureReason: 'DISCHARGED' } as never,
@@ -113,7 +119,7 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
   }
 
   // Espera a que haya al menos `count` sesiones bloqueadas esperando un lock de
-  // fila de Patient (las dos operaciones encoladas detrás del holder).
+  // fila de Patient o de User (las operaciones encoladas detrás del holder).
   async function waitForBlockedPatientLocks(count: number): Promise<void> {
     const deadline = Date.now() + 10000;
     while (Date.now() < deadline) {
@@ -121,12 +127,53 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
         SELECT count(*)::int AS n FROM pg_stat_activity
         WHERE datname = current_database()
           AND wait_event_type = 'Lock'
-          AND query ILIKE '%"Patient"%'
+          AND (query ILIKE '%"Patient"%' OR query ILIKE '%"User"%')
           AND query ILIKE '%FOR %'`;
       if ((rows[0]?.n ?? 0) >= count) return;
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
     throw new Error('Las operaciones no quedaron bloqueadas a tiempo');
+  }
+
+  // Retiene el lock de la fila User del terapeuta (el de lockTherapistSchedule)
+  // hasta que se llame a `release`.
+  async function holdTherapistLock(): Promise<{
+    release: () => void;
+    done: Promise<void>;
+  }> {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let markLocked!: () => void;
+    const locked = new Promise<void>((resolve) => {
+      markLocked = resolve;
+    });
+    const done = prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${therapistId} FOR UPDATE`;
+        markLocked();
+        await gate;
+      },
+      { timeout: 30000, maxWait: 10000 },
+    );
+    await locked;
+    return { release, done };
+  }
+
+  // Espera a que las operaciones queden encoladas; si no llegan, suelta el
+  // holder antes de fallar para no dejar la transacción abierta.
+  async function awaitQueued(
+    holder: { release: () => void; done: Promise<void> },
+    count: number,
+  ): Promise<void> {
+    try {
+      await waitForBlockedPatientLocks(count);
+    } catch (err) {
+      holder.release();
+      await holder.done;
+      throw err;
+    }
   }
 
   // Retiene Patient FOR UPDATE hasta que se llame a `release`.
@@ -207,6 +254,9 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
 
   afterAll(async () => {
     await prisma.bookedSlot.deleteMany({ where: { therapistId } });
+    await prisma.consultationHistory.deleteMany({
+      where: { editedById: therapistId },
+    });
     await prisma.consultation.deleteMany({ where: { therapistId } });
     await prisma.treatmentDischarge.deleteMany({ where: { therapistId } });
     await prisma.patientConsent.deleteMany({
@@ -356,5 +406,109 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
       where: { patientId: patient.id, cancelledByDischargeId: dischargeId },
     });
     expect(cancelled).toHaveLength(1);
+  }, 30000);
+
+  // Defecto 1: el cierre debe tomar el lock del terapeuta. Una reprogramación
+  // (correct con cambio de fecha) que gana la cola crea una versión nueva de la
+  // consulta; el cierre, que espera detrás, tiene que ver esa versión y no la
+  // superada, y no dejar ninguna consulta futura viva.
+  it('una reprogramación que gana el lock del terapeuta antes del cierre no deja ninguna versión futura viva', async () => {
+    const { patient, dischargeId } =
+      await createClosablePatient('Reprogramacion');
+    const slotStart = futureUtcDay(53, 13);
+    await consultationsService.createFromPublicBooking(
+      therapistId,
+      patient.id,
+      patient.rut,
+      slotStart,
+      50,
+    );
+    const original = await prisma.consultation.findFirstOrThrow({
+      where: { patientId: patient.id },
+    });
+
+    const holder = await holdTherapistLock();
+    const rescheduling = consultationsService
+      .correct(
+        original.id,
+        { sessionDate: futureUtcDay(54, 13).toISOString() } as never,
+        therapistId,
+      )
+      .then(
+        (value) => ({ ok: true as const, value }),
+        (reason: unknown) => ({ ok: false as const, reason }),
+      );
+    await awaitQueued(holder, 1);
+    const closed = dischargesService.issue(dischargeId, therapistId).then(
+      (value) => ({ ok: true as const, value }),
+      (reason: unknown) => ({ ok: false as const, reason }),
+    );
+    // Con el lock del terapeuta el cierre queda encolado detrás de la
+    // reprogramación; sin él no se bloquearía y esta espera agotaría el plazo.
+    await awaitQueued(holder, 2);
+    holder.release();
+    await holder.done;
+
+    const [reschedulingResult, closingResult] = await Promise.all([
+      rescheduling,
+      closed,
+    ]);
+    expect(reschedulingResult.ok).toBe(true);
+    expect(closingResult.ok).toBe(true);
+
+    // Ninguna versión vigente (no superada) y futura sobrevive al cierre.
+    await expect(
+      prisma.consultation.findMany({
+        where: {
+          patientId: patient.id,
+          correctedBy: null,
+          deletedAt: null,
+          sessionDate: { gt: new Date() },
+        },
+      }),
+    ).resolves.toHaveLength(0);
+    await expect(
+      prisma.bookedSlot.findMany({
+        where: { therapistId, groupId: original.groupId },
+      }),
+    ).resolves.toHaveLength(0);
+    if (closingResult.ok) {
+      expect(closingResult.value.cancelledConsultations).toBe(1);
+    }
+  }, 30000);
+
+  // Defecto 2B: createDraft debe ser atómico. Ambos POST se encolan detrás del
+  // lock del terapeuta (determinista) y el segundo ve el borrador del primero.
+  it('dos createDraft concurrentes del mismo paciente: uno crea el borrador y el otro recibe 409', async () => {
+    const patient = await createConsentedPatient('Doble Borrador');
+
+    const holder = await holdTherapistLock();
+    const attempts = [1, 2].map(() =>
+      dischargesService
+        .createDraft(
+          patient.id,
+          { closureReason: 'DISCHARGED' } as never,
+          therapistId,
+        )
+        .then(
+          (value) => ({ ok: true as const, value }),
+          (reason: unknown) => ({ ok: false as const, reason }),
+        ),
+    );
+    await awaitQueued(holder, 2);
+    holder.release();
+    await holder.done;
+
+    const results = await Promise.all(attempts);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    const failed = results.find((r) => !r.ok);
+    expect(failed && !failed.ok && failed.reason).toBeInstanceOf(
+      ConflictException,
+    );
+    await expect(
+      prisma.treatmentDischarge.count({
+        where: { patientId: patient.id, status: 'DRAFT' },
+      }),
+    ).resolves.toBe(1);
   }, 30000);
 });

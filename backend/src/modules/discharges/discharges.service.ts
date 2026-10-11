@@ -93,66 +93,88 @@ export class DischargesService {
     };
     assertClosureRules(closure);
 
-    const patient = await this.prisma.patient.findFirst({
-      where: { id: patientId, therapistId, deletedAt: null },
-      select: { treatmentStatus: true },
-    });
-    if (!patient) throw new NotFoundException('Paciente no encontrado');
-    if (patient.treatmentStatus !== 'ACTIVE') {
-      throw new ConflictException(
-        'El tratamiento de este paciente ya está cerrado. Corrige el informe vigente en vez de crear uno nuevo.',
-      );
-    }
+    // Atómico: la comprobación de estado y de borrador abierto y el create van
+    // bajo los mismos locks que issue() (User y luego Patient). Sin esto, dos
+    // POST concurrentes pasan ambos la comprobación y crean dos borradores v1.
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockTherapistAndPatient(tx, therapistId, patientId);
 
-    const openDraft = await this.prisma.treatmentDischarge.findFirst({
-      where: { patientId, therapistId, status: 'DRAFT', correctsId: null },
-      select: { id: true },
-    });
-    if (openDraft) {
-      throw new ConflictException(
-        'Este paciente ya tiene un borrador de informe de alta. Edítalo o emítelo.',
-      );
-    }
+      const patient = await tx.patient.findFirst({
+        where: { id: patientId, therapistId, deletedAt: null },
+        select: { treatmentStatus: true },
+      });
+      if (!patient) throw new NotFoundException('Paciente no encontrado');
+      if (patient.treatmentStatus !== 'ACTIVE') {
+        throw new ConflictException(
+          'El tratamiento de este paciente ya está cerrado. Corrige el informe vigente en vez de crear uno nuevo.',
+        );
+      }
 
-    // Prellenado: SOLO recuentos y fechas derivados de las consultas vigentes
-    // y ya realizadas. Nunca se copian notas clínicas al informe (minimización).
-    const now = new Date();
-    const held: Prisma.ConsultationWhereInput = {
-      patientId,
-      therapistId,
-      correctedBy: null,
-      deletedAt: null,
-      cancelledAt: null,
-      sessionDate: { lte: now },
-    };
-    const [sessionCount, first] = await Promise.all([
-      this.prisma.consultation.count({ where: held }),
-      this.prisma.consultation.findFirst({
-        where: held,
-        orderBy: { sessionDate: 'asc' },
-        select: { sessionDate: true },
-      }),
-    ]);
+      const openDraft = await tx.treatmentDischarge.findFirst({
+        where: { patientId, therapistId, status: 'DRAFT', correctsId: null },
+        select: { id: true },
+      });
+      if (openDraft) {
+        throw new ConflictException(
+          'Este paciente ya tiene un borrador de informe de alta. Edítalo o emítelo.',
+        );
+      }
 
-    const today = chileDayKeyFromInstant(now);
-    const admissionDay = first
-      ? chileDayKeyFromInstant(first.sessionDate)
-      : today;
-
-    const id = randomUUID();
-    return this.prisma.treatmentDischarge.create({
-      data: {
-        id,
-        groupId: id,
-        version: 1,
+      // Prellenado: SOLO recuentos y fechas derivados de las consultas vigentes
+      // y ya realizadas. Nunca se copian notas clínicas al informe (minimización).
+      const now = new Date();
+      const held: Prisma.ConsultationWhereInput = {
         patientId,
         therapistId,
-        ...closure,
-        admissionDate: toDateOnly(admissionDay),
-        dischargeDate: toDateOnly(today),
-        sessionCount,
-      },
+        correctedBy: null,
+        deletedAt: null,
+        cancelledAt: null,
+        sessionDate: { lte: now },
+      };
+      const [sessionCount, first] = await Promise.all([
+        tx.consultation.count({ where: held }),
+        tx.consultation.findFirst({
+          where: held,
+          orderBy: { sessionDate: 'asc' },
+          select: { sessionDate: true },
+        }),
+      ]);
+
+      const today = chileDayKeyFromInstant(now);
+      const admissionDay = first
+        ? chileDayKeyFromInstant(first.sessionDate)
+        : today;
+
+      const id = randomUUID();
+      return tx.treatmentDischarge.create({
+        data: {
+          id,
+          groupId: id,
+          version: 1,
+          patientId,
+          therapistId,
+          ...closure,
+          admissionDate: toDateOnly(admissionDay),
+          dischargeDate: toDateOnly(today),
+          sessionCount,
+        },
+      });
     });
+  }
+
+  // Orden de locks compartido con ConsultationsService (lockTherapistSchedule y
+  // createFromPublicBooking): siempre User ANTES que Patient. Tomar el lock del
+  // terapeuta serializa estas escrituras con create(), la reprogramación
+  // (correct) y la reserva pública, que deciden o alteran su agenda con ese
+  // mismo lock. PatientsService.softDelete solo toma Patient FOR UPDATE, así
+  // que no puede cerrar un ciclo. Ambos locks se mantienen hasta el commit.
+  private async lockTherapistAndPatient(
+    tx: Prisma.TransactionClient,
+    therapistId: string,
+    patientId: string,
+  ): Promise<void> {
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${therapistId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM "Patient" WHERE id = ${patientId} FOR UPDATE`;
   }
 
   // PATCH /discharges/:id (solo borrador y solo el terapeuta dueño)
@@ -223,16 +245,18 @@ export class DischargesService {
     const draft = await this.findOwned(id, therapistId);
 
     const result = await this.prisma.$transaction(async (tx) => {
-      // Lock de la fila del paciente (orden de locks documentado en
-      // ConsultationsService.lockTherapistSchedule: User y luego Patient; aquí
-      // solo hace falta Patient). Serializa la emisión con la baja, otra
-      // emisión y la reserva pública, y es el punto donde T2b cancelará las
-      // consultas futuras sin carrera.
-      await tx.$queryRaw`SELECT id FROM "Patient" WHERE id = ${draft.patientId} FOR UPDATE`;
+      // Locks User y luego Patient (orden documentado en
+      // ConsultationsService.lockTherapistSchedule). El lock del terapeuta
+      // serializa el cierre con create() y la reprogramación de consultas, que
+      // lo toman antes de escribir en su agenda: sin él, una edición concurrente
+      // crea una versión nueva que el cierre no ve y queda viva en un paciente
+      // cerrado. El lock del paciente serializa además con la baja, otra
+      // emisión y la reserva pública.
+      await this.lockTherapistAndPatient(tx, therapistId, draft.patientId);
 
       const patient = await tx.patient.findFirst({
         where: { id: draft.patientId, therapistId, deletedAt: null },
-        select: { id: true },
+        select: { id: true, treatmentStatus: true },
       });
       if (!patient) throw new NotFoundException('Paciente no encontrado');
 
@@ -243,6 +267,14 @@ export class DischargesService {
       if (!fresh) throw new NotFoundException('Informe no encontrado');
       if (fresh.status !== 'DRAFT') {
         throw new ConflictException('El informe ya fue emitido.');
+      }
+      // Un informe nuevo (no corrección) solo cierra un tratamiento activo. Si
+      // el paciente ya está cerrado, o fue cerrado y reabierto, emitirlo
+      // pisaría ese estado y cancelaría sus consultas vigentes.
+      if (fresh.correctsId === null && patient.treatmentStatus !== 'ACTIVE') {
+        throw new ConflictException(
+          'El tratamiento de este paciente ya está cerrado. Corrige el informe vigente en vez de emitir uno nuevo.',
+        );
       }
 
       await this.patientsService.assertTreatmentConsent(
@@ -292,7 +324,11 @@ export class DischargesService {
       const row = await tx.treatmentDischarge.findUniqueOrThrow({
         where: { id },
       });
-      const cancelledGroupIds = await this.applyClosureInTransaction(tx, row);
+      const cancelledGroupIds = await this.applyClosureInTransaction(
+        tx,
+        row,
+        patient.treatmentStatus,
+      );
       return { row, cancelledGroupIds };
     });
     const { row: issued, cancelledGroupIds } = result;
@@ -339,8 +375,14 @@ export class DischargesService {
     return { ...issued, cancelledConsultations: cancelledGroupIds.length };
   }
 
-  // Efectos del cierre dentro de la transacción de emisión, ya con el lock del
-  // paciente tomado. Devuelve los groupId de las consultas canceladas.
+  // Efectos del cierre dentro de la transacción de emisión, ya con los locks de
+  // terapeuta y paciente tomados. Devuelve los groupId de las consultas
+  // canceladas.
+  //
+  // Una corrección (correctsId presente) solo actúa mientras el paciente siga
+  // cerrado: si fue reabierto (ACTIVE) el informe se emite como registro y no
+  // toca su estado ni sus consultas nuevas. Con el paciente cerrado, el estado
+  // solo se reescribe si cambió el motivo de cierre.
   //
   // Las consultas se marcan con cancelledAt, cancelledByDischargeId y también
   // deletedAt: así recordatorios, calendario y disponibilidad (que ya filtran
@@ -356,11 +398,16 @@ export class DischargesService {
   private async applyClosureInTransaction(
     tx: Prisma.TransactionClient,
     discharge: TreatmentDischarge,
+    currentStatus: string,
   ): Promise<string[]> {
-    await tx.patient.update({
-      where: { id: discharge.patientId },
-      data: { treatmentStatus: discharge.closureReason },
-    });
+    const isCorrection = discharge.correctsId !== null;
+    if (isCorrection && currentStatus === 'ACTIVE') return [];
+    if (!isCorrection || currentStatus !== discharge.closureReason) {
+      await tx.patient.update({
+        where: { id: discharge.patientId },
+        data: { treatmentStatus: discharge.closureReason },
+      });
+    }
 
     const now = new Date();
     const future = await tx.consultation.findMany({

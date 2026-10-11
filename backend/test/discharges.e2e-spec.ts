@@ -938,5 +938,125 @@ describe('Treatment discharges (e2e)', () => {
       });
       expect(corrections).toBe(1);
     });
+
+    it('dos borradores simultáneos del mismo paciente: uno gana (201) y el otro recibe 409', async () => {
+      const patientId = await createPatient();
+
+      const results = await Promise.all([
+        postDraft(tokenA, patientId, { closureReason: 'DISCHARGED' }),
+        postDraft(tokenA, patientId, { closureReason: 'DISCHARGED' }),
+      ]);
+      expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+      const drafts = await prisma.treatmentDischarge.count({
+        where: { patientId, status: 'DRAFT' },
+      });
+      expect(drafts).toBe(1);
+    });
+  });
+
+  describe('estado del paciente al emitir y cadena de versiones', () => {
+    it('emitir un informe nuevo con el paciente ya cerrado responde 409 y no cambia nada', async () => {
+      const patientId = await createPatient();
+      const id = await createReadyDraft(patientId);
+      await seedConsultation(patientId, daysFromNow(7));
+      await prisma.patient.update({
+        where: { id: patientId },
+        data: { treatmentStatus: 'REFERRED' },
+      });
+
+      await post(tokenA, `discharges/${id}/issue`).expect(409);
+
+      expect(await patientStatus(patientId)).toBe('REFERRED');
+      const row = await prisma.treatmentDischarge.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(row.status).toBe('DRAFT');
+      const live = await prisma.consultation.count({
+        where: { patientId, deletedAt: null },
+      });
+      expect(live).toBe(1);
+    });
+
+    it('una corrección emitida con el paciente reabierto queda como registro sin tocar su estado ni sus consultas', async () => {
+      const patientId = await createPatient();
+      const id = await createReadyDraft(patientId);
+      await post(tokenA, `discharges/${id}/issue`).expect(201);
+      const correction = await post(tokenA, `discharges/${id}/correct`).expect(
+        201,
+      );
+      const correctionId = (correction.body as Body).id as string;
+
+      // Reapertura (T5) y consulta nueva agendada después del cierre.
+      await prisma.patient.update({
+        where: { id: patientId },
+        data: { treatmentStatus: 'ACTIVE' },
+      });
+      await seedConsultation(patientId, daysFromNow(9));
+
+      const res = await post(tokenA, `discharges/${correctionId}/issue`).expect(
+        201,
+      );
+      expect((res.body as Body).status).toBe('ISSUED');
+      expect((res.body as Body).cancelledConsultations).toBe(0);
+      expect(await patientStatus(patientId)).toBe('ACTIVE');
+      const live = await prisma.consultation.count({
+        where: { patientId, deletedAt: null, cancelledAt: null },
+      });
+      expect(live).toBe(1);
+    });
+
+    it('una corrección con otro motivo de cierre actualiza el estado del paciente cerrado', async () => {
+      const patientId = await createPatient();
+      const id = await createReadyDraft(patientId);
+      await post(tokenA, `discharges/${id}/issue`).expect(201);
+      expect(await patientStatus(patientId)).toBe('DISCHARGED');
+      const correction = await post(tokenA, `discharges/${id}/correct`).expect(
+        201,
+      );
+      const correctionId = (correction.body as Body).id as string;
+      await patchDischarge(tokenA, correctionId, {
+        closureReason: 'REFERRED',
+        referralDestination: 'Hospital regional',
+      }).expect(200);
+
+      await post(tokenA, `discharges/${correctionId}/issue`).expect(201);
+      expect(await patientStatus(patientId)).toBe('REFERRED');
+    });
+
+    it('verify cubre correctsId: reencadenar una versión en la base invalida el hash', async () => {
+      const patientId = await createPatient();
+      const id = await createReadyDraft(patientId);
+      await post(tokenA, `discharges/${id}/issue`).expect(201);
+      const correction = await post(tokenA, `discharges/${id}/correct`).expect(
+        201,
+      );
+      const correctionId = (correction.body as Body).id as string;
+      await post(tokenA, `discharges/${correctionId}/issue`).expect(201);
+
+      const ok = await get(tokenA, `discharges/${correctionId}/verify`).expect(
+        200,
+      );
+      expect((ok.body as Body).valid).toBe(true);
+
+      await prisma.treatmentDischarge.update({
+        where: { id: correctionId },
+        data: { correctsId: null },
+      });
+      const tampered = await get(
+        tokenA,
+        `discharges/${correctionId}/verify`,
+      ).expect(200);
+      expect((tampered.body as Body).valid).toBe(false);
+
+      await prisma.treatmentDischarge.update({
+        where: { id: correctionId },
+        data: { correctsId: id },
+      });
+      const restored = await get(
+        tokenA,
+        `discharges/${correctionId}/verify`,
+      ).expect(200);
+      expect((restored.body as Body).valid).toBe(true);
+    });
   });
 });

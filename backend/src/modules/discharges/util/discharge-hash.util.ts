@@ -6,9 +6,10 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 // el resultado no depende del orden de inserción ni del motor que serialice.
 //
 // El hash cubre el contenido del informe, el snapshot del firmante, la versión
-// (posición en la cadena), issuedAt y los identificadores que lo anclan
-// (informe, paciente, terapeuta y grupo). Alterar cualquiera de esos campos en
-// la base hace fallar la verificación.
+// (posición en la cadena), el enlace a la versión corregida (correctsId),
+// issuedAt y los identificadores que lo anclan (informe, paciente, terapeuta y
+// grupo). Alterar cualquiera de esos campos en la base hace fallar la
+// verificación. `status` no entra: siempre es ISSUED al hashear.
 
 export interface DischargeHashContent {
   source: string;
@@ -32,6 +33,8 @@ export interface DischargeHashInput {
   therapistId: string;
   groupId: string;
   version: number;
+  // null en la versión raíz; id de la versión que esta corrige en las demás.
+  correctsId: string | null;
   issuedAt: Date;
   content: DischargeHashContent;
   signer: {
@@ -48,6 +51,7 @@ export interface DischargeHashRow {
   therapistId: string;
   groupId: string;
   version: number;
+  correctsId: string | null;
   source: string;
   closureReason: string;
   dropoutReason: string | null;
@@ -106,6 +110,7 @@ export function dischargeHashInputFromRow(
     therapistId: row.therapistId,
     groupId: row.groupId,
     version: row.version,
+    correctsId: row.correctsId,
     issuedAt: row.issuedAt,
     content: {
       source: row.source,

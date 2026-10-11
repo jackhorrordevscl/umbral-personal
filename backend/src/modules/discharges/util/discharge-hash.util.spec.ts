@@ -13,6 +13,7 @@ const baseRow: DischargeHashRow = {
   therapistId: 'th-1',
   groupId: 'dis-1',
   version: 1,
+  correctsId: null,
   source: 'GENERATED',
   closureReason: 'DISCHARGED',
   dropoutReason: null,
@@ -72,6 +73,7 @@ describe('computeDischargeHash', () => {
       groupId: input.groupId,
       issuedAt: input.issuedAt,
       version: input.version,
+      correctsId: input.correctsId,
       content: Object.fromEntries(
         Object.entries(input.content).reverse(),
       ) as DischargeHashInput['content'],
@@ -87,6 +89,7 @@ describe('computeDischargeHash', () => {
     ['therapistId', { therapistId: 'th-2' }],
     ['groupId', { groupId: 'otro' }],
     ['version', { version: 2 }],
+    ['correctsId', { correctsId: 'dis-0' }],
     ['source', { source: 'UPLOADED' as never }],
     ['closureReason', { closureReason: 'REFERRED' as never }],
     ['dropoutReason', { dropoutReason: 'COST' as never }],
@@ -115,6 +118,20 @@ describe('computeDischargeHash', () => {
 
   it('no confunde null con cadena vacía', () => {
     expect(hashOf({ diagnosis: null })).not.toBe(hashOf({ diagnosis: '' }));
+  });
+
+  it('distingue una versión raíz (correctsId null) de una corrección', () => {
+    const root = dischargeHashInputFromRow(baseRow);
+    const corrected = dischargeHashInputFromRow({
+      ...baseRow,
+      correctsId: 'dis-0',
+    });
+    expect(root.correctsId).toBeNull();
+    expect(corrected.correctsId).toBe('dis-0');
+    expect(canonicalJson(root)).toContain('"correctsId":null');
+    expect(computeDischargeHash(corrected)).not.toBe(
+      computeDischargeHash(root),
+    );
   });
 
   it('rechaza una fila sin issuedAt', () => {

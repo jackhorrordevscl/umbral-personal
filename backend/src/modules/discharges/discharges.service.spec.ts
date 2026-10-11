@@ -224,6 +224,36 @@ describe('DischargesService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
+    it('es atómico: comprueba y crea dentro de una transacción con los locks User y luego Patient', async () => {
+      prisma.treatmentDischarge.findFirst.mockResolvedValue(null);
+      prisma.treatmentDischarge.create.mockImplementation(
+        ({ data }: { data: unknown }) => Promise.resolve(data),
+      );
+
+      await service.createDraft(
+        'patient-1',
+        { closureReason: 'DISCHARGED' },
+        'therapist-1',
+      );
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      const sqls = (prisma.$queryRaw.mock.calls as unknown[][]).map((c) =>
+        (c[0] as string[]).join('?'),
+      );
+      expect(sqls).toHaveLength(2);
+      expect(sqls[0]).toContain('"User"');
+      expect(sqls[0]).toContain('FOR UPDATE');
+      expect(sqls[1]).toContain('"Patient"');
+      expect(sqls[1]).toContain('FOR UPDATE');
+      const [, patientLock] = prisma.$queryRaw.mock.invocationCallOrder;
+      expect(patientLock).toBeLessThan(
+        prisma.treatmentDischarge.findFirst.mock.invocationCallOrder[0],
+      );
+      expect(patientLock).toBeLessThan(
+        prisma.treatmentDischarge.create.mock.invocationCallOrder[0],
+      );
+    });
+
     it('responde 409 si ya hay un borrador abierto', async () => {
       prisma.treatmentDischarge.findFirst.mockResolvedValue({ id: 'otro' });
       await expect(
@@ -319,7 +349,7 @@ describe('DischargesService', () => {
       const issued = await service.issue('dis-1', 'therapist-1');
 
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
       expect(
         String(firstCallArg<string[]>(prisma.$queryRaw).join(' ')),
       ).toContain('FOR UPDATE');
@@ -333,6 +363,109 @@ describe('DischargesService', () => {
         data: { treatmentStatus: 'DISCHARGED' },
       });
       expect(issued.status).toBe('ISSUED');
+    });
+
+    it('toma los locks en el orden User y luego Patient, antes de leer el estado del paciente', async () => {
+      await service.issue('dis-1', 'therapist-1');
+
+      const sqls = (prisma.$queryRaw.mock.calls as unknown[][]).map((c) =>
+        (c[0] as string[]).join('?'),
+      );
+      expect(sqls).toHaveLength(2);
+      expect(sqls[0]).toContain('"User"');
+      expect(sqls[0]).toContain('FOR UPDATE');
+      expect(sqls[1]).toContain('"Patient"');
+      expect(sqls[1]).toContain('FOR UPDATE');
+      const [userLock, patientLock] = prisma.$queryRaw.mock.invocationCallOrder;
+      expect(userLock).toBeLessThan(patientLock);
+      expect(patientLock).toBeLessThan(
+        prisma.patient.findFirst.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('rechaza con 409 emitir un informe nuevo (no corrección) si el paciente ya no está ACTIVE', async () => {
+      prisma.patient.findFirst.mockResolvedValue({
+        id: 'patient-1',
+        treatmentStatus: 'DISCHARGED',
+      });
+      await expect(service.issue('dis-1', 'therapist-1')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(prisma.treatmentDischarge.updateMany).not.toHaveBeenCalled();
+      expect(prisma.patient.update).not.toHaveBeenCalled();
+      expect(prisma.consultation.findMany).not.toHaveBeenCalled();
+    });
+
+    describe('corrección (correctsId presente)', () => {
+      function mockCorrection(closureReason = 'DISCHARGED') {
+        const row = buildRow({
+          id: 'dis-2',
+          version: 2,
+          correctsId: 'dis-1',
+          closureReason: closureReason as TreatmentDischarge['closureReason'],
+          referralDestination: closureReason === 'REFERRED' ? 'Hospital' : null,
+        });
+        prisma.treatmentDischarge.findFirst.mockResolvedValue(row);
+        prisma.treatmentDischarge.findUniqueOrThrow.mockResolvedValue({
+          ...row,
+          status: 'ISSUED',
+          issuedAt: new Date('2026-03-30T15:00:00.000Z'),
+          contentHash: 'h',
+        });
+      }
+
+      it('con el paciente reabierto (ACTIVE) emite sin tocar su estado ni sus consultas', async () => {
+        mockCorrection();
+        prisma.patient.findFirst.mockResolvedValue({
+          id: 'patient-1',
+          treatmentStatus: 'ACTIVE',
+        });
+        prisma.consultation.findMany.mockResolvedValue([
+          { id: 'c-1', groupId: 'g-1' },
+        ]);
+
+        const issued = await service.issue('dis-2', 'therapist-1');
+
+        expect(issued.status).toBe('ISSUED');
+        expect(issued.cancelledConsultations).toBe(0);
+        expect(prisma.patient.update).not.toHaveBeenCalled();
+        expect(prisma.consultation.findMany).not.toHaveBeenCalled();
+        expect(prisma.consultation.updateMany).not.toHaveBeenCalled();
+        expect(prisma.bookedSlot.deleteMany).not.toHaveBeenCalled();
+      });
+
+      it('con el paciente aún cerrado y el mismo motivo no reescribe el estado, pero sí cancela futuras', async () => {
+        mockCorrection('DISCHARGED');
+        prisma.patient.findFirst.mockResolvedValue({
+          id: 'patient-1',
+          treatmentStatus: 'DISCHARGED',
+        });
+        prisma.consultation.findMany.mockResolvedValue([
+          { id: 'c-1', groupId: 'g-1' },
+        ]);
+        prisma.consultation.updateMany.mockResolvedValue({ count: 1 });
+
+        const issued = await service.issue('dis-2', 'therapist-1');
+
+        expect(prisma.patient.update).not.toHaveBeenCalled();
+        expect(prisma.consultation.updateMany).toHaveBeenCalledTimes(1);
+        expect(issued.cancelledConsultations).toBe(1);
+      });
+
+      it('con el paciente cerrado y otro motivo actualiza treatmentStatus', async () => {
+        mockCorrection('REFERRED');
+        prisma.patient.findFirst.mockResolvedValue({
+          id: 'patient-1',
+          treatmentStatus: 'DISCHARGED',
+        });
+
+        await service.issue('dis-2', 'therapist-1');
+
+        expect(prisma.patient.update).toHaveBeenCalledWith({
+          where: { id: 'patient-1' },
+          data: { treatmentStatus: 'REFERRED' },
+        });
+      });
     });
 
     it('guarda un hash que verify puede recalcular desde los mismos datos', async () => {
@@ -759,6 +892,15 @@ describe('DischargesService', () => {
       prisma.treatmentDischarge.findFirst.mockResolvedValue({
         ...row,
         sessionCount: row.sessionCount + 1,
+      });
+      expect((await service.verify('dis-1', 'therapist-1')).valid).toBe(false);
+    });
+
+    it('detecta que se reencadenó la versión alterando correctsId', async () => {
+      const row = issuedRow({ version: 2, correctsId: 'dis-0' });
+      prisma.treatmentDischarge.findFirst.mockResolvedValue({
+        ...row,
+        correctsId: null,
       });
       expect((await service.verify('dis-1', 'therapist-1')).valid).toBe(false);
     });
