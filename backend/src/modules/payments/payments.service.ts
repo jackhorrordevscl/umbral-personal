@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { NotificationType, Payment } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { GatewayContext } from './payment-gateway.client';
+import { GatewayContext, PaymentGatewayError } from './payment-gateway.client';
 import { PaymentGatewayRegistry } from './payment-gateway.registry';
 import { PaymentAccountService } from './payment-account.service';
 import { MailService } from '../mail/mail.service';
@@ -634,13 +634,44 @@ export class PaymentsService {
         .get(context.provider)
         .voidOrder(context.credentials, payment.gatewayToken);
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // issue #434: Flow responde 1701 tanto para una orden ya pagada como
+      // para una ya rechazada, así que el código solo no basta. Si el estado
+      // confirma que la orden ya estaba rechazada no hay nada que anular y no
+      // es un fallo; cualquier otro caso (pagada, sin poder consultar) sigue
+      // por el ERROR de abajo.
+      if (
+        err instanceof PaymentGatewayError &&
+        err.kind === 'rejected' &&
+        (await this.isOrderRejected(context, payment.gatewayToken))
+      ) {
+        this.logger.warn(
+          `La orden ya estaba rechazada en la pasarela, no hay nada que anular (paymentId=${payment.id}, groupId=${payment.groupId}, token=${payment.gatewayToken}): ${message}`,
+        );
+        return;
+      }
       // issue #111: this IS the operator-visibility gap -- log loudly
       // instead of swallowing silently. Callers never roll back their own
       // local write for this.
-      const message = err instanceof Error ? err.message : String(err);
       this.logger.error(
         `Fallo al anular la orden en la pasarela de pago (paymentId=${payment.id}, groupId=${payment.groupId}, token=${payment.gatewayToken}): ${message}`,
       );
+    }
+  }
+
+  // issue #434: false ante cualquier duda (incluida una falla al consultar),
+  // para que el llamador conserve el ERROR del caso desconocido.
+  private async isOrderRejected(
+    context: GatewayContext,
+    token: string,
+  ): Promise<boolean> {
+    try {
+      const { status } = await this.gatewayRegistry
+        .get(context.provider)
+        .getOrderStatus(context.credentials, token);
+      return status === 'REJECTED';
+    } catch {
+      return false;
     }
   }
 
