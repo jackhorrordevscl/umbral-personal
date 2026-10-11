@@ -23,6 +23,10 @@ import {
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { VoidDocumentDto } from './dto/void-document.dto';
 
+// Tope de tamaño de un archivo subido (también lo usa la subida del PDF propio
+// del informe de alta, T3b).
+export const MAX_DOCUMENT_UPLOAD_BYTES = 25 * 1024 * 1024;
+
 @UseGuards(JwtAuthGuard)
 @Controller('documents')
 export class DocumentsController {
@@ -64,7 +68,7 @@ export class DocumentsController {
       // (fileFilter arriba, sin diskStorage), así que este techo evita
       // arriesgar OOM en la instancia con un par de uploads concurrentes de
       // expedientes judiciales grandes.
-      limits: { fileSize: 25 * 1024 * 1024 },
+      limits: { fileSize: MAX_DOCUMENT_UPLOAD_BYTES },
     }),
   )
   async upload(
