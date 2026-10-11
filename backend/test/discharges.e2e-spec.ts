@@ -35,7 +35,14 @@ describe('Treatment discharges (e2e)', () => {
   ): Promise<{ id: string; token: string }> {
     const passwordHash = await argon2.hash(TEST_PASSWORD);
     const user = await prisma.user.create({
-      data: { email, passwordHash, name },
+      data: {
+        email,
+        passwordHash,
+        name,
+        // El RUT del firmante es obligatorio para emitir un informe GENERATED.
+        rut: uniqueTestRut(),
+        professionalRegistration: `Reg. ${name}`,
+      },
     });
 
     const login = await request(app.getHttpServer())
@@ -319,6 +326,32 @@ describe('Treatment discharges (e2e)', () => {
       );
     });
 
+    it('sin RUT en el perfil, emitir responde 400 accionable y no cierra nada', async () => {
+      const original = await prisma.user.findUniqueOrThrow({
+        where: { id: therapistAId },
+        select: { rut: true },
+      });
+      await prisma.user.update({
+        where: { id: therapistAId },
+        data: { rut: null },
+      });
+      try {
+        const res = await post(
+          tokenA,
+          `discharges/${dischargeId}/issue`,
+        ).expect(400);
+        expect((res.body as Body).message).toBe(
+          'Completa tu RUT en tu perfil antes de emitir un informe de alta.',
+        );
+        expect(await patientStatus(patientId)).toBe('ACTIVE');
+      } finally {
+        await prisma.user.update({
+          where: { id: therapistAId },
+          data: { rut: original.rut },
+        });
+      }
+    });
+
     it('emite: pasa a ISSUED con hash, firmante y cierra el tratamiento del paciente', async () => {
       const res = await post(tokenA, `discharges/${dischargeId}/issue`).expect(
         201,
@@ -328,6 +361,14 @@ describe('Treatment discharges (e2e)', () => {
       expect(body.contentHash).toMatch(/^[0-9a-f]{64}$/);
       expect(body.issuedAt).toEqual(expect.any(String));
       expect(body.signerName).toBe('Discharges Therapist A');
+      const therapist = await prisma.user.findUniqueOrThrow({
+        where: { id: therapistAId },
+        select: { rut: true, professionalRegistration: true },
+      });
+      expect(body.signerRut).toBe(therapist.rut);
+      expect(body.signerProfessionalRegistration).toBe(
+        'Reg. Discharges Therapist A',
+      );
       expect(await patientStatus(patientId)).toBe('DISCHARGED');
     });
 

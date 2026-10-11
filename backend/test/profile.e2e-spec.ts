@@ -307,6 +307,71 @@ describe('ProfileModule (e2e)', () => {
     });
   });
 
+  describe('PATCH /profile — rut y professionalRegistration', () => {
+    it('guarda el RUT normalizado y el registro sin currentPassword, y los devuelve en GET /profile', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/api/v1/profile')
+        .set('Authorization', `Bearer ${userAToken}`)
+        .send({
+          rut: ' 12.345.678-5 ',
+          professionalRegistration: '  Reg. 4521 ',
+        })
+        .expect(200);
+      const body = res.body as Record<string, unknown>;
+      expect(body.rut).toBe('12345678-5');
+      expect(body.professionalRegistration).toBe('Reg. 4521');
+
+      const profile = await request(app.getHttpServer())
+        .get('/api/v1/profile')
+        .set('Authorization', `Bearer ${userAToken}`)
+        .expect(200);
+      const got = profile.body as Record<string, unknown>;
+      expect(got.rut).toBe('12345678-5');
+      expect(got.professionalRegistration).toBe('Reg. 4521');
+    });
+
+    it('no los expone en el perfil público del terapeuta', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/public/therapists/${userAId}/profile`)
+        .expect(200);
+      const text = JSON.stringify(res.body);
+      expect(text).not.toContain('12345678-5');
+      expect(text).not.toContain('Reg. 4521');
+      expect(res.body).not.toHaveProperty('rut');
+      expect(res.body).not.toHaveProperty('professionalRegistration');
+    });
+
+    it.each(['12345678-9', 'abc', '12345678'])(
+      'rechaza el RUT %s (400)',
+      (rut) => {
+        return request(app.getHttpServer())
+          .patch('/api/v1/profile')
+          .set('Authorization', `Bearer ${userAToken}`)
+          .send({ rut })
+          .expect(400);
+      },
+    );
+
+    it('rechaza un registro profesional de más de 50 caracteres (400)', () => {
+      return request(app.getHttpServer())
+        .patch('/api/v1/profile')
+        .set('Authorization', `Bearer ${userAToken}`)
+        .send({ professionalRegistration: 'a'.repeat(51) })
+        .expect(400);
+    });
+
+    it('un string vacío limpia ambos campos (null)', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/api/v1/profile')
+        .set('Authorization', `Bearer ${userAToken}`)
+        .send({ rut: '', professionalRegistration: '' })
+        .expect(200);
+      const body = res.body as Record<string, unknown>;
+      expect(body.rut).toBeNull();
+      expect(body.professionalRegistration).toBeNull();
+    });
+  });
+
   describe('PATCH /profile — cambio de email diferido (pendingEmail)', () => {
     it('con currentPassword correcta, deja pendingEmail seteado sin tocar el email activo, y audita EMAIL_CHANGE_REQUESTED', async () => {
       const newEmail = `pending.${runId}@umbral.cl`;

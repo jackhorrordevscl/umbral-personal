@@ -212,6 +212,7 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
         email: `discharges-concurrency-${runId}@example.com`,
         passwordHash,
         name: 'Dra. Cierre Concurrente',
+        rut: '12345678-5',
       },
     });
     therapistId = therapist.id;

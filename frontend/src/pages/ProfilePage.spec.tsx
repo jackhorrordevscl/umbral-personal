@@ -248,6 +248,107 @@ describe('ProfilePage — account-settings Req: Profile Section Scope', () => {
     })
   })
 
+  describe('datos profesionales (RUT y registro profesional)', () => {
+    const RUT_ERROR = 'Ingresa un RUT válido, ej. 12.345.678-5.'
+
+    function mockProfile(overrides: Record<string, unknown>) {
+      const defaultGet = mockedApi.get.getMockImplementation()!
+      mockedApi.get.mockImplementation((url: string) => {
+        if (url === '/profile') return Promise.resolve({ data: baseProfile(overrides) })
+        return defaultGet(url)
+      })
+    }
+
+    it('precarga los valores guardados y muestra el texto de ayuda', async () => {
+      mockProfile({ rut: '12345678-5', professionalRegistration: 'Reg. 4521' })
+      renderProfilePage()
+
+      expect(await screen.findByLabelText('RUT')).toHaveValue('12.345.678-5')
+      expect(screen.getByLabelText('Registro profesional')).toHaveValue('Reg. 4521')
+      expect(
+        screen.getByText(
+          'Se usan para firmar tus informes de alta. No se muestran en tu perfil público.',
+        ),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Guardar datos profesionales' })).toBeDisabled()
+    })
+
+    it('un perfil sin esos campos no rompe y muestra los inputs vacíos', async () => {
+      renderProfilePage()
+
+      expect(await screen.findByLabelText('RUT')).toHaveValue('')
+      expect(screen.getByLabelText('Registro profesional')).toHaveValue('')
+    })
+
+    it('bloquea un RUT con dígito verificador inválido sin llamar al backend', async () => {
+      const user = userEvent.setup()
+      renderProfilePage()
+
+      await user.type(await screen.findByLabelText('RUT'), '12345678-9')
+      await user.click(screen.getByRole('button', { name: 'Guardar datos profesionales' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(RUT_ERROR)
+      expect(screen.getByLabelText('RUT')).toHaveAttribute('aria-invalid', 'true')
+      expect(mockedApi.patch).not.toHaveBeenCalled()
+    })
+
+    it('envía el RUT normalizado y el registro recortado por PATCH', async () => {
+      mockedApi.patch.mockResolvedValueOnce({
+        data: baseProfile({ rut: '12345678-5', professionalRegistration: 'Reg. 4521' }),
+      })
+      const user = userEvent.setup()
+      renderProfilePage()
+
+      await user.type(await screen.findByLabelText('RUT'), '12.345.678-5')
+      await user.type(screen.getByLabelText('Registro profesional'), '  Reg. 4521 ')
+      await user.click(screen.getByRole('button', { name: 'Guardar datos profesionales' }))
+
+      await waitFor(() =>
+        expect(mockedApi.patch).toHaveBeenCalledWith('/profile', {
+          rut: '12345678-5',
+          professionalRegistration: 'Reg. 4521',
+        }),
+      )
+      expect(
+        await screen.findByText('Datos profesionales actualizados correctamente.'),
+      ).toBeInTheDocument()
+    })
+
+    it('vaciar los campos envía strings vacíos para borrarlos', async () => {
+      mockProfile({ rut: '12345678-5', professionalRegistration: 'Reg. 4521' })
+      mockedApi.patch.mockResolvedValueOnce({
+        data: baseProfile({ rut: null, professionalRegistration: null }),
+      })
+      const user = userEvent.setup()
+      renderProfilePage()
+
+      await user.clear(await screen.findByLabelText('RUT'))
+      await user.clear(screen.getByLabelText('Registro profesional'))
+      await user.click(screen.getByRole('button', { name: 'Guardar datos profesionales' }))
+
+      await waitFor(() =>
+        expect(mockedApi.patch).toHaveBeenCalledWith('/profile', {
+          rut: '',
+          professionalRegistration: '',
+        }),
+      )
+      expect(screen.queryByText(RUT_ERROR)).not.toBeInTheDocument()
+    })
+
+    it('muestra el error del backend si el guardado falla', async () => {
+      mockedApi.patch.mockRejectedValueOnce(new Error('boom'))
+      const user = userEvent.setup()
+      renderProfilePage()
+
+      await user.type(await screen.findByLabelText('Registro profesional'), 'Reg. 1')
+      await user.click(screen.getByRole('button', { name: 'Guardar datos profesionales' }))
+
+      expect(
+        await screen.findByText('No se pudieron actualizar los datos profesionales.'),
+      ).toBeInTheDocument()
+    })
+  })
+
   // sdd/patient-self-scheduling PR 4 (tasks.md 4.3): confirma que el editor
   // de horario semanal y el de bloqueos quedan wireados en ProfilePage --
   // el detalle de su comportamiento (guardar/rechazar horario, agregar/

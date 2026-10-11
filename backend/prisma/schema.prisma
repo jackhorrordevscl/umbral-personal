@@ -93,6 +93,13 @@ model User {
   // Sitio web público del terapeuta (http/https), opcional. Se muestra en el
   // perfil público de la autoagenda; validado en UpdateProfileDto.
   website                    String?
+  // Datos del propio profesional para firmar informes de alta: RUT (forma
+  // canónica de normalizeRut) y registro profesional (texto libre, ej. N° de
+  // registro de la Superintendencia de Salud). Opcionales y sin @unique. NO se
+  // exponen nunca en el perfil público ni en login/JWT; solo en GET/PATCH
+  // /profile del propio usuario y en el snapshot del informe emitido.
+  rut                        String?
+  professionalRegistration   String?
   // Slug público del terapeuta para el link de la agenda (/book/<slug>).
   // Se regenera cuando cambia el nombre (sin historial: el link viejo deja de
   // resolver, el UUID sigue funcionando). Nullable solo por compatibilidad con

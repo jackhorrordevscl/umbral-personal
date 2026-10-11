@@ -112,7 +112,11 @@ describe('DischargesService', () => {
       },
       bookedSlot: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       user: {
-        findUnique: jest.fn().mockResolvedValue({ name: 'Ana Pérez' }),
+        findUnique: jest.fn().mockResolvedValue({
+          name: 'Ana Pérez',
+          rut: '12345678-5',
+          professionalRegistration: 'Reg. 4521',
+        }),
       },
       $queryRaw: jest.fn().mockResolvedValue([]),
       $transaction: jest.fn(),
@@ -475,17 +479,67 @@ describe('DischargesService', () => {
       }>(prisma.treatmentDischarge.updateMany).data;
       expect(data.status).toBe('ISSUED');
       expect(data.signerName).toBe('Ana Pérez');
-      expect(data.signerRut).toBeNull();
+      expect(data.signerRut).toBe('12345678-5');
+      expect(data.signerProfessionalRegistration).toBe('Reg. 4521');
 
       const recomputed = computeDischargeHash(
         dischargeHashInputFromRow(
           buildRow({
             issuedAt: data.issuedAt as Date,
             signerName: 'Ana Pérez',
+            signerRut: '12345678-5',
+            signerProfessionalRegistration: 'Reg. 4521',
           }),
         ),
       );
       expect(data.contentHash).toBe(recomputed);
+    });
+
+    it('el hash cambia si cambia el RUT del snapshot', async () => {
+      await service.issue('dis-1', 'therapist-1');
+      const data = firstCallArg<{ data: Record<string, unknown> }>(
+        prisma.treatmentDischarge.updateMany,
+      ).data;
+      const other = computeDischargeHash(
+        dischargeHashInputFromRow(
+          buildRow({
+            issuedAt: data.issuedAt as Date,
+            signerName: 'Ana Pérez',
+            signerRut: '11111111-1',
+            signerProfessionalRegistration: 'Reg. 4521',
+          }),
+        ),
+      );
+      expect(data.contentHash).not.toBe(other);
+    });
+
+    it('sin RUT cargado responde 400 accionable y no emite nada', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        name: 'Ana Pérez',
+        rut: null,
+        professionalRegistration: 'Reg. 4521',
+      });
+      const call = service.issue('dis-1', 'therapist-1');
+      await expect(call).rejects.toThrow(BadRequestException);
+      await expect(call).rejects.toThrow(
+        'Completa tu RUT en tu perfil antes de emitir un informe de alta.',
+      );
+      expect(prisma.treatmentDischarge.updateMany).not.toHaveBeenCalled();
+      expect(prisma.patient.update).not.toHaveBeenCalled();
+    });
+
+    it('el registro profesional es opcional: sin él emite con null', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        name: 'Ana Pérez',
+        rut: '12345678-5',
+        professionalRegistration: null,
+      });
+      await service.issue('dis-1', 'therapist-1');
+      const data = firstCallArg<{ data: Record<string, unknown> }>(
+        prisma.treatmentDischarge.updateMany,
+      ).data;
+      expect(data.signerRut).toBe('12345678-5');
+      expect(data.signerProfessionalRegistration).toBeNull();
     });
 
     it('propaga el 403 sin consentimiento y no emite nada', async () => {

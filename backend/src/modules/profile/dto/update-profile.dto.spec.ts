@@ -74,3 +74,69 @@ describe('UpdateProfileDto.website', () => {
     expect(errors.length).toBeGreaterThan(0);
   });
 });
+
+describe('UpdateProfileDto.rut y professionalRegistration', () => {
+  async function run(payload: Record<string, unknown>) {
+    const dto = plainToInstance(UpdateProfileDto, payload);
+    return { dto, errors: await validate(dto) };
+  }
+
+  it('acepta un RUT con dígito verificador válido, con o sin puntos', async () => {
+    expect((await run({ rut: '12.345.678-5' })).errors).toHaveLength(0);
+    expect((await run({ rut: '12345678-5' })).errors).toHaveLength(0);
+  });
+
+  it('rechaza un RUT con dígito verificador inválido', async () => {
+    expect((await run({ rut: '12345678-9' })).errors.length).toBeGreaterThan(0);
+  });
+
+  it.each(['abc', '12345678', '1-9-9'])('rechaza el RUT %s', async (rut) => {
+    expect((await run({ rut })).errors.length).toBeGreaterThan(0);
+  });
+
+  it('trata rut vacío o solo espacios como string vacío (limpia)', async () => {
+    const { dto, errors } = await run({ rut: '   ' });
+    expect(errors).toHaveLength(0);
+    expect(dto.rut).toBe('');
+  });
+
+  it('acepta omitir ambos campos', async () => {
+    expect((await run({})).errors).toHaveLength(0);
+  });
+
+  it('recorta espacios del registro profesional', async () => {
+    const { dto, errors } = await run({
+      professionalRegistration: '  N° 1234  ',
+    });
+    expect(errors).toHaveLength(0);
+    expect(dto.professionalRegistration).toBe('N° 1234');
+  });
+
+  it('acepta un registro profesional vacío (limpia)', async () => {
+    const { dto, errors } = await run({ professionalRegistration: '' });
+    expect(errors).toHaveLength(0);
+    expect(dto.professionalRegistration).toBe('');
+  });
+
+  it('rechaza un registro profesional de más de 50 caracteres', async () => {
+    const { errors } = await run({ professionalRegistration: 'a'.repeat(51) });
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it('acepta un registro profesional de exactamente 50 caracteres', async () => {
+    const { errors } = await run({ professionalRegistration: 'a'.repeat(50) });
+    expect(errors).toHaveLength(0);
+  });
+
+  it('rechaza caracteres de control en el registro profesional', async () => {
+    const { errors } = await run({ professionalRegistration: 'abc\u0000def' });
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it('rechaza valores que no son string', async () => {
+    expect((await run({ rut: 123 })).errors.length).toBeGreaterThan(0);
+    expect(
+      (await run({ professionalRegistration: 123 })).errors.length,
+    ).toBeGreaterThan(0);
+  });
+});

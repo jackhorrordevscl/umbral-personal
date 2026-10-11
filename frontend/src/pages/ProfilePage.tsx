@@ -4,6 +4,7 @@ import { Copy, Check, CalendarDays } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import api from '../api/client';
 import { getApiErrorMessage } from '../utils/api-error';
+import { formatRut, normalizeRut, validateRut } from '../utils/rut';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import {
   useProfile,
@@ -289,6 +290,140 @@ function PublicProfileCard({ profile }: { profile: Profile | undefined }) {
       </form>
     </div>
   );
+}
+
+// Datos del propio profesional para firmar los informes de alta. A diferencia
+// de PublicProfileCard, nada de esto se muestra en la autoagenda pública.
+const RUT_ERROR = 'Ingresa un RUT válido, ej. 12.345.678-5.'
+
+// Forma que acepta el backend: cuerpo de 7 u 8 dígitos, guion y verificador.
+function toApiRut(value: string): string {
+  return normalizeRut(formatRut(value))
+}
+
+function isValidProfessionalRut(value: string): boolean {
+  return /^\d{7,8}-[\dK]$/.test(toApiRut(value)) && validateRut(value)
+}
+
+function ProfessionalDataCard({ profile }: { profile: Profile | undefined }) {
+  const initialRut = profile?.rut ? formatRut(profile.rut) : ''
+  const [accountRut, setAccountRut] = useState(initialRut)
+  const [rutInput, setRutInput] = useState(initialRut)
+  const [accountRegistration, setAccountRegistration] = useState(
+    profile?.professionalRegistration ?? '',
+  )
+  const [registrationInput, setRegistrationInput] = useState(
+    profile?.professionalRegistration ?? '',
+  )
+  const [rutError, setRutError] = useState('')
+
+  const dataMutation = useUpdateProfile()
+  const dataSaving = dataMutation.isPending
+  const dataError = dataMutation.isError
+    ? getApiErrorMessage(dataMutation.error, 'No se pudieron actualizar los datos profesionales.')
+    : ''
+  const dataMessage = dataMutation.isSuccess
+    ? 'Datos profesionales actualizados correctamente.'
+    : ''
+
+  const resetFeedback = () => {
+    if (dataMutation.isSuccess || dataMutation.isError) dataMutation.reset()
+  }
+
+  // Ambos campos se guardan juntos; '' los borra en el backend.
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const rut = rutInput.trim()
+    if (rut && !isValidProfessionalRut(rut)) {
+      setRutError(RUT_ERROR)
+      return
+    }
+    dataMutation.mutate(
+      {
+        rut: rut ? toApiRut(rut) : '',
+        professionalRegistration: registrationInput.trim(),
+      },
+      {
+        onSuccess: (data) => {
+          const savedRut = data.rut ? formatRut(data.rut) : ''
+          setAccountRut(savedRut)
+          setRutInput(savedRut)
+          setAccountRegistration(data.professionalRegistration ?? '')
+          setRegistrationInput(data.professionalRegistration ?? '')
+        },
+      },
+    )
+  }
+
+  return (
+    <div className="card mb-6 break-inside-avoid">
+      <div className="mb-6">
+        <h3 className="font-medium text-slate-800">Datos profesionales</h3>
+        <p className="text-xs text-slate-500">
+          Se usan para firmar tus informes de alta. No se muestran en tu perfil público.
+        </p>
+      </div>
+      <form onSubmit={handleSubmit} noValidate className="space-y-3">
+        <div>
+          <label htmlFor="professional-rut" className="block text-sm text-slate-700 mb-1">
+            RUT
+          </label>
+          <input
+            id="professional-rut"
+            type="text"
+            placeholder="12.345.678-5"
+            maxLength={12}
+            aria-invalid={rutError ? true : undefined}
+            aria-describedby={rutError ? 'professional-rut-error' : undefined}
+            value={rutInput}
+            onChange={(e) => {
+              setRutInput(e.target.value)
+              setRutError('')
+              resetFeedback()
+            }}
+            className="input-field"
+          />
+          {rutError && (
+            <p id="professional-rut-error" role="alert" className="text-xs text-red-600 mt-1">
+              {rutError}
+            </p>
+          )}
+        </div>
+        <div>
+          <label
+            htmlFor="professional-registration"
+            className="block text-sm text-slate-700 mb-1"
+          >
+            Registro profesional
+          </label>
+          <input
+            id="professional-registration"
+            type="text"
+            placeholder="Opcional (ej. N° de registro en la Superintendencia de Salud)"
+            maxLength={50}
+            value={registrationInput}
+            onChange={(e) => {
+              setRegistrationInput(e.target.value)
+              resetFeedback()
+            }}
+            className="input-field"
+          />
+        </div>
+        {dataMessage && <ErrorBanner message={dataMessage} variant="success" />}
+        {dataError && <ErrorBanner message={dataError} />}
+        <button
+          type="submit"
+          disabled={
+            dataSaving ||
+            (rutInput === accountRut && registrationInput === accountRegistration)
+          }
+          className="btn-primary disabled:opacity-50"
+        >
+          {dataSaving ? 'Guardando...' : 'Guardar datos profesionales'}
+        </button>
+      </form>
+    </div>
+  )
 }
 
 function EmailCard({ profile }: { profile: Profile | undefined }) {
@@ -672,6 +807,7 @@ export default function ProfilePage() {
           <>
             <NameCard profile={profile} />
             <PublicProfileCard profile={profile} />
+            <ProfessionalDataCard profile={profile} />
             <EmailCard profile={profile} />
             <PasswordCard />
           </>

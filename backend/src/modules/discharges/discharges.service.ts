@@ -289,17 +289,27 @@ export class DischargesService {
 
       const signer = await tx.user.findUnique({
         where: { id: therapistId },
-        select: { name: true },
+        select: { name: true, rut: true, professionalRegistration: true },
       });
+      // El RUT del firmante es obligatorio para un informe GENERATED. El informe
+      // subido (UPLOADED, T3b) no lo exigirá: cuando exista esa rama, esta
+      // regla debe condicionarse a fresh.source === 'GENERATED'. El registro
+      // profesional es siempre opcional.
+      if (fresh.source === 'GENERATED' && !signer?.rut) {
+        throw new BadRequestException(
+          'Completa tu RUT en tu perfil antes de emitir un informe de alta.',
+        );
+      }
       const issuedAt = new Date();
       const signed = {
         ...fresh,
         issuedAt,
-        // La ficha de usuario aún no guarda RUT ni registro profesional: el
-        // snapshot los deja en null hasta que existan esos campos.
+        // Snapshot del firmante al emitir: entra al hash canónico, así que un
+        // cambio posterior en el perfil no altera el informe ya emitido.
         signerName: signer?.name ?? null,
-        signerRut: null,
-        signerProfessionalRegistration: null,
+        signerRut: signer?.rut ?? null,
+        signerProfessionalRegistration:
+          signer?.professionalRegistration ?? null,
       };
       const contentHash = computeDischargeHash(
         dischargeHashInputFromRow(signed),
