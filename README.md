@@ -270,6 +270,20 @@ copia offsite de backups en **Backblaze B2** (ver
 > una VM Oracle Cloud Always Free (always-on real, sin cold start) queda
 > planificada en el issue #10 para cuando el uso real lo confirme necesario.
 
+> **Ping externo para mantener despierto el backend (issue #422):** un
+> monitor externo (UptimeRobot) hace un `GET` cada 10 minutos a
+> `https://umbralapi.groundzerodevs.com/api/v1/health`, con lo que el servicio
+> no llega a los 15 minutos de inactividad y los procesos programados
+> (recordatorios, reconciliación de pagos, sincronización de calendario)
+> siguen corriendo. Como el endpoint ejecuta un `SELECT 1`, el ping también
+> mantiene activa la base. Es un parche reversible, no una garantía: un
+> deploy o un reinicio igual deja el servicio frío un momento. Para
+> desactivarlo, pausar o borrar el monitor en el panel de UptimeRobot.
+> **Límite de horas:** un servicio encendido todo el mes consume 720-744 de
+> las 750 horas gratis del workspace de Render; por eso Umbral debe ser el
+> único servicio free del workspace. Si se agregara otro, las horas se
+> agotan y Render suspende todos los servicios free hasta el mes siguiente.
+
 > **Topología de red y acceso al origen (issue #307):** el tráfico entra por
 > el dominio propio `umbralapi.groundzerodevs.com`, que pasa por Cloudflare y
 > luego por la infraestructura de Render hasta la app; por eso
