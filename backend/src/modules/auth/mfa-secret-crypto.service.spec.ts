@@ -110,20 +110,29 @@ describe('MfaSecretCryptoService', () => {
       MFA_SECRET_ENCRYPTION_KEY_ACTIVE_KEY_ID: '1',
     };
 
-    it('reads an enc:v2 value written with active key id 0', () => {
-      const keyring = buildKeyring(
-        validKey,
-        undefined,
-        undefined,
-        'MFA_SECRET_ENCRYPTION_KEY',
-      );
-      const stored = encryptTextWithKeyring(Buffer.from(secret), keyring);
+    // enc:v2 (sin AAD) ya no se escribe desde el llavero (ahora emite
+    // enc:v3), así que el valor se arma a mano con la primitiva.
+    const v2Text = (id: number, keyBase64: string) =>
+      `enc:v2:${id}:${encryptAesGcm(
+        Buffer.from(secret),
+        Buffer.from(keyBase64, 'base64'),
+      ).toString('base64')}`;
 
-      expect(stored.startsWith('enc:v2:0:')).toBe(true);
+    it('reads an enc:v2 value written with active key id 0', () => {
+      const stored = v2Text(0, validKey);
+
       expect(buildService(validKey).decrypt(stored)).toBe(secret);
     });
 
     it('reads an enc:v2 value written with a rotated key (id 1)', () => {
+      const stored = v2Text(1, rotatedKey);
+
+      expect(buildService(validKey, rotatedEnv).decrypt(stored)).toBe(secret);
+      expect(buildService(validKey, rotatedEnv).isEncrypted(stored)).toBe(true);
+    });
+
+    // U1 de T3b: el build debe leer enc:v3 (con AAD) antes de que U2 lo escriba.
+    it('reads an enc:v3 value written with the mfa keyring (U1)', () => {
       const keyring = buildKeyring(
         validKey,
         rotatedEnv.MFA_SECRET_ENCRYPTION_KEY_KEYRING,
@@ -131,10 +140,11 @@ describe('MfaSecretCryptoService', () => {
         'MFA_SECRET_ENCRYPTION_KEY',
       );
       const stored = encryptTextWithKeyring(Buffer.from(secret), keyring);
+      const service = buildService(validKey, rotatedEnv);
 
-      expect(stored.startsWith('enc:v2:1:')).toBe(true);
-      expect(buildService(validKey, rotatedEnv).decrypt(stored)).toBe(secret);
-      expect(buildService(validKey, rotatedEnv).isEncrypted(stored)).toBe(true);
+      expect(stored.startsWith('enc:v3:')).toBe(true);
+      expect(service.isEncrypted(stored)).toBe(true);
+      expect(service.decrypt(stored)).toBe(secret);
     });
 
     it('still reads enc:v1 and legacy plaintext with a keyring configured', () => {
@@ -156,13 +166,7 @@ describe('MfaSecretCryptoService', () => {
     });
 
     it('throws on a tampered enc:v2 value (GCM authentication)', () => {
-      const keyring = buildKeyring(
-        validKey,
-        undefined,
-        undefined,
-        'MFA_SECRET_ENCRYPTION_KEY',
-      );
-      const stored = encryptTextWithKeyring(Buffer.from(secret), keyring);
+      const stored = v2Text(0, validKey);
       const [, , id, body] = stored.split(':');
       const payload = Buffer.from(body, 'base64');
       payload[payload.length - 1] ^= 0xff;
