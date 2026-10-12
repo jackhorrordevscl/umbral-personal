@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import DischargeSection from './DischargeSection'
 import api from '../../api/client'
@@ -52,6 +53,14 @@ function renderSection(list: TreatmentDischarge[], status: TreatmentStatus) {
     </QueryClientProvider>,
   )
 }
+
+vi.mock('./DischargeForm', () => ({
+  default: ({ onDone }: { onDone: (r: { cancelledConsultations: number }) => void }) => (
+    <button type="button" onClick={() => onDone({ cancelledConsultations: 2 })}>
+      Terminar alta simulada
+    </button>
+  ),
+}))
 
 describe('DischargeSection', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -114,5 +123,15 @@ describe('DischargeSection', () => {
     expect(await screen.findByText('No se pudieron cargar los informes de alta.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Dar de alta/ })).not.toBeInTheDocument()
+  })
+
+  it('al completar un alta anuncia el resultado en una región role="status" (issue #444)', async () => {
+    const user = userEvent.setup()
+    renderSection([], 'ACTIVE')
+    await user.click(await screen.findByRole('button', { name: /Dar de alta/ }))
+    await user.click(screen.getByRole('button', { name: 'Terminar alta simulada' }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent('Informe emitido. Se cancelaron 2 consultas futuras.')
   })
 })

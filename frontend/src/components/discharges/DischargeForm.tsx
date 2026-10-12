@@ -481,21 +481,21 @@ export default function DischargeForm({
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
               <p className="text-xs text-slate-500 mt-1">
-                Solo PDF, hasta ${MAX_PDF_MB} MB. El sistema guarda el archivo tal cual y no lo firma: queda
+                Solo PDF, hasta {MAX_PDF_MB} MB. El sistema guarda el archivo tal cual y no lo firma: queda
                 registrado como documento aportado por el terapeuta.
               </p>
             </FormField>
             <div className="flex gap-3">
               <button
                 type="button"
-                className="btn-primary"
+                className="btn-primary min-h-11 sm:min-h-0"
                 disabled={busy}
                 onClick={handleUpload}
               >
                 {busy ? "Subiendo..." : "Subir y cerrar tratamiento"}
               </button>
               {!correctUploadOf && (
-                <button type="button" className="btn-secondary" onClick={() => setStep("choose")}>
+                <button type="button" className="btn-secondary min-h-11 sm:min-h-0" onClick={() => setStep("choose")}>
                   Volver
                 </button>
               )}

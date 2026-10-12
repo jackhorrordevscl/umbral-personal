@@ -103,6 +103,17 @@ describe('DischargeForm', () => {
     await expectNoA11yViolations(baseElement)
   })
 
+  it('los botones del paso de subida tienen tamaño táctil mínimo en móvil (issue #444)', async () => {
+    mockGet()
+    const user = userEvent.setup()
+    renderForm()
+    await chooseUploadAndPick(user)
+
+    for (const name of ['Subir y cerrar tratamiento', 'Volver']) {
+      expect(screen.getByRole('button', { name })).toHaveClass('min-h-11')
+    }
+  })
+
   it('subir PDF con consultas futuras pide confirmar antes de enviar', async () => {
     mockGet({ count: 2 })
     mockedApi.post.mockResolvedValue({ data: { ...draft, status: 'ISSUED', cancelledConsultations: 2 } })

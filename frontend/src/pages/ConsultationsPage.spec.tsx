@@ -763,7 +763,7 @@ describe('ConsultationsPage — selector de pacientes en el servidor (#290)', ()
     await screen.findByText('Paciente de Prueba')
     expect(screen.getByText(/Mostrando 1 de 45 pacientes/)).toBeInTheDocument()
 
-    await user.type(screen.getByRole('textbox', { name: /buscar paciente/i }), 'Otra')
+    await user.type(screen.getByRole('textbox', { name: 'Buscar paciente para ver sus consultas' }), 'Otra')
 
     expect(await screen.findByText('Otra Persona')).toBeInTheDocument()
     expect(screen.queryByText('Paciente de Prueba')).not.toBeInTheDocument()

@@ -246,6 +246,7 @@ function PatientCardRow({
         <div className="flex gap-2">
           <button
             onClick={() => onView(p)}
+            aria-label={`Ver detalle de ${p.fullName}`}
             className="btn-secondary text-xs py-1 flex items-center gap-1"
           >
             <Eye size={13} /> Ver

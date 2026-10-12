@@ -74,6 +74,17 @@ describe('PatientsPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('el botón "Ver" de la tarjeta móvil incluye el nombre del paciente en su nombre accesible (issue #444)', async () => {
+    mockedApi.get.mockResolvedValueOnce(patientsPage([buildPatient()]))
+
+    renderPatientsPage()
+
+    await screen.findAllByText('Paciente Existente')
+    const botones = await screen.findAllByRole('button', { name: 'Ver detalle de Paciente Existente' })
+    // Fila de la tabla (escritorio) y tarjeta (móvil).
+    expect(botones.some((b) => b.textContent?.trim() === 'Ver')).toBe(true)
+  })
+
   it('issue #188: mientras carga muestra "cargando", no el estado vacío ni "0 pacientes"', async () => {
     let resolveList!: (value: ReturnType<typeof patientsPage>) => void
     mockedApi.get.mockReturnValueOnce(
@@ -239,7 +250,7 @@ describe('PatientsPage', () => {
         const cards = container.querySelector('[class~="md:hidden"]') as HTMLElement
         expect(await within(cards).findByText('Paciente Tarjeta')).toBeInTheDocument()
 
-        expect(within(cards).getAllByRole('button', { name: /^ver$/i })).toHaveLength(2)
+        expect(within(cards).getAllByRole('button', { name: /^ver detalle de /i })).toHaveLength(2)
         expect(within(cards).getAllByRole('button', { name: /^editar$/i })).toHaveLength(2)
         expect(within(cards).getAllByRole('button', { name: /^pdf$/i })).toHaveLength(2)
         expect(
