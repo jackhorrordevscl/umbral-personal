@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import DischargeForm from './DischargeForm'
+import Modal from '../ui/Modal'
 import api from '../../api/client'
 import { expectNoA11yViolations } from '../../test/axe'
 import type { TreatmentDischarge } from '../../types/discharge'
@@ -59,6 +60,13 @@ const draft: TreatmentDischarge = {
   contentHash: null,
   documentId: null,
   pdfSha256: null,
+}
+
+const completeDraft: TreatmentDischarge = {
+  ...draft,
+  evolutionSummary: 'Buena evolución',
+  statusAtDischarge: 'Estable',
+  recommendations: 'Seguimiento anual',
 }
 
 function renderForm(props: Partial<React.ComponentProps<typeof DischargeForm>> = {}) {
@@ -196,7 +204,7 @@ describe('DischargeForm', () => {
     mockedApi.patch.mockResolvedValue({ data: draft })
     mockedApi.post.mockResolvedValue({ data: { ...draft, status: 'ISSUED', cancelledConsultations: 1 } })
     const user = userEvent.setup()
-    const { onDone } = renderForm({ draft })
+    const { onDone } = renderForm({ draft: completeDraft })
 
     await waitFor(() => expect(mockedApi.get).toHaveBeenCalledWith('/profile'))
     await user.click(screen.getByRole('button', { name: 'Emitir informe' }))
@@ -210,5 +218,158 @@ describe('DischargeForm', () => {
       expect.objectContaining({ admissionDate: '2026-01-10', sessionCount: 12, diagnosis: null }),
     )
     expect(mockedApi.post).toHaveBeenCalledWith('/discharges/d1/issue')
+  })
+
+  describe('validación previa y copys (issue #444)', () => {
+    it('con campos obligatorios vacíos avisa antes de pedir la confirmación destructiva', async () => {
+      mockGet({ count: 2 })
+      const user = userEvent.setup()
+      renderForm({ draft })
+
+      await waitFor(() => expect(mockedApi.get).toHaveBeenCalledWith('/profile'))
+      await user.click(screen.getByRole('button', { name: 'Emitir informe' }))
+
+      expect(
+        await screen.findByText(/Completa antes de emitir: resumen de la evolución, estado al cierre, recomendaciones./),
+      ).toBeInTheDocument()
+      expect(screen.queryByRole('dialog', { name: 'Se cancelarán consultas futuras' })).not.toBeInTheDocument()
+      expect(mockedApi.get).not.toHaveBeenCalledWith(PREVIEW_URL)
+    })
+
+    it('marca con asterisco los textos obligatorios y no el diagnóstico', () => {
+      renderForm({ draft })
+      for (const label of ['Motivo de consulta', 'Resumen de la evolución', 'Estado al cierre', 'Recomendaciones']) {
+        expect(screen.getByText(label + ' *')).toBeInTheDocument()
+      }
+      expect(screen.getByText('Diagnóstico (opcional)')).toBeInTheDocument()
+    })
+
+    it('un archivo que no es PDF se rechaza antes de la confirmación', async () => {
+      mockGet({ count: 1 })
+      const user = userEvent.setup()
+      renderForm()
+      await user.click(screen.getByRole('button', { name: /Subir mi propio PDF/ }))
+      fireEvent.change(screen.getByLabelText(/Archivo PDF del informe/), {
+        target: { files: [new File(['x'], 'alta.txt', { type: 'text/plain' })] },
+      })
+      await user.click(screen.getByRole('button', { name: 'Subir y cerrar tratamiento' }))
+
+      expect(await screen.findByText('Solo se permite subir un archivo PDF.')).toBeInTheDocument()
+      expect(screen.queryByRole('dialog', { name: 'Se cancelarán consultas futuras' })).not.toBeInTheDocument()
+      expect(mockedApi.get).not.toHaveBeenCalledWith(PREVIEW_URL)
+    })
+
+    it('un archivo de más de 25 MB se rechaza antes de la confirmación', async () => {
+      mockGet({ count: 1 })
+      const user = userEvent.setup()
+      renderForm()
+      await user.click(screen.getByRole('button', { name: /Subir mi propio PDF/ }))
+      const big = new File(['x'], 'alta.pdf', { type: 'application/pdf' })
+      Object.defineProperty(big, 'size', { value: 25 * 1024 * 1024 + 1 })
+      fireEvent.change(screen.getByLabelText(/Archivo PDF del informe/), { target: { files: [big] } })
+      await user.click(screen.getByRole('button', { name: 'Subir y cerrar tratamiento' }))
+
+      expect(
+        await screen.findByText('El archivo supera el tamaño máximo permitido (25 MB).'),
+      ).toBeInTheDocument()
+      expect(mockedApi.get).not.toHaveBeenCalledWith(PREVIEW_URL)
+    })
+
+    it('la fecha de cierre por defecto es el día de Chile, no el del navegador', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      try {
+        // 23:00 del 11 de octubre en Chile; ya es 12 en UTC.
+        vi.setSystemTime(new Date('2026-10-12T02:00:00.000Z'))
+        const user = userEvent.setup()
+        renderForm()
+        await user.click(screen.getByRole('button', { name: /Subir mi propio PDF/ }))
+        expect(screen.getByLabelText(/Fecha de cierre/)).toHaveValue('2026-10-11')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('rechaza una fecha de cierre futura sin pedir confirmación', async () => {
+      mockGet({ count: 1 })
+      const user = userEvent.setup()
+      renderForm()
+      await chooseUploadAndPick(user)
+      fireEvent.change(screen.getByLabelText(/Fecha de cierre/), { target: { value: '2999-01-01' } })
+      await user.click(screen.getByRole('button', { name: 'Subir y cerrar tratamiento' }))
+
+      expect(await screen.findByText('La fecha de alta no puede ser futura.')).toBeInTheDocument()
+      expect(mockedApi.get).not.toHaveBeenCalledWith(PREVIEW_URL)
+    })
+
+    it('la vista previa de cancelación no muestra segundos', async () => {
+      mockGet({ count: 1 })
+      const user = userEvent.setup()
+      renderForm()
+      await chooseUploadAndPick(user)
+      await user.click(screen.getByRole('button', { name: 'Subir y cerrar tratamiento' }))
+
+      const dialog = await screen.findByRole('dialog', { name: 'Se cancelarán consultas futuras' })
+      expect(dialog.textContent).toContain('10:00')
+      expect(dialog.textContent).not.toMatch(/\d{2}:\d{2}:\d{2}/)
+    })
+
+    it('el error de validación se muestra con role="alert" y se lleva a la vista', async () => {
+      const scrollIntoView = vi.fn()
+      Element.prototype.scrollIntoView = scrollIntoView
+      const user = userEvent.setup()
+      renderForm()
+      await user.click(screen.getByRole('button', { name: /Subir mi propio PDF/ }))
+      await user.click(screen.getByRole('button', { name: 'Subir y cerrar tratamiento' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Selecciona el archivo PDF')
+      expect(scrollIntoView).toHaveBeenCalled()
+    })
+  })
+
+  describe('cierre del modal (issue #444)', () => {
+    it('Escape en el formulario o en la confirmación no cierra el modal padre', async () => {
+      mockGet({ count: 1 })
+      const onCloseParent = vi.fn()
+      const user = userEvent.setup()
+      const onClose = vi.fn()
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <Modal onClose={onCloseParent} labelledBy="parent-title">
+            <h3 id="parent-title">Paciente</h3>
+            <DischargeForm patientId="p1" onClose={onClose} onDone={vi.fn()} />
+          </Modal>
+        </QueryClientProvider>,
+      )
+      await chooseUploadAndPick(user)
+      await user.click(screen.getByRole('button', { name: 'Subir y cerrar tratamiento' }))
+      const confirm = await screen.findByRole('dialog', { name: 'Se cancelarán consultas futuras' })
+
+      fireEvent.keyDown(within(confirm).getByRole('button', { name: 'Cancelar' }), { key: 'Escape' })
+      expect(screen.queryByRole('dialog', { name: 'Se cancelarán consultas futuras' })).not.toBeInTheDocument()
+      expect(onCloseParent).not.toHaveBeenCalled()
+      expect(onClose).not.toHaveBeenCalled()
+
+      fireEvent.keyDown(screen.getByLabelText(/Archivo PDF del informe/), { key: 'Escape' })
+      expect(onClose).toHaveBeenCalledTimes(1)
+      expect(onCloseParent).not.toHaveBeenCalled()
+    })
+
+    it('no se puede cerrar mientras sube el archivo', async () => {
+      let resolveUpload: (value: unknown) => void = () => {}
+      mockedApi.post.mockReturnValue(new Promise((resolve) => { resolveUpload = resolve }))
+      const user = userEvent.setup()
+      const { onClose, onDone } = renderForm()
+      await chooseUploadAndPick(user)
+      await user.click(screen.getByRole('button', { name: 'Subir y cerrar tratamiento' }))
+      await screen.findByRole('button', { name: 'Subiendo...' })
+
+      fireEvent.keyDown(screen.getByLabelText(/Archivo PDF del informe/), { key: 'Escape' })
+      expect(screen.getByRole('button', { name: 'Cerrar' })).toBeDisabled()
+      await user.click(screen.getByRole('button', { name: 'Cerrar' }))
+      expect(onClose).not.toHaveBeenCalled()
+
+      resolveUpload({ data: { ...draft, cancelledConsultations: 0 } })
+      await waitFor(() => expect(onDone).toHaveBeenCalled())
+    })
   })
 })

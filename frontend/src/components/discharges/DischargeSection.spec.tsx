@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import DischargeSection from './DischargeSection'
 import api from '../../api/client'
@@ -75,5 +75,44 @@ describe('DischargeSection', () => {
     expect(screen.getAllByRole('button', { name: 'Corregir' })).toHaveLength(1)
     expect(screen.getByRole('button', { name: 'Descargar el PDF de la versión 2' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Verificar la versión 2' })).toBeInTheDocument()
+  })
+
+  it('muestra la fecha de cierre sin desfase de zona horaria (issue #444)', async () => {
+    renderSection(
+      [build({ admissionDate: '2026-01-10T00:00:00.000Z', dischargeDate: '2026-10-12T00:00:00.000Z' })],
+      'DISCHARGED',
+    )
+    expect(await screen.findByText(/Fecha de cierre: 12-10-2026/)).toBeInTheDocument()
+  })
+
+  it('con dos grupos ordena las versiones por fecha de creación descendente (issue #444)', async () => {
+    const a1 = build({ id: 'a1', groupId: 'a1', version: 1, createdAt: '2026-02-01T10:00:00.000Z' })
+    const a2 = build({ id: 'a2', groupId: 'a1', version: 2, correctsId: 'a1', createdAt: '2026-03-01T10:00:00.000Z' })
+    // Tratamiento reabierto y vuelto a cerrar: grupo nuevo, versión 1.
+    const b1 = build({ id: 'b1', groupId: 'b1', version: 1, createdAt: '2026-09-01T10:00:00.000Z' })
+    renderSection([a2, b1, a1], 'DISCHARGED')
+
+    await screen.findByText(/Versión 2/)
+    const items = screen.getAllByRole('listitem')
+    expect(items.map((li) => /Versión (\d)/.exec(li.textContent ?? '')?.[1])).toEqual(['1', '2', '1'])
+    expect(within(items[0]).getByRole('button', { name: 'Descargar el PDF de la versión 1' })).toBeInTheDocument()
+    expect(items[0].textContent).not.toContain('Reemplazada')
+    expect(items[1].textContent).not.toContain('Reemplazada')
+    expect(items[2].textContent).toContain('Reemplazada')
+  })
+
+  it('si falla la carga de la lista no ofrece "Dar de alta" y permite reintentar (issue #444)', async () => {
+    mockedApi.get.mockRejectedValue(new Error('boom'))
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DischargeSection patientId="p1" treatmentStatus="ACTIVE" />
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByText('No se pudieron cargar los informes de alta.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Dar de alta/ })).not.toBeInTheDocument()
   })
 })

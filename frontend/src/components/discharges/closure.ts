@@ -2,6 +2,11 @@ import axios from "axios";
 import type { ClosureReason, DropoutReason } from "../../types/discharge";
 import { getApiErrorMessage } from "../../utils/api-error";
 
+// Mirrors the backend MAX_DOCUMENT_UPLOAD_BYTES (documents.controller.ts).
+export const MAX_PDF_MB = 25;
+export const MAX_PDF_BYTES = MAX_PDF_MB * 1024 * 1024;
+export const PDF_TOO_LARGE_MESSAGE = `El archivo supera el tamaño máximo permitido (${MAX_PDF_MB} MB).`;
+
 export interface ClosureValues {
   closureReason: ClosureReason;
   dropoutReason: DropoutReason | "";
@@ -40,7 +45,7 @@ export function closureToPayload(values: ClosureValues) {
 
 export function getUploadErrorMessage(err: unknown): string {
   if (axios.isAxiosError(err) && err.response?.status === 413) {
-    return "El archivo supera el tamaño máximo permitido (25 MB).";
+    return PDF_TOO_LARGE_MESSAGE;
   }
   return getApiErrorMessage(err, "No se pudo subir el archivo. Debe ser un PDF válido.");
 }

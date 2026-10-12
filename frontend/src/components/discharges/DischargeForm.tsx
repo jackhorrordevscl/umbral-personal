@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileUp, X } from "lucide-react";
 import Modal from "../ui/Modal";
 import ConfirmDialog from "../ui/ConfirmDialog";
@@ -7,6 +7,9 @@ import FormField from "../ui/FormField";
 import ClosureFields from "./ClosureFields";
 import {
   EMPTY_CLOSURE,
+  MAX_PDF_BYTES,
+  MAX_PDF_MB,
+  PDF_TOO_LARGE_MESSAGE,
   closureToPayload,
   getUploadErrorMessage,
   validateClosure,
@@ -27,10 +30,8 @@ import type {
   TreatmentDischarge,
 } from "../../types/discharge";
 import { getApiErrorMessage } from "../../utils/api-error";
-import { formatChileShortDateTime } from "../../utils/datetime";
+import { formatChileShortDateTimeNoSeconds, todayInChile } from "../../utils/datetime";
 
-// Mirrors the backend MAX_DOCUMENT_UPLOAD_BYTES (documents.controller.ts).
-const MAX_PDF_BYTES = 25 * 1024 * 1024;
 const MAX_LISTED_CONSULTATIONS = 8;
 
 type Step = "choose" | "closure" | "edit" | "upload";
@@ -46,11 +47,7 @@ interface DischargeFormProps {
 }
 
 const dateOnly = (iso: string) => iso.slice(0, 10);
-const todayLocal = () => {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-};
+const FUTURE_DATE_MESSAGE = "La fecha de alta no puede ser futura.";
 
 function contentFromDraft(d?: TreatmentDischarge) {
   return {
@@ -78,7 +75,7 @@ function closureFromDraft(d?: TreatmentDischarge): ClosureValues {
 function describeCancellation(preview: CancellationPreview): string {
   const shown = preview.consultations
     .slice(0, MAX_LISTED_CONSULTATIONS)
-    .map((c) => formatChileShortDateTime(c.sessionDate));
+    .map((c) => formatChileShortDateTimeNoSeconds(c.sessionDate));
   const extra = preview.count - shown.length;
   const list = shown.join("; ") + (extra > 0 ? `; y ${extra} más` : "");
   const noun = preview.count === 1 ? "1 consulta futura" : `${preview.count} consultas futuras`;
@@ -105,7 +102,7 @@ export default function DischargeForm({
   );
   const [content, setContent] = useState(contentFromDraft(draft));
   const [file, setFile] = useState<File | null>(null);
-  const [uploadDate, setUploadDate] = useState(todayLocal());
+  const [uploadDate, setUploadDate] = useState(todayInChile());
   const [error, setError] = useState("");
   const [pending, setPending] = useState<{
     preview: CancellationPreview;
@@ -113,6 +110,13 @@ export default function DischargeForm({
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+
+  // The modal scrolls: an error raised next to the footer buttons would
+  // otherwise stay out of view.
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [error]);
 
   const profileQuery = useProfile();
   const createDraft = useCreateDischargeDraft(patientId);
@@ -124,6 +128,13 @@ export default function DischargeForm({
   // issue() answers 400 without the therapist's RUT, so the generated path is
   // blocked up front. If the profile fails to load the button stays enabled.
   const rutMissing = !!profileQuery.data && !profileQuery.data.rut;
+
+  // Nothing may close the modal while a closure is being sent or saved.
+  const locked =
+    busy || createDraft.isPending || updateDischarge.isPending || issueDischarge.isPending;
+  const requestClose = () => {
+    if (!locked) onClose();
+  };
 
   const setContentField = (key: keyof typeof content, value: string) =>
     setContent((prev) => ({ ...prev, [key]: value }));
@@ -197,7 +208,8 @@ export default function DischargeForm({
     };
   };
 
-  const validateEdit = (): string | null => {
+  // A draft may be saved incomplete: only the structural fields are checked.
+  const validateDraft = (): string | null => {
     const problem = validateClosure(closure);
     if (problem) return problem;
     if (!content.admissionDate || !content.dischargeDate) {
@@ -210,9 +222,30 @@ export default function DischargeForm({
     return null;
   };
 
+  const validateEdit = (): string | null => {
+    const problem = validateClosure(closure);
+    if (problem) return problem;
+    if (!content.admissionDate || !content.dischargeDate) {
+      return "Las fechas de ingreso y de alta son obligatorias";
+    }
+    if (content.dischargeDate > todayInChile()) return FUTURE_DATE_MESSAGE;
+    const count = Number(content.sessionCount);
+    if (!Number.isInteger(count) || count < 0) {
+      return "El número de sesiones debe ser un entero mayor o igual a 0";
+    }
+    // Same four texts the server requires before issuing.
+    const missing: string[] = [];
+    if (!content.consultReason.trim()) missing.push("motivo de consulta");
+    if (!content.evolutionSummary.trim()) missing.push("resumen de la evolución");
+    if (!content.statusAtDischarge.trim()) missing.push("estado al cierre");
+    if (!content.recommendations.trim()) missing.push("recomendaciones");
+    if (missing.length > 0) return `Completa antes de emitir: ${missing.join(", ")}.`;
+    return null;
+  };
+
   const handleSaveDraft = async () => {
     if (!current) return;
-    const problem = validateEdit();
+    const problem = validateDraft();
     if (problem) {
       setError(problem);
       return;
@@ -255,11 +288,15 @@ export default function DischargeForm({
       return;
     }
     if (file.size > MAX_PDF_BYTES) {
-      setError("El archivo supera el tamaño máximo permitido (25 MB).");
+      setError(PDF_TOO_LARGE_MESSAGE);
       return;
     }
     if (!uploadDate) {
       setError("La fecha de alta es obligatoria");
+      return;
+    }
+    if (uploadDate > todayInChile()) {
+      setError(FUTURE_DATE_MESSAGE);
       return;
     }
     const data = { ...closureToPayload(closure), file, dischargeDate: uploadDate };
@@ -281,7 +318,7 @@ export default function DischargeForm({
   return (
     <>
       <Modal
-        onClose={onClose}
+        onClose={requestClose}
         labelledBy="discharge-form-title"
         className="max-w-lg max-h-[90vh] overflow-y-auto p-6"
       >
@@ -291,15 +328,20 @@ export default function DischargeForm({
           </h3>
           <button
             type="button"
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 ml-4"
+            onClick={requestClose}
+            disabled={locked}
+            className="text-slate-400 hover:text-slate-600 disabled:opacity-50 ml-4"
             aria-label="Cerrar"
           >
             <X size={20} />
           </button>
         </div>
 
-        {error && <ErrorBanner icon message={error} className="mb-4" />}
+        {error && (
+          <div ref={errorRef}>
+            <ErrorBanner icon message={error} className="mb-4" />
+          </div>
+        )}
 
         {step === "choose" && (
           <div className="space-y-3">
@@ -381,19 +423,19 @@ export default function DischargeForm({
                 />
               </FormField>
             </div>
-            <TextArea id="dis-consultReason" label="Motivo de consulta" max={2000}
+            <TextArea id="dis-consultReason" label="Motivo de consulta" max={2000} required
               value={content.consultReason}
               onChange={(v) => setContentField("consultReason", v)} />
             <TextArea id="dis-diagnosis" label="Diagnóstico (opcional)" max={1000}
               value={content.diagnosis}
               onChange={(v) => setContentField("diagnosis", v)} />
-            <TextArea id="dis-evolutionSummary" label="Resumen de la evolución" max={5000}
+            <TextArea id="dis-evolutionSummary" label="Resumen de la evolución" max={5000} required
               value={content.evolutionSummary}
               onChange={(v) => setContentField("evolutionSummary", v)} />
-            <TextArea id="dis-statusAtDischarge" label="Estado al cierre" max={2000}
+            <TextArea id="dis-statusAtDischarge" label="Estado al cierre" max={2000} required
               value={content.statusAtDischarge}
               onChange={(v) => setContentField("statusAtDischarge", v)} />
-            <TextArea id="dis-recommendations" label="Recomendaciones" max={3000}
+            <TextArea id="dis-recommendations" label="Recomendaciones" max={3000} required
               value={content.recommendations}
               onChange={(v) => setContentField("recommendations", v)} />
             <div className="flex flex-wrap gap-3">
@@ -439,7 +481,7 @@ export default function DischargeForm({
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
               <p className="text-xs text-slate-500 mt-1">
-                Solo PDF, hasta 25 MB. El sistema guarda el archivo tal cual y no lo firma: queda
+                Solo PDF, hasta ${MAX_PDF_MB} MB. El sistema guarda el archivo tal cual y no lo firma: queda
                 registrado como documento aportado por el terapeuta.
               </p>
             </FormField>
@@ -493,17 +535,19 @@ function TextArea({
   id,
   label,
   max,
+  required,
   value,
   onChange,
 }: {
   id: string;
   label: string;
   max: number;
+  required?: boolean;
   value: string;
   onChange: (value: string) => void;
 }) {
   return (
-    <FormField id={id} label={label}>
+    <FormField id={id} label={label} required={required}>
       <textarea
         id={id}
         rows={3}

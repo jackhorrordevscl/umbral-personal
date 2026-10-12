@@ -9,6 +9,8 @@ import {
   formatChileShortDate,
   formatChileShortDateTime,
   formatChileTime,
+  todayInChile,
+  formatChileShortDateTimeNoSeconds,
 } from './datetime'
 
 // PR4 (session-calendar-view, tasks 5.1): estos helpers alimentan el
@@ -144,5 +146,18 @@ describe('formateo de fechas en zona fija', () => {
     // 2026-08-16T04:00:00Z es medianoche en Chile (-04:00).
     expect(formatChileShortDateTime('2026-08-16T04:00:00.000Z')).toContain('00:00:00')
     expect(formatChileTime('2026-08-16T04:00:00.000Z')).toBe('00:00')
+  })
+})
+
+describe('todayInChile y formatChileShortDateTimeNoSeconds (issue #444)', () => {
+  it('todayInChile devuelve el día de Chile, no el UTC', () => {
+    // 02:00Z del 12 es 23:00 del 11 en Chile (-03:00 en octubre).
+    expect(todayInChile(new Date('2026-10-12T02:00:00.000Z'))).toBe('2026-10-11')
+    expect(todayInChile(new Date('2026-10-12T04:00:00.000Z'))).toBe('2026-10-12')
+  })
+
+  it('formatChileShortDateTimeNoSeconds omite los segundos y nunca produce hora 24', () => {
+    expect(formatChileShortDateTimeNoSeconds('2026-11-03T13:00:00.000Z')).toBe('03-11-2026, 10:00')
+    expect(formatChileShortDateTimeNoSeconds('2026-08-16T04:00:00.000Z')).toContain('00:00')
   })
 })

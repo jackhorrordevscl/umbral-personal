@@ -247,7 +247,11 @@ describe('buildDischargePdf', () => {
           'Firma simple: documento emitido por Ana Pérez el 11-10-2026 15:04',
         );
         expect(text).toContain('ID del informe: dis-0001');
-        expect(text).toContain('/api/v1/discharges/dis-0001/verify');
+        expect(text).toContain(
+          'Verificación: el terapeuta emisor puede comprobar',
+        );
+        expect(text).not.toContain('/api/v1');
+        expect(text).not.toContain('GET ');
         expect(text).toContain('Ley 20.584');
       }
     });

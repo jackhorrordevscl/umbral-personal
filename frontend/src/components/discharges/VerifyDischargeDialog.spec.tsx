@@ -66,4 +66,13 @@ describe('VerifyDischargeDialog', () => {
 
     expect(await screen.findByText(/El PDF guardado no coincide/)).toBeInTheDocument()
   })
+
+  it('anuncia la carga y el resultado como avisos de estado (issue #444)', async () => {
+    mockedApi.get.mockResolvedValue({ data: base })
+    renderDialog()
+
+    expect(screen.getByRole('status')).toHaveTextContent('Verificando...')
+    await screen.findByText(/Informe generado por el sistema/)
+    expect(screen.getByRole('status')).toHaveTextContent(/coincide con su huella digital/)
+  })
 })

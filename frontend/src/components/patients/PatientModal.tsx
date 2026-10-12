@@ -55,12 +55,16 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   INFORMED_ASSENT: "Asentimiento informado",
   TELEMED_AGREEMENT: "Acuerdo telemedicina",
   SESSION_SUMMARY: "Registro de sesión",
+  DISCHARGE_REPORT: "Informe de alta",
   OTHER: "Otro",
 };
 
 // Bloque Menores: estos documentos otorgan consentimiento, así que en un menor
 // los firma un representante con canConsent (INFORMED_ASSENT no lo requiere).
 const GUARDIAN_CONSENT_DOC_TYPES = ["INFORMED_CONSENT", "TELEMED_AGREEMENT"];
+
+// El informe de alta se corrige con una nueva versión; el servidor rechaza anularlo (409).
+const NON_VOIDABLE_DOC_TYPES = ["DISCHARGE_REPORT"];
 
 const VOID_REASON_MIN = 5;
 const VOID_REASON_MAX = 500;
@@ -501,7 +505,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                             </div>
                           </div>
                           <div className="flex items-center shrink-0">
-                            {!isVoided && (
+                            {!isVoided && !NON_VOIDABLE_DOC_TYPES.includes(doc.type) && (
                               <button
                                 onClick={() => openVoid(doc)}
                                 className="p-1.5 hover:bg-red-50 rounded-lg text-red-500"

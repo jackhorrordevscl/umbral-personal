@@ -51,13 +51,17 @@ export default function VerifyDischargeDialog({
         </button>
       </div>
 
-      {query.isLoading && <p className="text-sm text-slate-500">Verificando...</p>}
+      {query.isLoading && (
+        <p role="status" className="text-sm text-slate-500">
+          Verificando...
+        </p>
+      )}
       {query.isError && (
         <ErrorBanner icon message="No se pudo verificar el informe." onRetry={() => void query.refetch()} />
       )}
 
       {result && pdf && (
-        <div className="space-y-3 text-sm text-slate-700">
+        <div role="status" className="space-y-3 text-sm text-slate-700">
           <p className={result.valid ? "text-emerald-700" : "text-red-600"}>
             {result.valid
               ? "El registro del informe coincide con su huella digital."

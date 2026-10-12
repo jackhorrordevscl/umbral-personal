@@ -28,22 +28,34 @@ export function useVerifyDischarge(id: string | undefined) {
   });
 }
 
-function useDischargeInvalidation(includeConsultations: boolean) {
+function useDischargeInvalidation(closesTreatment: boolean) {
   const queryClient = useQueryClient();
   return () => {
     queryClient.invalidateQueries({ queryKey: dischargeKeys.all });
     queryClient.invalidateQueries({ queryKey: ['patients'] });
     queryClient.invalidateQueries({ queryKey: ['patient-documents'] });
-    if (includeConsultations) {
-      // Issuing a closure cancels future consultations.
+    if (closesTreatment) {
+      // Issuing a closure cancels future consultations, frees their booked
+      // slots and cancels unpaid charges.
       queryClient.invalidateQueries({ queryKey: ['consultations'] });
       queryClient.invalidateQueries({ queryKey: ['consultation-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['availability'] });
+      queryClient.invalidateQueries({ queryKey: ['public-availability'] });
+      queryClient.invalidateQueries({ queryKey: ['payment-account'] });
     }
   };
 }
 
+// Saving a draft only changes discharge records, not patients or documents.
+function useDraftInvalidation() {
+  const queryClient = useQueryClient();
+  return () => {
+    queryClient.invalidateQueries({ queryKey: dischargeKeys.all });
+  };
+}
+
 export function useCreateDischargeDraft(patientId: string) {
-  const invalidate = useDischargeInvalidation(false);
+  const invalidate = useDraftInvalidation();
   return useMutation({
     mutationFn: (data: Parameters<typeof dischargesApi.createDischargeDraft>[1]) =>
       dischargesApi.createDischargeDraft(patientId, data),
@@ -52,7 +64,7 @@ export function useCreateDischargeDraft(patientId: string) {
 }
 
 export function useUpdateDischarge() {
-  const invalidate = useDischargeInvalidation(false);
+  const invalidate = useDraftInvalidation();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateDischargePayload }) =>
       dischargesApi.updateDischarge(id, data),

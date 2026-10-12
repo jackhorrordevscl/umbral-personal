@@ -14,7 +14,7 @@ import {
 import type { TreatmentStatus } from "../../types/patient";
 import { downloadBlob } from "../../utils/download";
 import { getApiErrorMessage } from "../../utils/api-error";
-import { formatChileShortDate, formatChileShortDateTime } from "../../utils/datetime";
+import { formatCalendarDate, formatChileShortDateTime } from "../../utils/datetime";
 
 interface DischargeSectionProps {
   patientId: string;
@@ -41,12 +41,19 @@ export default function DischargeSection({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
+  // Más reciente primero: ordenar por versión mezclaría los grupos de un
+  // tratamiento reabierto (el grupo nuevo vuelve a empezar en la versión 1).
   const discharges = [...(dischargesQuery.data ?? [])].sort(
-    (a, b) => b.version - a.version || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""),
+    (a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "") || b.version - a.version,
   );
   const correctedIds = new Set(discharges.map((d) => d.correctsId).filter(Boolean));
   const hasDraft = discharges.some((d) => d.status === "DRAFT");
-  const canStart = (treatmentStatus ?? "ACTIVE") === "ACTIVE" && !hasDraft;
+  // Sin la lista no se sabe si ya hay un borrador: no se ofrece iniciar un alta.
+  const canStart =
+    (treatmentStatus ?? "ACTIVE") === "ACTIVE" &&
+    !hasDraft &&
+    !dischargesQuery.isError &&
+    !dischargesQuery.isLoading;
 
   const handleDownload = async (d: TreatmentDischarge) => {
     setError("");
@@ -101,7 +108,14 @@ export default function DischargeSection({
       </div>
 
       {error && <ErrorBanner icon message={error} className="mb-3" />}
-      {notice && <ErrorBanner variant="success" message={notice} className="mb-3" />}
+      {notice && (
+        <p
+          role="status"
+          className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-emerald-700 text-sm mb-3"
+        >
+          {notice}
+        </p>
+      )}
       {dischargesQuery.isError && (
         <ErrorBanner
           icon
@@ -134,7 +148,7 @@ export default function DischargeSection({
                       {isIssued ? "Emitido" : "Borrador"} · {DISCHARGE_SOURCE_LABELS[d.source]}
                       {d.issuedAt ? ` · ${formatChileShortDateTime(d.issuedAt)}` : ""}
                     </p>
-                    <p>Fecha de cierre: {formatChileShortDate(d.dischargeDate)}</p>
+                    <p>Fecha de cierre: {formatCalendarDate(d.dischargeDate)}</p>
                     {isIssued && !isCurrent && <p className="text-slate-500">Reemplazada</p>}
                   </div>
                   <div className="flex items-center shrink-0">

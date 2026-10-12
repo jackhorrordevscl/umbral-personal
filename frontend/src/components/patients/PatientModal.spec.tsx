@@ -74,6 +74,23 @@ describe('PatientModal — anular documentos legales (#270)', () => {
     expect(screen.getByRole('button', { name: 'Descargar duplicado.pdf' })).toBeInTheDocument()
   })
 
+  it('un informe de alta se muestra con etiqueta legible y sin botón "Anular" (issue #444)', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/documents/patient/patient-1') {
+        return Promise.resolve({
+          data: [{ ...activeDoc, id: 'doc-9', fileName: 'informe-alta.pdf', type: 'DISCHARGE_REPORT' }],
+        })
+      }
+      return Promise.resolve({ data: [] })
+    })
+    renderModal()
+
+    expect(await screen.findByText('Informe de alta')).toBeInTheDocument()
+    expect(screen.queryByText('DISCHARGE_REPORT')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Anular informe-alta.pdf' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Descargar informe-alta.pdf' })).toBeInTheDocument()
+  })
+
   it('si falla la carga de documentos muestra el error y no "Sin documentos subidos." (#294)', async () => {
     mockedApi.get.mockImplementation((url: string) => {
       if (url === '/documents/patient/patient-1') return Promise.reject(new Error('boom'))

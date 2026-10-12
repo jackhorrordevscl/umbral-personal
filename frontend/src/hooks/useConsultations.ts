@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as consultationsApi from '../api/consultations';
 import api from '../api/client';
+import { patientKeys } from './usePatients';
+import { dischargeKeys } from './useDischarges';
 
 // #73 (punto 4): ConsultationsPage armaba useQuery/useMutation a mano en vez
 // de un hook dedicado, a diferencia de usePatients/usePatientDocuments/
@@ -19,6 +21,9 @@ export function useCreateConsultation() {
     mutationFn: consultationsApi.createConsultation,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['consultations'] });
+      // reopenPatient reabre el tratamiento: cambian el estado del paciente y sus informes.
+      queryClient.invalidateQueries({ queryKey: patientKeys.all });
+      queryClient.invalidateQueries({ queryKey: dischargeKeys.all });
       queryClient.invalidateQueries({ queryKey: ['consultation-stats'] });
       queryClient.invalidateQueries({ queryKey: ['acquisition-stats'] });
     },
