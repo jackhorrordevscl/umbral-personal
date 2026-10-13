@@ -324,6 +324,17 @@ describe('DischargeForm', () => {
       expect(dialog.textContent).not.toMatch(/\d{2}:\d{2}:\d{2}/)
     })
 
+    it('el texto del borrador dice solo lo que se prellena: fechas y número de sesiones', async () => {
+      const user = userEvent.setup()
+      renderForm()
+      await user.click(screen.getByRole('button', { name: /Generar con el sistema/ }))
+
+      expect(
+        await screen.findByText(/prellena con las fechas y el número de sesiones/),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/datos de las consultas/)).not.toBeInTheDocument()
+    })
+
     it('el error de validación se muestra con role="alert" y se lleva a la vista', async () => {
       const scrollIntoView = vi.fn()
       Element.prototype.scrollIntoView = scrollIntoView

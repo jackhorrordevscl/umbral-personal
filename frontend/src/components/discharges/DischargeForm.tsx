@@ -370,8 +370,8 @@ export default function DischargeForm({
             {rutMissing && <RutWarning />}
             <ClosureFields idPrefix="gen" values={closure} onChange={setClosure} />
             <p className="text-xs text-slate-500">
-              El borrador se prellena con los datos de las consultas y podrás editarlo antes de
-              emitir.
+              El borrador se prellena con las fechas y el número de sesiones; el resto lo completas
+              tú y puedes editarlo antes de emitir.
             </p>
             <div className="flex gap-3">
               <button
