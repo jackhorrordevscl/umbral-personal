@@ -86,6 +86,16 @@ describe('DischargeSection', () => {
     expect(screen.getByRole('button', { name: 'Verificar la versión 2' })).toBeInTheDocument()
   })
 
+  it('con el paciente reabierto el informe anterior es histórico y no se puede corregir (issue #447)', async () => {
+    renderSection([build({ id: 'd1', version: 1 })], 'ACTIVE')
+
+    expect(await screen.findByText('Histórico · Paciente reabierto')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Corregir' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Descargar el PDF de la versión 1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Verificar la versión 1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Dar de alta/ })).toBeInTheDocument()
+  })
+
   it('muestra la fecha de cierre sin desfase de zona horaria (issue #444)', async () => {
     renderSection(
       [build({ admissionDate: '2026-01-10T00:00:00.000Z', dischargeDate: '2026-10-12T00:00:00.000Z' })],
