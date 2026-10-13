@@ -378,4 +378,63 @@ export class MailService {
       );
     }
   }
+
+  // T4b (informe de alta): avisa que las consultas futuras quedaron canceladas
+  // al cerrar el tratamiento. NO incluye el motivo del cierre: es un dato de
+  // salud y el destinatario puede no ser el paciente (p. ej. su representante).
+  // Mismo contrato "nunca lanza" que el resto de la clase; devuelve si el envío
+  // ocurrió para que el llamador pueda dejarlo en el log.
+  async sendConsultationCancelledEmail(
+    to: string,
+    recipientName: string,
+    therapistName: string,
+    sessionDates: Date[],
+  ): Promise<boolean> {
+    if (!this.resend) {
+      this.logger.warn(
+        `RESEND_API_KEY no configurada: se salteó el aviso de cancelación de consultas a ${maskEmail(to)}.`,
+      );
+      return false;
+    }
+
+    // Zona horaria fija a propósito (America/Santiago): esta clase solo
+    // renderiza texto humano.
+    const formatter = new Intl.DateTimeFormat('es-CL', {
+      timeZone: 'America/Santiago',
+      dateStyle: 'full',
+      timeStyle: 'short',
+    });
+    const items = sessionDates
+      .map((date) => `<li>${escapeHtml(formatter.format(date))}</li>`)
+      .join('');
+    const plural = sessionDates.length === 1;
+
+    try {
+      const { error } = await this.resend.emails.send({
+        from: this.from,
+        to,
+        subject: plural
+          ? 'Tu sesión agendada fue cancelada'
+          : 'Tus sesiones agendadas fueron canceladas',
+        html: `
+          <p>Hola ${escapeHtml(recipientName)},</p>
+          <p>${escapeHtml(therapistName)} canceló ${plural ? 'la siguiente sesión agendada' : 'las siguientes sesiones agendadas'}:</p>
+          <ul>${items}</ul>
+          <p>Si tienes dudas, contáctate directamente con ${escapeHtml(therapistName)}.</p>
+        `,
+      });
+      if (error) {
+        this.logger.error(
+          `Falló el envío del aviso de cancelación de consultas a ${maskEmail(to)}: ${error.message}`,
+        );
+        return false;
+      }
+      return true;
+    } catch (err) {
+      this.logger.error(
+        `Falló el envío del aviso de cancelación de consultas a ${maskEmail(to)}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
+    }
+  }
 }

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, TreatmentDischarge } from '@prisma/client';
 import { DischargesService } from './discharges.service';
+import { DischargeCancellationNotifier } from './discharge-cancellation-notifier.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { AuditService } from '../audit/audit.service';
@@ -87,6 +88,7 @@ describe('DischargesService', () => {
   let auditService: { log: jest.Mock };
   let availabilityService: { invalidate: jest.Mock };
   let paymentsService: { cancelUnpaid: jest.Mock };
+  let cancellationNotifier: { notify: jest.Mock };
   let calendarSync: { deleteEventsForGroups: jest.Mock };
 
   beforeEach(() => {
@@ -132,6 +134,7 @@ describe('DischargesService', () => {
     auditService = { log: jest.fn().mockResolvedValue({}) };
     availabilityService = { invalidate: jest.fn() };
     paymentsService = { cancelUnpaid: jest.fn().mockResolvedValue(undefined) };
+    cancellationNotifier = { notify: jest.fn().mockResolvedValue(undefined) };
     calendarSync = {
       deleteEventsForGroups: jest.fn().mockResolvedValue(undefined),
     };
@@ -143,6 +146,7 @@ describe('DischargesService', () => {
       paymentsService as unknown as PaymentsService,
       calendarSync as unknown as CalendarSyncService,
       {} as unknown as DocumentsService,
+      cancellationNotifier as unknown as DischargeCancellationNotifier,
     );
     // T3: la generación del PDF tras emitir se prueba en
     // discharges.service.pdf.spec.ts; aquí se neutraliza para que las pruebas
@@ -750,6 +754,32 @@ describe('DischargesService', () => {
           where: { groupId: { in: ['g-1'] } },
         });
         expect(paymentsService.cancelUnpaid).toHaveBeenCalledTimes(1);
+      });
+
+      it('avisa de las consultas canceladas con el id del informe emitido (T4b)', async () => {
+        mockFutures();
+        await service.issue('dis-1', 'therapist-1');
+        await flush();
+
+        expect(cancellationNotifier.notify).toHaveBeenCalledTimes(1);
+        expect(cancellationNotifier.notify).toHaveBeenCalledWith('dis-1');
+      });
+
+      it('no avisa si el cierre no canceló ninguna consulta (T4b)', async () => {
+        mockFutures([]);
+        await service.issue('dis-1', 'therapist-1');
+        await flush();
+
+        expect(cancellationNotifier.notify).not.toHaveBeenCalled();
+      });
+
+      it('un aviso que lanza no revierte el cierre (T4b)', async () => {
+        mockFutures();
+        cancellationNotifier.notify.mockRejectedValue(new Error('mail down'));
+
+        await expect(
+          service.issue('dis-1', 'therapist-1'),
+        ).resolves.toBeDefined();
       });
 
       it('dispara los efectos posteriores al commit con los groupId cancelados', async () => {

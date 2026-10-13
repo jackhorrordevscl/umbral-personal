@@ -2,6 +2,7 @@ import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { TreatmentDischarge } from '@prisma/client';
 import { DischargesService } from './discharges.service';
+import { DischargeCancellationNotifier } from './discharge-cancellation-notifier.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { AuditService } from '../audit/audit.service';
@@ -112,6 +113,7 @@ describe('DischargesService PDF (T3)', () => {
       {} as unknown as PaymentsService,
       {} as unknown as CalendarSyncService,
       documents as unknown as DocumentsService,
+      { notify: jest.fn() } as unknown as DischargeCancellationNotifier,
     );
   });
 
