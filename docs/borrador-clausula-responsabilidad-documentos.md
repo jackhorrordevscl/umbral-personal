@@ -17,7 +17,7 @@ Esta cláusula no limita las obligaciones de seguridad y confidencialidad que Um
 
 ## Dónde se refleja en el producto
 
-- **Diálogo "Registrar entrega del informe":** al elegir como destinatario a un tercero se muestra un aviso con la responsabilidad del terapeuta y lo que exige la ley según el tipo de tercero. Umbral no comprueba la autenticidad ni la formalidad del documento cargado.
+- **Diálogo "Registrar entrega del informe":** al elegir como destinatario a un tercero se muestra un aviso con la responsabilidad del terapeuta y lo que exige la ley según el tipo de tercero, y una casilla obligatoria "Confirmo que revisé la autorización y que cumple lo que exige la ley para esta entrega". La declaración queda guardada con la entrega (`DischargeDelivery.authorizationAttested`) y en la auditoría. Umbral no comprueba la autenticidad ni la formalidad del documento cargado.
 - **Manual de terapeutas:** la sección "Cerrar el tratamiento e informe de alta" repite la advertencia para la entrega a terceros.
 
 ## Notas
