@@ -230,6 +230,9 @@ describe('Treatment discharges (e2e)', () => {
         await prisma.consultation.deleteMany({
           where: { patientId: { in: patientIds } },
         });
+        await prisma.dischargeDelivery.deleteMany({
+          where: { discharge: { patientId: { in: patientIds } } },
+        });
         await prisma.treatmentDischarge.deleteMany({
           where: { patientId: { in: patientIds } },
         });
@@ -1400,6 +1403,101 @@ describe('Treatment discharges (e2e)', () => {
       expect(body.documentId).not.toBe(original.documentId);
       const res = await getPdf(tokenA, correctionId).expect(200);
       expect(res.headers['content-disposition']).toContain('informe-alta-v2-');
+    });
+  });
+
+  describe('entregas del informe (T4)', () => {
+    async function issuedDischarge(): Promise<string> {
+      const patientId = await createPatient();
+      const id = await createReadyDraft(patientId);
+      await post(tokenA, `discharges/${id}/issue`).expect(201);
+      return id;
+    }
+
+    function postDelivery(token: string, id: string, body: Body) {
+      return request(app.getHttpServer())
+        .post(`/api/v1/discharges/${id}/deliveries`)
+        .set('Authorization', `Bearer ${token}`)
+        .send(body);
+    }
+
+    it('registra la entrega al paciente, la lista y deja una sola fila de auditoría explícita', async () => {
+      const id = await issuedDischarge();
+
+      const created = await postDelivery(tokenA, id, {
+        recipientType: 'PATIENT',
+        purpose: 'Entrega en la última sesión',
+        channel: 'IN_PERSON',
+      }).expect(201);
+      expect(created.body).toMatchObject({
+        dischargeId: id,
+        recipientType: 'PATIENT',
+        recipientName: 'Discharge Test Patient',
+        recordedById: therapistAId,
+      });
+
+      const listed = await get(tokenA, `discharges/${id}/deliveries`).expect(
+        200,
+      );
+      expect((listed.body as Body[]).map((d) => d.id)).toEqual([
+        (created.body as Body).id,
+      ]);
+
+      const audits = await prisma.auditLog.findMany({
+        where: { resourceId: id, action: 'DISCHARGE_DELIVER' },
+      });
+      expect(audits).toHaveLength(1);
+      expect(audits[0].detail).not.toContain('Discharge Test Patient');
+    });
+
+    it('un tercero sin autorización recibe 400 y no se registra nada', async () => {
+      const id = await issuedDischarge();
+
+      await postDelivery(tokenA, id, {
+        recipientType: 'THIRD_PARTY',
+        recipientName: 'Colegio Sur',
+        purpose: 'Solicitud del colegio',
+        channel: 'EMAIL',
+      }).expect(400);
+
+      const listed = await get(tokenA, `discharges/${id}/deliveries`).expect(
+        200,
+      );
+      expect(listed.body).toEqual([]);
+    });
+
+    it('un borrador no se puede entregar (409)', async () => {
+      const patientId = await createPatient();
+      const draft = await createReadyDraft(patientId);
+
+      await postDelivery(tokenA, draft, {
+        recipientType: 'PATIENT',
+        purpose: 'Prueba',
+        channel: 'IN_PERSON',
+      }).expect(409);
+    });
+
+    it('otro terapeuta recibe 404 al registrar y al listar', async () => {
+      const id = await issuedDischarge();
+
+      await postDelivery(tokenB, id, {
+        recipientType: 'PATIENT',
+        purpose: 'Prueba',
+        channel: 'IN_PERSON',
+      }).expect(404);
+      await get(tokenB, `discharges/${id}/deliveries`).expect(404);
+    });
+
+    it('rechaza campos que el cliente no puede fijar (recordedById, deliveredAt)', async () => {
+      const id = await issuedDischarge();
+
+      await postDelivery(tokenA, id, {
+        recipientType: 'PATIENT',
+        purpose: 'Prueba',
+        channel: 'IN_PERSON',
+        recordedById: therapistBId,
+        deliveredAt: '2020-01-01T00:00:00.000Z',
+      }).expect(400);
     });
   });
 });

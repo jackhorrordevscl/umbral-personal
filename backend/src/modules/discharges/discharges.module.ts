@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { DischargesController } from './discharges.controller';
 import { DischargesService } from './discharges.service';
+import { DischargeDeliveriesService } from './discharge-deliveries.service';
 import { PatientsModule } from '../patients/patients.module';
 import { AvailabilityModule } from '../availability/availability.module';
 import { PaymentsModule } from '../payments/payments.module';
@@ -24,7 +25,7 @@ import { DocumentsModule } from '../documents/documents.module';
     DocumentsModule,
   ],
   controllers: [DischargesController],
-  providers: [DischargesService],
+  providers: [DischargesService, DischargeDeliveriesService],
   exports: [DischargesService],
 })
 export class DischargesModule {}
