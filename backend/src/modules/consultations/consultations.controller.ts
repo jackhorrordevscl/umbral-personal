@@ -7,7 +7,9 @@ import {
   Param,
   Query,
   UseGuards,
+  Req,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { ConsultationsService } from './consultations.service';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { CorrectConsultationDto } from './dto/correct-consultation.dto';
@@ -18,6 +20,7 @@ import {
   type RequestUser,
 } from '../../common/decorators/current-user.decorator';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
+import { getRequestClientIp } from '../../common/utils/client-ip.util';
 
 @UseGuards(JwtAuthGuard)
 @Controller('consultations')
@@ -25,8 +28,15 @@ export class ConsultationsController {
   constructor(private consultationsService: ConsultationsService) {}
 
   @Post()
-  create(@Body() dto: CreateConsultationDto, @CurrentUser() user: RequestUser) {
-    return this.consultationsService.create(dto, user.id);
+  create(
+    @Body() dto: CreateConsultationDto,
+    @CurrentUser() user: RequestUser,
+    @Req() req: Request,
+  ) {
+    return this.consultationsService.create(dto, user.id, {
+      ipAddress: getRequestClientIp(req),
+      userAgent: req.headers['user-agent'],
+    });
   }
 
   @Get('patient/:patientId')

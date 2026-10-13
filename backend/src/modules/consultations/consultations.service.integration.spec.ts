@@ -203,6 +203,7 @@ describe('ConsultationsService + CalendarSyncService (integration, Google client
       calendarSync,
       buildDisabledPaymentsService(prisma),
       buildAvailabilityService(prisma),
+      new AuditService(prisma),
     );
   }, 30000);
 
@@ -392,6 +393,7 @@ describe('ConsultationsService.findByRange (integration, real Prisma)', () => {
       calendarSync,
       buildDisabledPaymentsService(prisma),
       buildAvailabilityService(prisma),
+      new AuditService(prisma),
     );
   }, 30000);
 
@@ -575,6 +577,7 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
       calendarSync,
       buildDisabledPaymentsService(prisma),
       buildAvailabilityService(prisma),
+      new AuditService(prisma),
     );
   }, 30000);
 
@@ -1199,6 +1202,7 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
       calendarSync,
       paymentsService,
       buildAvailabilityService(prisma),
+      new AuditService(prisma),
     );
   }, 30000);
 
@@ -1489,6 +1493,7 @@ describe('ConsultationsService consent guardrail for minors (integration, real P
       calendarSync,
       buildDisabledPaymentsService(prisma),
       buildAvailabilityService(prisma),
+      new AuditService(prisma),
     );
   }, 30000);
 
