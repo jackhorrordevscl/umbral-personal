@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Therapist-scoped notification records with a read/unread lifecycle and an authenticated, owner-only retrieval API, generic enough to be emitted into by future reminder-producing capabilities.
+Therapist-scoped notification records with a read/unread lifecycle, an authenticated owner-only retrieval API, and retention-based purge of read notifications, emitted into by reminder-producing and alerting capabilities.
 
 ## Requirements
 
 ### Requirement: Therapist-Scoped Persistence
 
-Every notification MUST be persisted with an owning `therapistId` and MUST be visible or mutable only by that therapist.
+Every notification MUST be persisted with an owning therapist (`userId`), a `type`, a title, a body, and an optional in-app `linkPath`, and MUST be visible or mutable only by that therapist. The emitted types are `SESSION_REMINDER` (session reminders), `GOOGLE_CALENDAR_DISCONNECTED` (Google grant revoked or expired), `PAYMENT_LATE` (a charge became overdue), `PAYMENT_ANOMALY` (the gateway reported a payment the local charge cannot represent) and `PATIENT_MISSING_SESSION_AMOUNT` (a patient auto-created by a public booking has no session amount).
 
 #### Scenario: Notification created for the owning therapist
 
@@ -18,7 +18,7 @@ Every notification MUST be persisted with an owning `therapistId` and MUST be vi
 
 ### Requirement: Authorized, Owner-Scoped Retrieval
 
-The retrieval API MUST require authentication (same guard convention as `patients`/`consultations` modules) and MUST return only notifications owned by the requesting therapist.
+The retrieval API MUST require authentication (same guard convention as `patients`/`consultations` modules) and MUST return only notifications owned by the requesting therapist, newest first. The list MUST support optional pagination (`page`, `pageSize`, returning the total) and, without pagination parameters, MUST return at most a fixed safety limit. A separate endpoint MUST return the owner's unread count.
 
 #### Scenario: Therapist B cannot see therapist A's notifications
 
@@ -32,9 +32,15 @@ The retrieval API MUST require authentication (same guard convention as `patient
 - WHEN the list endpoint is called
 - THEN the request is rejected with 401
 
+#### Scenario: Unread count is owner-scoped
+
+- GIVEN therapist A has 2 unread notifications and therapist B has 5
+- WHEN therapist A requests the unread count
+- THEN the response is 2
+
 ### Requirement: Read/Unread Lifecycle Scoped to Owner
 
-Notifications MUST start unread. Only the owning therapist MUST be able to mark a notification read.
+Notifications MUST start unread. Only the owning therapist MUST be able to mark a notification read, individually or all at once.
 
 #### Scenario: Owner marks a notification read
 
@@ -46,4 +52,20 @@ Notifications MUST start unread. Only the owning therapist MUST be able to mark 
 
 - GIVEN a notification owned by therapist A
 - WHEN therapist B attempts to mark it read
-- THEN the request is rejected and the notification remains unchanged
+- THEN the request is rejected with 404 and the notification remains unchanged
+
+#### Scenario: Mark all read affects only the owner
+
+- GIVEN therapists A and B each have unread notifications
+- WHEN therapist A marks all notifications read
+- THEN only A's notifications become read
+
+### Requirement: Read Notification Retention
+
+The system MUST run a daily scheduled job (04:30) that deletes notifications read more than 30 days ago (configurable through `NOTIFICATIONS_PURGE_RETENTION_DAYS`), in bounded batches, skipping a run if the previous one is still in progress. Unread notifications MUST NOT be purged. The job MUST be disabled only when `NOTIFICATIONS_PURGE_ENABLED` is exactly `'false'`.
+
+#### Scenario: Old read notifications are purged, unread are kept
+
+- GIVEN a notification read 31 days ago, a notification read yesterday, and an unread notification created 60 days ago
+- WHEN the purge job runs
+- THEN only the first one is deleted

@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Google Calendar integration for therapists: OAuth lifecycle, encrypted token custody, push-only propagation keyed by `Consultation.groupId`, minimized content, bounded backfill, and degraded-connection handling.
+Google Calendar integration for therapists: OAuth lifecycle, encrypted token custody, push-only propagation keyed by `Consultation.groupId`, minimized content, periodic reconciliation with bounded backfill, and degraded-connection handling.
 
 ## Requirements
 
 ### Requirement: OAuth Connection Lifecycle
 
-The system MUST let a therapist connect their Google account via OAuth 2.0 authorization-code flow requesting only `calendar.events` with `access_type=offline`, and MUST let them disconnect anytime. Connection is account-level, never per session.
+The system MUST let a therapist connect their Google account via OAuth 2.0 authorization-code flow requesting only `calendar.events` with `access_type=offline`, and MUST let them disconnect anytime. Connection is account-level, never per session. The authorization `state` MUST be a signed, single-use token valid for 10 minutes and bound to the therapist; a callback with a missing, tampered, expired or already used `state`, or without a refresh token from Google, MUST NOT create or change a connection. Connecting and disconnecting MUST be audited (`CALENDAR_CONNECTED`, `CALENDAR_DISCONNECTED`). When `GOOGLE_CLIENT_ID` or `GOOGLE_CLIENT_SECRET` is not configured, starting the authorization MUST fail with `503`.
 
 #### Scenario: Therapist connects Google account
 
@@ -16,21 +16,33 @@ The system MUST let a therapist connect their Google account via OAuth 2.0 autho
 - WHEN OAuth consent completes for `calendar.events` offline access
 - THEN Umbral stores the connection as active and requests no other scope
 
+#### Scenario: Reused or forged state is rejected
+
+- GIVEN a callback whose `state` was already consumed or whose signature is invalid
+- WHEN the callback is processed
+- THEN no connection is created or modified and the browser is redirected with an error indicator
+
 #### Scenario: Therapist disconnects Google account
 
 - GIVEN an active Google connection
 - WHEN the therapist disconnects
-- THEN Umbral revokes the token, deletes it, and marks the connection inactive
+- THEN Umbral revokes the token in Google on a best-effort basis, deletes the stored token, marks the connection inactive, and removes the therapist's cached busy blocks
+
+#### Scenario: Disconnect without an active connection
+
+- GIVEN a therapist whose connection is not active
+- WHEN they request to disconnect
+- THEN the response is `404`
 
 ### Requirement: Encrypted Token Custody
 
-The system MUST encrypt the refresh token with AES-256-GCM, using the `DocumentEncryptionService` pattern, before persisting it, and MUST NOT store or expose it as plaintext.
+The system MUST encrypt the refresh token with AES-256-GCM before persisting it, using a dedicated key (`GOOGLE_TOKEN_ENCRYPTION_KEY`, never shared with the document encryption key) managed through the versioned keyring (`..._KEYRING`, `..._ACTIVE_KEY_ID`). New ciphertexts MUST be written with the active key in the authenticated format that binds the key id and dataset label, and decryption MUST also accept legacy payloads. The token MUST NOT be stored or exposed as plaintext.
 
 #### Scenario: Refresh token stored encrypted
 
 - GIVEN OAuth connect completes
 - WHEN the refresh token is persisted
-- THEN it is stored as AES-256-GCM ciphertext
+- THEN it is stored as AES-256-GCM ciphertext produced with the active key of the keyring
 
 #### Scenario: Token decrypted only for use
 
@@ -40,8 +52,7 @@ The system MUST encrypt the refresh token with AES-256-GCM, using the `DocumentE
 
 ### Requirement: Push-Only Event Propagation Keyed by groupId
 
-The system MUST push consultation changes to Google Calendar one-directionally, matched by `Consultation.groupId`, and MUST NOT let a Google-side edit mutate `Consultation`. Since no endpoint writes `Consultation.deletedAt` today, the only real deletion trigger is soft-deleting the patient. This push path MUST treat a consultation created by the public booking flow identically to one created by an authenticated therapist: same event creation, same `groupId` mapping, same non-blocking behavior.
-(Previously: did not account for consultations originating outside the authenticated therapist flow.)
+The system MUST push consultation changes to Google Calendar one-directionally, matched by `Consultation.groupId` through a per-connection event link, and MUST NOT let a Google-side edit mutate `Consultation`. Sync MUST be skipped for consultations of soft-deleted patients and for superseded or deleted consultation versions. The push path MUST treat a consultation created by the public booking flow identically to one created by an authenticated therapist: same event creation, same `groupId` mapping, same non-blocking behavior. The only real deletion triggers are soft-deleting the patient and closing the treatment with a discharge report, which cancels the patient's future consultations; both MUST delete the mapped future events and their mappings. The whole sync MUST be disabled only when `GOOGLE_CALENDAR_SYNC_ENABLED` is exactly `'false'`.
 
 #### Scenario: Create pushes a new event
 
@@ -61,6 +72,12 @@ The system MUST push consultation changes to Google Calendar one-directionally, 
 - WHEN the patient is soft-deleted
 - THEN Umbral deletes every mapped future event and removes the mappings
 
+#### Scenario: Discharge closure removes the cancelled events
+
+- GIVEN a patient with future consultations mapped to Google events
+- WHEN the therapist closes the treatment and those consultations are cancelled
+- THEN Umbral deletes the events of exactly the cancelled consultations and removes their mappings, without delaying or failing the closure
+
 #### Scenario: Publicly booked consultation pushes a new event
 
 - GIVEN a therapist has an active Google connection
@@ -72,15 +89,22 @@ The system MUST push consultation changes to Google Calendar one-directionally, 
 - GIVEN the Google Calendar API is unavailable
 - WHEN a public booking request creates a consultation
 - THEN the booking succeeds and the sync failure is only logged, consistent with non-blocking sync failures
+
+#### Scenario: Event deleted manually in Google is recreated
+
+- GIVEN a mapped event that was deleted in Google (Google answers 404 or 410 on update)
+- WHEN the next sync of that consultation runs
+- THEN Umbral discards the stale mapping and creates a new event
+
 ### Requirement: Content Minimization
 
-Every synced event MUST contain only the patient's initials, a non-reversible short code derived from `fullName` (never `rut`), a generic title, and a deep link to Umbral. The event MUST NOT contain the full name, RUT, `sessionType`, or clinical text.
+Every synced event MUST contain only the patient's initials, a non-reversible short code derived from the patient identifier (never `rut` or the full name), a generic title, the session time, and a deep link to Umbral. The event MUST NOT contain the full name, RUT, `sessionType`, or clinical text. Its duration MUST be the consultation's own `durationMinutes`.
 
 #### Scenario: Minimized event content
 
 - GIVEN a consultation is pushed to Google Calendar
 - WHEN the event is created or updated
-- THEN it contains only initials, the short code, and the Umbral link
+- THEN it contains only initials, the short code, the session time and the Umbral link
 
 #### Scenario: sessionType excluded
 
@@ -88,25 +112,37 @@ Every synced event MUST contain only the patient's initials, a non-reversible sh
 - WHEN the event is built
 - THEN `sessionType` does not appear anywhere in it
 
-### Requirement: Bounded Backfill at Connect Time
+### Requirement: Periodic Reconciliation and Bounded Backfill
 
-When a therapist connects, the system MUST backfill non-deleted future consultations inside a bounded window, and MUST NOT push consultations outside it.
+A scheduled reconciler MUST run every 15 minutes over every active (`CONNECTED`) connection and, in this order, MUST: (1) retry links left in `FAILED` state, (2) delete events whose consultation or patient was removed, (3) repair events whose `sessionDate` drifted from the link, and (4) backfill non-deleted future consultations without a link that fall inside a 90-day window from now. Backfill MUST NOT push consultations outside that window; the window MUST NOT govern deletion or patching of events already linked. The reconciler MUST page through all rows (pages of 200, at most 50 pages per method per connection per run) and MUST NOT overlap with a previous run still in progress. Backfill therefore happens on the first reconciler run after a connection becomes active, not synchronously at connect time.
 
 #### Scenario: Sessions within the window are backfilled
 
-- GIVEN future consultations inside the backfill window
-- WHEN the connection completes
+- GIVEN future consultations inside the backfill window and a newly active connection
+- WHEN the reconciler runs
 - THEN each is pushed as a Google event exactly once
 
 #### Scenario: Sessions outside the window are skipped
 
 - GIVEN a future consultation beyond the backfill window
-- WHEN the connection completes
+- WHEN the reconciler runs
 - THEN no event is created for it
+
+#### Scenario: Failed link is repaired
+
+- GIVEN a link marked `FAILED` after a transient Google error
+- WHEN the reconciler runs and Google is available
+- THEN the event is pushed again and the link becomes `SYNCED`
+
+#### Scenario: Overlapping run is skipped
+
+- GIVEN a reconciler run is still in progress
+- WHEN the next scheduled tick fires
+- THEN the new run is skipped
 
 ### Requirement: Degraded Connection on Revoked or Expired Grant
 
-When Google returns `invalid_grant` or 401, the system MUST mark the connection disconnected, MUST emit one in-app notification via the existing `notifications` capability, and MUST NOT retry or keep syncing it.
+When Google returns `invalid_grant` or 401, the system MUST mark the connection disconnected (reason `INVALID_GRANT`), discard the stored token, remove the therapist's cached busy blocks, record a `CALENDAR_DISCONNECTED` audit entry, MUST emit one in-app notification via the existing `notifications` capability, and MUST NOT retry or keep syncing it. The transition MUST be atomic so concurrent failures notify only once.
 
 #### Scenario: Revoked token disconnects and notifies once
 
@@ -122,10 +158,20 @@ When Google returns `invalid_grant` or 401, the system MUST mark the connection 
 
 ### Requirement: Non-Blocking Sync Failures
 
-The system MUST treat every Google Calendar sync operation as a non-blocking side effect of a consultation write. Sync failures MUST be logged and MUST NOT prevent, roll back, or delay the write.
+The system MUST treat every Google Calendar sync operation as a non-blocking side effect of a consultation write. Sync failures MUST be logged and MUST NOT prevent, roll back, or delay the write. Transient Google errors (rate limit, server errors, network) MUST leave the link in `FAILED` state for the reconciler to repair.
 
 #### Scenario: Clinical write succeeds despite Google outage
 
 - GIVEN the Google Calendar API is unavailable
 - WHEN a therapist creates, corrects, or soft-deletes a consultation
 - THEN the write succeeds and the failure is only logged
+
+### Requirement: Known Limitation on Google Account Change
+
+The system MUST NOT claim to detect which Google account is connected: only `calendar.events` is requested, so `googleAccountEmail` is never populated and no automatic purge of event links happens when a therapist reconnects a different Google account. Existing links keep pointing to the previous account's events. A link is discarded, and its event recreated in the new account, only when a later update of that consultation makes Google answer 404 or 410. Consultations that already have a link and do not change are not recreated, and events already created in the previous account remain there untouched.
+
+#### Scenario: Reconnecting a different Google account
+
+- GIVEN a therapist with synced events who disconnects and connects another Google account
+- WHEN their consultations are updated and synced again
+- THEN links are not purged in bulk, a stale link is replaced when Google reports its event missing, and previous events are not deleted from the old account
