@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsNotEmpty,
   IsOptional,
@@ -31,7 +32,8 @@ const trim = ({ value }: { value: unknown }): unknown =>
 // cada tipo de destinatario lo valida el servicio:
 // - PATIENT: sin otros datos de destinatario.
 // - GUARDIAN: guardianId obligatorio; el nombre se toma del representante.
-// - THIRD_PARTY: recipientName y authorizationDocumentId obligatorios.
+// - THIRD_PARTY: recipientName, authorizationDocumentId y authorizationAttested
+//   (true) obligatorios; el terapeuta declara que revisó la autorización.
 // Nada de deliveredAt, recordedById ni dischargeId: la whitelist global
 // (forbidNonWhitelisted) los rechaza.
 export class CreateDischargeDeliveryDto {
@@ -48,6 +50,10 @@ export class CreateDischargeDeliveryDto {
   @IsOptional()
   @IsUUID()
   authorizationDocumentId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  authorizationAttested?: boolean;
 
   @Transform(trim)
   @IsString()
