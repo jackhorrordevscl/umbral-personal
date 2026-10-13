@@ -138,7 +138,7 @@ export default function PublicBookingPage() {
   // vea el estado real antes de reintentar.
   const handleSlotTaken = () => {
     setSelectedSlot(null);
-    setTakenMessage('Ese horario ya no está disponible. Elige otro horario libre.');
+    setTakenMessage('No pudimos registrar tu reserva. Elige otro horario o contacta al terapeuta.');
     refetch();
   };
 
