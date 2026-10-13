@@ -8,6 +8,12 @@ const BRAVE_EXECUTABLE_PATH =
 // locally the already-installed Brave is used so no browser download is needed.
 const IS_CI = !!process.env.CI
 
+const MOBILE_SPEC = '**/*.mobile.e2e.ts'
+const DESKTOP_PROJECT_NAME = IS_CI ? 'chromium' : 'brave'
+const browserLaunch = IS_CI
+  ? {}
+  : { channel: undefined, launchOptions: { executablePath: BRAVE_EXECUTABLE_PATH } }
+
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.e2e.ts',
@@ -21,21 +27,18 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   projects: [
-    IS_CI
-      ? {
-          name: 'chromium',
-          use: { ...devices['Desktop Chrome'] },
-        }
-      : {
-          name: 'brave',
-          use: {
-            ...devices['Desktop Chrome'],
-            channel: undefined,
-            launchOptions: {
-              executablePath: BRAVE_EXECUTABLE_PATH,
-            },
-          },
-        },
+    {
+      name: DESKTOP_PROJECT_NAME,
+      testIgnore: MOBILE_SPEC,
+      use: { ...devices['Desktop Chrome'], ...browserLaunch },
+    },
+    // Issue #419: critical screens at a phone viewport (touch, small screen).
+    // Only the *.mobile.e2e.ts specs run here; the desktop project skips them.
+    {
+      name: 'mobile',
+      testMatch: MOBILE_SPEC,
+      use: { ...devices['Pixel 7'], ...browserLaunch },
+    },
   ],
   webServer: {
     command: 'npm run dev',
