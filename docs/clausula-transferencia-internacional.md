@@ -30,11 +30,17 @@ papel/PDF, no un texto que viva en el código de la app).
 > custodia el profesional tratante, por lo que el proveedor de
 > almacenamiento no tiene acceso al contenido de las mismas.
 
-## Texto corregido (2026-10-13)
+## Ubicación real de los datos (referencia, 2026-10-13)
 
-La redacción anterior tenía tres imprecisiones frente a lo que hace el
-sistema (verificadas en `render.yaml`, `.github/workflows/backup.yml` y
-`docs/registro-actividades-tratamiento.md`). Texto propuesto en su lugar:
+Umbral no genera ni provee un formato de consentimiento: cada terapeuta
+usa y sube el suyo. Lo que sigue no es una plantilla de Umbral sino la
+descripción factual de dónde están los datos, para que cada terapeuta
+la contraste con el texto de su propio documento. La redacción aplicada el
+2026-08-03 en los documentos de uno de los profesionales tenía tres
+imprecisiones frente a lo que hace el sistema (verificadas en
+`render.yaml`, `.github/workflows/backup.yml` y
+`docs/registro-actividades-tratamiento.md`). Una redacción que las
+corrige, como ejemplo:
 
 > Su ficha clínica y el resto de sus datos de atención se gestionan a
 > través de **Umbral**, un sistema de registro clínico electrónico (RCE)
@@ -65,10 +71,10 @@ Qué cambió respecto del texto aplicado el 2026-08-03:
   no de cada profesional. El texto nuevo afirma solo lo que es cierto: el
   proveedor de almacenamiento no tiene la clave.
 
-Esta corrección es una propuesta factual. Que la redacción final sea
-adecuada, y si corresponde mencionar a los demás proveedores (Render,
-Vercel, Cloudflare, Resend, Google, Flow, Sentry), es una decisión de quien
-tenga criterio legal.
+Esto es una referencia factual, no un texto que Umbral entregue ni exija.
+Qué diga el consentimiento de cada terapeuta, y si corresponde mencionar a
+los demás proveedores (Render, Vercel, Cloudflare, Resend, Google, Flow,
+Sentry), es decisión de cada profesional y de quien tenga criterio legal.
 
 ## Dónde va este texto
 
@@ -111,11 +117,12 @@ Encabezado sugerido para el subpunto nuevo en ambos documentos:
       `us-west-004`). El texto aplicado el 2026-08-03 dice que los
       "documentos asociados" se almacenan en São Paulo; esa frase no
       refleja la ubicación de los documentos adjuntos. Confirmado el
-      2026-10-13: van a Backblaze B2 en Estados Unidos. La sección "Texto
-      corregido (2026-10-13)" propone la redacción nueva. Pendiente: que
-      el profesional reemplace la cláusula en los dos `.docx` (4.2 y 5.2),
-      que no viven en este repositorio, y que quien tenga criterio legal
-      valide el texto.
+      2026-10-13: van a Backblaze B2 en Estados Unidos. La sección "Ubicación
+      real de los datos (referencia, 2026-10-13)" deja los hechos y una
+      redacción de ejemplo. Pendiente: que el profesional dueño de esos
+      dos `.docx` (4.2 y 5.2), que no viven en este repositorio, ajuste su
+      propio texto; los demás terapeutas hacen lo mismo con el suyo. Umbral
+      no provee plantilla.
 - [ ] **Otros proveedores.** Resend (email), Google (Calendar), Flow (cobro) y
       Sentry (registro de errores, opcional) no están cubiertos por esta
       cláusula; se tratan en el RAT (`docs/registro-actividades-tratamiento.md`,
