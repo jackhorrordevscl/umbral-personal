@@ -496,6 +496,8 @@ enum AuditAction {
   DISCHARGE_ISSUE
   DISCHARGE_DELIVER
   DISCHARGE_CORRECT
+  // Reapertura del tratamiento al agendar una consulta (issue #446).
+  TREATMENT_REOPENED
 }
 
 // El nombre (modelo y @@map) viene de la versión institucional multi-

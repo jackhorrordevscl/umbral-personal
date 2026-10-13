@@ -930,6 +930,10 @@ export class DischargesService {
   // Consultas futuras vigentes (última versión, no borradas) del paciente con
   // este terapeuta. Compartida por el cierre y por la vista previa de solo
   // lectura, para que ambas listen exactamente lo mismo.
+  // Sin `take` a propósito (issue #446): la misma consulta alimenta la vista
+  // previa y la cancelación real del cierre, así que un tope haría que la vista
+  // previa subestimara lo que el cierre cancela. El volumen está acotado por
+  // paciente (sus consultas futuras vigentes, filtradas por terapeuta).
   private findFutureConsultations(
     client: Pick<Prisma.TransactionClient, 'consultation'>,
     patientId: string,

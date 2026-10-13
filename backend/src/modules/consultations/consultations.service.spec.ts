@@ -12,6 +12,7 @@ import { PatientsService } from '../patients/patients.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { PaymentsService } from '../payments/payments.service';
 import { AvailabilityService } from '../availability/availability.service';
+import { AuditService } from '../audit/audit.service';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 
 function buildConsultation(
@@ -60,6 +61,7 @@ describe('ConsultationsService', () => {
     $transaction: jest.Mock;
   };
   let availabilityService: { invalidate: jest.Mock };
+  let auditService: { log: jest.Mock };
   let patientsService: {
     assertAccess: jest.Mock;
     assertTreatmentConsent: jest.Mock;
@@ -133,6 +135,7 @@ describe('ConsultationsService', () => {
     };
 
     availabilityService = { invalidate: jest.fn() };
+    auditService = { log: jest.fn().mockResolvedValue(undefined) };
 
     service = new ConsultationsService(
       prisma as unknown as PrismaService,
@@ -140,6 +143,7 @@ describe('ConsultationsService', () => {
       calendarSync as unknown as CalendarSyncService,
       paymentsService as unknown as PaymentsService,
       availabilityService as unknown as AvailabilityService,
+      auditService as unknown as AuditService,
     );
   });
 
@@ -187,6 +191,65 @@ describe('ConsultationsService', () => {
         data: { treatmentStatus: 'ACTIVE' },
       });
       expect(prisma.consultation.create).toHaveBeenCalled();
+    });
+
+    describe('auditoría de la reapertura (issue #446)', () => {
+      const ctx = { ipAddress: '10.0.0.1', userAgent: 'jest' };
+
+      it('registra TREATMENT_REOPENED con el estado previo y sin texto libre', async () => {
+        prisma.$queryRaw.mockResolvedValue([
+          { id: 'patient-1', treatmentStatus: 'DROPPED_OUT' },
+        ]);
+        prisma.consultation.create.mockResolvedValue(
+          buildConsultation({ id: 'consulta-9' }),
+        );
+        await service.create(
+          { ...baseDto, reopenPatient: true } as never,
+          'therapist-1',
+          ctx,
+        );
+        expect(auditService.log).toHaveBeenCalledTimes(1);
+        expect(auditService.log).toHaveBeenCalledWith({
+          userId: 'therapist-1',
+          action: 'TREATMENT_REOPENED',
+          resource: 'Patient',
+          resourceId: 'patient-1',
+          detail: 'previousStatus=DROPPED_OUT consultationId=consulta-9',
+          ipAddress: '10.0.0.1',
+          userAgent: 'jest',
+        });
+      });
+
+      it('con paciente ACTIVE no registra nada', async () => {
+        prisma.consultation.create.mockResolvedValue(buildConsultation());
+        await service.create(baseDto as never, 'therapist-1', ctx);
+        expect(auditService.log).not.toHaveBeenCalled();
+      });
+
+      it('sin reopenPatient (409) no registra nada', async () => {
+        prisma.$queryRaw.mockResolvedValue([
+          { id: 'patient-1', treatmentStatus: 'DISCHARGED' },
+        ]);
+        await service
+          .create(baseDto as never, 'therapist-1', ctx)
+          .catch(() => undefined);
+        expect(auditService.log).not.toHaveBeenCalled();
+      });
+
+      it('si la auditoría falla, la consulta igual se crea (fail-open)', async () => {
+        prisma.$queryRaw.mockResolvedValue([
+          { id: 'patient-1', treatmentStatus: 'DISCHARGED' },
+        ]);
+        prisma.consultation.create.mockResolvedValue(buildConsultation());
+        auditService.log.mockRejectedValue(new Error('audit down'));
+        await expect(
+          service.create(
+            { ...baseDto, reopenPatient: true } as never,
+            'therapist-1',
+            ctx,
+          ),
+        ).resolves.toBeDefined();
+      });
     });
 
     it('un paciente ajeno (assertAccess falla) no se toca', async () => {

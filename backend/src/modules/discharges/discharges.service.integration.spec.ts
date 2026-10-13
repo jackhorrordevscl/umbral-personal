@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -243,6 +243,7 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
       calendarSync,
       buildPaymentsService(),
       availability,
+      auditService,
     );
     dischargesService = new DischargesService(
       prisma,
@@ -517,5 +518,299 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
         where: { patientId: patient.id, status: 'DRAFT' },
       }),
     ).resolves.toBe(1);
+  }, 30000);
+
+  // ---- Issue #446: locks de create() y correct() frente al cierre ----
+  // Determinismo igual que arriba: un holder retiene Patient FOR UPDATE, las
+  // operaciones se encolan en el orden deseado y solo entonces se suelta.
+  // Si se quita el lock de la operación bajo prueba, no queda bloqueada y
+  // awaitQueued agota el plazo: la prueba falla en vez de pasar por azar.
+
+  type Settled<T> = { ok: true; value: T } | { ok: false; reason: unknown };
+  const settle = <T>(promise: Promise<T>): Promise<Settled<T>> =>
+    promise.then(
+      (value) => ({ ok: true as const, value }),
+      (reason: unknown) => ({ ok: false as const, reason }),
+    );
+
+  function newConsultationDto(patientId: string, extra: object = {}) {
+    return {
+      patientId,
+      sessionDate: futureUtcDay(60, 14).toISOString(),
+      consultReason: 'Motivo',
+      intervention: 'Intervención',
+      ...extra,
+    } as never;
+  }
+
+  // Simula a quien cierra la fila sin pasar por el lock del terapeuta (otra
+  // ruta que solo toma Patient): retiene Patient FOR UPDATE con el estado ya en
+  // DISCHARGED hasta `release`. La operación bajo prueba debe esperarlo en su
+  // propio lock de fila y, al despertar, ver el estado cerrado.
+  async function holdClosedPatientRow(patientId: string): Promise<{
+    release: () => void;
+    done: Promise<void>;
+  }> {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let markLocked!: () => void;
+    const locked = new Promise<void>((resolve) => {
+      markLocked = resolve;
+    });
+    const done = prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Patient" WHERE id = ${patientId} FOR UPDATE`;
+        await tx.patient.update({
+          where: { id: patientId },
+          data: { treatmentStatus: 'DISCHARGED' },
+        });
+        markLocked();
+        await gate;
+      },
+      { timeout: 30000, maxWait: 10000 },
+    );
+    await locked;
+    return { release, done };
+  }
+
+  it('create() que espera detrás de un cierre recibe 409 y no deja consulta en el paciente cerrado', async () => {
+    const { patient, dischargeId } =
+      await createClosablePatient('Create Tras Cierre');
+
+    const holder = await holdPatientLock(patient.id);
+    const closed = settle(dischargesService.issue(dischargeId, therapistId));
+    await awaitQueued(holder, 1);
+    const created = settle(
+      consultationsService.create(newConsultationDto(patient.id), therapistId),
+    );
+    await awaitQueued(holder, 2);
+    holder.release();
+    await holder.done;
+
+    const [closingResult, creationResult] = await Promise.all([
+      closed,
+      created,
+    ]);
+    expect(closingResult.ok).toBe(true);
+    expect(creationResult.ok).toBe(false);
+    if (!creationResult.ok) {
+      expect(creationResult.reason).toBeInstanceOf(ConflictException);
+      expect(
+        (creationResult.reason as ConflictException).getResponse(),
+      ).toMatchObject({ code: 'PATIENT_TREATMENT_CLOSED' });
+    }
+    await expect(
+      prisma.patient.findUniqueOrThrow({
+        where: { id: patient.id },
+        select: { treatmentStatus: true },
+      }),
+    ).resolves.toEqual({ treatmentStatus: 'DISCHARGED' });
+    await expect(
+      prisma.consultation.count({
+        where: { patientId: patient.id, deletedAt: null },
+      }),
+    ).resolves.toBe(0);
+  }, 30000);
+
+  it('create() con reopenPatient detrás de un cierre reabre al paciente y deja TREATMENT_REOPENED con el estado previo', async () => {
+    const { patient, dischargeId } = await createClosablePatient(
+      'Reapertura Auditada',
+    );
+
+    const holder = await holdPatientLock(patient.id);
+    const closed = settle(dischargesService.issue(dischargeId, therapistId));
+    await awaitQueued(holder, 1);
+    const created = settle(
+      consultationsService.create(
+        newConsultationDto(patient.id, { reopenPatient: true }),
+        therapistId,
+        { ipAddress: '10.0.0.7', userAgent: 'jest-integration' },
+      ),
+    );
+    await awaitQueued(holder, 2);
+    holder.release();
+    await holder.done;
+
+    const [closingResult, creationResult] = await Promise.all([
+      closed,
+      created,
+    ]);
+    expect(closingResult.ok).toBe(true);
+    expect(creationResult.ok).toBe(true);
+    await expect(
+      prisma.patient.findUniqueOrThrow({
+        where: { id: patient.id },
+        select: { treatmentStatus: true },
+      }),
+    ).resolves.toEqual({ treatmentStatus: 'ACTIVE' });
+
+    const rows = await prisma.auditLog.findMany({
+      where: { action: 'TREATMENT_REOPENED', resourceId: patient.id },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      userId: therapistId,
+      resource: 'Patient',
+      ipAddress: '10.0.0.7',
+      userAgent: 'jest-integration',
+    });
+    if (creationResult.ok) {
+      expect(rows[0].detail).toBe(
+        `previousStatus=DISCHARGED consultationId=${(creationResult.value as { id: string }).id}`,
+      );
+    }
+  }, 30000);
+
+  it('create() toma Patient FOR UPDATE: espera a quien ya cerró la fila y ve el estado cerrado', async () => {
+    const patient = await createConsentedPatient('Create Lock Fila');
+
+    const holder = await holdClosedPatientRow(patient.id);
+
+    const created = settle(
+      consultationsService.create(newConsultationDto(patient.id), therapistId),
+    );
+    await awaitQueued(holder, 1);
+    holder.release();
+    await holder.done;
+
+    const creationResult = await created;
+    expect(creationResult.ok).toBe(false);
+    if (!creationResult.ok) {
+      expect(creationResult.reason).toBeInstanceOf(ConflictException);
+    }
+    await expect(
+      prisma.consultation.count({ where: { patientId: patient.id } }),
+    ).resolves.toBe(0);
+  }, 30000);
+
+  async function createFutureConsultation(
+    patient: { id: string; rut: string },
+    daysAhead: number,
+  ) {
+    await consultationsService.createFromPublicBooking(
+      therapistId,
+      patient.id,
+      patient.rut,
+      futureUtcDay(daysAhead, 13),
+      50,
+    );
+    return prisma.consultation.findFirstOrThrow({
+      where: { patientId: patient.id },
+    });
+  }
+
+  async function expectNoLiveFutureState(
+    patientId: string,
+    groupId: string,
+  ): Promise<void> {
+    await expect(
+      prisma.consultation.findMany({
+        where: {
+          patientId,
+          correctedBy: null,
+          deletedAt: null,
+          sessionDate: { gt: new Date() },
+        },
+      }),
+    ).resolves.toHaveLength(0);
+    await expect(
+      prisma.bookedSlot.count({ where: { therapistId, groupId } }),
+    ).resolves.toBe(0);
+  }
+
+  it('correct() toma Patient FOR SHARE: espera a quien cerró la fila y no corrige sesiones futuras', async () => {
+    const patient = await createConsentedPatient('Correct Lock Fila');
+    const original = await createFutureConsultation(patient, 61);
+
+    const holder = await holdClosedPatientRow(patient.id);
+    const corrected = settle(
+      consultationsService.correct(
+        original.id,
+        { intervention: 'Intervención corregida' } as never,
+        therapistId,
+      ),
+    );
+    await awaitQueued(holder, 1);
+    holder.release();
+    await holder.done;
+
+    const correctionResult = await corrected;
+    expect(correctionResult.ok).toBe(false);
+    if (!correctionResult.ok) {
+      expect(correctionResult.reason).toBeInstanceOf(ConflictException);
+      expect(
+        (correctionResult.reason as ConflictException).getResponse(),
+      ).toMatchObject({ code: 'PATIENT_TREATMENT_CLOSED' });
+    }
+    await expect(
+      prisma.consultation.count({ where: { correctsId: original.id } }),
+    ).resolves.toBe(0);
+  }, 30000);
+
+  it('correct() que espera detrás de un cierre no resucita la consulta cancelada', async () => {
+    const { patient, dischargeId } = await createClosablePatient(
+      'Correct Tras Cierre',
+    );
+    const original = await createFutureConsultation(patient, 62);
+
+    const holder = await holdPatientLock(patient.id);
+    const closed = settle(dischargesService.issue(dischargeId, therapistId));
+    await awaitQueued(holder, 1);
+    // Sin cambio de fecha: igual toma el lock del terapeuta (issue #446).
+    const corrected = settle(
+      consultationsService.correct(
+        original.id,
+        { intervention: 'Intervención corregida' } as never,
+        therapistId,
+      ),
+    );
+    await awaitQueued(holder, 2);
+    holder.release();
+    await holder.done;
+
+    const [closingResult, correctionResult] = await Promise.all([
+      closed,
+      corrected,
+    ]);
+    expect(closingResult.ok).toBe(true);
+    expect(correctionResult.ok).toBe(false);
+    if (!correctionResult.ok) {
+      expect(correctionResult.reason).toBeInstanceOf(NotFoundException);
+    }
+    await expectNoLiveFutureState(patient.id, original.groupId);
+  }, 30000);
+
+  it('correct() que gana la cola antes del cierre no deja ninguna versión futura viva', async () => {
+    const { patient, dischargeId } = await createClosablePatient(
+      'Correct Antes Cierre',
+    );
+    const original = await createFutureConsultation(patient, 63);
+
+    const holder = await holdPatientLock(patient.id);
+    const corrected = settle(
+      consultationsService.correct(
+        original.id,
+        { intervention: 'Intervención corregida' } as never,
+        therapistId,
+      ),
+    );
+    await awaitQueued(holder, 1);
+    const closed = settle(dischargesService.issue(dischargeId, therapistId));
+    await awaitQueued(holder, 2);
+    holder.release();
+    await holder.done;
+
+    const [closingResult, correctionResult] = await Promise.all([
+      closed,
+      corrected,
+    ]);
+    expect(correctionResult.ok).toBe(true);
+    expect(closingResult.ok).toBe(true);
+    if (closingResult.ok) {
+      expect(closingResult.value.cancelledConsultations).toBe(1);
+    }
+    await expectNoLiveFutureState(patient.id, original.groupId);
   }, 30000);
 });

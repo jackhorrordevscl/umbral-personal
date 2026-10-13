@@ -19,6 +19,8 @@ import { PatientsService } from '../patients/patients.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { PaymentsService } from '../payments/payments.service';
 import { AvailabilityService } from '../availability/availability.service';
+import { AuditService } from '../audit/audit.service';
+import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { CorrectConsultationDto } from './dto/correct-consultation.dto';
 import { ConsultationRangeQueryDto } from './dto/consultation-range-query.dto';
@@ -87,6 +89,7 @@ export class ConsultationsService {
     private calendarSync: CalendarSyncService,
     private paymentsService: PaymentsService,
     private availabilityService: AvailabilityService,
+    private auditService: AuditService,
   ) {}
 
   // design.md "Fire-and-forget intents plus a bounded reconciler": nunca se
@@ -136,7 +139,11 @@ export class ConsultationsService {
     await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${therapistId} FOR UPDATE`;
   }
 
-  async create(dto: CreateConsultationDto, therapistId: string) {
+  async create(
+    dto: CreateConsultationDto,
+    therapistId: string,
+    ctx: { ipAddress?: string; userAgent?: string } = {},
+  ) {
     // assertAccess lanza NotFoundException si el paciente no existe o no
     // pertenece al profesional autenticado -- sin este chequeo, cualquier
     // usuario podía crear una consulta sobre un paciente ajeno conociendo su
@@ -160,6 +167,7 @@ export class ConsultationsService {
     // ventana de carrera). Cualquiera de las dos finalidades (presencial o
     // telemedicina) habilita la consulta, sin importar el sessionType de
     // esta sesión puntual.
+    let reopenedFrom = null as string | null;
     const consultation = await this.prisma.$transaction(async (tx) => {
       await this.lockTherapistSchedule(tx, therapistId);
 
@@ -188,6 +196,7 @@ export class ConsultationsService {
           where: { id: dto.patientId },
           data: { treatmentStatus: 'ACTIVE' },
         });
+        reopenedFrom = locked[0].treatmentStatus;
       }
 
       // M2b: para un menor de edad exige además (desde la fecha de vigencia)
@@ -231,6 +240,20 @@ export class ConsultationsService {
     this.logger.log(
       `Consulta creada: id=${consultation.id} patientId=${dto.patientId} therapistId=${therapistId}`,
     );
+    if (reopenedFrom) {
+      // Issue #446: la reapertura deja su propia fila (como TREATMENT_CLOSED),
+      // con el estado previo y sin texto libre. Tras el commit y fail-open: un
+      // fallo de auditoría no revierte una reapertura ya confirmada.
+      await logAuditFailOpen(this.auditService, this.logger, {
+        userId: therapistId,
+        action: 'TREATMENT_REOPENED',
+        resource: 'Patient',
+        resourceId: dto.patientId,
+        detail: `previousStatus=${reopenedFrom} consultationId=${consultation.id}`,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      });
+    }
     // issue #285: el horario recién ocupado no debe seguir ofrecido desde el
     // cache de slots.
     this.availabilityService.invalidate(therapistId);
@@ -447,12 +470,12 @@ export class ConsultationsService {
       //
       // issue #336: si la sesión cambia de fecha, la corrección altera la
       // ocupación de la agenda -> mismo lock por terapeuta que la reserva.
-      if (
-        dto.sessionDate &&
-        parseDate(dto.sessionDate).getTime() !== original.sessionDate.getTime()
-      ) {
-        await this.lockTherapistSchedule(tx, original.therapistId);
-      }
+      // issue #446: también sin cambio de fecha. La nueva versión es un INSERT
+      // con FK al User (FOR KEY SHARE sobre su fila); sin tomar antes este
+      // lock, correct() retiene Patient FOR SHARE y espera al User mientras un
+      // cierre de tratamiento retiene User y espera Patient FOR UPDATE: deadlock
+      // (40P01) que aborta el cierre. Orden fijo: User antes que Patient.
+      await this.lockTherapistSchedule(tx, original.therapistId);
 
       // T5a: lock compartido del paciente (después del de User) y relectura
       // bajo lock. Un cierre de tratamiento (FOR UPDATE) que confirme antes
