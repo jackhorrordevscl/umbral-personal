@@ -112,7 +112,7 @@ Si la fecha de nacimiento indica que el paciente tiene menos de 18 años, la fic
 - **Puede otorgar consentimiento** (en la lista: "Consiente"): puede otorgar el consentimiento del tratamiento.
 - **Es el pagador** (en la lista: "Pagador"): recibe el cobro. Solo uno a la vez: marcar a otro quita la marca al anterior.
 - **Recibe comunicaciones** (en la lista: "Recibe avisos"): se le envían los correos de cobro del paciente.
-- **Puede acceder a informes** (en la lista: "Accede a informes"): queda registrado para la entrega de informes (hoy es solo un dato; se usará con el informe de alta).
+- **Puede acceder a informes** (en la lista: "Accede a informes"): es el único representante al que se puede entregar el informe de alta del menor (ver "Cerrar el tratamiento e informe de alta").
 - **Custodia** (única, compartida o desconocida) y **Conflicto entre representantes**.
 
 Un representante que ya firmó un consentimiento no se puede eliminar; si cambió la situación, edítalo o desmarca "Puede otorgar consentimiento".
@@ -132,6 +132,41 @@ Un representante que ya firmó un consentimiento no se puede eliminar; si cambi�
 **Deber de denuncia y secreto profesional (guía, sin funcionalidad).** Esta guía requiere revisión legal y no está implementada en la app. Como orientación general, el Código Procesal Penal (art. 175) establece quiénes están obligados a denunciar ciertos delitos de los que toman conocimiento, y el secreto profesional tiene excepciones y tensiones con esa obligación y con el derecho de los padres a ser informados sobre un adolescente. La app no avisa ni decide por ti: ante sospecha de vulneración de derechos o de un delito contra un niño, niña o adolescente, consulta con asesoría legal o con tu colegio profesional antes de actuar, y deja constancia de tu decisión en la ficha.
 
 > 📝 Observaciones UX: (¿quedó claro que el representante se agrega después de guardar la ficha? ¿el aviso de plazo se entiende?)
+>
+>
+
+### Cerrar el tratamiento e informe de alta
+
+Cuando termina el proceso con un paciente, la sección **Cierre del tratamiento** de la ficha te permite cerrarlo y dejar un informe de alta. El detalle técnico de la decisión está en `docs/decisiones/0006-informe-de-alta-firma-simple-y-hash.md`. Ninguna norma verificada te obliga a emitir este informe ni fija su formato; es un documento profesional que la app te ayuda a dejar ordenado.
+
+**Antes de empezar.** Para el informe generado por la app necesitas tu **RUT** en el perfil (si falta, el formulario te lo avisa y te lleva a "Datos profesionales"); el registro profesional es opcional. También necesitas el consentimiento de tratamiento vigente del paciente, igual que para agendar consultas.
+
+**Cómo se emite.** Pulsa **Dar de alta** y elige uno de los dos caminos:
+- **Generar con el sistema.** Se crea un borrador prellenado con la fecha de ingreso, la fecha de alta y el número de sesiones. Tú completas el motivo de consulta, el resumen de evolución, el estado al alta y las recomendaciones (el diagnóstico es opcional), puedes **guardar el borrador** y seguirlo después, y al terminar pulsas **Emitir informe**.
+- **Subir mi propio PDF.** Si ya tienes tu epicrisis en PDF, la subes y el sistema solo pide el motivo de cierre, la fecha de alta y el archivo. Debe ser un PDF real y pesar hasta 25 MB. El sistema **no firma** ese archivo ni lo presenta como firmado por él: lo guarda tal cual y calcula su huella para detectar cambios.
+
+**Motivo de cierre.** Puede ser **Alta**, **Derivado** o **Deserción**. Para Derivado puedes indicar el destino de forma breve. Para Deserción eliges un motivo principal de una lista cerrada (por ejemplo "Costo" o "Sin contacto o sin información") y, si eliges "Otro", una nota breve. No escribas datos sensibles, de salud tuya o de familiares, ni de terceros en esos textos. La lista es una síntesis propia a partir de la literatura, no un estándar validado.
+
+**Qué pasa al emitir.** Antes de confirmar, la app te muestra la lista de consultas futuras que se cancelarán, y esa acción **no se puede deshacer**. Al emitir:
+- el paciente pasa a **Alta**, **Derivado** o **Deserción**, y deja de recibir reservas desde la agenda pública;
+- se cancelan sus consultas futuras, se liberan los horarios de la agenda pública y se anulan los cobros pendientes de esas consultas;
+- se envía un correo al paciente avisando que sus consultas quedaron canceladas. **No incluye el motivo del cierre**. Si el paciente es menor, el correo va solo a los representantes con "Recibe comunicaciones" y email, nunca al correo del menor. Si no hay a quién avisar, el correo simplemente no se envía y el cierre sigue adelante;
+- el informe queda **inmutable** y con una huella digital (SHA-256) impresa en el pie del PDF.
+
+**Descargar, verificar y corregir.** Cada informe emitido tiene un ícono para **descargar el PDF** y otro para **verificar**: la verificación recalcula la huella y te dice si el registro del informe y el PDF guardado coinciden con la huella original. Es una comprobación de que no hubo cambios desde la emisión; no reemplaza una firma electrónica avanzada. Si necesitas cambiar algo, usa **Corregir**: se crea una versión nueva y la anterior queda como "Reemplazada", sin borrarse.
+
+**Si el paciente vuelve.** Si agendas una consulta a un paciente con el tratamiento cerrado, la app te pide confirmar la reapertura. El informe anterior queda en la lista como "Histórico · Paciente reabierto".
+
+**Entregar el informe.** El sistema **no envía** el informe por correo: lo descargas y lo entregas por tu cuenta, y luego lo registras en el bloque **Entregas** con **Registrar entrega**. Cada entrega guarda a quién, por qué canal (en persona, email, correo postal u otro), cuándo y para qué (la finalidad, sin datos clínicos). Las entregas solo se agregan; no se editan ni se borran.
+- **Paciente adulto:** se le entrega a él.
+- **Paciente menor de 18 años:** no se le entrega directamente; se entrega a un **representante con "Accede a informes"**. Si ninguno lo tiene marcado, la app te lo indica y debes actualizar su ficha.
+- **Tercero** (un colegio, otro profesional, un tribunal): necesitas una autorización ya cargada en la ficha, en Documentos legales, con el tipo **Autorización de entrega de informe**. Puede ser la autorización del paciente o de su representante, o el oficio de un tribunal. La app no revisa el contenido ni la formalidad del documento: esa verificación es tuya. Según el art. 13 de la Ley 20.584, un tercero particular debe estar autorizado por el titular mediante **poder simple otorgado ante notario**; a los tribunales se les entrega la información de las causas que conocen, y a fiscales y abogados solo con autorización del juez. Si la autorización que cargaste no cumple esa formalidad, consulta con asesoría legal antes de entregar.
+
+**Deber de denuncia y secreto profesional.** Vale la misma guía que en "Pacientes menores de edad y representante legal": la app no avisa ni decide por ti, y ante dudas conviene asesoría legal antes de entregar o de callar información.
+
+**Pendiente de revisión legal.** Esta funcionalidad no pasó por una revisión legal. Siguen abiertas, entre otras, si la autorización que acepta la app cumple lo que exige el art. 13 de la Ley 20.584 para entregar a terceros, la vigencia del código de ética del Colegio de Psicólogos (solo se encontró la versión de 1996) y si una firma simple con huella digital basta para los usos que le des al informe (ver el ADR 0006).
+
+> 📝 Observaciones UX: (¿se entiende la diferencia entre generar y subir mi propio PDF? ¿quedó claro que el informe no se envía por correo?)
 >
 >
 
@@ -253,7 +288,7 @@ activo para una ficha que ya borraste.
 
 Desde la ficha del paciente, en la sección "Documentos legales", subes archivos ligados a esa persona en dos pasos:
 
-1. Elige el tipo de documento en el desplegable: **Consentimiento informado**, **Asentimiento informado**, **Acuerdo telemedicina** u **Otro**.
+1. Elige el tipo de documento en el desplegable: **Consentimiento informado**, **Asentimiento informado**, **Acuerdo telemedicina**, **Autorización de entrega de informe** u **Otro**. El informe de alta no se sube aquí: se emite desde "Cierre del tratamiento".
 2. Haz clic en "Subir" y selecciona el archivo desde tu computadora.
 
 Reglas:
