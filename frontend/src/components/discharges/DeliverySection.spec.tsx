@@ -151,6 +151,21 @@ describe('DeliverySection (T4c)', () => {
     })
   })
 
+  it('al elegir un tercero avisa que verificar el documento es responsabilidad del terapeuta', async () => {
+    const user = userEvent.setup()
+    setup()
+    const dialog = await openDialog(user)
+
+    expect(within(dialog).queryByText(/Antes de entregar a un tercero/)).not.toBeInTheDocument()
+
+    await user.selectOptions(within(dialog).getByLabelText(/Destinatario/), 'THIRD_PARTY')
+
+    const notice = within(dialog).getByRole('note')
+    expect(notice).toHaveTextContent(/Antes de entregar a un tercero/)
+    expect(notice).toHaveTextContent(/poder notarial simple/)
+    expect(notice).toHaveTextContent(/No comprueba su autenticidad ni su formalidad/)
+  })
+
   it('sin autorizaciones cargadas explica cómo subirla y no deja registrar', async () => {
     const user = userEvent.setup()
     setup({ documents: [DOCUMENTS[2]] })
