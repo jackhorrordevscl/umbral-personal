@@ -15,6 +15,8 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 import { DischargesService } from './discharges.service';
+import { DischargeDeliveriesService } from './discharge-deliveries.service';
+import { CreateDischargeDeliveryDto } from './dto/create-discharge-delivery.dto';
 import { CreateDischargeDto } from './dto/create-discharge.dto';
 import { UpdateDischargeDto } from './dto/update-discharge.dto';
 import { UploadDischargeDto } from './dto/upload-discharge.dto';
@@ -57,7 +59,10 @@ function auditContext(req: Request) {
 @UseGuards(JwtAuthGuard)
 @Controller()
 export class DischargesController {
-  constructor(private dischargesService: DischargesService) {}
+  constructor(
+    private dischargesService: DischargesService,
+    private deliveriesService: DischargeDeliveriesService,
+  ) {}
 
   @Post('patients/:patientId/discharges')
   create(
@@ -191,5 +196,23 @@ export class DischargesController {
   @Get('discharges/:id/verify')
   verify(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.dischargesService.verify(id, user.id);
+  }
+
+  // T4: el servicio registra DISCHARGE_DELIVER de forma explícita (sin datos
+  // personales); SkipAudit evita la fila genérica duplicada del interceptor.
+  @SkipAudit()
+  @Post('discharges/:id/deliveries')
+  recordDelivery(
+    @Param('id') id: string,
+    @Body() dto: CreateDischargeDeliveryDto,
+    @CurrentUser() user: RequestUser,
+    @Req() req: Request,
+  ) {
+    return this.deliveriesService.record(id, dto, user.id, auditContext(req));
+  }
+
+  @Get('discharges/:id/deliveries')
+  listDeliveries(@Param('id') id: string, @CurrentUser() user: RequestUser) {
+    return this.deliveriesService.list(id, user.id);
   }
 }

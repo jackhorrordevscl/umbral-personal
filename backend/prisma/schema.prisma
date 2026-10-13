@@ -264,29 +264,31 @@ enum DropoutReason {
 }
 
 model PatientDocument {
-  id                  String           @id @default(uuid())
-  patientId           String
-  patient             Patient          @relation(fields: [patientId], references: [id])
-  type                DocumentType
-  fileName            String
-  storagePath         String
-  uploadedAt          DateTime         @default(now())
-  uploadedBy          String
+  id                     String               @id @default(uuid())
+  patientId              String
+  patient                Patient              @relation(fields: [patientId], references: [id])
+  type                   DocumentType
+  fileName               String
+  storagePath            String
+  uploadedAt             DateTime             @default(now())
+  uploadedBy             String
   // Vínculo opcional a la consulta de origen (ej. resumen de sesión subido
   // por el terapeuta). Keyed on groupId, no id, mismo patrón que
   // Payment.groupId/ReminderDispatch.groupId: sobrevive a correct() (una
   // corrección de la consulta no debe desvincular el documento ya subido).
-  consultationGroupId String?
+  consultationGroupId    String?
   // Issue #270: anulación con motivo obligatorio (sin borrado físico, mismo
   // criterio que Consultation.deletedAt). El objeto cifrado en B2 no se toca.
-  voidedAt            DateTime?
-  voidedById          String?
-  voidReason          String?
+  voidedAt               DateTime?
+  voidedById             String?
+  voidReason             String?
   // Eventos del ledger de consentimiento que dependen de este documento.
-  consentEvents       PatientConsent[]
-  assentEvents        PatientAssent[]
+  consentEvents          PatientConsent[]
+  assentEvents           PatientAssent[]
   // Informes de alta cuyo PDF es este documento (T3).
-  dischargeReports    TreatmentDischarge[] @relation("DischargePdfDocument")
+  dischargeReports       TreatmentDischarge[] @relation("DischargePdfDocument")
+  // Entregas de informes de alta que usan este documento como autorización.
+  deliveryAuthorizations DischargeDelivery[]
 
   @@index([patientId])
   @@index([consultationGroupId])
@@ -300,6 +302,7 @@ enum DocumentType {
   SESSION_SUMMARY
   EXAM_RESULT
   DISCHARGE_REPORT
+  DELIVERY_AUTHORIZATION
   OTHER
 }
 
@@ -430,12 +433,55 @@ model TreatmentDischarge {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  cancelledConsultations Consultation[] @relation("DischargeCancelledConsultations")
+  cancelledConsultations Consultation[]      @relation("DischargeCancelledConsultations")
+  deliveries             DischargeDelivery[]
 
   @@index([patientId])
   @@index([therapistId])
   @@index([groupId])
   @@index([documentId])
+}
+
+enum DischargeRecipientType {
+  PATIENT
+  GUARDIAN
+  THIRD_PARTY
+}
+
+enum DischargeDeliveryChannel {
+  IN_PERSON
+  EMAIL
+  POSTAL
+  OTHER
+}
+
+// T4: registro de a quién se entregó un informe de alta emitido. Solo se agrega
+// (no se edita ni se borra); el contenido del informe no se copia aquí.
+model DischargeDelivery {
+  id          String             @id @default(uuid())
+  dischargeId String
+  discharge   TreatmentDischarge @relation(fields: [dischargeId], references: [id])
+
+  recipientType DischargeRecipientType
+  // Snapshot del nombre: con GUARDIAN se toma del representante al registrar.
+  recipientName String
+  guardianId    String?
+  guardian      LegalGuardian?           @relation(fields: [guardianId], references: [id], onDelete: Restrict)
+  purpose       String
+  channel       DischargeDeliveryChannel
+
+  // Obligatoria con THIRD_PARTY (autorización del paciente o del representante,
+  // u oficio): PatientDocument de tipo DELIVERY_AUTHORIZATION del mismo paciente.
+  authorizationDocumentId String?
+  authorizationDocument   PatientDocument? @relation(fields: [authorizationDocumentId], references: [id], onDelete: Restrict)
+
+  deliveredAt  DateTime @default(now())
+  recordedById String
+  createdAt    DateTime @default(now())
+
+  @@index([dischargeId])
+  @@index([guardianId])
+  @@index([authorizationDocumentId])
 }
 
 enum SessionType {
@@ -622,6 +668,7 @@ model LegalGuardian {
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
   consents               PatientConsent[]
+  dischargeDeliveries    DischargeDelivery[]
 
   @@index([patientId])
 }
