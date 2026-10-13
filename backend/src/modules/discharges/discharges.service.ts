@@ -15,6 +15,7 @@ import { PaymentsService } from '../payments/payments.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { DocumentsService } from '../documents/documents.service';
 import { isMinor } from '../../common/utils/age.util';
+import { DischargeCancellationNotifier } from './discharge-cancellation-notifier.service';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 import {
   chileDayKeyFromInstant,
@@ -98,6 +99,7 @@ export class DischargesService {
     private paymentsService: PaymentsService,
     private calendarSync: CalendarSyncService,
     private documentsService: DocumentsService,
+    private cancellationNotifier: DischargeCancellationNotifier,
   ) {}
 
   // POST /patients/:patientId/discharges
@@ -390,7 +392,7 @@ export class DischargesService {
     });
     await this.auditClosure(issued, cancelledGroupIds, therapistId, ctx);
 
-    await this.runPostCommitEffects(therapistId, cancelledGroupIds);
+    await this.runPostCommitEffects(therapistId, cancelledGroupIds, issued.id);
 
     // PDF en modo mejor esfuerzo: la emisión ya es definitiva y un fallo de
     // generación o de storage no la revierte ni la bloquea. Si falla, el primer
@@ -570,7 +572,11 @@ export class DischargesService {
         closureApplied: true,
       },
     );
-    await this.runPostCommitEffects(therapistId, result.cancelledGroupIds);
+    await this.runPostCommitEffects(
+      therapistId,
+      result.cancelledGroupIds,
+      result.row.id,
+    );
 
     return {
       ...result.row,
@@ -722,7 +728,11 @@ export class DischargesService {
       ctx,
       { closureApplied: result.closureApplied, correctsId: original.id },
     );
-    await this.runPostCommitEffects(therapistId, result.cancelledGroupIds);
+    await this.runPostCommitEffects(
+      therapistId,
+      result.cancelledGroupIds,
+      result.row.id,
+    );
 
     return {
       ...result.row,
@@ -1000,6 +1010,7 @@ export class DischargesService {
   private async runPostCommitEffects(
     therapistId: string,
     groupIds: string[],
+    dischargeId: string,
   ): Promise<void> {
     try {
       this.availabilityService.invalidate(therapistId);
@@ -1033,6 +1044,17 @@ export class DischargesService {
           }),
       ),
     );
+
+    // T4b: aviso por email de las consultas canceladas (sin el motivo del
+    // cierre). El notificador ya no lanza; el try/catch es una segunda barrera
+    // para que un fallo de email jamás afecte a un cierre ya definitivo.
+    try {
+      await this.cancellationNotifier.notify(dischargeId);
+    } catch (err) {
+      this.logger.error(
+        `Fallo no bloqueante al avisar la cancelación de consultas tras el cierre (dischargeId=${dischargeId}): ${errorMessage(err)}`,
+      );
+    }
   }
 
   // POST /discharges/:id/correct

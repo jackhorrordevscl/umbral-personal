@@ -17,6 +17,7 @@ import { MailService } from '../mail/mail.service';
 import { AvailabilityService } from '../availability/availability.service';
 import { DocumentsService } from '../documents/documents.service';
 import { DischargesService } from './discharges.service';
+import { DischargeCancellationNotifier } from './discharge-cancellation-notifier.service';
 
 // Fecha futura determinista: `daysAhead` días después de hoy (UTC) a `hourUtc`.
 function futureUtcDay(daysAhead: number, hourUtc: number): Date {
@@ -254,6 +255,8 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
       calendarSync,
       // T3: el PDF no se ejercita aquí (carreras de cierre sobre base real).
       {} as unknown as DocumentsService,
+      // T4b: el aviso por email no se ejercita en las carreras de cierre.
+      { notify: jest.fn() } as unknown as DischargeCancellationNotifier,
     );
     jest
       .spyOn(dischargesService, 'ensurePdf')

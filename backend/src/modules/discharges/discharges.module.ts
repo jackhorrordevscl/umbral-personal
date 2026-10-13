@@ -7,6 +7,8 @@ import { AvailabilityModule } from '../availability/availability.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { CalendarIntegrationModule } from '../calendar-integration/calendar-integration.module';
 import { DocumentsModule } from '../documents/documents.module';
+import { MailModule } from '../mail/mail.module';
+import { DischargeCancellationNotifier } from './discharge-cancellation-notifier.service';
 
 // Informe de alta / cierre de tratamiento (T2). PrismaService y AuditService
 // son globales; PatientsModule aporta assertAccess y assertTreatmentConsent.
@@ -23,9 +25,14 @@ import { DocumentsModule } from '../documents/documents.module';
     PaymentsModule,
     CalendarIntegrationModule,
     DocumentsModule,
+    MailModule,
   ],
   controllers: [DischargesController],
-  providers: [DischargesService, DischargeDeliveriesService],
+  providers: [
+    DischargesService,
+    DischargeDeliveriesService,
+    DischargeCancellationNotifier,
+  ],
   exports: [DischargesService],
 })
 export class DischargesModule {}

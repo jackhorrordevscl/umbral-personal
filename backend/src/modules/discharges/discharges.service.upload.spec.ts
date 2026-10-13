@@ -7,6 +7,7 @@ import {
 import { Prisma, TreatmentDischarge } from '@prisma/client';
 import { createHash } from 'crypto';
 import { DischargesService } from './discharges.service';
+import { DischargeCancellationNotifier } from './discharge-cancellation-notifier.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { AuditService } from '../audit/audit.service';
@@ -167,6 +168,7 @@ describe('DischargesService T3b (PDF propio)', () => {
       paymentsService as unknown as PaymentsService,
       calendarSync as unknown as CalendarSyncService,
       documentsService as unknown as DocumentsService,
+      { notify: jest.fn() } as unknown as DischargeCancellationNotifier,
     );
   });
 
