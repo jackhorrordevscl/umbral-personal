@@ -153,18 +153,43 @@ del menor.
 
 Esta sección es un resumen de trabajo, no una validación legal.
 
-- **Art. 13 de la Ley 20.584 (texto consolidado).** No se pudo abrir el texto
-  consolidado en BCN (Ley Chile). Según resúmenes secundarios, el artículo
-  exige conservar la ficha al menos quince años, hace responsable de su
-  reserva al prestador, excluye a los terceros no relacionados con la atención
-  y prevé la entrega al paciente a solicitud expresa. La Ley 21.668 lo
-  modificó para la interoperabilidad y amplió quién puede pedir acceso. Falta
-  leer el texto vigente y confirmar cómo se aplica a la entrega a terceros,
-  representantes y tribunales.
-- **Código de ética del Colegio de Psicólogos.** No se encontró la versión
-  vigente; solo una copia de 1996 alojada en la Universidad de Chile. Falta
-  confirmar qué dice sobre informes psicológicos, confidencialidad y entrega a
-  terceros.
+- **Art. 13 de la Ley 20.584: entrega a terceros.** Se leyó el 2026-10-13, pero
+  no desde el texto consolidado de BCN (no cargó): se reconstruyó con la
+  transcripción de SUSESO (texto anterior a 2024) y el Diario Oficial de la Ley
+  21.668 (2024-05-28), que reemplazó el inciso primero y agregó las letras f) y
+  g). Conviene confirmarlo contra BCN. Lo que dice, en lo que importa aquí:
+  - El prestador conserva la ficha al menos quince años y responde por su
+    reserva; los terceros no relacionados con la atención no acceden a ella.
+  - La información de la ficha "será entregada, total o parcialmente, a
+    solicitud expresa" de: a) el titular, su representante legal o, si falleció,
+    sus herederos; b) **un tercero autorizado por el titular mediante poder
+    simple otorgado ante notario**; c) los tribunales de justicia, si se
+    relaciona con las causas que conocen; d) fiscales del Ministerio Público y
+    abogados, **previa autorización del juez**; e) el Instituto de Salud
+    Pública y el Ministerio de Salud; f) la Superintendencia de Salud; g) el
+    prestador individual y los profesionales que participan en la atención.
+  - Quienes reciben la información deben resguardar la reserva de la identidad
+    del titular y usarla solo para el fin con que la pidieron.
+  - Consecuencia para esta funcionalidad: la ley no lista a un colegio ni a
+    otro tercero particular como destinatario directo; la vía de la letra b)
+    exige poder simple **ante notario**, y el sistema hoy acepta cualquier
+    documento cargado como "Autorización de entrega de informe", sin exigir ni
+    comprobar esa formalidad. Tampoco distingue entre la letra c) (tribunal) y
+    la d) (fiscal o abogado, con autorización del juez). La entrega a un menor
+    a través de su representante encaja en la letra a). Falta definir con
+    asesoría legal si la autorización del paciente o de su representante
+    basta, o si la app debe exigir y marcar la formalidad notarial.
+  - La epicrisis forma parte de la ficha clínica (Decreto 41, art. 6), así que
+    este régimen le aplica; no se revisó jurisprudencia ni dictámenes.
+- **Código de ética del Colegio de Psicólogos.** Solo se encontró el Código de
+  Ética Profesional de 1996, alojado en la Universidad de Chile; no se pudo
+  confirmar que siga vigente ni que exista una versión posterior. Según esa
+  copia, el secreto profesional dura indefinidamente (art. 5.1), no se puede
+  revelar sin orden judicial expresa o autorización escrita del cliente o
+  paciente mayor de edad, con discernimiento e informado (5.2), y su violación
+  es una infracción ética grave (5.5); la confidencialidad exige resguardar los
+  antecedentes de personas no autorizadas (6.1). Para un menor, el texto de 1996
+  no resuelve quién autoriza. Falta confirmar la versión vigente.
 - **Fuerza probatoria de la firma simple.** Falta confirmar con asesoría legal
   si un informe con firma simple y hash es suficiente para los usos previstos
   (colegios, tribunales, otros prestadores).

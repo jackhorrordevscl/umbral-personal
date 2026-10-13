@@ -34,8 +34,10 @@ Lo que sigue es un resumen de trabajo, no una validación legal.
   de 16 también. Vigencia prevista el 2026-12-01, salvo que se publique la
   postergación del Boletín 18.623-07 (ingresó el 2026-09-01; sin aprobación
   verificada al 2026-10-08).
-- Pendiente de lectura: art. 13 consolidado de la Ley 20.584 en BCN y el
-  código de ética vigente del Colegio de Psicólogos.
+- Leído el 2026-10-13 (detalle en el ADR 0006): art. 13 de la Ley 20.584
+  (reconstruido con SUSESO y el Diario Oficial de la Ley 21.668, no desde BCN).
+  Pendiente: la vigencia del código de ética del Colegio de Psicólogos (solo se
+  halló la versión de 1996).
 
 El diseño de este ADR es una **recomendación conservadora de producto**, no una
 exigencia legal verificada.
@@ -170,8 +172,9 @@ representante; a un tribunal solo con oficio, registrando el documento.
 - Revisión legal de la tensión entre la confidencialidad del adolescente y el
   derecho de los padres; incluye decidir si el terapeuta podrá ocultar notas al
   representante en el tramo 14 a 17.
-- Confirmar el estado del Boletín 18.623-07 y leer el art. 13 de la Ley 20.584
-  y el código de ética del Colegio de Psicólogos.
+- Confirmar el estado del Boletín 18.623-07 y la vigencia del código de ética
+  del Colegio de Psicólogos. El art. 13 de la Ley 20.584 ya se leyó (ver el ADR
+  0006).
 - Aviso de cancelación de consultas al representante (bloque del informe de
   alta) y alta de menores nuevos con consentimiento diferido hasta cargar al
   representante (ya implementado en la ficha).
