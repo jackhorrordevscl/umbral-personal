@@ -1,4 +1,4 @@
-# ADR 0002 — Validación de formularios en el frontend
+# ADR 0002 - Validación de formularios en el frontend
 
 - **Estado:** aceptada
 - **Fecha:** 2026-09-25

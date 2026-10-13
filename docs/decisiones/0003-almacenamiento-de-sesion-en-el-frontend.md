@@ -1,8 +1,9 @@
-# ADR 0003 — Almacenamiento de la sesión en el frontend
+# ADR 0003 - Almacenamiento de la sesión en el frontend
 
 - **Estado:** aceptada
 - **Fecha:** 2026-10-07
 - **Issue:** #384
+- **Nota de estado (2026-10-13):** la Content-Security-Policy del punto 2 de la decisión ya está en `frontend/vercel.json` (issue #386, PR #389 y #390), por lo que la afirmación "hoy no hay Content-Security-Policy" de la sección Contexto describe el estado del 2026-10-07. La migración a cookie `HttpOnly` sigue abierta en el issue #387.
 
 ## Contexto
 

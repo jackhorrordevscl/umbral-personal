@@ -1,8 +1,9 @@
-# ADR 0004 — Cifrado de datos clínicos y alcance de RLS
+# ADR 0004 - Cifrado de datos clínicos y alcance de RLS
 
 - **Estado:** aceptada
 - **Fecha:** 2026-10-07
 - **Issue:** #381
+- **Nota de estado (2026-10-13):** el paso 2 (cifrar las notas clínicas) sigue sin implementarse; el versionado de claves que lo condicionaba ya existe (ADR 0005). La tabla del informe de alta, agregada después (`TreatmentDischarge`), también guarda sus textos sin cifrar. Además, la migración que crea `TreatmentDischarge` (`20261011130000_add_treatment_discharge`) no incluye `ENABLE ROW LEVEL SECURITY`, a diferencia del resto de las tablas de la aplicación; las 27 sentencias de la sección Contexto siguen siendo las vigentes.
 
 ## Contexto
 

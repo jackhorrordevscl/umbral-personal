@@ -1,6 +1,6 @@
-# Cláusula de transferencia internacional de datos — consentimiento informado
+# Cláusula de transferencia internacional de datos en el consentimiento informado
 
-> ✅ **Aplicada — 2026-08-03.** El texto de abajo ya se agregó a los dos
+> ✅ **Aplicada el 2026-08-03.** El texto de abajo ya se agregó a los dos
 > documentos reales de consentimiento informado (issue #59, cerrado). Este
 > archivo queda como registro de la redacción y de dónde vive en cada
 > documento.
@@ -32,20 +32,20 @@ papel/PDF, no un texto que viva en el código de la app).
 
 ## Dónde va este texto
 
-No hay un generador de PDF de consentimiento en la app — el flujo actual
+No hay un generador de PDF de consentimiento en la app: el flujo actual
 es: el profesional gestiona el documento externo, lo hace firmar, y sube
 el PDF firmado vía `PatientDocument` tipo `INFORMED_CONSENT`. Se revisaron
 los dos documentos reales que usa el profesional (no versionados en este
-repo por contener su nombre — ver `.gitignore`), y ambos ya tienen una
+repo por contener su nombre; ver `.gitignore`), y ambos ya tienen una
 sección de confidencialidad/protección de datos donde esta cláusula encaja
 como un subpunto nuevo:
 
-- **`CONSENTIMIENTO INFORMADO ADULTOS Y NNA.docx`** — sección **IV.
+- **`CONSENTIMIENTO INFORMADO ADULTOS Y NNA.docx`**: sección **IV.
   CONFIDENCIALIDAD Y PROTECCIÓN DE DATOS PERSONALES**. Insertar como
   **4.2** (después de "4.1 Principio general de confidencialidad", antes
   de la actual 4.2 "Excepciones legales a la confidencialidad", que pasa a
   ser 4.3; la actual 4.3 "Supervisión y consulta clínica" pasa a 4.4).
-- **`CONSENTIMIENTO INFORMADO TELEPSICOLOGÍA.docx`** — sección **V.
+- **`CONSENTIMIENTO INFORMADO TELEPSICOLOGÍA.docx`**: sección **V.
   CONFIDENCIALIDAD Y PROTECCIÓN DE DATOS PERSONALES**, mismo patrón:
   insertar como **5.2** (después de "5.1", antes de la actual 5.2
   "Excepciones Legales a la Confidencialidad", que pasa a ser 5.3).
@@ -84,7 +84,7 @@ Encabezado sugerido para el subpunto nuevo en ambos documentos:
       esta transferencia a Google LLC (Estados Unidos), pero deja
       explícitamente sin resolver si aplica la misma base habilitante que
       esta cláusula (consentimiento informado del paciente) o la de
-      cuenta de profesional — el contenido enviado es metadata minimizada
+      cuenta de profesional, dado que el contenido enviado es metadata minimizada
       (iniciales + código no reversible + fecha/hora), no una
       identificación directa del paciente. No se agrega texto a esta
       cláusula hasta que esa base habilitante se resuelva en el RAT; no

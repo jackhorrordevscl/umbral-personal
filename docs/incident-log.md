@@ -2,8 +2,8 @@
 
 Bitácora de incidentes de seguridad reales detectados y resueltos durante el
 desarrollo de Umbral. Existe como documento dedicado (issue #69) porque antes
-estas narrativas vivían dispersas — dos como texto suelto en `README.md`, una
-tercera solo como comentario de una línea en `.gitignore` — sin un lugar
+estas narrativas vivían dispersas (dos como texto suelto en `README.md`, una
+tercera solo como comentario de una línea en `.gitignore`), sin un lugar
 único donde una revisión de compliance (CENS) pudiera encontrarlas.
 
 Formato por incidente: qué pasó, impacto real, causa raíz, remediación,
@@ -11,17 +11,17 @@ verificación, y qué cambió para que no vuelva a pasar.
 
 ---
 
-## 2026-08-02/03 — Dumps de Postgres sin cifrar committeados en el historial de git
+## 2026-08-02/03: Dumps de Postgres sin cifrar committeados en el historial de git
 
 **Qué pasó.** El script `backup.sh` legacy (retirado en issue #61) escribía
 sus dumps directo a `backups/files/`, una carpeta dentro del working tree del
 repo. Desde marzo de 2026, 4 dumps `.sql.gz` **sin cifrar** (no
-`.sql.gz.enc`) quedaron committeados ahí — el `.gitignore` de la época no
+`.sql.gz.enc`) quedaron committeados ahí, porque el `.gitignore` de la época no
 cubría esa ruta.
 
 **Impacto.** El esquema de esos dumps incluía `User.passwordHash` y PII/PHI
 de `Patient`/`Consultation`. Confirmado por el dueño del proyecto: eran datos
-de prueba sin valor real (el proyecto recién arrancaba en esa fecha) — no
+de prueba sin valor real (el proyecto recién arrancaba en esa fecha), por lo que no
 hubo exposición de datos de pacientes reales.
 
 **Causa raíz.** Un script de backup que escribe dumps directo a una ruta
@@ -53,13 +53,13 @@ tags) sigue referenciando esos archivos.
 
 ---
 
-## 2026-08-03 — `AuditLog` no estaba protegido contra manipulación por el propio rol de runtime (issue #52)
+## 2026-08-03: `AuditLog` no estaba protegido contra manipulación por el propio rol de runtime (issue #52)
 
 **Qué pasó.** El procedimiento de reset manual de cuenta (último recurso
 cuando se pierden contraseña y los 10 códigos de recuperación a la vez) deja
 constancia en `AuditLog` como paso obligatorio del runbook. `AuditLog` tenía
 un trigger `trg_audit_log_append_only` que bloqueaba `UPDATE`/`DELETE` sobre
-filas ya escritas — pero **no** impedía que las mismas credenciales usadas
+filas ya escritas, pero **no** impedía que las mismas credenciales usadas
 para ese procedimiento manual deshabilitaran el trigger
 (`ALTER TABLE ... DISABLE TRIGGER` / `DROP TRIGGER`), hicieran el reset sin
 dejar el paso de auditoría, y lo reactivaran después sin rastro. La causa:
@@ -68,14 +68,14 @@ tabla en Postgres tiene esos permisos implícitos sin importar los
 `GRANT`/`REVOKE` explícitos.
 
 **Impacto.** Riesgo de manipulación silenciosa de la bitácora de auditoría
-por cualquiera con las credenciales de runtime de la app — exactamente el
+por cualquiera con las credenciales de runtime de la app, exactamente el
 escenario que un log de auditoría append-only debería impedir. No hay
 evidencia de que se haya explotado; se detectó en revisión de diseño, no en
 un incidente activo.
 
 **Primer intento descartado.** Un *event trigger* a nivel de base que
 bloqueara ese DDL sin importar el rol. `CREATE EVENT TRIGGER` requiere
-privilegios de superusuario en Postgres — verificado contra el rol real de
+privilegios de superusuario en Postgres. Se verificó contra el rol real de
 producción (`SELECT rolsuper FROM pg_roles WHERE rolname = current_user` →
 `false`). No viable en Supabase, ni en staging ni en producción: es un techo
 de la plataforma, no un problema de configuración.
@@ -83,7 +83,7 @@ de la plataforma, no un problema de configuración.
 **Remediación real.** Migración
 `20260803060000_restrict_audit_log_owner_privileges`: se transfiere la
 ownership de `"AuditLog"` a un rol nuevo sin login (`audit_log_owner`), y el
-rol de runtime queda con `SELECT`/`INSERT` explícitos únicamente — sin
+rol de runtime queda con `SELECT`/`INSERT` explícitos únicamente, sin
 `ALTER`/`TRIGGER`/`UPDATE`/`DELETE`. No necesita superusuario, solo que el
 rol que corre la migración tenga `CREATEROLE`.
 
@@ -98,20 +98,20 @@ sin fricción.
 
 **Qué cambió.** Nota operativa permanente: una futura migración legítima que
 necesite alterar la estructura de `"AuditLog"` (ej. agregar una columna) va a
-fallar con el rol de runtime actual porque ya no es el dueño — requiere un
+fallar con el rol de runtime actual porque ya no es el dueño: requiere un
 paso manual documentado (otorgar membership de `audit_log_owner`
 temporalmente, aplicar el cambio, revocarla de nuevo), no un
 `prisma migrate deploy` automático sin intervención.
 
 ---
 
-## 2026-08-03 — Verificación real de restauración de backup offsite (issue #56)
+## 2026-08-03: Verificación real de restauración de backup offsite (issue #56)
 
 **Qué se verificó.** Que el backup offsite cifrado (Backblaze B2, ver
 [Configuración de Backups](../README.md#configuración-de-backups)) efectivamente
 sirve para restaurar, no solo para subirse sin errores. No es un incidente en
 el sentido de una falla real, pero se documenta acá como evidencia de
-verificación de un control de continuidad — el tipo de evidencia que una
+verificación de un control de continuidad, el tipo de evidencia que una
 revisión CENS/ISMS pide.
 
 **Procedimiento.** Se bajó el `.sql.gz.enc` real más reciente de B2, se
@@ -123,7 +123,7 @@ correctos, incluida `_prisma_migrations` con las 21 migraciones aplicadas. El
 trigger `trg_audit_log_append_only` siguió bloqueando `UPDATE` después de
 restaurar. El dump completo arrastra ~600 errores esperables de
 roles/extensiones internas de Supabase (`supabase_admin`, `dashboard_user`,
-`vault`, `pgbouncer`, etc.) que no existen fuera de su infraestructura — no
+`vault`, `pgbouncer`, etc.) que no existen fuera de su infraestructura, y no
 son un problema: `psql -f` los saltea y sigue con el resto del archivo.
 
 **Por qué importa.** Un backup que nunca se restauró es una promesa sin
