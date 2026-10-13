@@ -444,6 +444,9 @@ aparezcan automáticamente en tu Google Calendar personal.
   Google se actualiza o se borra solo; lo contrario no ocurre.
 - Puedes desconectar en cualquier momento desde el mismo lugar. Los eventos
   ya creados en tu Google Calendar no se borran al desconectar.
+- Si conectas **otra** cuenta de Google, Umbral no puede saber que cambió
+  de cuenta: los eventos que ya estaban en la cuenta anterior quedan ahí y
+  no se borran. Si quieres cambiar de cuenta, elimina esos eventos a mano.
 - Si Google revoca el acceso por su cuenta (por ejemplo, cambiaste la
   contraseña de tu cuenta de Google), la conexión se marca como
   desconectada sola y te llega un aviso (ver punto 11) — no vas a ver un
