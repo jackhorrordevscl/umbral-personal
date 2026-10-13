@@ -91,6 +91,13 @@ describe('PatientModal — anular documentos legales (#270)', () => {
     expect(screen.getByRole('button', { name: 'Descargar informe-alta.pdf' })).toBeInTheDocument()
   })
 
+  it('muestra el RUT del paciente con puntos y guion (issue #444)', async () => {
+    renderModal()
+
+    expect(await screen.findByText('11.111.111-1')).toBeInTheDocument()
+    expect(screen.queryByText('11111111-1')).not.toBeInTheDocument()
+  })
+
   it('si falla la carga de documentos muestra el error y no "Sin documentos subidos." (#294)', async () => {
     mockedApi.get.mockImplementation((url: string) => {
       if (url === '/documents/patient/patient-1') return Promise.reject(new Error('boom'))

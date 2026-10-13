@@ -42,6 +42,7 @@ import MinorStatusAlert from "./MinorStatusAlert";
 import { downloadPatientReport } from "../../api/reports";
 import { downloadBlob } from "../../utils/download";
 import { getApiErrorMessage } from "../../utils/api-error";
+import { formatRut } from "../../utils/rut";
 import {
   formatCalendarDate,
   formatChileShortDate,
@@ -68,9 +69,6 @@ const NON_VOIDABLE_DOC_TYPES = ["DISCHARGE_REPORT"];
 
 const VOID_REASON_MIN = 5;
 const VOID_REASON_MAX = 500;
-
-const displayRut = (rut: string) =>
-  rut.replace(/\./g, "").replace(/(\d{1,3})(\d{3})(\d{3})([\dkK])$/, "$1.$2.$3-$4");
 
 function formatFieldValue(key: string, val: unknown): string {
   if (val === null || val === undefined || val === "") return "—";
@@ -330,7 +328,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
               {selected.fullName}
             </h3>
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-slate-500 text-sm font-mono">{displayRut(selected.rut)}</p>
+              <p className="text-slate-500 text-sm font-mono">{formatRut(selected.rut)}</p>
               <AgeBandBadge ageBand={selected.ageBand} />
               <TreatmentStatusBadge status={selected.treatmentStatus} />
             </div>
