@@ -39,6 +39,7 @@ describe('GuardiansService', () => {
       delete: jest.Mock;
     };
     patientConsent: { count: jest.Mock };
+    dischargeDelivery: { count: jest.Mock };
     $queryRaw: jest.Mock;
     $transaction: jest.Mock;
   };
@@ -60,6 +61,7 @@ describe('GuardiansService', () => {
         delete: jest.fn().mockResolvedValue(buildGuardian()),
       },
       patientConsent: { count: jest.fn().mockResolvedValue(0) },
+      dischargeDelivery: { count: jest.fn().mockResolvedValue(0) },
       $queryRaw: jest.fn().mockResolvedValue([{ id: 'patient-1' }]),
       $transaction: jest.fn((arg: unknown) =>
         (arg as (tx: unknown) => unknown)(prisma),
@@ -343,6 +345,19 @@ describe('GuardiansService', () => {
       ).rejects.toThrow(
         new ConflictException(
           'No se puede eliminar al representante porque tiene consentimientos registrados a su nombre',
+        ),
+      );
+      expect(prisma.legalGuardian.delete).not.toHaveBeenCalled();
+    });
+
+    it('devuelve 409 con mensaje propio si recibió la entrega de un informe de alta', async () => {
+      prisma.dischargeDelivery.count.mockResolvedValue(1);
+
+      await expect(
+        service.remove('patient-1', 'guardian-1', 'therapist-1'),
+      ).rejects.toThrow(
+        new ConflictException(
+          'No se puede eliminar al representante porque recibió la entrega de un informe de alta',
         ),
       );
       expect(prisma.legalGuardian.delete).not.toHaveBeenCalled();

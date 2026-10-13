@@ -126,6 +126,17 @@ export class GuardiansService {
         });
         if (referenced > 0) throw new ConflictException(message);
 
+        // T4: DischargeDelivery.guardianId también es ON DELETE RESTRICT (la
+        // entrega de un informe de alta es un hecho que debe quedar registrado).
+        const deliveries = await tx.dischargeDelivery.count({
+          where: { guardianId },
+        });
+        if (deliveries > 0) {
+          throw new ConflictException(
+            'No se puede eliminar al representante porque recibió la entrega de un informe de alta',
+          );
+        }
+
         const deleted = await tx.legalGuardian.delete({
           where: { id: guardianId },
         });
