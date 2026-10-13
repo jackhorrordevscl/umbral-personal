@@ -862,34 +862,4 @@ describe('CalendarSyncService', () => {
       expect(prisma.googleCalendarConnection.findMany).toHaveBeenCalledTimes(2);
     });
   });
-
-  describe('purgeLinksOnAccountChange (T5.4)', () => {
-    it('purga todos los links si el googleAccountEmail cambió', async () => {
-      await service.purgeLinksOnAccountChange(
-        'connection-1',
-        'old@example.com',
-        'new@example.com',
-      );
-
-      expect(prisma.calendarEventLink.deleteMany).toHaveBeenCalledWith({
-        where: { connectionId: 'connection-1' },
-      });
-    });
-
-    it('no purga nada si el email es el mismo', async () => {
-      await service.purgeLinksOnAccountChange(
-        'connection-1',
-        'same@example.com',
-        'same@example.com',
-      );
-
-      expect(prisma.calendarEventLink.deleteMany).not.toHaveBeenCalled();
-    });
-
-    it('no purga nada si no hay email previo o nuevo (caso actual: nunca se resuelve el email)', async () => {
-      await service.purgeLinksOnAccountChange('connection-1', null, null);
-
-      expect(prisma.calendarEventLink.deleteMany).not.toHaveBeenCalled();
-    });
-  });
 });

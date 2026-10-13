@@ -133,26 +133,6 @@ export class CalendarSyncService {
     }
   }
 
-  // design.md "On reconnect with a different googleAccountEmail, purge all
-  // CalendarEventLink rows": los links viejos apuntan a eventos de una
-  // cuenta de Google que ya no es la conectada -- reutilizarlos rompería el
-  // mapeo. NOTA (deviation, ver apply-progress/PR1): con el scope
-  // `calendar.events` únicamente (sin `email`/`openid`), Umbral no tiene hoy
-  // ninguna vía para resolver el googleAccountEmail real -- este método
-  // queda implementado y probado, pero ningún llamador real le pasa todavía
-  // un `newEmail` no nulo (ver CalendarOauthService.exchangeCodeAndPersist).
-  async purgeLinksOnAccountChange(
-    connectionId: string,
-    previousEmail: string | null,
-    newEmail: string | null | undefined,
-  ): Promise<void> {
-    if (!previousEmail || !newEmail || previousEmail === newEmail) return;
-
-    await this.prisma.calendarEventLink.deleteMany({
-      where: { connectionId },
-    });
-  }
-
   // T5.7: único disparador real de borrado hoy (design.md "Confirmed
   // Decisions" -- ningún endpoint escribe Consultation.deletedAt todavía).
   // Fire-and-forget desde PatientsService.softDelete, igual que

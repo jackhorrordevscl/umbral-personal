@@ -32,6 +32,9 @@ export interface CalendarConnectionStatus {
   lastError: string | null;
 }
 
+// googleAccountEmail queda siempre null: el scope pedido es solo `calendar.events`
+// (sin `openid`/`email`), así que Umbral no puede saber qué cuenta de Google se
+// conectó. Por eso no se purgan los vínculos al reconectar otra cuenta (issue #427).
 const DEFAULT_STATUS: CalendarConnectionStatus = {
   status: 'PENDING',
   googleAccountEmail: null,
