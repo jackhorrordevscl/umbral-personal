@@ -42,6 +42,7 @@ export default function DeliveryDialog({
     guardian: useId(),
     name: useId(),
     authorization: useId(),
+    attested: useId(),
     purpose: useId(),
     channel: useId(),
   };
@@ -56,6 +57,7 @@ export default function DeliveryDialog({
   const [guardianId, setGuardianId] = useState("");
   const [recipientName, setRecipientName] = useState("");
   const [authorizationDocumentId, setAuthorizationDocumentId] = useState("");
+  const [authorizationAttested, setAuthorizationAttested] = useState(false);
   const [purpose, setPurpose] = useState("");
   const [channel, setChannel] = useState<DischargeDeliveryChannel>("IN_PERSON");
   const [error, setError] = useState("");
@@ -77,7 +79,8 @@ export default function DeliveryDialog({
       (recipientType === "GUARDIAN" && guardianId !== "") ||
       (recipientType === "THIRD_PARTY" &&
         recipientName.trim() !== "" &&
-        authorizationDocumentId !== ""));
+        authorizationDocumentId !== "" &&
+        authorizationAttested));
 
   const buildPayload = (): RecordDeliveryPayload => {
     const base = { purpose: purpose.trim(), channel };
@@ -87,6 +90,7 @@ export default function DeliveryDialog({
         recipientType,
         recipientName: recipientName.trim(),
         authorizationDocumentId,
+        authorizationAttested: true,
         ...base,
       };
     }
@@ -206,7 +210,10 @@ export default function DeliveryDialog({
                 id={ids.authorization}
                 className="input-field"
                 value={authorizationDocumentId}
-                onChange={(e) => setAuthorizationDocumentId(e.target.value)}
+                onChange={(e) => {
+                  setAuthorizationDocumentId(e.target.value);
+                  setAuthorizationAttested(false);
+                }}
               >
                 <option value="">Seleccionar autorización...</option>
                 {authorizations.map((d) => (
@@ -223,6 +230,19 @@ export default function DeliveryDialog({
                 </p>
               )}
             </FormField>
+            <div className="flex items-start gap-2">
+              <input
+                id={ids.attested}
+                type="checkbox"
+                className="mt-0.5"
+                checked={authorizationAttested}
+                onChange={(e) => setAuthorizationAttested(e.target.checked)}
+              />
+              <label htmlFor={ids.attested} className="text-sm text-slate-700">
+                Confirmo que revisé la autorización y que cumple lo que exige la ley para esta
+                entrega.
+              </label>
+            </div>
           </>
         )}
 
