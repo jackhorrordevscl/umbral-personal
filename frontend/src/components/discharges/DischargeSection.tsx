@@ -3,6 +3,7 @@ import { Download, FileCheck2, Pencil, Plus, ShieldCheck } from "lucide-react";
 import ErrorBanner from "../ui/ErrorBanner";
 import DischargeForm from "./DischargeForm";
 import VerifyDischargeDialog from "./VerifyDischargeDialog";
+import DeliverySection from "./DeliverySection";
 import { downloadDischargePdf } from "../../api/discharges";
 import { useCorrectDischarge, useDischarges } from "../../hooks/useDischarges";
 import {
@@ -19,6 +20,8 @@ import { formatCalendarDate, formatChileShortDateTime } from "../../utils/dateti
 interface DischargeSectionProps {
   patientId: string;
   treatmentStatus?: TreatmentStatus;
+  /** A un menor el informe se entrega a su representante, no a él. */
+  isMinor?: boolean;
   /** Called after a closure is issued (the open record refreshes its status). */
   onChanged?: () => void;
 }
@@ -32,6 +35,7 @@ type FormState =
 export default function DischargeSection({
   patientId,
   treatmentStatus,
+  isMinor = false,
   onChanged,
 }: DischargeSectionProps) {
   const dischargesQuery = useDischarges(patientId);
@@ -190,6 +194,9 @@ export default function DischargeSection({
                     )}
                   </div>
                 </div>
+                {isIssued && (
+                  <DeliverySection dischargeId={d.id} patientId={patientId} isMinor={isMinor} />
+                )}
                 {isCurrent && !hasDraft && !isReopened && (
                   <button
                     type="button"

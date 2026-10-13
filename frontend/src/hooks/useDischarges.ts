@@ -1,11 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as dischargesApi from '../api/discharges';
-import type { UpdateDischargePayload, UploadDischargePayload } from '../types/discharge';
+import type {
+  RecordDeliveryPayload,
+  UpdateDischargePayload,
+  UploadDischargePayload,
+} from '../types/discharge';
 
 export const dischargeKeys = {
   all: ['discharges'] as const,
   list: (patientId: string) => ['discharges', 'patient', patientId] as const,
   verify: (id: string) => ['discharges', 'verify', id] as const,
+  deliveries: (id: string) => ['discharges', 'deliveries', id] as const,
 };
 
 export function useDischarges(patientId: string | undefined) {
@@ -102,5 +107,24 @@ export function useCorrectUploadDischarge() {
     mutationFn: ({ id, data }: { id: string; data: UploadDischargePayload }) =>
       dischargesApi.correctUploadDischarge(id, data),
     onSuccess: invalidate,
+  });
+}
+
+export function useDeliveries(dischargeId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: dischargeKeys.deliveries(dischargeId ?? ''),
+    queryFn: () => dischargesApi.listDeliveries(dischargeId as string),
+    enabled: !!dischargeId && enabled,
+  });
+}
+
+export function useRecordDelivery(dischargeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: RecordDeliveryPayload) =>
+      dischargesApi.recordDelivery(dischargeId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: dischargeKeys.deliveries(dischargeId) });
+    },
   });
 }

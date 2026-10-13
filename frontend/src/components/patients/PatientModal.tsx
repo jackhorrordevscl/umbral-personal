@@ -57,6 +57,7 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   TELEMED_AGREEMENT: "Acuerdo telemedicina",
   SESSION_SUMMARY: "Registro de sesión",
   DISCHARGE_REPORT: "Informe de alta",
+  DELIVERY_AUTHORIZATION: "Autorización de entrega de informe",
   OTHER: "Otro",
 };
 
@@ -442,6 +443,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
               <DischargeSection
                 patientId={selected.id}
                 treatmentStatus={selected.treatmentStatus}
+                isMinor={isMinor}
                 onChanged={refreshSelected}
               />
 
@@ -560,6 +562,9 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                     <option value="INFORMED_CONSENT">Consentimiento informado</option>
                     <option value="INFORMED_ASSENT">Asentimiento informado</option>
                     <option value="TELEMED_AGREEMENT">Acuerdo telemedicina</option>
+                    <option value="DELIVERY_AUTHORIZATION">
+                      Autorización de entrega de informe
+                    </option>
                     <option value="OTHER">Otro</option>
                   </select>
                   <input

@@ -128,3 +128,47 @@ export interface DischargeVerification {
   source: DischargeSource;
   providedByTherapist: boolean;
 }
+
+// Entrega del informe de alta (T4c). Mirrors backend model DischargeDelivery.
+export type DischargeRecipientType = "PATIENT" | "GUARDIAN" | "THIRD_PARTY";
+export type DischargeDeliveryChannel = "IN_PERSON" | "EMAIL" | "POSTAL" | "OTHER";
+
+export const RECIPIENT_TYPE_LABELS: Record<DischargeRecipientType, string> = {
+  PATIENT: "Paciente",
+  GUARDIAN: "Representante legal",
+  THIRD_PARTY: "Tercero",
+};
+
+export const DELIVERY_CHANNEL_LABELS: Record<DischargeDeliveryChannel, string> = {
+  IN_PERSON: "En persona",
+  EMAIL: "Email",
+  POSTAL: "Correo postal",
+  OTHER: "Otro",
+};
+
+export const DELIVERY_PURPOSE_MAX = 200;
+export const DELIVERY_RECIPIENT_NAME_MAX = 120;
+
+export interface DischargeDelivery {
+  id: string;
+  dischargeId: string;
+  recipientType: DischargeRecipientType;
+  recipientName: string;
+  guardianId: string | null;
+  authorizationDocumentId: string | null;
+  purpose: string;
+  channel: DischargeDeliveryChannel;
+  deliveredAt: string;
+}
+
+export interface RecordDeliveryPayload {
+  recipientType: DischargeRecipientType;
+  // Solo con THIRD_PARTY.
+  recipientName?: string;
+  // Solo con GUARDIAN.
+  guardianId?: string;
+  // Solo con THIRD_PARTY (obligatoria).
+  authorizationDocumentId?: string;
+  purpose: string;
+  channel: DischargeDeliveryChannel;
+}

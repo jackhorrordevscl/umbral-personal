@@ -42,14 +42,16 @@ function build(overrides: Partial<TreatmentDischarge>): TreatmentDischarge {
   }
 }
 
-function renderSection(list: TreatmentDischarge[], status: TreatmentStatus) {
-  mockedApi.get.mockResolvedValue({ data: list })
+function renderSection(list: TreatmentDischarge[], status: TreatmentStatus, isMinor = false) {
+  mockedApi.get.mockImplementation((url: string) =>
+    Promise.resolve({ data: url.endsWith('/deliveries') ? [] : list }),
+  )
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   render(
     <QueryClientProvider client={queryClient}>
-      <DischargeSection patientId="p1" treatmentStatus={status} />
+      <DischargeSection patientId="p1" treatmentStatus={status} isMinor={isMinor} />
     </QueryClientProvider>,
   )
 }
@@ -94,6 +96,28 @@ describe('DischargeSection', () => {
     expect(screen.getByRole('button', { name: 'Descargar el PDF de la versión 1' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Verificar la versión 1' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Dar de alta/ })).toBeInTheDocument()
+  })
+
+  it('cada informe emitido ofrece registrar entregas y un borrador no (T4c)', async () => {
+    const issued = build({ id: 'd1', version: 1 })
+    const draft = build({ id: 'd2', version: 2, status: 'DRAFT', issuedAt: null, documentId: null })
+    renderSection([issued, draft], 'ACTIVE')
+
+    await screen.findByText(/Versión 1/)
+    expect(screen.getAllByRole('button', { name: /Registrar entrega/ })).toHaveLength(1)
+    expect(mockedApi.get).toHaveBeenCalledWith('/discharges/d1/deliveries')
+    expect(mockedApi.get).not.toHaveBeenCalledWith('/discharges/d2/deliveries')
+  })
+
+  it('con un paciente menor el diálogo de entrega no ofrece "Paciente" (T4c)', async () => {
+    const user = userEvent.setup()
+    renderSection([build({ id: 'd1' })], 'DISCHARGED', true)
+
+    await user.click(await screen.findByRole('button', { name: /Registrar entrega/ }))
+    const dialog = screen.getByRole('dialog')
+    const types = within(dialog).getByLabelText(/Destinatario/)
+    expect(within(types).queryByRole('option', { name: 'Paciente' })).not.toBeInTheDocument()
+    expect(within(types).getByRole('option', { name: 'Representante legal' })).toBeInTheDocument()
   })
 
   it('muestra la fecha de cierre sin desfase de zona horaria (issue #444)', async () => {

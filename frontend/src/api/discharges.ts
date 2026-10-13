@@ -2,8 +2,10 @@ import api from './client';
 import type {
   CancellationPreview,
   ClosurePayload,
+  DischargeDelivery,
   DischargeVerification,
   IssueDischargeResult,
+  RecordDeliveryPayload,
   TreatmentDischarge,
   UpdateDischargePayload,
   UploadDischargePayload,
@@ -79,4 +81,16 @@ export function downloadDischargePdf(id: string) {
 
 export function verifyDischarge(id: string) {
   return api.get<DischargeVerification>(`/discharges/${id}/verify`).then((r) => r.data);
+}
+
+export function listDeliveries(dischargeId: string) {
+  return api
+    .get<DischargeDelivery[]>(`/discharges/${dischargeId}/deliveries`)
+    .then((r) => r.data);
+}
+
+export function recordDelivery(dischargeId: string, data: RecordDeliveryPayload) {
+  return api
+    .post<DischargeDelivery>(`/discharges/${dischargeId}/deliveries`, data)
+    .then((r) => r.data);
 }
