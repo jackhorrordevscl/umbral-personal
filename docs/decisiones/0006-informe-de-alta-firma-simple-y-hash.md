@@ -124,7 +124,15 @@ email, correo postal u otro), finalidad y fecha fijada por el servidor.
   (`DocumentType.DELIVERY_AUTHORIZATION`), que puede ser la autorización del
   paciente o del representante, o el oficio de un tribunal. El sistema no
   distingue si el documento es de uno u otro tipo.
-- La auditoría `DISCHARGE_DELIVER` no incluye nombres ni finalidad.
+- A un tercero se exige además la **declaración del terapeuta** de que revisó
+  la autorización (`DischargeDelivery.authorizationAttested`, obligatoria y
+  `true` con `THIRD_PARTY`; con `PATIENT` o `GUARDIAN` se rechaza). Es una
+  constancia, no una comprobación: Umbral no verifica la autenticidad ni la
+  formalidad del documento. La interfaz muestra un aviso con lo que exige la
+  ley y una casilla que debe marcarse. Las entregas anteriores a esta
+  declaración quedan en `false`.
+- La auditoría `DISCHARGE_DELIVER` no incluye nombres ni finalidad; registra el
+  valor de `authorizationAttested`.
 - El sistema **no envía** el informe por correo. Se descarga y se registra la
   entrega.
 
@@ -174,7 +182,8 @@ Esta sección es un resumen de trabajo, no una validación legal.
     otro tercero particular como destinatario directo; la vía de la letra b)
     exige poder simple **ante notario**, y el sistema hoy acepta cualquier
     documento cargado como "Autorización de entrega de informe", sin exigir ni
-    comprobar esa formalidad. Tampoco distingue entre la letra c) (tribunal) y
+    comprobar esa formalidad; solo exige que el terapeuta declare haberlo
+    revisado (ver el punto 7). Tampoco distingue entre la letra c) (tribunal) y
     la d) (fiscal o abogado, con autorización del juez). La entrega a un menor
     a través de su representante encaja en la letra a). Falta definir con
     asesoría legal si la autorización del paciente o de su representante

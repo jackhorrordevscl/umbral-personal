@@ -140,15 +140,52 @@ describe('DeliverySection (T4c)', () => {
     await user.selectOptions(authorization, 'doc1')
     await user.type(within(dialog).getByLabelText(/Finalidad/), 'Solicitud del colegio')
     await user.selectOptions(within(dialog).getByLabelText(/Canal/), 'POSTAL')
+
+    // Sin la declaración del terapeuta no se puede registrar.
+    const attested = within(dialog).getByRole('checkbox', {
+      name: /Confirmo que revisé la autorización/,
+    })
+    expect(attested).not.toBeChecked()
+    expect(within(dialog).getByRole('button', { name: 'Registrar' })).toBeDisabled()
+
+    await user.click(attested)
     await user.click(within(dialog).getByRole('button', { name: 'Registrar' }))
 
     expect(mockedApi.post).toHaveBeenCalledWith('/discharges/dis1/deliveries', {
       recipientType: 'THIRD_PARTY',
       recipientName: 'Colegio Sur',
       authorizationDocumentId: 'doc1',
+      authorizationAttested: true,
       purpose: 'Solicitud del colegio',
       channel: 'POSTAL',
     })
+  })
+
+  it('la declaración solo se pide con un tercero', async () => {
+    const user = userEvent.setup()
+    setup()
+    const dialog = await openDialog(user)
+
+    expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument()
+    await user.selectOptions(within(dialog).getByLabelText(/Destinatario/), 'THIRD_PARTY')
+    expect(within(dialog).getByRole('checkbox')).toBeInTheDocument()
+    await user.selectOptions(within(dialog).getByLabelText(/Destinatario/), 'PATIENT')
+    expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument()
+  })
+
+  it('al elegir un tercero avisa que verificar el documento es responsabilidad del terapeuta', async () => {
+    const user = userEvent.setup()
+    setup()
+    const dialog = await openDialog(user)
+
+    expect(within(dialog).queryByText(/Antes de entregar a un tercero/)).not.toBeInTheDocument()
+
+    await user.selectOptions(within(dialog).getByLabelText(/Destinatario/), 'THIRD_PARTY')
+
+    const notice = within(dialog).getByRole('note')
+    expect(notice).toHaveTextContent(/Antes de entregar a un tercero/)
+    expect(notice).toHaveTextContent(/poder notarial simple/)
+    expect(notice).toHaveTextContent(/No comprueba su autenticidad ni su formalidad/)
   })
 
   it('sin autorizaciones cargadas explica cómo subirla y no deja registrar', async () => {

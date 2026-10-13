@@ -86,6 +86,7 @@ describe('DischargeDeliveriesService (T4)', () => {
           recipientName: 'Luis Soto',
           guardianId: null,
           authorizationDocumentId: null,
+          authorizationAttested: false,
           purpose: 'Entrega en sesión de cierre',
           channel: 'IN_PERSON',
           recordedById: 'therapist-1',
@@ -251,6 +252,7 @@ describe('DischargeDeliveriesService (T4)', () => {
             recipientType: 'THIRD_PARTY',
             recipientName: 'Colegio Sur',
             authorizationDocumentId: '7b0a7f9e-4c47-4a5e-9c4f-1b2d3e4f5a6b',
+            authorizationAttested: true,
           }),
           'therapist-1',
           ctx,
@@ -277,6 +279,7 @@ describe('DischargeDeliveriesService (T4)', () => {
           recipientType: 'THIRD_PARTY',
           recipientName: 'Colegio Sur',
           authorizationDocumentId: '7b0a7f9e-4c47-4a5e-9c4f-1b2d3e4f5a6b',
+          authorizationAttested: true,
           channel: 'EMAIL',
         }),
         'therapist-1',
@@ -288,7 +291,45 @@ describe('DischargeDeliveriesService (T4)', () => {
           recipientType: 'THIRD_PARTY',
           recipientName: 'Colegio Sur',
           authorizationDocumentId: 'doc-1',
+          authorizationAttested: true,
           channel: 'EMAIL',
+        }) as unknown,
+      });
+      const [[entry]] = audit.log.mock.calls as [[{ detail: string }]];
+      expect(entry.detail).toContain('authorizationAttested=true');
+    });
+
+    it.each([
+      ['sin la declaración', undefined],
+      ['con la declaración en false', false],
+    ])(
+      'un tercero exige que el terapeuta declare haber revisado la autorización: %s',
+      async (_name, authorizationAttested) => {
+        prisma.patientDocument.findFirst.mockResolvedValue({ id: 'doc-1' });
+
+        await expect(
+          service.record(
+            'dis-1',
+            dto({
+              recipientType: 'THIRD_PARTY',
+              recipientName: 'Colegio Sur',
+              authorizationDocumentId: '7b0a7f9e-4c47-4a5e-9c4f-1b2d3e4f5a6b',
+              authorizationAttested,
+            }),
+            'therapist-1',
+            ctx,
+          ),
+        ).rejects.toBeInstanceOf(BadRequestException);
+        expect(prisma.dischargeDelivery.create).not.toHaveBeenCalled();
+      },
+    );
+
+    it('PATIENT y GUARDIAN se registran sin declaración de autorización (false)', async () => {
+      await service.record('dis-1', dto(), 'therapist-1', ctx);
+
+      expect(prisma.dischargeDelivery.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          authorizationAttested: false,
         }) as unknown,
       });
     });
@@ -305,6 +346,7 @@ describe('DischargeDeliveriesService (T4)', () => {
         }),
       ],
       ['nombre con PATIENT', dto({ recipientName: 'Otra persona' })],
+      ['declaración con PATIENT', dto({ authorizationAttested: true })],
     ])(
       'rechaza campos que no corresponden al tipo: %s',
       async (_name, body) => {

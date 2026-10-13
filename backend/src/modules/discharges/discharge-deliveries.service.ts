@@ -21,6 +21,7 @@ interface RecipientData {
   recipientName: string;
   guardianId: string | null;
   authorizationDocumentId: string | null;
+  authorizationAttested: boolean;
 }
 
 // Registro de entregas del informe de alta (T4). Solo agrega filas: una entrega
@@ -57,6 +58,7 @@ export class DischargeDeliveriesService {
         recipientName: recipient.recipientName,
         guardianId: recipient.guardianId,
         authorizationDocumentId: recipient.authorizationDocumentId,
+        authorizationAttested: recipient.authorizationAttested,
         purpose: dto.purpose,
         channel: dto.channel,
         recordedById: therapistId,
@@ -69,7 +71,7 @@ export class DischargeDeliveriesService {
       action: 'DISCHARGE_DELIVER',
       resource: 'Discharge',
       resourceId: discharge.id,
-      detail: `deliveryId=${delivery.id} recipientType=${dto.recipientType} channel=${dto.channel}`,
+      detail: `deliveryId=${delivery.id} recipientType=${dto.recipientType} channel=${dto.channel} authorizationAttested=${recipient.authorizationAttested}`,
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
     });
@@ -118,7 +120,12 @@ export class DischargeDeliveriesService {
 
     switch (dto.recipientType) {
       case 'PATIENT': {
-        this.assertOnly(dto, { name: false, guardian: false, auth: false });
+        this.assertOnly(dto, {
+          name: false,
+          guardian: false,
+          auth: false,
+          attested: false,
+        });
         if (isMinor(discharge.patient.birthDate)) {
           throw new BadRequestException(
             'El paciente es menor de 18 años: el informe se entrega a su representante.',
@@ -128,10 +135,16 @@ export class DischargeDeliveriesService {
           recipientName: discharge.patient.fullName,
           guardianId: null,
           authorizationDocumentId: null,
+          authorizationAttested: false,
         };
       }
       case 'GUARDIAN': {
-        this.assertOnly(dto, { name: false, guardian: true, auth: false });
+        this.assertOnly(dto, {
+          name: false,
+          guardian: true,
+          auth: false,
+          attested: false,
+        });
         if (!hasGuardian) {
           throw new BadRequestException(
             'Indica el representante que recibe el informe.',
@@ -154,10 +167,16 @@ export class DischargeDeliveriesService {
           recipientName: guardian.fullName,
           guardianId: guardian.id,
           authorizationDocumentId: null,
+          authorizationAttested: false,
         };
       }
       case 'THIRD_PARTY': {
-        this.assertOnly(dto, { name: true, guardian: false, auth: true });
+        this.assertOnly(dto, {
+          name: true,
+          guardian: false,
+          auth: true,
+          attested: true,
+        });
         if (!hasName) {
           throw new BadRequestException(
             'Indica el nombre del tercero que recibe el informe.',
@@ -166,6 +185,11 @@ export class DischargeDeliveriesService {
         if (!hasAuthorization) {
           throw new BadRequestException(
             'Entregar el informe a un tercero requiere una autorización registrada.',
+          );
+        }
+        if (dto.authorizationAttested !== true) {
+          throw new BadRequestException(
+            'Confirma que revisaste la autorización antes de entregar el informe a un tercero.',
           );
         }
         const authorization = await this.prisma.patientDocument.findFirst({
@@ -186,6 +210,7 @@ export class DischargeDeliveriesService {
           recipientName: dto.recipientName as string,
           guardianId: null,
           authorizationDocumentId: authorization.id,
+          authorizationAttested: true,
         };
       }
     }
@@ -193,12 +218,18 @@ export class DischargeDeliveriesService {
 
   private assertOnly(
     dto: CreateDischargeDeliveryDto,
-    allowed: { name: boolean; guardian: boolean; auth: boolean },
+    allowed: {
+      name: boolean;
+      guardian: boolean;
+      auth: boolean;
+      attested: boolean;
+    },
   ): void {
     if (
       (dto.recipientName != null && !allowed.name) ||
       (dto.guardianId != null && !allowed.guardian) ||
-      (dto.authorizationDocumentId != null && !allowed.auth)
+      (dto.authorizationDocumentId != null && !allowed.auth) ||
+      (dto.authorizationAttested != null && !allowed.attested)
     ) {
       throw new BadRequestException(
         'Hay datos del destinatario que no corresponden a este tipo de entrega.',

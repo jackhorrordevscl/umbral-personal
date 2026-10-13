@@ -474,6 +474,10 @@ model DischargeDelivery {
   // u oficio): PatientDocument de tipo DELIVERY_AUTHORIZATION del mismo paciente.
   authorizationDocumentId String?
   authorizationDocument   PatientDocument? @relation(fields: [authorizationDocumentId], references: [id], onDelete: Restrict)
+  // Declaración del terapeuta de que revisó la autorización antes de entregar.
+  // Obligatoria con THIRD_PARTY; false en el resto. Umbral no comprueba la
+  // autenticidad ni la formalidad del documento: solo deja constancia de esto.
+  authorizationAttested Boolean @default(false)
 
   deliveredAt  DateTime @default(now())
   recordedById String

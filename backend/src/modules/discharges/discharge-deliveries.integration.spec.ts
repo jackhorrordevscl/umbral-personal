@@ -229,6 +229,7 @@ describe('DischargeDeliveriesService (integration)', () => {
             recipientType: 'THIRD_PARTY',
             recipientName: 'Colegio Sur',
             authorizationDocumentId,
+            authorizationAttested: true,
           }),
           therapistId,
           ctx,
@@ -236,12 +237,26 @@ describe('DischargeDeliveriesService (integration)', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
     }
 
+    await expect(
+      service.record(
+        discharge.id,
+        dto({
+          recipientType: 'THIRD_PARTY',
+          recipientName: 'Colegio Sur',
+          authorizationDocumentId: valid.id,
+        }),
+        therapistId,
+        ctx,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
     const delivery = await service.record(
       discharge.id,
       dto({
         recipientType: 'THIRD_PARTY',
         recipientName: 'Colegio Sur',
         authorizationDocumentId: valid.id,
+        authorizationAttested: true,
         channel: 'POSTAL',
       }),
       therapistId,
@@ -251,6 +266,7 @@ describe('DischargeDeliveriesService (integration)', () => {
       recipientType: 'THIRD_PARTY',
       recipientName: 'Colegio Sur',
       authorizationDocumentId: valid.id,
+      authorizationAttested: true,
       channel: 'POSTAL',
     });
 

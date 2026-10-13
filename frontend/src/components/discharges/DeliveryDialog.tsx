@@ -42,6 +42,7 @@ export default function DeliveryDialog({
     guardian: useId(),
     name: useId(),
     authorization: useId(),
+    attested: useId(),
     purpose: useId(),
     channel: useId(),
   };
@@ -56,6 +57,7 @@ export default function DeliveryDialog({
   const [guardianId, setGuardianId] = useState("");
   const [recipientName, setRecipientName] = useState("");
   const [authorizationDocumentId, setAuthorizationDocumentId] = useState("");
+  const [authorizationAttested, setAuthorizationAttested] = useState(false);
   const [purpose, setPurpose] = useState("");
   const [channel, setChannel] = useState<DischargeDeliveryChannel>("IN_PERSON");
   const [error, setError] = useState("");
@@ -77,7 +79,8 @@ export default function DeliveryDialog({
       (recipientType === "GUARDIAN" && guardianId !== "") ||
       (recipientType === "THIRD_PARTY" &&
         recipientName.trim() !== "" &&
-        authorizationDocumentId !== ""));
+        authorizationDocumentId !== "" &&
+        authorizationAttested));
 
   const buildPayload = (): RecordDeliveryPayload => {
     const base = { purpose: purpose.trim(), channel };
@@ -87,6 +90,7 @@ export default function DeliveryDialog({
         recipientType,
         recipientName: recipientName.trim(),
         authorizationDocumentId,
+        authorizationAttested: true,
         ...base,
       };
     }
@@ -163,6 +167,35 @@ export default function DeliveryDialog({
 
         {recipientType === "THIRD_PARTY" && (
           <>
+            <div
+              role="note"
+              className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 space-y-1"
+            >
+              <p className="font-medium">Antes de entregar a un tercero</p>
+              <p>
+                La entrega a un tercero es responsabilidad tuya como terapeuta. Verifica que el
+                documento que respalda la entrega sea auténtico y que cumpla lo que exige la ley:
+              </p>
+              <ul className="list-disc pl-4 space-y-0.5">
+                <li>
+                  <span className="font-medium">Un tercero particular</span> (por ejemplo, un colegio
+                  u otro profesional): necesita una autorización del titular mediante poder notarial
+                  simple, es decir, un poder firmado ante notario.
+                </li>
+                <li>
+                  <span className="font-medium">Un tribunal:</span> puede solicitar la información de
+                  las causas que conoce, normalmente mediante un oficio.
+                </li>
+                <li>
+                  <span className="font-medium">Un fiscal o un abogado:</span> requieren autorización
+                  previa del juez competente.
+                </li>
+              </ul>
+              <p>
+                Umbral solo guarda el documento y deja constancia de la entrega. No comprueba su
+                autenticidad ni su formalidad.
+              </p>
+            </div>
             <FormField id={ids.name} label="Nombre del tercero" required>
               <input
                 id={ids.name}
@@ -177,7 +210,10 @@ export default function DeliveryDialog({
                 id={ids.authorization}
                 className="input-field"
                 value={authorizationDocumentId}
-                onChange={(e) => setAuthorizationDocumentId(e.target.value)}
+                onChange={(e) => {
+                  setAuthorizationDocumentId(e.target.value);
+                  setAuthorizationAttested(false);
+                }}
               >
                 <option value="">Seleccionar autorización...</option>
                 {authorizations.map((d) => (
@@ -194,6 +230,19 @@ export default function DeliveryDialog({
                 </p>
               )}
             </FormField>
+            <div className="flex items-start gap-2">
+              <input
+                id={ids.attested}
+                type="checkbox"
+                className="mt-0.5"
+                checked={authorizationAttested}
+                onChange={(e) => setAuthorizationAttested(e.target.checked)}
+              />
+              <label htmlFor={ids.attested} className="text-sm text-slate-700">
+                Confirmo que revisé la autorización y que cumple lo que exige la ley para esta
+                entrega.
+              </label>
+            </div>
           </>
         )}
 

@@ -156,6 +156,7 @@ export interface DischargeDelivery {
   recipientName: string;
   guardianId: string | null;
   authorizationDocumentId: string | null;
+  authorizationAttested: boolean;
   purpose: string;
   channel: DischargeDeliveryChannel;
   deliveredAt: string;
@@ -169,6 +170,9 @@ export interface RecordDeliveryPayload {
   guardianId?: string;
   // Solo con THIRD_PARTY (obligatoria).
   authorizationDocumentId?: string;
+  // Solo con THIRD_PARTY (obligatoria, true): el terapeuta declara que revisó
+  // la autorización. Umbral no comprueba el documento.
+  authorizationAttested?: boolean;
   purpose: string;
   channel: DischargeDeliveryChannel;
 }
