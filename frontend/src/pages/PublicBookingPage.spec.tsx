@@ -221,7 +221,7 @@ describe('PublicBookingPage — public-scheduling Req: Public Availability Read 
 
     await waitFor(() =>
       expect(
-        screen.getByText('Ese horario ya no está disponible. Elige otro horario libre.'),
+        screen.getByText('No pudimos registrar tu reserva. Elige otro horario o contacta al terapeuta.'),
       ).toBeInTheDocument(),
     )
     // El refetch dispara una segunda llamada GET a disponibilidad.

@@ -48,6 +48,9 @@ export default function DischargeSection({
   );
   const correctedIds = new Set(discharges.map((d) => d.correctsId).filter(Boolean));
   const hasDraft = discharges.some((d) => d.status === "DRAFT");
+  // Con el paciente de vuelta en tratamiento, los informes emitidos describen un
+  // cierre ya reabierto: quedan como histórico y no se corrigen (issue #447).
+  const isReopened = treatmentStatus === "ACTIVE";
   // Sin la lista no se sabe si ya hay un borrador: no se ofrece iniciar un alta.
   const canStart =
     (treatmentStatus ?? "ACTIVE") === "ACTIVE" &&
@@ -150,6 +153,9 @@ export default function DischargeSection({
                     </p>
                     <p>Fecha de cierre: {formatCalendarDate(d.dischargeDate)}</p>
                     {isIssued && !isCurrent && <p className="text-slate-500">Reemplazada</p>}
+                    {isCurrent && isReopened && (
+                      <p className="text-slate-500">Histórico · Paciente reabierto</p>
+                    )}
                   </div>
                   <div className="flex items-center shrink-0">
                     {d.status === "DRAFT" && (
@@ -184,7 +190,7 @@ export default function DischargeSection({
                     )}
                   </div>
                 </div>
-                {isCurrent && !hasDraft && (
+                {isCurrent && !hasDraft && !isReopened && (
                   <button
                     type="button"
                     disabled={correct.isPending}
