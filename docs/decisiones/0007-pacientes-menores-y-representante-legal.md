@@ -4,8 +4,7 @@
 - **Fecha:** 2026-10-08
 - **Rama:** `feat/menores-representante-legal-esquema` (bloque Menores, tareas M1 a M6)
 
-> El número 0006 queda reservado para el ADR del informe de alta (firma simple
-> y hash de integridad), que se escribe con ese bloque.
+> El ADR 0006 es el del informe de alta (firma simple y hash de integridad).
 
 ## Contexto
 
@@ -152,8 +151,8 @@ representante; a un tribunal solo con oficio, registrando el documento.
   ninguna operación. Si los padres están separados, la decisión de a quién
   pedir la autorización queda en el terapeuta (política de producto, no norma
   verificada).
-- `canAccessReports` se persiste y se muestra, pero hoy ninguna funcionalidad
-  lo consulta; cobrará efecto con el informe de alta.
+- `canAccessReports` se persiste y se muestra. Desde el informe de alta (ADR
+  0006) decide a qué representante se puede entregar el informe de un menor.
 - Un representante que firmó un consentimiento no se puede eliminar (FK
   `RESTRICT`, 409), para no romper el ledger append-only.
 - Condición de carrera menor aceptada: `canConsent` se valida fuera de la
