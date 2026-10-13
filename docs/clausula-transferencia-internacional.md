@@ -30,6 +30,46 @@ papel/PDF, no un texto que viva en el código de la app).
 > custodia el profesional tratante, por lo que el proveedor de
 > almacenamiento no tiene acceso al contenido de las mismas.
 
+## Texto corregido (2026-10-13)
+
+La redacción anterior tenía tres imprecisiones frente a lo que hace el
+sistema (verificadas en `render.yaml`, `.github/workflows/backup.yml` y
+`docs/registro-actividades-tratamiento.md`). Texto propuesto en su lugar:
+
+> Su ficha clínica y el resto de sus datos de atención se gestionan a
+> través de **Umbral**, un sistema de registro clínico electrónico (RCE)
+> que, para garantizar su disponibilidad, seguridad y respaldo continuo,
+> opera sobre infraestructura de nube (*cloud computing*). Por este
+> motivo, sus datos se almacenan y procesan en servidores ubicados en más
+> de un país: la base de datos que contiene su ficha y sus consultas se
+> almacena en **São Paulo, Brasil**; la aplicación que la procesa se
+> ejecuta en servidores ubicados en **Estados Unidos**; y los documentos
+> adjuntos a su ficha se almacenan en **Estados Unidos**, cifrados por el
+> sistema antes de ser guardados. Adicionalmente, se generan copias de
+> seguridad cifradas (AES-256) de forma diaria, que también se almacenan
+> en servidores ubicados en **Estados Unidos**; estas copias solo son
+> legibles con una clave de cifrado que el proveedor de almacenamiento no
+> tiene, por lo que no puede acceder a su contenido.
+
+Qué cambió respecto del texto aplicado el 2026-08-03:
+
+- **Documentos adjuntos:** estaban en São Paulo; hoy están en Backblaze B2,
+  región `us-west-004` (Estados Unidos), cifrados por la aplicación antes de
+  subir.
+- **Procesamiento:** el texto decía que los datos se procesan en São Paulo.
+  La base de datos está allí, pero el backend corre en Render (Oregón,
+  Estados Unidos) y es quien procesa los datos.
+- **Custodia de la clave del respaldo:** decía que la custodia "el
+  profesional tratante". La frase de cifrado es el secreto `BACKUP_PASSPHRASE`
+  del repositorio de GitHub del proyecto, en poder del operador del sistema,
+  no de cada profesional. El texto nuevo afirma solo lo que es cierto: el
+  proveedor de almacenamiento no tiene la clave.
+
+Esta corrección es una propuesta factual. Que la redacción final sea
+adecuada, y si corresponde mencionar a los demás proveedores (Render,
+Vercel, Cloudflare, Resend, Google, Flow, Sentry), es una decisión de quien
+tenga criterio legal.
+
 ## Dónde va este texto
 
 No hay un generador de PDF de consentimiento en la app: el flujo actual
@@ -69,10 +109,13 @@ Encabezado sugerido para el subpunto nuevo en ambos documentos:
       documentos adjuntos de la ficha (estos últimos cifrados por la
       aplicación antes de subir), todos en Estados Unidos (región
       `us-west-004`). El texto aplicado el 2026-08-03 dice que los
-      "documentos asociados" se almacenan en São Paulo; esa frase ya no
-      refleja la ubicación de los documentos adjuntos. No se modificó el
-      texto legal ya aplicado: queda pendiente que quien tenga criterio
-      legal decida si corresponde ajustarlo en los `.docx`.
+      "documentos asociados" se almacenan en São Paulo; esa frase no
+      refleja la ubicación de los documentos adjuntos. Confirmado el
+      2026-10-13: van a Backblaze B2 en Estados Unidos. La sección "Texto
+      corregido (2026-10-13)" propone la redacción nueva. Pendiente: que
+      el profesional reemplace la cláusula en los dos `.docx` (4.2 y 5.2),
+      que no viven en este repositorio, y que quien tenga criterio legal
+      valide el texto.
 - [ ] **Otros proveedores.** Resend (email), Google (Calendar), Flow (cobro) y
       Sentry (registro de errores, opcional) no están cubiertos por esta
       cláusula; se tratan en el RAT (`docs/registro-actividades-tratamiento.md`,
