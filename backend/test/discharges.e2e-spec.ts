@@ -6,6 +6,7 @@ import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import { createHash } from 'crypto';
 import * as patientDocumentStorage from '../src/common/utils/patient-document-storage.util';
+import { chileDayKeyFromInstant } from '../src/common/utils/chile-time.util';
 import { AppModule } from '../src/app.module';
 import { DocumentEncryptionService } from '../src/modules/documents/document-encryption.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -304,15 +305,14 @@ describe('Treatment discharges (e2e)', () => {
       );
       expect(JSON.stringify(body)).not.toContain('NOTA CLINICA PRIVADA');
       expect(JSON.stringify(body)).not.toContain('INTERVENCION PRIVADA');
+      // El servicio calcula el día de admisión en hora de Chile; compararlo en
+      // UTC fallaba cuando el CI corría entre 00:00 y 03:00 UTC.
+      const firstConsultation = await prisma.consultation.findFirstOrThrow({
+        where: { patientId },
+        orderBy: { sessionDate: 'asc' },
+      });
       expect(String(body.admissionDate)).toBe(
-        (
-          await prisma.consultation.findFirstOrThrow({
-            where: { patientId },
-            orderBy: { sessionDate: 'asc' },
-          })
-        ).sessionDate
-          .toISOString()
-          .slice(0, 10) + 'T00:00:00.000Z',
+        `${chileDayKeyFromInstant(firstConsultation.sessionDate)}T00:00:00.000Z`,
       );
     });
 

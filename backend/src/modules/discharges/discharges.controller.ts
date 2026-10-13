@@ -76,6 +76,16 @@ export class DischargesController {
     return this.dischargesService.findByPatient(patientId, user.id);
   }
 
+  // Ruta estática de dos segmentos tras discharges: no choca con
+  // discharges/:id (que cuelga de otro prefijo).
+  @Get('patients/:patientId/discharges/cancellation-preview')
+  cancellationPreview(
+    @Param('patientId') patientId: string,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.dischargesService.cancellationPreview(patientId, user.id);
+  }
+
   @Get('discharges/:id')
   findOne(@Param('id') id: string, @CurrentUser() user: RequestUser) {
     return this.dischargesService.findOne(id, user.id);

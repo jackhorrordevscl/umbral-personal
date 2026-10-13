@@ -927,6 +927,28 @@ export class DischargesService {
   // de abajo (el lock se mantiene hasta el commit) y su BookedSlot se borra
   // junto con ella. Si la reserva espera detrás de este cierre, depende de que
   // su FOR SHARE rechace pacientes no activos (ver el integration spec).
+  // Consultas futuras vigentes (última versión, no borradas) del paciente con
+  // este terapeuta. Compartida por el cierre y por la vista previa de solo
+  // lectura, para que ambas listen exactamente lo mismo.
+  private findFutureConsultations(
+    client: Pick<Prisma.TransactionClient, 'consultation'>,
+    patientId: string,
+    therapistId: string,
+    now: Date,
+  ) {
+    return client.consultation.findMany({
+      where: {
+        patientId,
+        therapistId,
+        correctedBy: null,
+        deletedAt: null,
+        sessionDate: { gt: now },
+      },
+      select: { id: true, groupId: true, sessionDate: true },
+      orderBy: { sessionDate: 'asc' },
+    });
+  }
+
   private async applyClosureInTransaction(
     tx: Prisma.TransactionClient,
     discharge: TreatmentDischarge,
@@ -942,16 +964,12 @@ export class DischargesService {
     }
 
     const now = new Date();
-    const future = await tx.consultation.findMany({
-      where: {
-        patientId: discharge.patientId,
-        therapistId: discharge.therapistId,
-        correctedBy: null,
-        deletedAt: null,
-        sessionDate: { gt: now },
-      },
-      select: { id: true, groupId: true },
-    });
+    const future = await this.findFutureConsultations(
+      tx,
+      discharge.patientId,
+      discharge.therapistId,
+      now,
+    );
     if (future.length === 0) return [];
 
     const groupIds = [...new Set(future.map((c) => c.groupId))];
@@ -1111,6 +1129,28 @@ export class DischargesService {
       where: { patientId, therapistId },
       orderBy: [{ createdAt: 'asc' }, { version: 'asc' }],
     });
+  }
+
+  // GET /patients/:patientId/discharges/cancellation-preview: consultas futuras
+  // que un cierre cancelaría ahora. Solo lectura.
+  async cancellationPreview(
+    patientId: string,
+    therapistId: string,
+  ): Promise<{
+    count: number;
+    consultations: { id: string; groupId: string; sessionDate: Date }[];
+  }> {
+    await this.patientsService.assertAccess(patientId, therapistId);
+    const consultations = await this.findFutureConsultations(
+      this.prisma,
+      patientId,
+      therapistId,
+      new Date(),
+    );
+    return {
+      count: new Set(consultations.map((c) => c.groupId)).size,
+      consultations,
+    };
   }
 
   // GET /discharges/:id/verify: recalcula el hash desde lo que hay en la base

@@ -162,6 +162,34 @@ export class ConsultationsService {
     // esta sesión puntual.
     const consultation = await this.prisma.$transaction(async (tx) => {
       await this.lockTherapistSchedule(tx, therapistId);
+
+      // T5a: lock del paciente (orden User -> Patient, igual que la reserva
+      // pública). FOR UPDATE: lo reescribimos al reabrir y se serializa con el
+      // cierre de tratamiento, que también lo toma FOR UPDATE.
+      const locked = await tx.$queryRaw<
+        { id: string; treatmentStatus: string }[]
+      >`SELECT id, "treatmentStatus" FROM "Patient"
+        WHERE id = ${dto.patientId} AND "deletedAt" IS NULL
+        FOR UPDATE`;
+      if (locked.length === 0) {
+        throw new NotFoundException('Paciente no encontrado');
+      }
+      if (locked[0].treatmentStatus !== 'ACTIVE') {
+        if (!dto.reopenPatient) {
+          throw new ConflictException({
+            statusCode: 409,
+            error: 'Conflict',
+            code: 'PATIENT_TREATMENT_CLOSED',
+            message:
+              'El tratamiento de este paciente está cerrado. Confirma la reapertura para agendar una nueva consulta.',
+          });
+        }
+        await tx.patient.update({
+          where: { id: dto.patientId },
+          data: { treatmentStatus: 'ACTIVE' },
+        });
+      }
+
       // M2b: para un menor de edad exige además (desde la fecha de vigencia)
       // que el consentimiento lo haya otorgado su representante.
       await this.patientsService.assertTreatmentConsent(
@@ -425,6 +453,47 @@ export class ConsultationsService {
       ) {
         await this.lockTherapistSchedule(tx, original.therapistId);
       }
+
+      // T5a: lock compartido del paciente (después del de User) y relectura
+      // bajo lock. Un cierre de tratamiento (FOR UPDATE) que confirme antes
+      // cancela las consultas futuras; no se las debe resucitar corrigiéndolas.
+      const [locked] = await tx.$queryRaw<{ treatmentStatus: string }[]>`
+        SELECT "treatmentStatus" FROM "Patient"
+        WHERE id = ${original.patientId} AND "deletedAt" IS NULL
+        FOR SHARE`;
+      if (!locked) throw new NotFoundException('Paciente no encontrado');
+      const current = await tx.consultation.findUnique({
+        where: { id },
+        select: { sessionDate: true, deletedAt: true },
+      });
+      if (!current || current.deletedAt) {
+        throw new NotFoundException('Consulta no encontrada');
+      }
+      const superseded = await tx.consultation.findFirst({
+        where: { correctsId: id },
+        select: { id: true },
+      });
+      if (superseded) {
+        throw new ConflictException(
+          'Esta versión ya fue corregida — corrige la versión vigente en su lugar.',
+        );
+      }
+      const correctedDate = dto.sessionDate
+        ? parseDate(dto.sessionDate)
+        : current.sessionDate;
+      if (
+        correctedDate.getTime() > Date.now() &&
+        locked.treatmentStatus !== 'ACTIVE'
+      ) {
+        throw new ConflictException({
+          statusCode: 409,
+          error: 'Conflict',
+          code: 'PATIENT_TREATMENT_CLOSED',
+          message:
+            'El tratamiento del paciente se cerró: no se pueden corregir sesiones futuras.',
+        });
+      }
+
       await this.patientsService.assertTreatmentConsent(
         original.patientId,
         'El paciente no tiene un consentimiento informado vigente. Registra el consentimiento antes de corregir la consulta.',

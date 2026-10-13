@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsBoolean } from 'class-validator';
 import { IsStrictDateString } from '../../../common/validators/is-strict-date-string.decorator';
 
 export enum SessionType {
@@ -34,4 +34,11 @@ export class CreateConsultationDto {
   @IsOptional()
   @IsStrictDateString()
   scheduledAt?: string;
+
+  // Confirmación explícita para agendar a un paciente con el tratamiento
+  // cerrado (alta, derivación, deserción): lo devuelve a ACTIVE en la misma
+  // transacción. Sin esto, crear la consulta responde 409.
+  @IsOptional()
+  @IsBoolean()
+  reopenPatient?: boolean;
 }
