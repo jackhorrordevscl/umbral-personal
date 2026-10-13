@@ -317,7 +317,8 @@ function renderFooters(
     {
       font: 'Helvetica',
       size: 7,
-      value: `Verificación: el terapeuta emisor puede comprobar que este informe no fue alterado con GET /api/v1/discharges/${discharge.id}/verify, que recalcula el hash desde el registro clínico.`,
+      value:
+        'Verificación: el terapeuta emisor puede comprobar que este informe no fue alterado desde su emisión, a partir del ID del informe y de la huella SHA-256 indicados arriba.',
     },
     {
       font: 'Helvetica',

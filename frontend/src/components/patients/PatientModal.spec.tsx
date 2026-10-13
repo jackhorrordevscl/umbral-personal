@@ -74,6 +74,23 @@ describe('PatientModal — anular documentos legales (#270)', () => {
     expect(screen.getByRole('button', { name: 'Descargar duplicado.pdf' })).toBeInTheDocument()
   })
 
+  it('un informe de alta se muestra con etiqueta legible y sin botón "Anular" (issue #444)', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/documents/patient/patient-1') {
+        return Promise.resolve({
+          data: [{ ...activeDoc, id: 'doc-9', fileName: 'informe-alta.pdf', type: 'DISCHARGE_REPORT' }],
+        })
+      }
+      return Promise.resolve({ data: [] })
+    })
+    renderModal()
+
+    expect(await screen.findByText('Informe de alta')).toBeInTheDocument()
+    expect(screen.queryByText('DISCHARGE_REPORT')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Anular informe-alta.pdf' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Descargar informe-alta.pdf' })).toBeInTheDocument()
+  })
+
   it('si falla la carga de documentos muestra el error y no "Sin documentos subidos." (#294)', async () => {
     mockedApi.get.mockImplementation((url: string) => {
       if (url === '/documents/patient/patient-1') return Promise.reject(new Error('boom'))
@@ -376,5 +393,31 @@ describe('PatientModal — pacientes menores (bloque Menores, M5)', () => {
     const body = mockedApi.post.mock.calls[0][1] as Record<string, unknown>
     expect(body).not.toHaveProperty('grantedBy')
     expect(body).not.toHaveProperty('guardianId')
+  })
+})
+
+describe('PatientModal — cierre del tratamiento (T5b)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApi.get.mockResolvedValue({ data: [] })
+  })
+
+  it('muestra el estado del tratamiento y la sección de cierre', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PatientModal
+          patient={{ ...patient, treatmentStatus: 'DISCHARGED' } as Patient}
+          initialTab="detail"
+          onClose={() => undefined}
+        />
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByText('Alta')).toBeInTheDocument()
+    expect(screen.getByText('Cierre del tratamiento')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Dar de alta/ })).not.toBeInTheDocument()
   })
 })

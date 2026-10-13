@@ -96,6 +96,24 @@ export function formatChileShortDateTime(iso: string): string {
   });
 }
 
+// Igual que formatChileShortDateTime pero sin segundos (para avisos al usuario).
+export function formatChileShortDateTimeNoSeconds(iso: string): string {
+  return new Date(iso).toLocaleString('es-CL', {
+    timeZone: 'America/Santiago',
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+// Día de hoy ("YYYY-MM-DD") en America/Santiago, no el del navegador.
+export function todayInChile(now: Date = new Date()): string {
+  return toChileDayKey(now.toISOString());
+}
+
 // Fecha larga con día de la semana, vista en Chile.
 export function formatChileLongDate(date: Date): string {
   return date.toLocaleDateString('es-CL', {

@@ -33,6 +33,8 @@ export default function ConfirmDialog({
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "Escape") {
+      // Un diálogo anidado no debe cerrar al diálogo que lo contiene.
+      e.stopPropagation();
       onCancel();
       return;
     }

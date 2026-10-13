@@ -674,7 +674,7 @@ export default function ConsultationsPage() {
                 <div className="relative">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input className="input-field pl-8 text-xs" placeholder="Buscar..."
-                    aria-label="Buscar paciente por nombre o RUT"
+                    aria-label="Buscar paciente para ver sus consultas"
                     value={search} onChange={e => setSearch(e.target.value)} />
                 </div>
               </div>

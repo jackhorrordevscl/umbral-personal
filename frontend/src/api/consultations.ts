@@ -26,6 +26,9 @@ export interface CorrectConsultationPayload
 
 export interface CreateConsultationPayload extends ConsultationPayload {
   patientId: string;
+  // Reopens a patient whose treatment was closed (discharge) when creating the
+  // consultation. Without it the server answers 409 PATIENT_TREATMENT_CLOSED.
+  reopenPatient?: boolean;
 }
 
 export function listConsultationsByPatient(patientId: string) {

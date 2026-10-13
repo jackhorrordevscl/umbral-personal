@@ -78,8 +78,14 @@ export interface PatientAssent {
   recordedBy?: { id: string; name: string; role: string };
 }
 
+// Informe de alta (T5b): estado del tratamiento. Las etiquetas viven en
+// types/discharge.ts (TREATMENT_STATUS_LABELS).
+export type TreatmentStatus = "ACTIVE" | "DISCHARGED" | "REFERRED" | "DROPPED_OUT";
+
 export interface Patient {
   id: string;
+  // Optional so older fixtures keep compiling; the backend always sends it.
+  treatmentStatus?: TreatmentStatus;
   fullName: string;
   rut: string;
   birthDate: string;

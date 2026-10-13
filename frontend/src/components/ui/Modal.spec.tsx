@@ -94,3 +94,36 @@ describe("ConfirmDialog (#298)", () => {
     opener.remove();
   });
 });
+
+describe("Escape en diálogos anidados (issue #444)", () => {
+  it("Escape en un ConfirmDialog dentro de un Modal solo cierra el ConfirmDialog", () => {
+    const onCloseOuter = vi.fn();
+    const onCancel = vi.fn();
+    render(
+      <Modal onClose={onCloseOuter} labelledBy="outer">
+        <h3 id="outer">Externo</h3>
+        <ConfirmDialog title="T" message="M" onConfirm={vi.fn()} onCancel={onCancel} />
+      </Modal>,
+    );
+    fireEvent.keyDown(screen.getByRole("button", { name: "Cancelar" }), { key: "Escape" });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onCloseOuter).not.toHaveBeenCalled();
+  });
+
+  it("Escape en un Modal anidado solo cierra el Modal interno", () => {
+    const onCloseOuter = vi.fn();
+    const onCloseInner = vi.fn();
+    render(
+      <Modal onClose={onCloseOuter} labelledBy="outer">
+        <h3 id="outer">Externo</h3>
+        <Modal onClose={onCloseInner} labelledBy="inner">
+          <h3 id="inner">Interno</h3>
+          <button>Interior</button>
+        </Modal>
+      </Modal>,
+    );
+    fireEvent.keyDown(screen.getByRole("button", { name: "Interior" }), { key: "Escape" });
+    expect(onCloseInner).toHaveBeenCalledTimes(1);
+    expect(onCloseOuter).not.toHaveBeenCalled();
+  });
+});

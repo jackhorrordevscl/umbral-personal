@@ -34,6 +34,8 @@ import { downloadDocument } from "../../api/documents";
 import { getPatient, getPatientConsentStatus } from "../../api/patients";
 import { useGuardians } from "../../hooks/useGuardians";
 import AgeBandBadge from "./AgeBandBadge";
+import TreatmentStatusBadge from "./TreatmentStatusBadge";
+import DischargeSection from "../discharges/DischargeSection";
 import AssentSection from "./AssentSection";
 import GuardiansSection from "./GuardiansSection";
 import MinorStatusAlert from "./MinorStatusAlert";
@@ -53,12 +55,16 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   INFORMED_ASSENT: "Asentimiento informado",
   TELEMED_AGREEMENT: "Acuerdo telemedicina",
   SESSION_SUMMARY: "Registro de sesión",
+  DISCHARGE_REPORT: "Informe de alta",
   OTHER: "Otro",
 };
 
 // Bloque Menores: estos documentos otorgan consentimiento, así que en un menor
 // los firma un representante con canConsent (INFORMED_ASSENT no lo requiere).
 const GUARDIAN_CONSENT_DOC_TYPES = ["INFORMED_CONSENT", "TELEMED_AGREEMENT"];
+
+// El informe de alta se corrige con una nueva versión; el servidor rechaza anularlo (409).
+const NON_VOIDABLE_DOC_TYPES = ["DISCHARGE_REPORT"];
 
 const VOID_REASON_MIN = 5;
 const VOID_REASON_MAX = 500;
@@ -326,6 +332,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-slate-500 text-sm font-mono">{displayRut(selected.rut)}</p>
               <AgeBandBadge ageBand={selected.ageBand} />
+              <TreatmentStatusBadge status={selected.treatmentStatus} />
             </div>
           </div>
           <button
@@ -434,6 +441,11 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                 <GuardiansSection patientId={selected.id} onChanged={refreshSelected} />
               )}
               {isMinor && <AssentSection patientId={selected.id} ageBand={selected.ageBand} />}
+              <DischargeSection
+                patientId={selected.id}
+                treatmentStatus={selected.treatmentStatus}
+                onChanged={refreshSelected}
+              />
 
               <div className="mt-4 pt-4 border-t border-slate-100">
                 <p className="font-medium text-slate-700 text-sm mb-3">Documentos legales</p>
@@ -493,7 +505,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                             </div>
                           </div>
                           <div className="flex items-center shrink-0">
-                            {!isVoided && (
+                            {!isVoided && !NON_VOIDABLE_DOC_TYPES.includes(doc.type) && (
                               <button
                                 onClick={() => openVoid(doc)}
                                 className="p-1.5 hover:bg-red-50 rounded-lg text-red-500"

@@ -52,6 +52,8 @@ export default function Modal({
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "Escape") {
+      // Un diálogo anidado no debe cerrar al diálogo que lo contiene.
+      e.stopPropagation();
       onClose();
       return;
     }
