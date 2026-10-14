@@ -19,12 +19,29 @@ guardan en texto plano en la base:
 
 Sobre RLS: las migraciones habilitan `ROW LEVEL SECURITY` en las 28 tablas (27
 sentencias `ENABLE ROW LEVEL SECURITY` directas y la de `AuditLog`, dentro de un
-bloque `DO`) y no tienen ninguna `CREATE POLICY`. La aplicación se conecta con el rol `postgres` de
-Supabase, que tiene `BYPASSRLS`, por lo que RLS no participa en ninguna
-consulta de la aplicación. Su único efecto es denegar el acceso directo por la
-API de datos de Supabase (PostgREST con la clave anónima). El aislamiento entre
-terapeutas lo hacen los filtros `therapistId` en los servicios
-(`patients.service.ts`, `consultations.service.ts`).
+bloque `DO`) y no tienen ninguna `CREATE POLICY`. La aplicación se conecta con
+el rol `postgres` de Supabase, que tiene `BYPASSRLS`, por lo que RLS no
+participa en ninguna consulta de la aplicación. Su único efecto es denegar el
+acceso directo por la API de datos de Supabase (PostgREST con la clave
+anónima). El aislamiento entre terapeutas lo hacen los filtros `therapistId`
+en los servicios (`patients.service.ts`, `consultations.service.ts`).
+
+Verificado en producción el 2026-10-14 con consultas de solo lectura en
+Supabase: `postgres` tiene `rolsuper = false` y `rolbypassrls = true`;
+`audit_log_owner` no tiene `BYPASSRLS`; las 28 tablas de `public` tienen RLS
+activo. La consulta de conexiones abiertas (`pg_stat_activity`) solo muestra los
+usuarios `postgres`, `supabase_admin`, `authenticator` y `pgbouncer`, sin
+ningún rol propio de la aplicación; que la aplicación use `postgres` se infiere
+de esto y de las migraciones, no se midió conectando con su cadena real.
+
+Sobre la propiedad de las tablas: las tablas normales pertenecen al rol con
+que corren las migraciones, el mismo que usa la aplicación, y `AuditLog`
+pertenece a `audit_log_owner` (sin login), con solo `SELECT` e `INSERT` para
+la aplicación. Lo que hace que la aplicación omita RLS es `BYPASSRLS`, no ser
+dueña de la tabla. Por eso el comentario de la migración
+`20261014120000_enable_rls_treatment_discharge`, que dice que el backend
+accede "con el rol dueño de la tabla", es válido para las tablas normales pero
+no para `AuditLog`.
 
 Restricciones técnicas relevantes para cifrar:
 

@@ -175,8 +175,10 @@ que tienen RLS activo. La omisión pasó la revisión y la integración continua
   rol que omite RLS.
 
 **Verificación.** En producción, `pg_tables.rowsecurity` de
-`"TreatmentDischarge"` devuelve `true`. En una base local, tras aplicar todas
-las migraciones, las 27 tablas del schema `public` tienen RLS activo.
+`"TreatmentDischarge"` devuelve `true`. Una consulta posterior del 2026-10-14
+en Supabase confirma que las 28 tablas del schema `public` (los 27 modelos de
+Prisma más `_prisma_migrations`) tienen RLS activo. En una base local, tras
+aplicar todas las migraciones, los 27 modelos también lo tienen.
 
 **Qué cambió.** Se agregó la prueba
 `backend/src/common/utils/migrations-rls.spec.ts`, que recorre todas las
