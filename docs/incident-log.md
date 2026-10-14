@@ -137,3 +137,49 @@ nota `backend/prisma/migrations/` tiene 66 migraciones y `schema.prisma` define
 23 modelos, por lo que esas cifras ya no describen el estado actual. La
 verificación de restauración no se ha repetido desde entonces; conviene
 repetirla contra el esquema actual antes de la salida a v1.
+
+---
+
+## 2026-10-14 — `TreatmentDischarge` creada sin Row Level Security (issue #461)
+
+**Qué pasó.** La migración `20261011130000_add_treatment_discharge` creó la
+tabla `"TreatmentDischarge"` (informe de alta, con texto clínico sin cifrar a
+nivel de columna) sin `ENABLE ROW LEVEL SECURITY`. Era la única tabla de la
+aplicación en esa situación. Una tabla del schema `public` sin RLS queda
+accesible por la API REST que Supabase levanta sobre Postgres (PostgREST) con
+la anon key, aunque la aplicación nunca la use. La migración estaba aplicada
+en producción desde el 13 de octubre de 2026.
+
+**Impacto.** Sin evidencia de acceso indebido. La tabla tenía 0 filas al
+momento de la verificación (`SELECT count(*)` en producción el 2026-10-14), por
+lo que no había contenido clínico que pudiera leerse a través de ella. El
+código de la aplicación no usa el cliente de Supabase ni distribuye la anon
+key (la aplicación accede a la base con Prisma), de modo que un tercero habría
+necesitado obtener la clave y la URL del proyecto desde el panel de Supabase.
+Los logs de la API de Supabase del último día no registran peticiones a
+`/rest/v1/`. El plan gratuito retiene solo 24 horas de logs, por lo que los
+accesos anteriores a esa ventana no pueden verificarse.
+
+**Causa raíz.** La migración no incluyó la sentencia de RLS que sí usan las
+demás tablas, y ningún control automático comparaba las tablas creadas con las
+que tienen RLS activo. La omisión pasó la revisión y la integración continua.
+
+**Remediación.**
+
+- Mitigación inmediata en producción: `ALTER TABLE "TreatmentDischarge" ENABLE
+  ROW LEVEL SECURITY;` ejecutada desde el SQL editor de Supabase, sin políticas
+  (deny-all para `anon` y `authenticated`).
+- Migración `20261014120000_enable_rls_treatment_discharge` (PR #462), con la
+  misma sentencia. Es idempotente; al desplegarse sobre la mitigación manual no
+  produce cambios. La aplicación no se ve afectada porque Prisma conecta con un
+  rol que omite RLS.
+
+**Verificación.** En producción, `pg_tables.rowsecurity` de
+`"TreatmentDischarge"` devuelve `true`. En una base local, tras aplicar todas
+las migraciones, las 27 tablas del schema `public` tienen RLS activo.
+
+**Qué cambió.** Se agregó la prueba
+`backend/src/common/utils/migrations-rls.spec.ts`, que recorre todas las
+migraciones y falla si alguna tabla creada con `CREATE TABLE` no tiene su
+`ENABLE ROW LEVEL SECURITY`. Una tabla nueva sin RLS rompe la integración
+continua antes de llegar a producción.
