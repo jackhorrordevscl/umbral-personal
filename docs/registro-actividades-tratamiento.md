@@ -271,10 +271,15 @@ suficiencia de las medidas.
   (`lastUsedStep`), sesiones revocables con `jti` (fila 16), JWT de 8 horas
   (`JWT_EXPIRES_IN`) y límites de intentos por ruta (fila 27).
 - **Aislamiento entre terapeutas.** Lo hacen los filtros por `therapistId` en
-  los servicios. Las migraciones habilitan `ROW LEVEL SECURITY` en las 28
-  tablas (27 sentencias directas y la de `AuditLog`, dentro de un bloque `DO`)
-  y no tienen ninguna `CREATE POLICY`; la aplicación se conecta con un rol con
-  `BYPASSRLS` (ADR 0004). `TreatmentDischarge` quedó sin RLS desde su creación
+  los servicios. Las migraciones habilitan `ROW LEVEL SECURITY` en 28 tablas
+  (los 27 modelos de Prisma y `_prisma_migrations`; 27 sentencias directas y la
+  de `AuditLog`, dentro de un bloque `DO`) y no tienen ninguna `CREATE POLICY`;
+  la aplicación se conecta con un rol con `BYPASSRLS` (ADR 0004). Verificado en
+  producción el 2026-10-14 con consultas de solo lectura en Supabase: `postgres`
+  tiene `rolbypassrls = true` y `rolsuper = false`, `audit_log_owner` no tiene
+  `BYPASSRLS` y las 28 tablas de `public` tienen RLS activo. La `DATABASE_URL`
+  de Render usa el usuario `postgres.<ref>` (revisado en el panel de Render); no
+  se ejecutó `SELECT current_user` con esa cadena. `TreatmentDischarge` quedó sin RLS desde su creación
   (`20261011130000_add_treatment_discharge`) y se corrigió el 2026-10-14 con la
   migración `20261014120000_enable_rls_treatment_discharge`. Una prueba
   (`backend/src/common/utils/migrations-rls.spec.ts`) exige RLS en toda tabla
