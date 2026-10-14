@@ -69,7 +69,7 @@ export class UpdateProfileDto {
   )
   @IsString()
   @MaxLength(50)
-  @Matches(/^[^p{Cc}]*$/u, {
+  @Matches(/^[^\p{Cc}]*$/u, {
     message: 'El registro profesional contiene caracteres no válidos',
   })
   professionalRegistration?: string;

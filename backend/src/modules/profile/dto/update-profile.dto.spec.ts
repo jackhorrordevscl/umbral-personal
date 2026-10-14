@@ -129,8 +129,18 @@ describe('UpdateProfileDto.rut y professionalRegistration', () => {
   });
 
   it('rechaza caracteres de control en el registro profesional', async () => {
-    const { errors } = await run({ professionalRegistration: 'abc\u0000def' });
-    expect(errors.length).toBeGreaterThan(0);
+    for (const value of ['ab\u0000de', 'ab\u001fde', 'ab\u007fde', 'ab\ncd']) {
+      const { errors } = await run({ professionalRegistration: value });
+      expect(errors.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('acepta letras, llaves y signos comunes en el registro profesional', async () => {
+    for (const value of ['Colegio de Psicólogos N° 1234', 'p{Cc}', 'CP-0042']) {
+      const { dto, errors } = await run({ professionalRegistration: value });
+      expect(errors).toHaveLength(0);
+      expect(dto.professionalRegistration).toBe(value);
+    }
   });
 
   it('rechaza valores que no son string', async () => {
