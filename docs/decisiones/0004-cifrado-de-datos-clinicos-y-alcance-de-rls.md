@@ -31,8 +31,10 @@ Supabase: `postgres` tiene `rolsuper = false` y `rolbypassrls = true`;
 `audit_log_owner` no tiene `BYPASSRLS`; las 28 tablas de `public` tienen RLS
 activo. La consulta de conexiones abiertas (`pg_stat_activity`) solo muestra los
 usuarios `postgres`, `supabase_admin`, `authenticator` y `pgbouncer`, sin
-ningún rol propio de la aplicación; que la aplicación use `postgres` se infiere
-de esto y de las migraciones, no se midió conectando con su cadena real.
+ningún rol propio de la aplicación. Además, el usuario de la `DATABASE_URL`
+configurada en Render tiene la forma `postgres.<ref>` (revisado el 2026-10-14
+en el panel de Render); el pooler de Supabase lo traduce al rol `postgres`.
+No se ejecutó `SELECT current_user` con esa cadena.
 
 Sobre la propiedad de las tablas: las tablas normales pertenecen al rol con
 que corren las migraciones, el mismo que usa la aplicación, y `AuditLog`
