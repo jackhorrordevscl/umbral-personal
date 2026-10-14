@@ -66,7 +66,9 @@ function parseKeyId(
   return id;
 }
 
-// La clave id 0 es obligatoria y usa las mismas reglas que loadBase64Key.
+// La clave id 0 usa las mismas reglas que loadBase64Key y es obligatoria salvo
+// que se haya retirado (issue #398): la variable base vacía, un llavero
+// definido y un id activo distinto de 0 que exista en él.
 // <NOMBRE>_KEYRING agrega claves "id:base64,id:base64" y
 // <NOMBRE>_ACTIVE_KEY_ID elige con cuál se cifra (por defecto 0).
 export function buildKeyring(
@@ -76,9 +78,13 @@ export function buildKeyring(
   envVarName: string,
 ): Keyring {
   const keys = new Map<number, Buffer>();
-  keys.set(LEGACY_KEY_ID, loadBase64Key(legacyRaw, envVarName));
-
   const keyringName = `${envVarName}_KEYRING`;
+  const hasKeyring = !!keyringRaw && keyringRaw.trim() !== '';
+  const legacyRetired = hasKeyring && (!legacyRaw || legacyRaw.trim() === '');
+  if (!legacyRetired) {
+    keys.set(LEGACY_KEY_ID, loadBase64Key(legacyRaw, envVarName));
+  }
+
   if (keyringRaw && keyringRaw.trim() !== '') {
     for (const entry of keyringRaw.split(',')) {
       const separator = entry.indexOf(':');
@@ -114,8 +120,11 @@ export function buildKeyring(
     );
   }
   if (!keys.has(activeKeyId)) {
+    const hint = legacyRetired
+      ? `; ${envVarName} está vacía, define ${activeName} con un id de ${keyringName}`
+      : '';
     throw new Error(
-      `${activeName} inválida: el id ${activeKeyId} no existe en el llavero`,
+      `${activeName} inválida: el id ${activeKeyId} no existe en el llavero${hint}`,
     );
   }
 

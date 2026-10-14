@@ -790,5 +790,94 @@ describe('validateEnv', () => {
         }),
       ).toThrow(/DOCUMENT_ENCRYPTION_KEY_KEYRING inválida/);
     });
+
+    // Issue #398: la variable base (clave id 0) puede faltar en producción si
+    // el llavero define otra clave y <NOMBRE>_ACTIVE_KEY_ID apunta a ella.
+    describe('clave id 0 retirada en producción (issue #398)', () => {
+      const productionKeys: Record<string, string> = {
+        DOCUMENT_ENCRYPTION_KEY: validDocumentKey,
+        GOOGLE_TOKEN_ENCRYPTION_KEY: validGoogleTokenKey,
+        PAYMENT_CREDENTIALS_ENCRYPTION_KEY: validPaymentKey,
+        MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
+      };
+      const retiring = (name: string, extra: Record<string, string> = {}) => {
+        const { [name]: _retired, ...rest } = productionKeys;
+        void _retired;
+        return {
+          NODE_ENV: 'production',
+          JWT_SECRET: 'a'.repeat(32),
+          ...productionRequiredVars,
+          ...rest,
+          [`${name}_KEYRING`]: `1:${extraKey}`,
+          [`${name}_ACTIVE_KEY_ID`]: '1',
+          ...extra,
+        };
+      };
+
+      it.each(names)(
+        'acepta %s ausente si el llavero define la clave activa',
+        (name) => {
+          const config = retiring(name);
+
+          expect(validateEnv(config)).toBe(config);
+        },
+      );
+
+      it.each(names)('rechaza %s ausente sin llavero ni id activo', (name) => {
+        const { [name]: _retired, ...rest } = productionKeys;
+        void _retired;
+
+        expect(() =>
+          validateEnv({
+            NODE_ENV: 'production',
+            JWT_SECRET: 'a'.repeat(32),
+            ...productionRequiredVars,
+            ...rest,
+          }),
+        ).toThrow(new RegExp(`${name} inválida`));
+      });
+
+      it.each(names)(
+        'rechaza %s ausente si la clave activa sigue siendo la 0',
+        (name) => {
+          for (const activeId of ['0', '']) {
+            expect(() =>
+              validateEnv(
+                retiring(name, { [`${name}_ACTIVE_KEY_ID`]: activeId }),
+              ),
+            ).toThrow(new RegExp(`${name} inválida`));
+          }
+        },
+      );
+
+      it.each(names)(
+        'rechaza %s ausente si el id activo no está en el llavero',
+        (name) => {
+          expect(() =>
+            validateEnv(retiring(name, { [`${name}_ACTIVE_KEY_ID`]: '2' })),
+          ).toThrow(new RegExp(`${name}_ACTIVE_KEY_ID inválida`));
+        },
+      );
+
+      it.each(names)(
+        'sigue rechazando el valor de ejemplo público de %s si está definida',
+        (name) => {
+          const exampleByName: Record<string, string> = {
+            DOCUMENT_ENCRYPTION_KEY: readmeExampleDocumentKey,
+            GOOGLE_TOKEN_ENCRYPTION_KEY: readmeExampleGoogleTokenKey,
+            PAYMENT_CREDENTIALS_ENCRYPTION_KEY: readmeExamplePaymentKey,
+            MFA_SECRET_ENCRYPTION_KEY: readmeExampleMfaKey,
+          };
+
+          expect(() =>
+            validateEnv(
+              retiring(name, {
+                [name]: exampleByName[name],
+              }),
+            ),
+          ).toThrow(new RegExp(`${name} inválida`));
+        },
+      );
+    });
   });
 });

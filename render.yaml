@@ -81,7 +81,9 @@ services:
       # <NOMBRE>_KEYRING agrega claves "id:base64,id:base64" (ids 1-255) y
       # <NOMBRE>_ACTIVE_KEY_ID elige con cuál se cifra (por defecto 0, la
       # variable original). Pueden quedar vacías; solo se usan al rotar una
-      # clave (docs/rotacion-y-respaldo-de-claves.md).
+      # clave (docs/rotacion-y-respaldo-de-claves.md). Tras rotar, la variable
+      # original (clave id 0) puede retirarse si el llavero define otra clave
+      # y <NOMBRE>_ACTIVE_KEY_ID apunta a ella (issue #398).
       - key: DOCUMENT_ENCRYPTION_KEY_KEYRING
         sync: false
       - key: DOCUMENT_ENCRYPTION_KEY_ACTIVE_KEY_ID
