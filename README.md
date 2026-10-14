@@ -189,7 +189,7 @@ PAYMENTS_ENABLED="false"
 Ejecutar migraciones y seed inicial:
 
 ```bash
-npx prisma migrate dev --name init
+npx prisma migrate deploy
 npm run seed
 ```
 
@@ -1036,7 +1036,7 @@ GET  /api/v1/documents/:id/download       🔒
 GET    /api/v1/shared-files              🔒
 GET    /api/v1/shared-files/:id          🔒
 GET    /api/v1/shared-files/:id/download 🔒
-POST   /api/v1/shared-files/upload       🔒
+POST   /api/v1/shared-files/upload       🔒 (multipart, máx. 50MB)
 PATCH  /api/v1/shared-files/:id          🔒
 DELETE /api/v1/shared-files/:id          🔒
 ```
@@ -1107,6 +1107,7 @@ POST /api/v1/webhooks/resend    (webhook de Resend, sin JWT, firma Svix verifica
 ### Salud del servicio
 ```
 GET /api/v1/health    (sin auth, SELECT 1 contra la base; 200 {"status":"ok"} o 503)
+GET /api/v1/          (sin auth, respuesta de texto fija de `AppController`, sin uso funcional)
 ```
 
 > 🔒 Requiere token JWT en el header `Authorization: Bearer <token>`
@@ -1410,7 +1411,7 @@ proveedor definido (Backblaze B2 + `rclone`); ver
 | `MFA_SECRET_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar el secreto TOTP de cada usuario (`User.mfaSecret`) en reposo, distinta de las demás claves de cifrado (issue #302). Los secretos guardados en texto plano antes de este cambio siguen funcionando y se re-cifran solos en el siguiente login con MFA. **No reemplazar el valor sin usar el llavero**: cambiarla directamente deja ilegibles los secretos ya cifrados (para rotarla, ver `*_KEYRING` más abajo) | Generar con `openssl rand -base64 32` |
 | `DOCUMENT_ENCRYPTION_KEY_KEYRING` / `GOOGLE_TOKEN_ENCRYPTION_KEY_KEYRING` / `PAYMENT_CREDENTIALS_ENCRYPTION_KEY_KEYRING` / `MFA_SECRET_ENCRYPTION_KEY_KEYRING` | Opcionales (issue #382, ADR 0005). Agregan claves de cifrado al llavero del dato correspondiente con el formato `id:base64,id:base64` (ids enteros de 1 a 255, sin repetir, cada clave de 32 bytes en base64). La variable original sigue siendo la clave id 0. Solo se usan al rotar una clave | Ver [docs/rotacion-y-respaldo-de-claves.md](docs/rotacion-y-respaldo-de-claves.md) |
 | `DOCUMENT_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `GOOGLE_TOKEN_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `PAYMENT_CREDENTIALS_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `MFA_SECRET_ENCRYPTION_KEY_ACTIVE_KEY_ID` | Opcionales (issue #382). Id de la clave con la que se cifran los datos nuevos; debe ser `0` o existir en el `_KEYRING` correspondiente. Si falta, se usa la id 0. Un valor mal formado hace fallar el arranque | Ver [docs/rotacion-y-respaldo-de-claves.md](docs/rotacion-y-respaldo-de-claves.md) |
-| `PAYMENTS_ENABLED` | Si es `false`, desactiva por completo la creación de cargos, el checkout, los emails de pago y el cron de vencimiento sin necesitar un deploy/revert | `false` en CI/e2e |
+| `PAYMENTS_ENABLED` | Si es `false`, desactiva por completo la creación de cargos, el checkout, los emails de pago y el cron de vencimiento sin necesitar un deploy/revert | `true` en el job `backend` de CI (lo necesita `payments.e2e-spec.ts`); `false` en el e2e de Playwright |
 | `INVITE_CREATOR_EMAIL` | Issue #124: único email autorizado a generar códigos de invitación (`POST /auth/invitations`), requeridos para completar `POST /auth/signup`. Mecanismo temporal sin rol ADMIN (decisión explícita); sin setear, nadie puede generar invitaciones y el signup público queda efectivamente cerrado | `terapeuta@ejemplo.cl` |
 | `PUBLIC_SCHEDULING_ENABLED` | Habilita el portal público de auto-agenda (sdd/patient-self-scheduling): tanto la lectura de disponibilidad como la reserva. **Sin default**: sin setear, ambos endpoints públicos se registran deshabilitados (a diferencia de `PAYMENTS_ENABLED`/`GOOGLE_CALENDAR_SYNC_ENABLED`, acá "ausente" es deshabilitado, no habilitado, por ser superficie pública nueva) | `true` |
 | `FLOW_API_BASE_URL` | Base URL de la API de Flow que usa el cliente de pagos. Opcional | `https://sandbox.flow.cl/api` (default; en producción apuntar a la API productiva de Flow) |

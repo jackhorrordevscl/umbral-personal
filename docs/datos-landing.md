@@ -1,6 +1,6 @@
 # Datos verificados para la landing page
 
-Fecha de verificación: 2026-10-13. Fuente: código del repositorio (rama `docs/sync-docs-oct2026`, basada en `main` 8fb4089), README y estado de GitHub. Las cifras cambian con cada PR; vuelve a contarlas antes de publicar.
+Fecha de verificación: 2026-10-13. Fuente: código del repositorio (rama `docs/sync-docs-oct2026`, basada en `main` a88be01; las migraciones y los specs se recontaron el 2026-10-14), README y estado de GitHub. Las cifras cambian con cada PR; vuelve a contarlas antes de publicar.
 
 Regla general: afirma solo lo que está en la sección "Funcionalidades reales". Todo lo de "Qué NO afirmar" queda fuera del texto público.
 
@@ -105,9 +105,9 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 |---|---|---|
 | Módulos de backend | 16 | carpetas de `backend/src/modules/` (además de `health` y `shared-files` en `backend/src/`) |
 | Modelos de base de datos | 27 | `model` en `backend/prisma/schema.prisma` |
-| Migraciones | 73 | carpetas de `backend/prisma/migrations/` |
+| Migraciones | 74 | carpetas de `backend/prisma/migrations/` |
 | Endpoints HTTP | unos 104 | conteo de decoradores de ruta en `backend/src` |
-| Tests unitarios backend | 114 specs | archivos `*.spec.ts` en `backend/src` |
+| Tests unitarios backend | 115 specs | archivos `*.spec.ts` en `backend/src` |
 | Tests e2e backend | 31 specs | archivos `*.e2e-spec.ts` en `backend/test` |
 | Tests frontend | 84 specs + 3 e2e Playwright (corren en el job `e2e` de CI) | `frontend/src` y `frontend/e2e` |
 | Páginas del frontend | 17 | archivos en `frontend/src/pages/` (sin specs) |

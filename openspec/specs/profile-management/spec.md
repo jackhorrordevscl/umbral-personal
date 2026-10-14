@@ -70,6 +70,12 @@ The system MUST NOT replace the active `email` immediately. On a valid email-cha
 - WHEN the confirmation token is invalid or expired
 - THEN the response is `400`, `pendingEmail` and `email` remain unchanged, and the user MAY request a new email change
 
+#### Scenario: Address taken by another account before confirmation
+
+- GIVEN a pending email change whose address another account registered after the request
+- WHEN the user confirms with a valid token
+- THEN the response is `409` and `email` remains unchanged
+
 #### Scenario: Reused token is rejected
 
 - GIVEN a pending email change that was already confirmed

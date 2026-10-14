@@ -26,7 +26,7 @@ The system MUST present a 5-step connection flow (welcome/checklist, go to Flow,
 
 - GIVEN a well-formed `apiKey`/`secretKey` pair that Flow does not recognize
 - WHEN the system calls Flow's live validation
-- THEN the system shows Flow's actionable rejection reason, persists no credential and does not change the account status (only the failure reason is recorded as the account's last error), and the therapist remains on the paste step
+- THEN the system shows Flow's actionable rejection reason, persists no credential and does not change the account status, and the therapist remains on the paste step. The paste-step validation writes nothing; the failure reason is recorded as the account's last error only when Flow rejects the confirmation step's connect call
 
 ### Requirement: Encrypted Credential Storage With Non-Secret Display Metadata
 

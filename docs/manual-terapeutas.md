@@ -169,8 +169,8 @@ Cuando termina el proceso con un paciente, la sección **Cierre del tratamiento*
 **Antes de empezar.** Para el informe generado por la app necesitas tu **RUT** en el perfil (si falta, el formulario te lo avisa y te lleva a "Datos profesionales" de la pantalla Perfil); el registro profesional es opcional. También necesitas el consentimiento de tratamiento vigente del paciente, igual que para agendar consultas.
 
 **Cómo se emite.** Pulsa **Dar de alta** y elige uno de los dos caminos:
-- **Generar con el sistema.** Se crea un borrador prellenado con la fecha de ingreso, la fecha de alta y el número de sesiones. Tú completas el motivo de consulta, el resumen de evolución, el estado al alta y las recomendaciones (el diagnóstico es opcional), puedes **guardar el borrador** y seguirlo después, y al terminar pulsas **Emitir informe**.
-- **Subir mi propio PDF.** Si ya tienes tu epicrisis en PDF, la subes y el sistema solo pide el motivo de cierre, la fecha de alta y el archivo. Debe ser un PDF real y pesar hasta 25 MB. El sistema **no firma** ese archivo ni lo presenta como firmado por él: lo guarda tal cual y calcula su huella para detectar cambios.
+- **Generar con el sistema.** Se crea un borrador prellenado con la fecha de ingreso, la fecha de cierre y el número de sesiones. Tú completas el motivo de consulta, el resumen de evolución, el estado al cierre y las recomendaciones (el diagnóstico es opcional), puedes **guardar el borrador** y seguirlo después, y al terminar pulsas **Emitir informe**.
+- **Subir mi propio PDF.** Si ya tienes tu epicrisis en PDF, la subes y el sistema solo pide el motivo de cierre, la fecha de cierre y el archivo. Debe ser un PDF real y pesar hasta 25 MB. El sistema **no firma** ese archivo ni lo presenta como firmado por él: lo guarda tal cual y calcula su huella para detectar cambios.
 
 **Motivo de cierre.** Puede ser **Alta**, **Derivado** o **Deserción**. Para Derivado puedes indicar el destino de forma breve. Para Deserción eliges un motivo principal de una lista cerrada (por ejemplo "Costo" o "Sin contacto o sin información") y, si eliges "Otro", una nota breve. No escribas datos sensibles, de salud tuya o de familiares, ni de terceros en esos textos. La lista es una síntesis propia a partir de la literatura, no un estándar validado.
 
@@ -312,9 +312,9 @@ botones:
 
 ### Cobro no generado y reintento
 
-Si al registrar la consulta Flow rechazó la creación del cobro (por ejemplo,
-porque el monto está bajo el mínimo que acepta Flow, hoy 350 CLP según la
-configuración de Umbral), el cobro queda pendiente **sin link de pago**. En la
+Si al registrar la consulta no se pudo crear el cobro (por ejemplo, porque el
+monto está bajo el mínimo para cobrar con Flow, hoy 350 CLP según la
+configuración de Umbral, o porque Flow rechazó la creación), el cobro queda pendiente **sin link de pago**. En la
 lista de Consultas, esa sesión muestra el chip "Cobro no generado" con el
 motivo y un botón **"Reintentar cobro"**. Al pulsarlo, la app vuelve a
 intentar crear el cobro con el monto que ese cobro ya tiene y, si lo logra, el
@@ -469,8 +469,9 @@ Estos tipos de notificación llegan hoy:
   uno de los dos canales falla, el otro igual te llega. En la lista de
   Consultas, cada sesión muestra un chip con el estado del último
   recordatorio por email enviado: "Recordatorio enviado", "Entregado",
-  "Abierto" o "Recordatorio no enviado" si falló, así sabes si tu
-  paciente llegó a verlo, sin tener que preguntarle. Las consultas
+  "Abierto" o "Recordatorio no enviado" si falló. Ese correo te llega a ti,
+  no al paciente, así que el chip te dice si el recordatorio llegó a tu
+  bandeja y no si tu paciente lo vio. Las consultas
   canceladas por un informe de alta ya no generan recordatorios.
 - **Aviso de Google Calendar desconectado**: si tu conexión con Google
   Calendar (ver sección 12) deja de funcionar, te avisa una sola vez.
@@ -518,10 +519,16 @@ aparezcan automáticamente en tu Google Calendar personal, con el botón
   paciente**: solo sus iniciales, un código corto que no revela más datos,
   y un enlace de vuelta a Umbral. Tampoco incluye el motivo de consulta ni
   si la sesión es presencial o telemedicina. Dura lo mismo que la sesión.
-- Es de **una sola dirección**: lo que edites en Google no se refleja en
-  Umbral. Si corriges o eliminas una consulta en Umbral, el evento en
-  Google se actualiza o se borra solo; lo contrario no ocurre. Lo mismo pasa
-  con las consultas que se cancelan al emitir un informe de alta.
+- Los eventos son de **una sola dirección**: lo que edites en Google no
+  modifica ni crea consultas en Umbral. Si corriges o eliminas una consulta
+  en Umbral, el evento en Google se actualiza o se borra solo; lo contrario
+  no ocurre. Lo mismo pasa con las consultas que se cancelan al emitir un
+  informe de alta. La única lectura desde Google es opcional, la activa quien
+  administra Umbral con `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` y está
+  desactivada por defecto: si está activa, Umbral lee cada 30 minutos qué
+  horarios tienes ocupados en tu Google Calendar, durante los próximos 60
+  días, y los oculta en tu agenda pública, sin copiar sus títulos ni su
+  contenido.
 - Puedes desconectar en cualquier momento desde el mismo lugar. Los eventos
   ya creados en tu Google Calendar no se borran al desconectar.
 - Si conectas **otra** cuenta de Google, Umbral no puede saber que cambió
@@ -588,8 +595,9 @@ sesión directamente, sin que tengas que agendarlos tú a mano.
 - **De dónde vino el paciente.** Si alguien llega a tu link con parámetros de
   campaña (`utm_source`) o desde un link compartido en otra página, Umbral
   guarda ese origen junto con la ficha nueva. En el Dashboard tienes una
-  sección "Origen de pacientes" con el desglose por canal (directo,
-  campaña, sitio de referencia) para saber de dónde te están llegando.
+  sección "Origen de pacientes" con el desglose por origen: el valor de
+  `utm_source` si lo hay, si no el sitio desde donde llegó, y "directo" si no
+  hay ninguno de los dos.
 - **Ventana de reserva.** Solo se puede reservar con al menos 24 horas de
   anticipación (para que siempre tengas tiempo de verla) y hasta 60 días
   hacia adelante: no vas a ver reservas de último minuto ni agendadas a
