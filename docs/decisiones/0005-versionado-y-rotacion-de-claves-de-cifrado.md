@@ -1,6 +1,6 @@
-# ADR 0005 — Versionado y rotación de claves de cifrado
+# ADR 0005 - Versionado y rotación de claves de cifrado
 
-- **Estado:** propuesta
+- **Estado:** implementada (nota del 2026-10-13: el llavero, el formato `0x02`/`enc:v3` con AAD y el script `backend/scripts/reencrypt-keys.ts` están en el código; el procedimiento operativo está en `docs/rotacion-y-respaldo-de-claves.md`. El issue #382 sigue abierto en GitHub y #398, retirar la clave id 0, está pendiente)
 - **Fecha:** 2026-10-07
 - **Issue:** #382
 

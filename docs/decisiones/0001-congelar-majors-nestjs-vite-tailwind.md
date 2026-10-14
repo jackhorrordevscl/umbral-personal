@@ -1,8 +1,9 @@
-# ADR 0001 — Congelar NestJS 11, Vite 7 y Tailwind 3 hasta después de la v1
+# ADR 0001 - Congelar NestJS 11, Vite 7 y Tailwind 3 hasta después de la v1
 
 - **Estado:** aceptada
 - **Fecha:** 2026-09-25
 - **Issue:** #210
+- **Nota de estado (2026-10-13):** las versiones del repositorio siguen siendo NestJS `^11.0.1`, Vite `^7.3.1` y Tailwind `^3.4.19`. Está abierto el issue #458 (migrar el frontend a Tailwind 4 para resolver 7 vulnerabilidades de desarrollo), que reabriría la parte de Tailwind de esta decisión.
 
 ## Contexto
 

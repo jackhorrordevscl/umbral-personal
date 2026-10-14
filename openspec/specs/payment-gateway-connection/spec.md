@@ -8,17 +8,17 @@ Let a therapist self-service connect their own Flow merchant account: paste cred
 
 ### Requirement: Guided Connection Wizard With Pre-Persistence Validation
 
-The system MUST present a 5-step connection flow (welcome/checklist, go to Flow, locate credentials, paste and validate, confirmation) and MUST validate pasted credentials against Flow before persisting anything. The system MUST reject an obviously malformed credential (e.g. empty or not matching Flow's documented key format) at the paste step, without calling Flow. Only a credential pair that both passes field-level format validation and receives a successful live validation from Flow MUST be persisted.
+The system MUST present a 5-step connection flow (welcome/checklist, go to Flow, locate credentials, paste and validate, confirmation) and MUST validate pasted credentials against Flow before persisting anything. The system MUST reject a malformed credential at the paste step without calling Flow: both `apiKey` and `secretKey` MUST be 16 to 128 characters long and contain only letters, digits, `_` or `-` (the same rule is enforced by the API with `400`). Only a credential pair that both passes this format validation and receives a successful live validation from Flow MUST be persisted. The paste step MUST use a validation call that never writes, and the confirmation step MUST persist by connecting again (validating once more before saving).
 
 #### Scenario: Successful connection persists validated credentials
 
 - GIVEN a therapist pastes a well-formed `apiKey`/`secretKey` pair
 - WHEN the system validates them live against Flow and Flow confirms them
-- THEN the credentials are encrypted and persisted, the account status becomes `CONNECTED`, and the confirmation step shows the commerce name Flow returned
+- THEN the credentials are encrypted and persisted, the account status becomes `CONNECTED`, a `PAYMENT_ACCOUNT_CONNECTED` audit entry is recorded, and the confirmation step shows the commerce name Flow returned
 
 #### Scenario: Malformed credentials are rejected before calling Flow
 
-- GIVEN a therapist pastes a value that does not match Flow's documented credential format
+- GIVEN a therapist pastes a value that does not match the credential format
 - WHEN the therapist attempts to validate
 - THEN the system shows a field-level error, makes no call to Flow, and persists nothing
 
@@ -26,11 +26,11 @@ The system MUST present a 5-step connection flow (welcome/checklist, go to Flow,
 
 - GIVEN a well-formed `apiKey`/`secretKey` pair that Flow does not recognize
 - WHEN the system calls Flow's live validation
-- THEN the system shows Flow's actionable rejection reason, persists nothing, and the therapist remains on the paste step
+- THEN the system shows Flow's actionable rejection reason, persists no credential and does not change the account status, and the therapist remains on the paste step. The paste-step validation writes nothing; the failure reason is recorded as the account's last error only when Flow rejects the confirmation step's connect call
 
 ### Requirement: Encrypted Credential Storage With Non-Secret Display Metadata
 
-The system MUST store `{apiKey, secretKey}` encrypted (AES-GCM) and MUST NOT store or display the plaintext `merchantId`. The system MUST expose only non-secret metadata for display: provider, the commerce name Flow returned, the connection date, and a fingerprint of the key. The system MUST NOT return or log a decrypted secret in any API response, error message, or log line.
+The system MUST store `{apiKey, secretKey}` encrypted with AES-256-GCM, using a dedicated key (`PAYMENT_CREDENTIALS_ENCRYPTION_KEY`) managed through the versioned keyring (`..._KEYRING`, `..._ACTIVE_KEY_ID`), and MUST NOT store or display the plaintext `merchantId`. The system MUST expose only non-secret metadata for display: provider, the commerce name Flow returned (editable by the therapist at confirmation), the connection date, a fingerprint of the key, and the last error. The system MUST NOT return or log a decrypted secret in any API response, error message, or log line. Credentials of a legacy storage version MUST NOT be used to create charges.
 
 #### Scenario: Post-connection view exposes no secret
 
@@ -40,13 +40,13 @@ The system MUST store `{apiKey, secretKey}` encrypted (AES-GCM) and MUST NOT sto
 
 ### Requirement: Self-Service Disconnection
 
-The system MUST let a therapist disconnect a `CONNECTED` account on demand. Disconnection MUST stop automatic charge creation for consultations created afterward, and MUST NOT alter charges already created before disconnection.
+The system MUST let a therapist disconnect a `CONNECTED` account on demand (responding `404` when none is connected). Disconnection MUST delete the stored encrypted credentials, record a `PAYMENT_ACCOUNT_DISCONNECTED` audit entry, stop automatic charge creation for consultations created afterward, and MUST NOT alter charges already created before disconnection.
 
 #### Scenario: Disconnecting stops future automatic charges only
 
 - GIVEN a therapist with a `CONNECTED` account and an existing pending charge
 - WHEN the therapist disconnects
-- THEN the account status becomes `DISCONNECTED`, the existing pending charge is untouched, and no new consultation for that therapist gets an automatic charge until they reconnect
+- THEN the account status becomes `DISCONNECTED`, the stored credentials are deleted, the existing pending charge is untouched, and no new consultation for that therapist gets an automatic charge until they reconnect
 
 ### Requirement: Reconnection of Legacy-Invalidated Accounts
 
@@ -76,5 +76,4 @@ Because validation is separate from persistence, the system MUST NOT persist any
 
 ## Open Questions
 
-- Whether the wizard preserves client-side (not persisted server-side) progress — e.g. the pasted-but-unconfirmed keys or which step the therapist was on — across a page reload or session end is not defined by the proposal. Left as a UX decision for design; this spec only guarantees no server-side persistence occurs before final confirmation.
-- The exact field-level format check for "malformed" credentials (length, prefix, character set) is not specified by the proposal or Flow's docs reviewed so far; left to design/implementation against Flow's documented format.
+- Whether the wizard preserves client-side (not persisted server-side) progress, such as the pasted-but-unconfirmed keys or which step the therapist was on, across a page reload or session end is not defined. This spec only guarantees no server-side persistence occurs before final confirmation.

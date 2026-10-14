@@ -1,9 +1,9 @@
-# Umbral — Sistema de Gestión Clínica
+# Umbral: Sistema de Gestión Clínica
 
 ![CI](https://github.com/jackhorrordevscl/umbral-personal/actions/workflows/ci.yml/badge.svg?branch=main)
 
 Umbral es un sistema de fichas clínicas para un profesional de salud mental
-que atiende por su cuenta (psicólogo/a, terapeuta) — cada cuenta es dueña
+que atiende por su cuenta (psicólogo/a, terapeuta). Cada cuenta es dueña
 exclusiva de sus propios pacientes, sin roles jerárquicos ni panel
 administrativo: quien se registra es quien usa el sistema. Nace como
 evolución de un proyecto institucional multi-profesional (`control-fichas`)
@@ -18,16 +18,25 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 ## Documentación relacionada
 
 - [`docs/manual-terapeutas.md`](docs/manual-terapeutas.md) ([PDF para
-  imprimir/compartir](docs/manual-terapeutas.pdf)) — manual funcional para
+  imprimir/compartir](docs/manual-terapeutas.pdf)): manual funcional para
   terapeutas: crear tu cuenta, MFA obligatorio, recuperación de cuenta,
   pacientes, consultas, documentos, archivos personales y reportes PDF.
-- [`docs/caso-de-uso-testing.md`](docs/caso-de-uso-testing.md) — guía
+- [`docs/caso-de-uso-testing.md`](docs/caso-de-uso-testing.md): guía
   narrativa de testing manual/UAT paso a paso para voluntarios que prueban la
   app antes de que la usen pacientes reales.
-- [`docs/registro-actividades-tratamiento.md`](docs/registro-actividades-tratamiento.md) —
+- [`docs/registro-actividades-tratamiento.md`](docs/registro-actividades-tratamiento.md):
   Registro de Actividades de Tratamiento (RAT, Ley 21.719): qué datos se
   tratan, con qué finalidad, base legal y retención.
-- [`docs/incident-log.md`](docs/incident-log.md) — bitácora de incidentes de
+- [`docs/clausula-transferencia-internacional.md`](docs/clausula-transferencia-internacional.md):
+  registro de la cláusula de transferencia internacional de datos incorporada
+  a los documentos de consentimiento informado.
+- [`docs/borrador-clausula-responsabilidad-documentos.md`](docs/borrador-clausula-responsabilidad-documentos.md):
+  borrador de cláusula de responsabilidad sobre documentos aportados, pendiente
+  de la revisión legal.
+- [`docs/rotacion-y-respaldo-de-claves.md`](docs/rotacion-y-respaldo-de-claves.md):
+  procedimiento operativo para respaldar y rotar las claves de cifrado
+  (issue #382, ADR 0005).
+- [`docs/incident-log.md`](docs/incident-log.md): bitácora de incidentes de
   seguridad reales: qué pasó, impacto, causa raíz, remediación y
   verificación.
 - [`docs/evaluacion-v1.md`](docs/evaluacion-v1.md): evaluación de
@@ -35,8 +44,12 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 - [`docs/datos-landing.md`](docs/datos-landing.md): ficha de datos
   verificados (funcionalidades, cifras, stack y qué no afirmar) para
   actualizar la landing page.
-- [`docs/decisiones/`](docs/decisiones/) — decisiones de arquitectura (ADR),
-  p. ej. por qué NestJS, Vite y Tailwind están congelados en su major actual.
+- [`docs/decisiones/`](docs/decisiones/): decisiones de arquitectura (ADR),
+  p. ej. por qué NestJS, Vite y Tailwind están congelados en su major actual
+  (0001), el almacenamiento de la sesión en el frontend (0003), el cifrado de
+  datos clínicos (0004), el versionado y la rotación de claves (0005), el
+  informe de alta con firma simple y hash (0006) y los pacientes menores y su
+  representante legal (0007).
 
 ---
 
@@ -53,8 +66,10 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 - Tiptap 3 (editor de texto enriquecido de las notas clínicas)
 - Axios
 - Lucide React
+- `react-window` (listas virtualizadas)
 - Sentry (`@sentry/react`, captura de errores, opcional)
-- Vitest 4 (tests)
+- Vitest 4 (tests unitarios y de componentes)
+- Playwright (tests e2e de la reserva pública y las notificaciones)
 
 **Backend**
 - NestJS 11 + TypeScript
@@ -63,9 +78,12 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 - JWT + Passport
 - Argon2 (hash de contraseñas)
 - Speakeasy (MFA/TOTP)
-- PDFKit (generación de reportes)
+- PDFKit (generación de la ficha clínica y del informe de alta en PDF)
 - Helmet.js (seguridad HTTP)
 - `@nestjs/throttler` (rate limiting)
+- `@nestjs/schedule` (tareas programadas: recordatorios, purgas, reconciliaciones)
+- Resend (`resend`, emails transaccionales)
+- Jest 30 (tests unitarios y e2e)
 - `sanitize-html` (sanitización de notas clínicas)
 - `@aws-sdk/client-s3` (storage S3-compatible sobre Backblaze B2)
 - Sentry (`@sentry/node`, captura de errores, opcional)
@@ -75,7 +93,7 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 ## Requisitos Previos
 
 - Node.js v22+ (versión usada en CI; v20+ también funciona)
-- PostgreSQL 16 (en producción, Supabase gestiona la base — ver sección
+- PostgreSQL 16 (en producción, Supabase gestiona la base: ver sección
   [Despliegue](#despliegue-issue-8)); en local puede levantarse con el
   `docker-compose.yml` de la raíz (Postgres 16)
 - npm
@@ -132,7 +150,7 @@ nano .env
 DATABASE_URL="postgresql://umbral_user:tu_password_seguro@localhost:5432/umbral_db"
 # En local (sin pooler) es la misma conexión que DATABASE_URL. En producción
 # con un pooler delante (Supabase/PgBouncer), DIRECT_URL debe ser la
-# conexión directa, no la pooled — Prisma Migrate la necesita para funcionar.
+# conexión directa, no la pooled: Prisma Migrate la necesita para funcionar.
 DIRECT_URL="postgresql://umbral_user:tu_password_seguro@localhost:5432/umbral_db"
 JWT_SECRET="cambia-este-secreto-en-produccion"
 JWT_EXPIRES_IN="8h"
@@ -161,15 +179,17 @@ PAYMENTS_ENABLED="false"
 
 > La foto de perfil (`POST/GET/DELETE /profile/avatar`), los archivos
 > personales (`shared-files`) y los documentos de ficha clínica (`documents`,
-> issue #158) se guardan en Backblaze B2, no en disco local (issue #170) —
-> sin `B2_AVATARS_*`/`B2_SHARED_FILES_*`/`B2_PATIENT_DOCUMENTS_*` configuradas
+> issue #158) se guardan en Backblaze B2, no en disco local (issue #170).
+> Sin `B2_AVATARS_*`/`B2_SHARED_FILES_*`/`B2_PATIENT_DOCUMENTS_*` configuradas
 > en tu `.env` local, esas tres funciones fallan (ver Variables de Entorno).
-> El resto de la app funciona igual sin ellas.
+> El informe de alta en PDF también se guarda como documento de ficha, por lo
+> que depende de `B2_PATIENT_DOCUMENTS_*`. El resto de la app funciona igual
+> sin ellas.
 
 Ejecutar migraciones y seed inicial:
 
 ```bash
-npx prisma migrate dev --name init
+npx prisma migrate deploy
 npm run seed
 ```
 
@@ -191,23 +211,46 @@ VITE_API_URL=http://TU_IP:3001/api/v1
 
 ## Ejecución en Desarrollo
 
-**Terminal 1 — Backend:**
+**Terminal 1: Backend**
 ```bash
 cd backend
 npm run start:dev
 # Servidor en http://localhost:3001/api/v1
 ```
 
-**Terminal 2 — Frontend:**
+**Terminal 2: Frontend**
 ```bash
 cd frontend
 npm run dev
 # App en http://localhost:5173
 ```
 
+### Pruebas
+
+| Alcance | Comando | Notas |
+|---|---|---|
+| Backend, unitarias | `cd backend && npm test` | Jest 30; `npm run test:cov` agrega cobertura |
+| Backend, e2e | `cd backend && npm run test:e2e` | Jest + Supertest contra una base Postgres real (`backend/test/`); necesita las variables de entorno del job `backend` de `.github/workflows/ci.yml` |
+| Frontend, unitarias y de componentes | `cd frontend && npm test` | Vitest 4; `npm run test:cov` agrega cobertura |
+| Frontend, e2e | `cd frontend && npm run test:e2e` | Playwright (`frontend/e2e/`): reserva pública y detalle de notificaciones |
+
+Los e2e de Playwright necesitan el backend levantado con las cuentas de prueba
+que crea `npm run seed:e2e` (se niega a correr sin `E2E_SEED_CONFIRM=1`,
+`E2E_TEST_PASSWORD` y `E2E_TEST_MFA_SECRET`, y nunca en producción) y con
+`PUBLIC_SCHEDULING_ENABLED=true`. `frontend/playwright.config.ts` define dos
+proyectos: escritorio (`*.e2e.ts`) y móvil, con el viewport de un Pixel 7
+(`*.mobile.e2e.ts`, issue #419). En local usan el navegador Brave instalado
+(ruta configurable con `PLAYWRIGHT_BRAVE_PATH`), por lo que no hace falta
+descargar un navegador; en CI usan el Chromium de Playwright.
+
+El workflow `ci.yml` corre tres jobs: backend (lint, migraciones, seed, tests
+unitarios con cobertura, e2e y `npm audit`), frontend (lint, tests con
+cobertura, typecheck y build, y `npm audit`) y e2e de Playwright contra un
+backend real con Postgres.
+
 ### Cómo entrar la primera vez
 
-No hay usuarios predefinidos por rol — cada profesional crea su propia
+No hay usuarios predefinidos por rol: cada profesional crea su propia
 cuenta, pero desde el issue #124 el signup público exige un código de
 invitación:
 
@@ -215,10 +258,10 @@ invitación:
   requiere `inviteCode` además de `email`/`password`/`name`, y crea la cuenta
   con `emailVerified: false`. El código se obtiene con `POST
   /auth/invitations` (requiere sesión), pero solo lo acepta si quien está
-  logueado tiene el email configurado en `INVITE_CREATOR_EMAIL` — sin esa
+  logueado tiene el email configurado en `INVITE_CREATOR_EMAIL`; sin esa
   variable seteada, nadie puede generar invitaciones y el signup público
   queda efectivamente cerrado. Sin `RESEND_API_KEY` configurada en local, el
-  email de verificación no se envía de verdad — `MailService` lo saltea con
+  email de verificación no se envía de verdad: `MailService` lo saltea con
   un warning en el log del backend (revísalo ahí para sacar el link mientras
   pruebas en dev).
 - **Cuenta semilla** (`npm run seed`, ver más abajo): crea una única cuenta
@@ -239,7 +282,7 @@ Password:  Umbral2024!
 > `SEED_ADMIN_PASSWORD` en Variables de Entorno). La cuenta semilla fuerza
 > cambio de contraseña en su primer login (`mustChangePassword`), pero eso
 > solo protege si cambias la clave **antes** de que alguien más la use con
-> el valor conocido — es público, está en este repo.
+> el valor conocido (es público, está en este repo).
 >
 > Si perdiste tu contraseña o el dispositivo MFA de una cuenta ya
 > existente, no hace falta tocar la base de datos: ver
@@ -252,11 +295,12 @@ Password:  Umbral2024!
 **Backend ya desplegado y en producción** en Render:
 https://umbralapi.groundzerodevs.com/api/v1 (servicio `umbral-backend`,
 auto-deploy desactivado a propósito para no gastar crédito del free tier con
-cada push — el deploy es manual desde el dashboard de Render). Stack:
+cada push; el deploy es manual desde el dashboard de Render). Stack:
 **backend en Render** (free
-tier, ver limitación de cold start más abajo), **frontend pensado para
-Vercel** (`vercel.json` ya en el repo, `rootDir: frontend/`), **Postgres
-gestionado en Supabase** (Supavisor/PgBouncer en modo transacción — la
+tier, ver limitación de cold start más abajo), **frontend en Vercel**
+(`vercel.json` en `frontend/`, con el rewrite del SPA y los headers de
+seguridad, incluida una Content-Security-Policy), **Postgres
+gestionado en Supabase** (Supavisor/PgBouncer en modo transacción: la
 `DATABASE_URL` de producción necesita `?pgbouncer=true` al final, o el
 runtime choca con "prepared statement already exists" en cada reinicio),
 copia offsite de backups en **Backblaze B2** (ver
@@ -264,7 +308,7 @@ copia offsite de backups en **Backblaze B2** (ver
 
 > **Cold start de Render (free tier):** el proceso duerme a los 15 minutos
 > de inactividad y tarda 30-60s+ en despertar. Para el patrón de uso real
-> (un profesional abriendo la app entre pacientes, sesiones de 45-50 min —
+> (un profesional abriendo la app entre pacientes, sesiones de 45-50 min,
 > más que el timeout de Render) esto va a notarse en casi cada apertura. Se
 > acepta para el MVP mientras se prueba con el terapeuta; la migración a
 > una VM Oracle Cloud Always Free (always-on real, sin cold start) queda
@@ -315,36 +359,42 @@ copia offsite de backups en **Backblaze B2** (ver
      deploy`; el Transaction pooler (6543) no lo garantiza, por eso no sirve
      para `DIRECT_URL`.
 2. **Backend en Render**: conectar el repo, Render detecta `render.yaml`
-   (Blueprint) en la raíz — define el servicio, build/start command y qué
-   env vars hay que cargar a mano (`sync: false` en el archivo). Cargar ahí
+   (Blueprint) en la raíz: define el servicio, build/start command y qué
+   env vars hay que cargar a mano (`sync: false` en el archivo). El start
+   command es `npx prisma migrate deploy && npm run start:prod`, por lo que
+   las migraciones se aplican solas en cada deploy. Cargar ahí
    mismo: `DATABASE_URL`/`DIRECT_URL` del paso 1, `DOCUMENT_ENCRYPTION_KEY`
-   (`openssl rand -base64 32`), `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`
-   (nunca el default del README), `RESEND_API_KEY`/`MAIL_FROM` (issue #5) y
+   (`openssl rand -base64 32`), `GOOGLE_TOKEN_ENCRYPTION_KEY`,
+   `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` y `MFA_SECRET_ENCRYPTION_KEY` (cada
+   una con su propia clave), `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`
+   (nunca el default del README), `RESEND_API_KEY`/`MAIL_FROM` (issue #5),
+   `INVITE_CREATOR_EMAIL` (issue #124), `BACKEND_PUBLIC_URL` (URL pública del
+   backend, usada para armar la URL de confirmación de pagos) y
    `FRONTEND_URL` (se completa después del paso 3, se puede editar y
    redeployar). `JWT_SECRET` se autogenera vía `generateValue: true`.
    También cargar `RESEND_WEBHOOK_SECRET` (issue #163): se genera al crear
    el webhook en el dashboard de Resend (sección Webhooks), apuntando a
-   `<URL pública del backend>/api/v1/webhooks/resend` — el prefijo
+   `<URL pública del backend>/api/v1/webhooks/resend`; el prefijo
    `/api/v1` es obligatorio, sin él la ruta da 404. El panel de Resend no
    tiene botón "Send test event"; para probarlo hay que disparar un envío
    real (por ejemplo, reenviar el email de verificación) y confirmar que
    el evento `email.delivered` llega con `200`. Con `MAIL_FROM` en el
    default `onboarding@resend.dev` (dominio sandbox), Resend restringe el
    envío únicamente al email con el que te registraste en la cuenta, en
-   cualquier ambiente — para enviar a cualquier destinatario (pacientes
+   cualquier ambiente. Para enviar a cualquier destinatario (pacientes
    incluidos) hay que verificar un dominio propio en el dashboard de
    Resend (SPF/DKIM) y actualizar `MAIL_FROM` a ese dominio.
    También cargar `B2_AVATARS_ENDPOINT`/`B2_AVATARS_REGION`/
    `B2_AVATARS_BUCKET`/`B2_AVATARS_KEY_ID`/`B2_AVATARS_APPLICATION_KEY`
    (issue #170): storage de avatares en un bucket B2 **privado y separado**
    del que usan los backups offsite (ver
-   [Copia offsite real](#copia-offsite-real-backblaze-b2--rclone)) — crear
+   [Copia offsite real](#copia-offsite-real-backblaze-b2--rclone)): crear
    una Application Key nueva restringida solo a ese bucket, Read+Write.
    Mismo criterio para `B2_SHARED_FILES_ENDPOINT`/`B2_SHARED_FILES_REGION`/
    `B2_SHARED_FILES_BUCKET`/`B2_SHARED_FILES_KEY_ID`/
-   `B2_SHARED_FILES_APPLICATION_KEY` (issue #170, cerrado): storage de los archivos de la biblioteca privada
+   `B2_SHARED_FILES_APPLICATION_KEY` (issue #170): storage de los archivos de la biblioteca privada
    de cada terapeuta (`shared-files`), en otro bucket B2 **propio**, también
-   separado del de avatares y del de backups offsite — crear otra
+   separado del de avatares y del de backups offsite: crear otra
    Application Key restringida solo a ese bucket, Read+Write. Ya está
    cargada en el `.env` local y en las variables de entorno de Render.
    Mismo criterio para `B2_PATIENT_DOCUMENTS_ENDPOINT`/
@@ -352,9 +402,17 @@ copia offsite de backups en **Backblaze B2** (ver
    `B2_PATIENT_DOCUMENTS_KEY_ID`/`B2_PATIENT_DOCUMENTS_APPLICATION_KEY`
    (issue #158): storage de los documentos de ficha clínica (`documents`:
    exámenes, certificados, consentimientos), cifrados con AES-256-GCM antes
-   de subirlos — en un bucket B2 **propio**, separado del de avatares,
+   de subirlos, en un bucket B2 **propio**, separado del de avatares,
    shared-files y backups offsite, con su propia Application Key
    restringida solo a ese bucket, Read+Write.
+   Opcionalmente, cargar `SENTRY_DSN` (issue #191) para el error tracking, y
+   las variables de Google Calendar, pagos y auto-agenda pública
+   (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/`GOOGLE_REDIRECT_URI`,
+   `PAYMENTS_ENABLED`, `PUBLIC_SCHEDULING_ENABLED`) si se activan esas
+   funciones (ver Variables de Entorno). Para rotar claves de cifrado, el
+   `render.yaml` también declara las variables `*_KEYRING` y
+   `*_ACTIVE_KEY_ID` (ver
+   [`docs/rotacion-y-respaldo-de-claves.md`](docs/rotacion-y-respaldo-de-claves.md)).
 3. **Frontend en Vercel**: importar el repo con root directory `frontend/`
    (usa `vercel.json` para el rewrite de rutas del SPA). Variable
    `VITE_API_URL` apuntando a la URL pública del backend de Render + `/api/v1`.
@@ -363,7 +421,7 @@ copia offsite de backups en **Backblaze B2** (ver
 4. Correr `npm run seed` una vez contra la base de Supabase (con
    `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` de producción en el entorno) para
    crear el usuario semilla.
-5. Configurar backups offsite — ver
+5. Configurar backups offsite: ver
    [Copia offsite real](#copia-offsite-real-backblaze-b2--rclone).
 
 ### Orden de despliegue en cambios de contrato
@@ -391,8 +449,9 @@ esté arriba.
 Antes de desplegar Render conviene revisar lo que trae el backend desde el
 último deploy: migraciones en `backend/prisma/`, cambios en `render.yaml` y
 variables nuevas en `backend/src/config/env.validation.ts`. Después del
-deploy, comprobar que `/api/v1` responde `200` y que la pantalla afectada
-carga en producción.
+deploy, comprobar que `/api/v1/health` responde `200` (es el `healthCheckPath`
+de `render.yaml` y ejecuta un `SELECT 1` contra la base) y que la pantalla
+afectada carga en producción.
 
 ---
 
@@ -403,23 +462,28 @@ umbral-personal/
 ├── backend/
 │   ├── prisma/
 │   │   ├── schema.prisma         # Modelos de base de datos (un solo Role: PROFESSIONAL)
+│   │   ├── seed.ts               # Seed de la cuenta semilla (y feriados con SEED_HOLIDAYS=true)
+│   │   ├── seed-e2e.ts           # Seed de la cuenta con MFA para los tests e2e de Playwright (opt-in)
 │   │   └── migrations/           # Historial de migraciones
 │   ├── src/
 │   │   ├── instrument.ts         # Inicialización de Sentry (se importa antes que el resto de la app)
 │   │   ├── config/               # Validación de variables de entorno al arrancar (env.validation.ts)
+│   │   ├── health/               # GET /health (SELECT 1 contra la base, usado por Render y el monitor externo)
 │   │   ├── common/
 │   │   │   ├── guards/           # JwtAuthGuard (sin guard de roles -- ownership por therapistId)
-│   │   │   ├── decorators/       # CurrentUser, AuditRead (auditoría de lecturas/descargas)
+│   │   │   ├── decorators/       # CurrentUser, AuditRead (auditoría de lecturas/descargas), SkipAudit
 │   │   │   ├── interceptors/     # Audit Interceptor
+│   │   │   ├── middleware/       # IP real del cliente (TRUSTED_PROXY_HOPS)
 │   │   │   ├── filters/          # Filtros de excepciones (AllExceptions, Prisma)
-│   │   │   ├── crypto/           # Primitivas AES-256-GCM compartidas
+│   │   │   ├── crypto/           # AES-256-GCM compartido, llaveros versionados y recifrado (issue #382)
 │   │   │   ├── dto/              # DTOs compartidos (paginación)
 │   │   │   ├── validators/       # Validadores de class-validator propios
-│   │   │   └── utils/            # Storage B2, sanitizado de notas, hora de Chile, máscara de emails, etc.
+│   │   │   └── utils/            # Storage B2, sanitizado de notas, hora de Chile, edad/menores, RUT, slug, máscara de emails, etc.
 │   │   ├── modules/
-│   │   │   ├── auth/             # Signup, login, JWT, MFA obligatorio, recuperación de cuenta
-│   │   │   ├── patients/         # CRUD, consentimientos e historial de pacientes propios
+│   │   │   ├── auth/             # Signup, login, JWT, MFA obligatorio, sesiones revocables, recuperación de cuenta
+│   │   │   ├── patients/         # CRUD, consentimientos, representantes legales y asentimiento de menores, historial
 │   │   │   ├── consultations/    # Registro clínico versionado
+│   │   │   ├── discharges/       # Informe de alta: cierre de tratamiento, PDF, hash de integridad y entregas
 │   │   │   ├── documents/        # Documentos adjuntos por paciente
 │   │   │   ├── profile/          # Ver/editar los propios datos de cuenta + cambio de email diferido
 │   │   │   ├── notifications/    # Modelo genérico de notificaciones in-app (sdd/session-reminders)
@@ -430,31 +494,35 @@ umbral-personal/
 │   │   │   ├── public-scheduling/ # Portal público de auto-agenda sin autenticación (sdd/patient-self-scheduling)
 │   │   │   ├── mail/             # Envío de emails transaccionales (Resend)
 │   │   │   ├── webhooks/         # Webhook de Resend (tracking de entrega/apertura de emails)
-│   │   │   ├── reports/          # Generación de PDF
+│   │   │   ├── reports/          # Generación de PDF de la ficha clínica
 │   │   │   └── audit/            # Bitácora inmutable (interceptor global)
 │   │   ├── shared-files/         # Biblioteca personal (plantillas, protocolos) -- privada por usuario
 │   │   └── prisma/               # Servicio Prisma
-│   ├── scripts/                  # Scripts one-off (seed-holidays, notify-document-reupload)
+│   ├── test/                     # Tests e2e del backend (Jest + Supertest, contra Postgres real)
+│   ├── scripts/                  # Scripts manuales (seed-holidays, notify-document-reupload, reencrypt-keys)
 │   └── .env.example
 ├── frontend/
-│   └── src/
+│   ├── src/
 │       ├── api/                  # Cliente HTTP (Axios) y módulos por recurso
-│       │                         # (availability, consultations, documents,
-│       │                         # notifications, patients, publicScheduling, reports)
+│       │                         # (availability, consultations, discharges,
+│       │                         # documents, notifications, patients, payments,
+│       │                         # publicScheduling, reports)
 │       ├── context/              # AuthContext
-│       ├── components/           # Layout, IdleWarningModal, RecoveryCodesReveal
+│       ├── components/           # Layout, IdleManager, IdleWarningModal,
+│       │                         # ErrorBoundary, RecoveryCodesReveal
 │       │                         # y subcarpetas por dominio: availability/,
 │       │                         # booking/, calendar/, consultations/,
-│       │                         # notifications/, patients/, payments/,
-│       │                         # reminders/, ui/ (Modal, ConfirmDialog,
-│       │                         # ErrorBanner, EmptyState, FormField,
-│       │                         # RichTextEditor)
+│       │                         # discharges/, notifications/, patients/,
+│       │                         # payments/, reminders/, ui/ (Modal,
+│       │                         # ConfirmDialog, ErrorBanner, EmptyState,
+│       │                         # FormField, PasswordInput, RichTextEditor)
 │       ├── hooks/                # Un hook de TanStack Query por dominio
 │       │                         # (usePatients, useConsultations,
+│       │                         # useDischarges, useGuardians, useAssents,
 │       │                         # useAvailability, usePaymentAccount,
 │       │                         # useProfile, useMfa, etc.) + useIdleTimeout
 │       ├── utils/                # api-error, availability, datetime, download,
-│       │                         # error-tracking (Sentry), patient-search, rut, etc.
+│       │                         # error-tracking (Sentry), age, rut, etc.
 │       ├── types/, test/         # Tipos compartidos y setup de Vitest
 │       └── pages/                # Login, Signup, VerifyEmail, ForgotPassword,
 │                                  # ResetPassword, MfaRecover, ConfirmEmailChange,
@@ -462,13 +530,15 @@ umbral-personal/
 │                                  # Payments, PaymentReturn, PublicBooking,
 │                                  # Profile (datos de cuenta), Security (MFA,
 │                                  # conexión Google Calendar), SharedFiles
-├── docs/                         # Manual de uso, caso de testing, RAT, cláusula de transferencia,
+│   ├── e2e/                      # Tests e2e de Playwright (*.e2e.ts, *.mobile.e2e.ts) y helpers
+│   └── playwright.config.ts      # Proyectos de escritorio y móvil (Pixel 7)
+├── docs/                         # Manual de uso, caso de testing, RAT, cláusulas, rotación de claves,
 │   │                             # incident-log, evaluación de v1 y ficha de datos para la landing
 │   ├── decisiones/               # ADR (decisiones de arquitectura)
 │   └── evidencia-compliance/     # DPA y términos de proveedores, salida de npm audit
 ├── odd/tasks/                    # Documentos de seguimiento de features (ODD)
 ├── openspec/                     # Specs y cambios SDD (changes/, specs/)
-├── .github/workflows/            # CI (ci.yml) y backup diario (backup.yml)
+├── .github/workflows/            # CI (ci.yml: backend, frontend y e2e de Playwright) y backup diario (backup.yml)
 ├── docker-compose.yml            # Postgres 16 para desarrollo local
 ├── render.yaml                   # Blueprint del backend en Render
 ├── install.sh                    # Instalador para Ubuntu/Debian
@@ -480,59 +550,153 @@ umbral-personal/
 ## Funcionalidades
 
 ### Autenticación y Seguridad
-- Alta propia (self-signup) con verificación de email — no hay un admin que
+- Alta propia (self-signup) con verificación de email: no hay un admin que
   cree cuentas, cada profesional se registra solo (issue #5); desde el issue
   #124 requiere además un código de invitación de un solo uso, generado por
   el único email configurado en `INVITE_CREATOR_EMAIL` (sin rol ADMIN,
-  decisión explícita — ver Variables de Entorno)
+  decisión explícita; ver Variables de Entorno)
 - Login con email y contraseña (hash Argon2)
-- Tokens JWT con expiración configurable
+- Tokens JWT con expiración configurable y sesiones revocables (ver Perfil)
 - **MFA obligatorio para toda cuenta** (TOTP, compatible con Google
-  Authenticator y Authy) — se enrola forzosamente en el primer login exitoso,
-  no es opcional ni depende de un rol
+  Authenticator y Authy): se enrola forzosamente en el primer login exitoso,
+  no es opcional ni depende de un rol. El secreto TOTP se guarda cifrado en
+  reposo (`MFA_SECRET_ENCRYPTION_KEY`, issue #302) y cada código solo puede
+  usarse una vez (`lastUsedStep`)
+- Cifrado en reposo con AES-256-GCM y llaveros versionados: documentos de
+  pacientes, refresh token de Google, credenciales de Flow y secreto TOTP
+  usan cada uno su propia clave, y pueden rotarse sin perder datos (issue
+  #382, ver [`docs/rotacion-y-respaldo-de-claves.md`](docs/rotacion-y-respaldo-de-claves.md))
 - Recuperación de cuenta self-service sin intervención manual en la base de
   datos: contraseña olvidada por email, y 10 códigos de recuperación de un
   solo uso para desactivar MFA si se pierde el dispositivo (issue #50, ver
   [Recuperación de cuenta](#recuperación-de-cuenta-issue-50))
-- Ownership estricto por `therapistId` en cada consulta — sin roles ni
-  jerarquías: cada cuenta ve y administra únicamente sus propios pacientes
+- Ownership estricto por `therapistId` en cada consulta: sin roles ni
+  jerarquías, cada cuenta ve y administra únicamente sus propios pacientes
 - Rate limiting con throttlers independientes por endpoint sensible (login,
   mfa/verify, signup, mfa/setup, password/change, password/reset,
-  mfa/recover — `@nestjs/throttler`)
-- Headers HTTP seguros con Helmet.js
+  mfa/recover, verificación y reenvío de email, confirmación de cambio de
+  email, `PATCH /profile`, y los endpoints públicos de pagos y de
+  auto-agenda; `@nestjs/throttler`). La IP del cliente se resuelve con
+  `TRUSTED_PROXY_HOPS`
+- Headers HTTP seguros con Helmet.js; en el frontend, Content-Security-Policy
+  y demás headers definidos en `frontend/vercel.json` (ADR 0003)
+- Cierre de sesión por inactividad en el frontend (aviso previo con
+  `IdleWarningModal`)
 
 ### Gestión de Pacientes (Ley 20.584)
 - Ficha completa con datos de identificación y contacto de emergencia
 - Consentimiento granular por finalidad (`TREATMENT`, `TELEMEDICINE`) como
-  ledger append-only (Ley 21.719) — otorgar o revocar no borra el historial
-- Acceso a fichas siempre restringido al profesional dueño (`therapistId`) —
-  sin excepciones ni accesos de terceros
-- Soft delete — los registros nunca se eliminan físicamente
-- Búsqueda por nombre o RUT, historial de cambios (`PatientHistory`)
+  ledger append-only (Ley 21.719): otorgar o revocar no borra el historial.
+  La declaración retroactiva en bloque (issue #131) permite registrar el
+  consentimiento de pacientes ya existentes
+- Acceso a fichas siempre restringido al profesional dueño (`therapistId`),
+  sin excepciones ni accesos de terceros. El RUT del paciente es único por
+  terapeuta, no global (issue #314)
+- Soft delete: los registros nunca se eliminan físicamente
+- Búsqueda por nombre o RUT con listado paginado, historial de cambios
+  (`PatientHistory`) y desglose por canal de origen en el dashboard
+- Estado del tratamiento (`treatmentStatus`): `ACTIVE`, `DISCHARGED`,
+  `REFERRED` o `DROPPED_OUT`. Un tratamiento cerrado no admite consultas
+  nuevas ni reservas públicas; agendar una consulta con confirmación
+  (`reopenPatient`) lo reabre (ver Informe de alta)
+
+### Pacientes menores y representante legal (ADR 0007)
+- La edad se calcula en el servidor (mayoría de edad a los 18 años, hora de
+  Chile). Cada ficha informa si el paciente es menor y su estado
+  (`minorStatus`), por ejemplo falta de representante o consentimiento
+  heredado otorgado por el propio paciente
+- Hasta dos representantes legales por paciente (`LegalGuardian`: nombre, RUT,
+  relación, email, teléfono, tutela `SOLE`/`SHARED`/`UNKNOWN`, conflicto entre
+  representantes y permisos de consentir, acceder a reportes, recibir
+  comunicaciones y pagar), con alta, edición y baja desde la ficha
+  (`/patients/:patientId/guardians`)
+- Para un menor, otorgar el consentimiento de tratamiento exige un
+  representante con permiso de consentir; revocarlo nunca se bloquea. El
+  ledger de consentimientos registra quién lo otorgó (`grantedBy`:
+  `PATIENT` o `GUARDIAN`). Desde la fecha de vigencia 2026-12-01
+  (`MINOR_GUARDIAN_ENFORCEMENT_DATE`) el consentimiento de un menor debe
+  haberlo otorgado su representante; antes de esa fecha el consentimiento
+  heredado se acepta y se marca como `LEGACY_CONSENT`
+- Asentimiento del menor (`PatientAssent`, ledger append-only): el paciente
+  menor de 14 años es informado y escuchado, y de 14 a 17 años se registra su
+  asentimiento (`GRANTED`, `REFUSED`, `WITHDRAWN` o `INFORMED_AND_HEARD`).
+  Nunca reemplaza el consentimiento del representante, y un rechazo no
+  bloquea nada: alerta al terapeuta (`/patients/:patientId/assents`)
+- Al subir un documento de consentimiento de un menor se exige indicar el
+  representante que lo firma
+- Auto-agenda pública de menores: la reserva identifica al paciente por su
+  RUT y el del representante, que es el contacto de pago y comunicaciones
+  (ver Auto-agenda pública)
 
 ### Registro Clínico
 - Registro cronológico de sesiones con fecha y hora automática
 - Campos: motivo de consulta, intervención, acuerdos y próxima sesión
 - Soporte para sesiones presenciales y telemedicina
-- Sistema de versionado legal — las correcciones crean nuevas versiones sin
+- Sistema de versionado legal: las correcciones crean nuevas versiones sin
   alterar el original (`ConsultationHistory`)
+- Las notas clínicas (motivo de consulta, intervención) se sanitizan en el
+  backend (`sanitize-html`) y se editan con un editor de texto enriquecido
+  (Tiptap)
+- Vista de calendario mensual de las sesiones (`GET /consultations/range`)
+- Al agendar una consulta de un paciente con tratamiento cerrado, el backend
+  responde `409` con el código `PATIENT_TREATMENT_CLOSED`; reenviar la
+  solicitud con `reopenPatient` reabre el tratamiento y lo audita como
+  `TREATMENT_REOPENED` (issue #446)
+
+### Informe de alta (ADR 0006)
+- Cierre formal del tratamiento con un informe versionado e inmutable
+  (`TreatmentDischarge`). Motivo de cierre: `DISCHARGED`, `REFERRED` o
+  `DROPPED_OUT`; en una deserción se exige el motivo (`DropoutReason`) y,
+  para `OTHER`, una nota breve; en una derivación se puede indicar el destino
+- Dos orígenes: informe **generado** por Umbral (borrador editable que se
+  emite con `POST /discharges/:id/issue`, con PDF propio) o informe
+  **aportado** por el terapeuta (`POST /patients/:patientId/discharges/upload`,
+  solo PDF, que nace emitido y la interfaz lo identifica como aportado, no
+  como generado por el sistema)
+- Al emitir, el informe fija un hash SHA-256 canónico del contenido y un
+  snapshot del firmante (nombre, RUT y registro profesional del perfil). Para
+  un informe generado, el RUT del terapeuta en el perfil es obligatorio.
+  `GET /discharges/:id/verify` recalcula el hash y comprueba la integridad
+  del PDF guardado; el PDF se cifra y se guarda como documento de ficha
+  (`DISCHARGE_REPORT`) y no se puede subir por la vía de documentos comunes
+- Un informe emitido nunca se edita: `POST /discharges/:id/correct` (o
+  `correct-upload` para uno aportado) crea una versión nueva que hereda el
+  `groupId`
+- Emitir el informe cancela las consultas futuras del paciente (vista previa
+  en `GET /patients/:patientId/discharges/cancellation-preview`), borra sus
+  eventos de Google Calendar y avisa por email al paciente adulto, o a los
+  representantes que reciben comunicaciones si es menor, sin incluir el
+  motivo del cierre. Se audita como `TREATMENT_CLOSED`, `DISCHARGE_ISSUE` y
+  `CONSULTATION_CANCELLED`
+- Registro de entregas (`DischargeDelivery`, solo se agrega): a quién se
+  entregó el informe (paciente, representante o tercero), con qué fin y por
+  qué canal (`IN_PERSON`, `EMAIL`, `POSTAL`, `OTHER`). La entrega a un tercero
+  exige un documento de autorización del mismo paciente (`DELIVERY_AUTHORIZATION`)
+  y una declaración del terapeuta de que lo revisó; Umbral solo deja
+  constancia de esa declaración y no valida el documento. Se audita como
+  `DISCHARGE_DELIVER`; la descarga del PDF se audita como lectura
 
 ### Documentos y Archivos
-- Documentos clínicos por paciente (consentimiento informado, informes,
-  otros), PDF, Word, Excel, ZIP e imágenes hasta 25MB
+- Documentos clínicos por paciente (consentimiento informado, asentimiento
+  informado, acuerdo de telemedicina, informe del paciente, resumen de
+  sesión, resultado de examen, autorización de entrega, informe de alta y
+  otros), PDF, Word, Excel, ZIP e imágenes hasta 25MB, cifrados con AES-256-GCM
+  antes de subirse a B2
 - Anulación de documentos subidos por error, con motivo obligatorio: el
   documento no se elimina (custodia de 15 años), queda marcado como anulado y
   sigue descargable. Si sustentaba el consentimiento vigente y no queda otro
   documento del mismo tipo, se registra un `REVOKE` en el ledger de
   consentimientos
-- Biblioteca personal de archivos (plantillas, protocolos, formularios) —
+- Biblioteca personal de archivos (plantillas, protocolos, formularios):
   privada por cuenta, no se comparte entre profesionales ni está ligada a
   pacientes
 
 ### Perfil (issue #76)
 - Cada cuenta puede ver y editar sus propios datos (email, nombre,
-  contraseña) vía `GET`/`PATCH /profile` — sin panel de administración de
-  terceros, porque no hay terceros que administrar
+  contraseña) vía `GET`/`PATCH /profile`, sin panel de administración de
+  terceros, porque no hay terceros que administrar. También se editan el RUT
+  y el registro profesional del terapeuta (`rut`, `professionalRegistration`),
+  que se copian al informe de alta al emitirlo
 - Cambio de nombre inmediato; cambio de email diferido hasta confirmarlo
   desde un enlace de un solo uso enviado a la casilla nueva (`POST
   /profile/email-change/confirm`), con aviso a la casilla antigua
@@ -544,16 +708,18 @@ umbral-personal/
   vencida). `POST /auth/logout` revoca la sesión actual y `POST
   /auth/logout-all` todas las del usuario (auditados como `LOGOUT` /
   `LOGOUT_ALL`). Los tokens emitidos antes de este cambio no traen `jti` y se
-  rechazan: cada usuario vuelve a iniciar sesión una vez
+  rechazan: cada usuario vuelve a iniciar sesión una vez. Un cron diario
+  (04:00) borra las sesiones expiradas o revocadas hace más de 7 días
+  (`SESSION_PURGE_ENABLED`)
 - Throttler propio (`profile-update`, keyed por `userId`) en `PATCH
   /profile`, independiente del resto de los throttlers de `auth`
 - Foto de perfil: subir/reemplazar (`POST /profile/avatar`, JPG/PNG/WEBP/GIF
   hasta 5MB), verla (`GET /profile/avatar`) y eliminarla (`DELETE
-  /profile/avatar`) — almacenada en Backblaze B2, no en disco local (ver
+  /profile/avatar`), almacenada en Backblaze B2, no en disco local (ver
   Variables de Entorno, `B2_AVATARS_*`, issue #170)
 - Perfil público (issue #155): bio (hasta 500 caracteres) y especialidad
   (hasta 120 caracteres), editables desde la sección "Perfil público" junto
-  al resto de los datos de cuenta (mismo `PATCH /profile`) — se muestran sin
+  al resto de los datos de cuenta (mismo `PATCH /profile`); se muestran sin
   autenticación en la auto-agenda pública (ver más abajo)
 - Sitio web del terapeuta (`User.website`, opcional, solo `http`/`https`):
   se edita en Perfil con el mismo `PATCH /profile` y se muestra como enlace
@@ -564,7 +730,7 @@ umbral-personal/
   de no leídas, marcar una o todas como leídas)
 - Recordatorio automático de sesión 24h y 2h antes de cada consulta
   agendada, por dos canales independientes (in-app + email) con garantía
-  de envío exactamente una vez por (consulta, offset, canal) — un fallo en
+  de envío exactamente una vez por (consulta, offset, canal); un fallo en
   un canal no bloquea ni duplica el otro
 - Cron de escaneo cada 5 minutos (`RemindersService`, desactivable con
   `REMINDERS_ENABLED=false` sin necesitar un deploy/revert)
@@ -598,12 +764,12 @@ umbral-personal/
   consulta crea o actualiza el evento; un paciente eliminado borra sus
   eventos futuros. Lo que se edite en Google nunca se refleja en Umbral
 - Contenido minimizado: el evento solo lleva iniciales del paciente, un
-  código corto no reversible y un link a Umbral — nunca el nombre
+  código corto no reversible y un link a Umbral, nunca el nombre
   completo, el RUT, el tipo de sesión ni texto clínico
 - Backfill acotado a una ventana al conectar; reconciliador periódico que
   repara links fallidos y eventos desincronizados
 - Ante un token revocado o expirado (401/`invalid_grant`), la conexión se
-  marca desconectada y se notifica una sola vez — nunca reintenta en loop
+  marca desconectada y se notifica una sola vez, sin reintentar en loop
 - Toda falla de sincronización es un efecto secundario no bloqueante: la
   escritura clínica que la dispara siempre se guarda igual
 - Desactivable por completo con `GOOGLE_CALENDAR_SYNC_ENABLED=false`; sin
@@ -614,27 +780,40 @@ umbral-personal/
   Google, por lo que cada refresh token conectado expira a los ~7 días en
   vez de durar indefinidamente. Mientras esa verificación no se complete,
   una conexión existente puede desconectarse sola (ver el ítem anterior) con
-  más frecuencia de la esperada — no es un bug de Umbral, es una restricción
+  más frecuencia de la esperada. No es un bug de Umbral, es una restricción
   de la app OAuth mientras no esté verificada por Google
+- Conectar o desconectar el calendario queda registrado en la bitácora
+  (`CALENDAR_CONNECTED`/`CALENDAR_DISCONNECTED`). Si se conecta otra cuenta de Google, Umbral no
+  detecta el cambio (el scope `calendar.events` no expone el email de la
+  cuenta) y los eventos ya creados en la cuenta anterior quedan ahí, sin
+  borrarse (limitación documentada, issue #427)
 
 ### Cobro en línea (sdd/online-payment-integration, sdd/payments-multigateway-redesign)
 - Cargo pendiente automático al crear una consulta, solo si el terapeuta
   dueño tiene su propia cuenta Flow conectada (cuenta *therapist-owned*:
-  cada terapeuta pasea sus propias credenciales de comercio Flow —
-  Umbral nunca custodia los fondos del paciente ni las credenciales en
-  claro)
+  cada terapeuta aporta sus propias credenciales de comercio Flow).
+  Umbral nunca custodia los fondos del paciente ni guarda las credenciales
+  en claro: se cifran en reposo con `PAYMENT_CREDENTIALS_ENCRYPTION_KEY`
 - El cargo queda identificado por el `groupId` de la consulta (no por su
   id de versión): corregir una sesión actualiza el mismo cargo y mueve su
   fecha de vencimiento en vez de crear uno segundo
 - Monto snapshoteado al crear el cargo (`Patient.defaultSessionAmount` o un
-  override por sesión) — un cambio posterior del monto por defecto nunca
-  reescribe un cargo ya emitido
+  override por sesión): un cambio posterior del monto por defecto nunca
+  reescribe un cargo ya emitido. El mínimo que acepta Flow es 350 CLP
+- El vencimiento del cargo suma 24 horas de gracia a la fecha de la sesión
+  (o a la fecha de creación, si la sesión ya ocurrió), issue #284
+- Cron de reconciliación cada 30 minutos (`PaymentReconciliationService`):
+  consulta a Flow los cargos pendientes cuyo callback pudo perderse, marca
+  como vencidos (`LATE`) los que pasaron su fecha y notifica al terapeuta
+  (`PAYMENT_LATE`). El webhook `POST /payments/confirm` sigue siendo la fuente
+  de confirmación, y el estado que ve el paciente al volver del checkout
+  (`GET /payments/return-status`) no revela datos personales
 - Reintento de cobro: si al crear la consulta no se pudo generar el cargo en
   Flow (por ejemplo, por un fallo transitorio), `POST
   /payments/:groupId/retry-charge` vuelve a intentar crear la orden para un
   cargo que todavía no tiene link de pago (issue #271)
 - Wizard de 5 pasos conecta la cuenta Flow del terapeuta (pegar
-  apiKey/secretKey, validar contra Flow antes de persistir, confirmación) —
+  apiKey/secretKey, validar contra Flow antes de persistir, confirmación);
   reemplaza el flujo `onboard()`/`createMerchant` retirado
 - Desactivable por completo con `PAYMENTS_ENABLED=false` sin necesitar un
   deploy/revert; sin una cuenta Flow conectada, agendar sesiones se
@@ -650,7 +829,7 @@ umbral-personal/
   ruta, así que los links antiguos no se rompen
 - Perfil público del terapeuta (issue #155) antes del calendario: nombre,
   foto (cuadrada, con degradación graciosa a iniciales si no hay avatar o
-  falla el fetch), especialidad y bio — vía `GET
+  falla el fetch), especialidad, bio y sitio web, vía `GET
   /public/therapists/:therapistId/profile` y `GET
   /public/therapists/:therapistId/avatar`, ambos sin autenticación. El
   avatar responde con `Cross-Origin-Resource-Policy: cross-origin` (issue
@@ -663,8 +842,8 @@ umbral-personal/
   en el dashboard (`GET /patients/stats/acquisition`), sección "Origen de
   pacientes"
 - El terapeuta configura su propio horario semanal recurrente y sus
-  bloqueos (día completo, rango horario o rango de fechas) desde Perfil —
-  sin acceso admin/dev — y define ahí mismo la duración de sus sesiones
+  bloqueos (día completo, rango horario o rango de fechas) desde Perfil,
+  sin acceso admin/dev, y define ahí mismo la duración de sus sesiones
   (`User.sessionDurationMinutes`)
 - Cálculo de horarios libres al momento de la consulta (con cache en
   memoria de ~5 min): resta consultas ya agendadas, bloqueos del
@@ -675,23 +854,31 @@ umbral-personal/
 - Identidad del paciente resuelta por `(email, therapistId)`: si ya existe
   como paciente de ese terapeuta, la reserva se liga a su ficha completa;
   si no, se crea un `Patient` nuevo con un formulario público reducido
-  (nombre, RUT, fecha de nacimiento, email) — sin monto por defecto de
+  (nombre, RUT, fecha de nacimiento, email), sin monto por defecto de
   cobro ni documentos de consentimiento, que siguen siendo manejados por
-  el terapeuta. Sin OTP ni ningún paso de autenticación para el paciente
+  el terapeuta. Sin OTP ni ningún paso de autenticación para el paciente.
+  Si el paciente es adulto y su ficha ya existe, pero tiene el tratamiento
+  cerrado, la reserva se rechaza con el mismo `409` genérico
+- Reserva de un menor de edad: el formulario pide además los datos de un
+  representante legal (nombre, RUT, relación y email obligatorio, teléfono
+  opcional). El menor se identifica por su RUT dentro del terapeuta y el
+  representante por el suyo, porque un menor puede no tener email propio; la
+  ficha del menor y su representante se crean en la misma transacción que la
+  consulta. Una ficha de menor nunca se reutiliza solo por email
 - Concurrencia real garantizada por `BookedSlot` (`(therapistId, slotStart)`
-  único) dentro de una transacción — un doble booking simultáneo
+  único) dentro de una transacción: un doble booking simultáneo
   devuelve `409 Conflict` limpio en vez de duplicar la sesión
 - Un RUT o email ambiguo entre terapeutas responde siempre el mismo `409`
   genérico, sin revelar si el dato ya existe en otro lado (privacidad)
 - La reserva creada dispara los mismos efectos secundarios no bloqueantes
   que una consulta agendada por el terapeuta (sync a Google Calendar,
-  cargo Flow pendiente) — no se envía email de confirmación al paciente
+  cargo Flow pendiente). No se envía email de confirmación al paciente
   ni de aviso al terapeuta todavía (fuera de alcance de este cambio)
 - Throttlers propios `public-availability` (lectura) y `public-booking`
   (escritura, mismo presupuesto conservador que login/signup), keyed por
   IP + terapeuta (y hash SHA-256 del email en booking, nunca en claro)
 - Desactivable por completo con `PUBLIC_SCHEDULING_ENABLED=false` (o sin
-  setear, que es el default) sin necesitar un deploy/revert — cubre tanto
+  setear, que es el default) sin necesitar un deploy/revert; cubre tanto
   la lectura de disponibilidad como la reserva
 
 #### Overlay de Google Calendar y checkout en línea (sdd/public-booking-payment-calendar)
@@ -706,27 +893,39 @@ umbral-personal/
   pública pollea `GET .../book/:groupId/checkout` y muestra el link de
   pago en la misma página, además del email existente
 - Los dos flags son independientes entre sí: cada uno lee su propia env
-  var y ninguno consulta ni depende del estado del otro — apagar uno no
+  var y ninguno consulta ni depende del estado del otro: apagar uno no
   afecta al otro. Ambos son opt-in (`=== 'true'`, no `!== 'false'`): sin
   setear, ninguno de los dos cambia el comportamiento pre-existente
 
 ### Exportación PDF
-- Generación de ficha clínica completa en PDF
+- Generación de ficha clínica completa en PDF (`GET /reports/patient/:patientId`)
 - Incluye datos del paciente e historial clínico completo
 - Pie de página con referencia a Ley 20.584 y custodia obligatoria de 15 años
+- El informe de alta tiene su propio PDF (`GET /discharges/:id/pdf`), ver
+  Informe de alta
 
 ### Auditoría (Bitácora Inmutable)
-- Registro automático de todas las acciones del sistema vía interceptor global
+- Registro automático de las acciones del sistema vía interceptor global,
+  incluidas las lecturas (`GET` queda como `VIEW`) y las descargas, que se
+  marcan con `@AuditRead` (issue #175). Las rutas del informe de alta que
+  registran su propia fila explícita usan `@SkipAudit` para no duplicarla
+- Acciones sensibles con su propio tipo: inicio y cierre de sesión (`LOGIN`,
+  `LOGIN_FAILED`, `LOGOUT`, `LOGOUT_ALL`), MFA, recuperación de cuenta,
+  cambios de contraseña y de email, conexión de Google Calendar y de la
+  cuenta de pagos, anulación de documentos y ciclo de vida del informe de alta
+- Los accesos denegados o a recursos inexistentes o ajenos se registran como
+  `UNAUTHORIZED_ATTEMPT`, con un tope por IP y ventana
+  (`UNAUTHORIZED_AUDIT_LIMIT`)
 - Campos: usuario, acción, recurso, IP, user-agent, timestamp y detalle
   libre (`detail`) cuando aplica
-- Tabla append-only — ningún registro puede modificarse ni eliminarse
+- Tabla append-only: ningún registro puede modificarse ni eliminarse
 
 ### Backups Automáticos
 - Workflow diario de GitHub Actions (`.github/workflows/backup.yml`), sin
   depender de ningún servidor propio (issue #8)
 - Compresión gzip + cifrado AES-256 de los respaldos (nunca se escribe un
   volcado sin cifrar a disco)
-- Sin rotación: se conserva todo indefinidamente — al volumen real
+- Sin rotación: se conserva todo indefinidamente. Al volumen real
   (~40 KB/backup diario), 15 años de historial completo entran cómodos en
   los 10 GB gratis de B2, sin necesidad de distinguir "operativo" de
   "custodia legal" (Ley 20.584: 15 años)
@@ -734,7 +933,7 @@ umbral-personal/
   restringida (sin `deleteFiles`) para que un secret filtrado no permita
   borrar el historial (issue #58)
 - Tercera copia local en la máquina del terapeuta, espejo de B2 vía una key
-  de solo lectura separada (regla 3-2-1, issue #57) — ver sección
+  de solo lectura separada (regla 3-2-1, issue #57); ver sección
   [Copia offsite real](#copia-offsite-real-backblaze-b2--rclone)
 
 ---
@@ -789,6 +988,29 @@ POST   /api/v1/patients/:id/consents           🔒
 GET    /api/v1/patients/:id/consents/status    🔒
 GET    /api/v1/patients/:id/consents           🔒
 POST   /api/v1/patients/consents/bulk-declare  🔒 (declaración retroactiva en bloque, issue #131)
+GET    /api/v1/patients/:patientId/guardians                🔒 (representantes legales, máx. 2)
+POST   /api/v1/patients/:patientId/guardians                🔒
+PATCH  /api/v1/patients/:patientId/guardians/:guardianId    🔒
+DELETE /api/v1/patients/:patientId/guardians/:guardianId    🔒
+GET    /api/v1/patients/:patientId/assents                  🔒 (asentimiento de menores)
+POST   /api/v1/patients/:patientId/assents                  🔒
+```
+
+### Informe de alta
+```
+POST  /api/v1/patients/:patientId/discharges                      🔒 (crea el borrador)
+GET   /api/v1/patients/:patientId/discharges                      🔒
+GET   /api/v1/patients/:patientId/discharges/cancellation-preview 🔒 (consultas futuras que cancelaría el cierre)
+POST  /api/v1/patients/:patientId/discharges/upload               🔒 (informe aportado por el terapeuta, solo PDF)
+GET   /api/v1/discharges/:id                                      🔒
+PATCH /api/v1/discharges/:id                                      🔒 (edita un borrador)
+POST  /api/v1/discharges/:id/issue                                🔒 (emite, cierra el tratamiento y cancela consultas futuras)
+POST  /api/v1/discharges/:id/correct                              🔒 (nueva versión de un informe generado)
+POST  /api/v1/discharges/:id/correct-upload                       🔒 (nueva versión de un informe aportado)
+GET   /api/v1/discharges/:id/pdf                                  🔒
+GET   /api/v1/discharges/:id/verify                               🔒 (recalcula el hash de integridad)
+POST  /api/v1/discharges/:id/deliveries                           🔒 (registra una entrega)
+GET   /api/v1/discharges/:id/deliveries                           🔒
 ```
 
 ### Consultas
@@ -814,7 +1036,7 @@ GET  /api/v1/documents/:id/download       🔒
 GET    /api/v1/shared-files              🔒
 GET    /api/v1/shared-files/:id          🔒
 GET    /api/v1/shared-files/:id/download 🔒
-POST   /api/v1/shared-files/upload       🔒
+POST   /api/v1/shared-files/upload       🔒 (multipart, máx. 50MB)
 PATCH  /api/v1/shared-files/:id          🔒
 DELETE /api/v1/shared-files/:id          🔒
 ```
@@ -855,7 +1077,7 @@ GET    /api/v1/public/therapists/:therapistId/avatar                    (públic
 ```
 Las de `availability` requieren `PUBLIC_SCHEDULING_ENABLED=true` (ver
 Variables de Entorno) y no llevan 🔒 porque son intencionalmente accesibles
-sin sesión — es el portal que usa el paciente para autoagendarse. `profile`
+sin sesión, porque es el portal que usa el paciente para autoagendarse. `profile`
 y `avatar` (issue #155) no dependen de ese flag y quedan siempre públicas.
 En todas estas rutas `:therapistId` acepta el slug del terapeuta o su UUID;
 un valor desconocido responde igual que antes (`404`, o lista vacía en
@@ -874,11 +1096,18 @@ POST   /api/v1/payments/:groupId/retry-charge      🔒 (reintenta crear el carg
 POST   /api/v1/payments/confirm                       (webhook de Flow, sin auth, firma verificada)
 GET    /api/v1/payments/return                        (redirect del paciente tras el checkout, sin auth)
 POST   /api/v1/payments/return                        (mismo caso, safety net de método HTTP)
+GET    /api/v1/payments/return-status?token=          (estado PAID/PENDING/REJECTED del cobro tras el checkout, sin auth, sin datos personales)
 ```
 
 ### Webhooks
 ```
 POST /api/v1/webhooks/resend    (webhook de Resend, sin JWT, firma Svix verificada; 501 sin RESEND_WEBHOOK_SECRET)
+```
+
+### Salud del servicio
+```
+GET /api/v1/health    (sin auth, SELECT 1 contra la base; 200 {"status":"ok"} o 503)
+GET /api/v1/          (sin auth, respuesta de texto fija de `AppController`, sin uso funcional)
 ```
 
 > 🔒 Requiere token JWT en el header `Authorization: Bearer <token>`
@@ -887,7 +1116,7 @@ POST /api/v1/webhooks/resend    (webhook de Resend, sin JWT, firma Svix verifica
 
 ## Configuración de Backups
 
-Producción corre íntegramente vía GitHub Actions — no hay ningún script
+Producción corre íntegramente vía GitHub Actions: no hay ningún script
 local que configurar. Ver el setup completo en la sección siguiente.
 
 ### Copia offsite real (Backblaze B2 + rclone)
@@ -897,7 +1126,7 @@ trial; el backup ya llega cifrado con AES-256 antes de subirse, así que B2
 nunca tiene acceso al contenido en claro). Se descartó usar hosting propio
 existente (ej. HostGator) porque su Acceptable Use Policy prohíbe
 explícitamente usar el espacio de shared hosting como *"offsite storage of
-electronic files"* — ver la discusión completa en el issue #17.
+electronic files"* (ver la discusión completa en el issue #17).
 
 #### A) Automatizado vía GitHub Actions (producción actual)
 
@@ -913,12 +1142,12 @@ Setup (una sola vez):
 1. Crear cuenta gratuita en Backblaze B2 y un bucket **privado**.
 2. Crear una Application Key **restringida al bucket** con capabilities
    `listFiles` + `writeFiles` únicamente (sin `deleteFiles` ni
-   `readFiles`) — es la key que va a vivir en el secret de CI. El
+   `readFiles`), que es la key que va a vivir en el secret de CI. El
    workflow de GitHub Actions solo necesita subir backups nuevos
    (`rclone copy`), nunca leerlos ni borrarlos, así que aunque el secret
    `RCLONE_CONFIG_CONTENT` se filtre (ej. una vulnerabilidad en una
    Action de terceros), un atacante no puede borrar el historial de
-   backups existente — el escenario de ransomware que el offsite
+   backups existente, que es el escenario de ransomware que el offsite
    debería mitigar (issue #58). Para restaurar o listar backups desde tu
    propia máquina, genera una segunda key aparte con `readFiles` +
    `listFiles` (sin `writeFiles`) y úsala solo local, nunca en un secret
@@ -933,8 +1162,8 @@ Setup (una sola vez):
 
    | Secret | Valor |
    |---|---|
-   | `BACKUP_DB_URL` | El `DIRECT_URL` de Supabase (session pooler, puerto 5432 — mismo que usa Render para `prisma migrate deploy`, no el transaction pooler) |
-   | `BACKUP_PASSPHRASE` | `openssl rand -base64 48` — guarda una copia en un gestor de contraseñas, sin ella los backups son irrecuperables |
+   | `BACKUP_DB_URL` | El `DIRECT_URL` de Supabase (session pooler, puerto 5432, el mismo que usa Render para `prisma migrate deploy`, no el transaction pooler) |
+   | `BACKUP_PASSPHRASE` | `openssl rand -base64 48`; guarda una copia en un gestor de contraseñas, sin ella los backups son irrecuperables |
    | `RCLONE_CONFIG_CONTENT` | Contenido completo de `rclone.conf` generado en el paso 3 |
    | `B2_BUCKET_PATH` | `nombre-del-remote:mi-bucket/umbral/` (el remote que configuraste en `rclone config`) |
 
@@ -942,7 +1171,7 @@ Setup (una sola vez):
    `Run workflow`) y verificar que el archivo aparezca en el bucket de B2.
 6. Verificar al menos una restauración real desde la copia offsite antes de
    dar por cerrado el punto (ver "Restaurar un backup" abajo). **Hecho y
-   verificado el 2026-08-03** (issue #56) — detalle completo del
+   verificado el 2026-08-03** (issue #56); detalle completo del
    procedimiento y resultado en [`docs/incident-log.md`](docs/incident-log.md).
 
 > Mientras estos 4 secrets no estén cargados, el workflow no falla: corta
@@ -958,7 +1187,7 @@ Con Supabase (origen) + B2 (offsite) hay 2 copias en 2 medios, pero la regla
 respaldo en un medio físico distinto: la máquina local del terapeuta,
 sincronizada desde B2.
 
-Importante: se usa `rclone copy`, **no** `rclone sync` — `sync` replica
+Importante: se usa `rclone copy`, **no** `rclone sync`, porque `sync` replica
 borrados desde B2 hacia lo local, así que si un backup se borra por error
 (o la cuenta de B2 se ve comprometida) esa pérdida se propagaría a la
 copia local. `copy` solo agrega, nunca borra.
@@ -975,8 +1204,8 @@ b2 key create --bucket mi-bucket umbral-local-mirror listFiles,readFiles
 Setup (una sola vez):
 
 1. Agregar un segundo remote en `rclone.conf` (junto al usado por el punto
-   A) con las credenciales de la key de solo lectura de arriba — nunca la
-   de CI:
+   A) con las credenciales de la key de solo lectura de arriba (nunca la
+   de CI):
 
    ```ini
    [b2read]
@@ -1025,7 +1254,7 @@ openssl enc -d -aes-256-cbc -pbkdf2 -pass file:"$HOME/.umbral_backup_passphrase"
 Si restauras un dump que viene de Supabase (backup offsite vía A) contra un
 Postgres que no es Supabase (ej. un descartable local para probar), vas a ver
 ~600 líneas de `ERROR: no existe el rol «...»` para roles internos de
-Supabase (`supabase_admin`, `dashboard_user`, `vault`, `pgbouncer`, etc.) —
+Supabase (`supabase_admin`, `dashboard_user`, `vault`, `pgbouncer`, etc.);
 son esperables y no afectan las tablas de la app, `psql -f`/`psql <` los
 saltea y sigue. Confirma que restauró bien mirando solo tus tablas:
 
@@ -1046,9 +1275,12 @@ SELECT relname, n_live_tup FROM pg_stat_user_tables WHERE schemaname = 'public';
 | Inalterabilidad de registros | Versionado en consultas + soft delete en pacientes |
 | Bitácora de accesos | Audit Log inmutable con registro de todas las acciones |
 | Consentimiento granular por finalidad (Ley 21.719) | Ledger append-only `PatientConsent` por `TREATMENT`/`TELEMEDICINE` |
-| Sin acceso de terceros a fichas ajenas | Ownership estricto por `therapistId` — no existe ningún rol ni excepción que permita ver pacientes de otra cuenta |
+| Sin acceso de terceros a fichas ajenas | Ownership estricto por `therapistId`: no existe ningún rol ni excepción que permita ver pacientes de otra cuenta |
 | Inventario de tratamiento (RAT) | Ver [`docs/registro-actividades-tratamiento.md`](docs/registro-actividades-tratamiento.md) |
-| Disponibilidad de la ficha ante pérdida de credenciales (Ley 20.584 art. 12, Ley 21.719) | Recuperación de cuenta self-service — ver abajo |
+| Disponibilidad de la ficha ante pérdida de credenciales (Ley 20.584 art. 12, Ley 21.719) | Recuperación de cuenta self-service, ver abajo |
+| Cierre del tratamiento e integridad del informe de alta | Informe de alta versionado e inmutable con hash SHA-256 y registro de entregas (ADR 0006); ver [Informe de alta](#informe-de-alta-adr-0006) |
+| Pacientes menores de edad | Representantes legales, consentimiento otorgado por el representante y asentimiento del menor (ADR 0007); ver [Pacientes menores y representante legal](#pacientes-menores-y-representante-legal-adr-0007) |
+| Cifrado de datos en reposo | AES-256-GCM con llaveros versionados para documentos, token de Google, credenciales de Flow y secreto TOTP (ADR 0005) |
 
 ### Subprocesadores y ubicación de los datos (issue #177)
 
@@ -1076,22 +1308,22 @@ Sistema single-tenant: si el único usuario pierde su contraseña y/o el
 dispositivo MFA, las fichas clínicas quedan inaccesibles vía la aplicación
 hasta que pueda volver a entrar. Tres mecanismos, del menos al más invasivo:
 
-1. **Contraseña olvidada** — `POST /api/v1/auth/password/forgot` con el
+1. **Contraseña olvidada**: `POST /api/v1/auth/password/forgot` con el
    email envía un link de un solo uso (30 min) vía Resend. `POST
    /api/v1/auth/password/reset` con ese token cambia la contraseña. No
    bypasea MFA: si la cuenta lo tiene habilitado, el siguiente login lo
    sigue exigiendo igual.
-2. **MFA perdido (dispositivo extraviado)** — al habilitar MFA (`POST
+2. **MFA perdido (dispositivo extraviado)**: al habilitar MFA (`POST
    /api/v1/auth/mfa/enable`, o el paso 2 del enrolamiento forzado en `POST
    /api/v1/auth/mfa/setup/confirm`) se generan 10 códigos de recuperación de
    un solo uso, mostrados una única vez en la respuesta. `POST
    /api/v1/auth/mfa/recover` con email + contraseña + uno de esos códigos
    desactiva MFA sin necesitar el TOTP; el siguiente login vuelve a exigir
    enrolarlo. **Guardar esos 10 códigos en un gestor de contraseñas o
-   impresos en un lugar seguro apenas se generan** — no hay forma de volver
+   impresos en un lugar seguro apenas se generan**: no hay forma de volver
    a verlos después.
 3. **Último recurso: contraseña Y los 10 códigos de recuperación perdidos a
-   la vez** — sin eso, no queda ningún camino self-service. Reset manual
+   la vez**: sin eso, no queda ningún camino self-service. Reset manual
    directo en base de datos, siempre dejando constancia en `AuditLog`:
 
    ```sql
@@ -1124,11 +1356,11 @@ hasta que pueda volver a entrar. Tres mecanismos, del menos al más invasivo:
    `mfaEnabled` queda en `false`, ese mismo login fuerza un nuevo
    enrolamiento MFA con recovery codes frescos.
 
-   🔒 **Issue #52 — el trigger append-only por sí solo no alcanza.**
+   🔒 **Issue #52: el trigger append-only por sí solo no alcanza.**
    `trg_audit_log_append_only` impide modificar o borrar una fila ya
    escrita, pero no impedía que las mismas credenciales usadas para este
    procedimiento manual deshabiliten el trigger y reseteen sin dejar el
-   paso 3 de auditoría — porque el rol de runtime de la app ERA el dueño de
+   paso 3 de auditoría, porque el rol de runtime de la app ERA el dueño de
    la tabla. Fix real: migración
    `20260803060000_restrict_audit_log_owner_privileges`, que transfiere la
    ownership a un rol nuevo sin login. Narrativa completa (intento
@@ -1137,7 +1369,7 @@ hasta que pueda volver a entrar. Tres mecanismos, del menos al más invasivo:
 
 Pendiente de proveedor externo (no depende de código): firma electrónica
 avanzada Ley 19.799 (issues #24-#26). La copia offsite de backups ya tiene
-proveedor definido (Backblaze B2 + `rclone`) — ver
+proveedor definido (Backblaze B2 + `rclone`); ver
 [Configuración de Backups](#configuración-de-backups) e issue #17.
 
 ---
@@ -1158,16 +1390,16 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `RUN_MIGRATIONS` | Si es `true`, corre `prisma migrate deploy` al arrancar (ver `main.ts`) | `false` |
 | `TRUSTED_PROXY_HOPS` | Cantidad de proxies confiables delante de la app, para identificar la IP real del cliente (helper común `getClientIp`): la usan todos los rate-limits (auth, payments, profile, reserva pública) y se registra en `AuditLog`, `Session` y el historial de MFA. Si `X-Forwarded-For` trae menos valores que este número se usa la IP del socket (`req.ip`), nunca un valor de la cabecera (ver comentario en `auth.module.ts`) | `1` (un único proxy de edge, sin CDN delante). Con Render detrás de Cloudflare (deploy actual): `3` |
 | `SEED_ADMIN_EMAIL` | Email del admin creado por `prisma db seed` (`npm run seed`) | `admin@umbral.cl` (default, ver `prisma/seed-admin.defaults.ts`) |
-| `SEED_ADMIN_PASSWORD` | Contraseña inicial del admin creado por el seed | Ver advertencia abajo — **nunca dejar el default en un entorno alcanzable** |
-| `RESEND_API_KEY` | API key de [Resend](https://resend.com) (free tier) para el email de verificación del signup propio (issue #5). Sin setear, `MailService` saltea el envío con un warning en logs — no bloquea signup en dev/test. **Obligatoria en producción** (issue #287) | Conseguir en el dashboard de Resend |
+| `SEED_ADMIN_PASSWORD` | Contraseña inicial del admin creado por el seed | Ver advertencia abajo: **nunca dejar el default en un entorno alcanzable** |
+| `RESEND_API_KEY` | API key de [Resend](https://resend.com) (free tier) para el email de verificación del signup propio (issue #5). Sin setear, `MailService` saltea el envío con un warning en logs; no bloquea signup en dev/test. **Obligatoria en producción** (issue #287) | Conseguir en el dashboard de Resend |
 | `MAIL_FROM` | Remitente del email de verificación. **Obligatoria en producción** (issue #287) | `Umbral - RCE <onboarding@resend.dev>` (default) |
-| `RESEND_WEBHOOK_SECRET` | Secreto del webhook de Resend (issue #163) para verificar la firma Svix de `POST /webhooks/resend` (tracking de entrega/apertura de recordatorios por email). Sin setear, esa ruta responde `501` sin intentar verificar nada — no bloquea el resto de la app. **Obligatoria en producción** (issue #287) | Conseguir en el dashboard de Resend, sección Webhooks |
+| `RESEND_WEBHOOK_SECRET` | Secreto del webhook de Resend (issue #163) para verificar la firma Svix de `POST /webhooks/resend` (tracking de entrega/apertura de recordatorios por email). Sin setear, esa ruta responde `501` sin intentar verificar nada; no bloquea el resto de la app. **Obligatoria en producción** (issue #287) | Conseguir en el dashboard de Resend, sección Webhooks |
 | `SENTRY_DSN` (backend) / `VITE_SENTRY_DSN` (frontend) | DSN de un proyecto Sentry (issue #191) para capturar errores 500 y excepciones no controladas. Opcional: sin DSN el SDK queda desactivado. No se envían bodies, cookies ni headers de las requests | Proyecto Node (backend) y proyecto React (frontend) en sentry.io |
-| `B2_AVATARS_ENDPOINT` / `B2_AVATARS_REGION` / `B2_AVATARS_BUCKET` / `B2_AVATARS_KEY_ID` / `B2_AVATARS_APPLICATION_KEY` | Credenciales de un bucket Backblaze B2 **privado**, dedicado solo a fotos de perfil (issue #170) — storage vía `@aws-sdk/client-s3` (S3-compatible), reemplaza el disco local que Render (free tier) no persiste entre deploys. Sin estas variables, subir/ver un avatar falla. **Obligatorias en producción** (issue #287); `*_ENDPOINT` debe incluir `https://` | Ver [Despliegue](#despliegue-issue-8), paso 2 |
-| `B2_SHARED_FILES_ENDPOINT` / `B2_SHARED_FILES_REGION` / `B2_SHARED_FILES_BUCKET` / `B2_SHARED_FILES_KEY_ID` / `B2_SHARED_FILES_APPLICATION_KEY` | Mismo patrón que `B2_AVATARS_*` (issue #170), pero para la biblioteca personal de archivos (`shared-files`) — bucket B2 propio y separado del de avatares. Sin estas variables, subir/descargar un archivo personal falla. **Obligatorias en producción** (issue #287) | Ver [Despliegue](#despliegue-issue-8), paso 2 |
-| `B2_PATIENT_DOCUMENTS_ENDPOINT` / `B2_PATIENT_DOCUMENTS_REGION` / `B2_PATIENT_DOCUMENTS_BUCKET` / `B2_PATIENT_DOCUMENTS_KEY_ID` / `B2_PATIENT_DOCUMENTS_APPLICATION_KEY` | Mismo patrón que `B2_AVATARS_*`/`B2_SHARED_FILES_*` (issue #158), pero para los documentos de ficha clínica (`documents`: exámenes, certificados, consentimientos) — bucket B2 propio, separado de los anteriores. El contenido sigue cifrado en reposo con `DOCUMENT_ENCRYPTION_KEY` (AES-256-GCM) antes de subirse. Sin estas variables, subir/descargar un documento clínico falla. **Obligatorias en producción** (issue #287) | Ver [Despliegue](#despliegue-issue-8), paso 2 |
-| `GOOGLE_TOKEN_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar el refresh token de Google Calendar en reposo — distinta de `DOCUMENT_ENCRYPTION_KEY` a propósito (sdd/google-calendar-integration) | Generar con `openssl rand -base64 32` |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Credenciales OAuth del proyecto de Google Cloud. Sin setear, el módulo de integración con Google Calendar se registra deshabilitado (mismo criterio que `MailService` sin `RESEND_API_KEY`) — no bloquea el arranque en dev/test/CI | Conseguir en Google Cloud Console |
+| `B2_AVATARS_ENDPOINT` / `B2_AVATARS_REGION` / `B2_AVATARS_BUCKET` / `B2_AVATARS_KEY_ID` / `B2_AVATARS_APPLICATION_KEY` | Credenciales de un bucket Backblaze B2 **privado**, dedicado solo a fotos de perfil (issue #170): storage vía `@aws-sdk/client-s3` (S3-compatible), reemplaza el disco local que Render (free tier) no persiste entre deploys. Sin estas variables, subir/ver un avatar falla. **Obligatorias en producción** (issue #287); `*_ENDPOINT` debe incluir `https://` | Ver [Despliegue](#despliegue-issue-8), paso 2 |
+| `B2_SHARED_FILES_ENDPOINT` / `B2_SHARED_FILES_REGION` / `B2_SHARED_FILES_BUCKET` / `B2_SHARED_FILES_KEY_ID` / `B2_SHARED_FILES_APPLICATION_KEY` | Mismo patrón que `B2_AVATARS_*` (issue #170), pero para la biblioteca personal de archivos (`shared-files`): bucket B2 propio y separado del de avatares. Sin estas variables, subir/descargar un archivo personal falla. **Obligatorias en producción** (issue #287) | Ver [Despliegue](#despliegue-issue-8), paso 2 |
+| `B2_PATIENT_DOCUMENTS_ENDPOINT` / `B2_PATIENT_DOCUMENTS_REGION` / `B2_PATIENT_DOCUMENTS_BUCKET` / `B2_PATIENT_DOCUMENTS_KEY_ID` / `B2_PATIENT_DOCUMENTS_APPLICATION_KEY` | Mismo patrón que `B2_AVATARS_*`/`B2_SHARED_FILES_*` (issue #158), pero para los documentos de ficha clínica (`documents`: exámenes, certificados, consentimientos, informes de alta): bucket B2 propio, separado de los anteriores. El contenido sigue cifrado en reposo con `DOCUMENT_ENCRYPTION_KEY` (AES-256-GCM) antes de subirse. Sin estas variables, subir/descargar un documento clínico falla. **Obligatorias en producción** (issue #287) | Ver [Despliegue](#despliegue-issue-8), paso 2 |
+| `GOOGLE_TOKEN_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar el refresh token de Google Calendar en reposo, distinta de `DOCUMENT_ENCRYPTION_KEY` a propósito (sdd/google-calendar-integration) | Generar con `openssl rand -base64 32` |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Credenciales OAuth del proyecto de Google Cloud. Sin setear, el módulo de integración con Google Calendar se registra deshabilitado (mismo criterio que `MailService` sin `RESEND_API_KEY`); no bloquea el arranque en dev/test/CI | Conseguir en Google Cloud Console |
 | `GOOGLE_REDIRECT_URI` | Redirect URI del handshake OAuth, registrada en Google Cloud Console | `http://localhost:3001/api/v1/calendar-integration/callback` |
 | `GOOGLE_CALENDAR_SYNC_ENABLED` | Si es `false`, desactiva el cron de reconciliación y los intents de sync sin necesitar un deploy/revert | `false` en CI/e2e |
 | `SESSION_PURGE_ENABLED` | Si es `false`, desactiva el cron diario (04:00, hora del servidor) que borra sesiones expiradas o revocadas hace más de 7 días (`SessionPurgeService`, issue #287). Debe ser exactamente `true` o `false` | Habilitado si no se define |
@@ -1175,13 +1407,13 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `NOTIFICATIONS_PURGE_RETENTION_DAYS` | Días que se conserva una notificación leída antes de purgarla. Entero positivo | `30` |
 | `NOTIFICATIONS_PURGE_MAX_BATCHES` | Máximo de lotes de 1000 filas por corrida de la purga de notificaciones. Entero positivo | `100` |
 | `REMINDERS_ENABLED` | Si es `false`, desactiva el cron de recordatorios de sesión (`RemindersService`, cada 5 min) sin necesitar un deploy/revert | `false` en CI/e2e |
-| `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar la credencial del merchant Flow de cada terapeuta en reposo — distinta de `DOCUMENT_ENCRYPTION_KEY`/`GOOGLE_TOKEN_ENCRYPTION_KEY` (sdd/online-payment-integration) | Generar con `openssl rand -base64 32` |
-| `MFA_SECRET_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar el secreto TOTP de cada usuario (`User.mfaSecret`) en reposo — distinta de las demás claves de cifrado (issue #302). Los secretos guardados en texto plano antes de este cambio siguen funcionando y se re-cifran solos en el siguiente login con MFA. **No rotar sin re-cifrar**: cambiarla deja ilegibles los secretos ya cifrados | Generar con `openssl rand -base64 32` |
+| `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar la credencial del merchant Flow de cada terapeuta en reposo, distinta de `DOCUMENT_ENCRYPTION_KEY`/`GOOGLE_TOKEN_ENCRYPTION_KEY` (sdd/online-payment-integration) | Generar con `openssl rand -base64 32` |
+| `MFA_SECRET_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar el secreto TOTP de cada usuario (`User.mfaSecret`) en reposo, distinta de las demás claves de cifrado (issue #302). Los secretos guardados en texto plano antes de este cambio siguen funcionando y se re-cifran solos en el siguiente login con MFA. **No reemplazar el valor sin usar el llavero**: cambiarla directamente deja ilegibles los secretos ya cifrados (para rotarla, ver `*_KEYRING` más abajo) | Generar con `openssl rand -base64 32` |
 | `DOCUMENT_ENCRYPTION_KEY_KEYRING` / `GOOGLE_TOKEN_ENCRYPTION_KEY_KEYRING` / `PAYMENT_CREDENTIALS_ENCRYPTION_KEY_KEYRING` / `MFA_SECRET_ENCRYPTION_KEY_KEYRING` | Opcionales (issue #382, ADR 0005). Agregan claves de cifrado al llavero del dato correspondiente con el formato `id:base64,id:base64` (ids enteros de 1 a 255, sin repetir, cada clave de 32 bytes en base64). La variable original sigue siendo la clave id 0. Solo se usan al rotar una clave | Ver [docs/rotacion-y-respaldo-de-claves.md](docs/rotacion-y-respaldo-de-claves.md) |
 | `DOCUMENT_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `GOOGLE_TOKEN_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `PAYMENT_CREDENTIALS_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `MFA_SECRET_ENCRYPTION_KEY_ACTIVE_KEY_ID` | Opcionales (issue #382). Id de la clave con la que se cifran los datos nuevos; debe ser `0` o existir en el `_KEYRING` correspondiente. Si falta, se usa la id 0. Un valor mal formado hace fallar el arranque | Ver [docs/rotacion-y-respaldo-de-claves.md](docs/rotacion-y-respaldo-de-claves.md) |
-| `PAYMENTS_ENABLED` | Si es `false`, desactiva por completo la creación de cargos, el checkout, los emails de pago y el cron de vencimiento sin necesitar un deploy/revert | `false` en CI/e2e |
-| `INVITE_CREATOR_EMAIL` | Issue #124: único email autorizado a generar códigos de invitación (`POST /auth/invitations`), requeridos para completar `POST /auth/signup`. Mecanismo temporal sin rol ADMIN (decisión explícita) — sin setear, nadie puede generar invitaciones y el signup público queda efectivamente cerrado | `terapeuta@ejemplo.cl` |
-| `PUBLIC_SCHEDULING_ENABLED` | Habilita el portal público de auto-agenda (sdd/patient-self-scheduling): tanto la lectura de disponibilidad como la reserva. **Sin default** — sin setear, ambos endpoints públicos se registran deshabilitados (a diferencia de `PAYMENTS_ENABLED`/`GOOGLE_CALENDAR_SYNC_ENABLED`, acá "ausente" es deshabilitado, no habilitado, por ser superficie pública nueva) | `true` |
+| `PAYMENTS_ENABLED` | Si es `false`, desactiva por completo la creación de cargos, el checkout, los emails de pago y el cron de vencimiento sin necesitar un deploy/revert | `true` en el job `backend` de CI (lo necesita `payments.e2e-spec.ts`); `false` en el e2e de Playwright |
+| `INVITE_CREATOR_EMAIL` | Issue #124: único email autorizado a generar códigos de invitación (`POST /auth/invitations`), requeridos para completar `POST /auth/signup`. Mecanismo temporal sin rol ADMIN (decisión explícita); sin setear, nadie puede generar invitaciones y el signup público queda efectivamente cerrado | `terapeuta@ejemplo.cl` |
+| `PUBLIC_SCHEDULING_ENABLED` | Habilita el portal público de auto-agenda (sdd/patient-self-scheduling): tanto la lectura de disponibilidad como la reserva. **Sin default**: sin setear, ambos endpoints públicos se registran deshabilitados (a diferencia de `PAYMENTS_ENABLED`/`GOOGLE_CALENDAR_SYNC_ENABLED`, acá "ausente" es deshabilitado, no habilitado, por ser superficie pública nueva) | `true` |
 | `FLOW_API_BASE_URL` | Base URL de la API de Flow que usa el cliente de pagos. Opcional | `https://sandbox.flow.cl/api` (default; en producción apuntar a la API productiva de Flow) |
 | `LAN_DEV_URL` | Origen adicional permitido por CORS para probar el frontend desde otro dispositivo de la red local. Opcional; si se define, debe ser una URL válida (se valida al arrancar) | `http://192.168.1.10:5173` |
 | `VITE_API_URL` (frontend) | URL base del backend (incluye `/api/v1`) que usa el frontend. Variable de build de Vite; en Vercel se define en el proyecto. Sin definir, en desarrollo cae a `http://localhost:3001/api/v1`; en un build de producción es un error de configuración | `http://localhost:3001/api/v1` |
@@ -1191,29 +1423,29 @@ proveedor definido (Backblaze B2 + `rclone`) — ver
 | `PUBLIC_BOOKING_IP_THROTTLE_LIMIT` / `PUBLIC_BOOKING_IP_THROTTLE_TTL_MS` | Límite extra de la reserva pública por `ip:therapistId`, independiente del email enviado (el bucket por email se reabre con cada email distinto) | `10` req / `3600000` ms (default); `1000` en `NODE_ENV=test` |
 | `UNAUTHORIZED_AUDIT_LIMIT` / `UNAUTHORIZED_AUDIT_WINDOW_MS` | Máximo de filas `UNAUTHORIZED_ATTEMPT` (requests sin token válido) que se escriben en `AuditLog` por IP de cliente y ventana; el resto se rechaza igual con 401 pero sin auditar. Solo se guarda el path, sin query string. Contador en memoria por proceso | `10` filas / `60000` ms |
 | `PUBLIC_BOOKING_DAILY_LIMIT` / `PUBLIC_BOOKING_DAILY_TTL_MS` | Tope de reservas públicas **exitosas** por terapeuta en la ventana (sin importar la IP); se cuenta en base de datos (`BookedSlot`), los intentos fallidos no lo consumen; al alcanzarlo responde 429 | `100` reservas / `86400000` ms (default); `10000` en `NODE_ENV=test` |
-| `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` | Habilita el overlay de bloqueos de Google Calendar sobre `computeSlots()` (sdd/public-booking-payment-calendar): el cron `CalendarBusyService` deja de sincronizar `CalendarBusyBlock` y el cálculo de horarios libres deja de consultarlo. Opt-in (`=== 'true'`, no el `!== 'false'` de `GOOGLE_CALENDAR_SYNC_ENABLED`/`PAYMENTS_ENABLED`) — sin setear, `computeSlots()` es byte-idéntico al comportamiento anterior a este cambio. Independiente de `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED`: cada flag lee su propia env var, ninguno depende del estado del otro | `true` |
-| `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` | Habilita el link de checkout Flow en la propia página de confirmación de la auto-agenda pública (sdd/public-booking-payment-calendar), además del email de pago existente. Opt-in (`=== 'true'`) — sin setear, la reserva pública sigue el flujo solo-email de siempre, sin cambios de comportamiento. Independiente de `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` | `true` |
+| `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` | Habilita el overlay de bloqueos de Google Calendar sobre `computeSlots()` (sdd/public-booking-payment-calendar): el cron `CalendarBusyService` deja de sincronizar `CalendarBusyBlock` y el cálculo de horarios libres deja de consultarlo. Opt-in (`=== 'true'`, no el `!== 'false'` de `GOOGLE_CALENDAR_SYNC_ENABLED`/`PAYMENTS_ENABLED`); sin setear, `computeSlots()` es byte-idéntico al comportamiento anterior a este cambio. Independiente de `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED`: cada flag lee su propia env var, ninguno depende del estado del otro | `true` |
+| `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` | Habilita el link de checkout Flow en la propia página de confirmación de la auto-agenda pública (sdd/public-booking-payment-calendar), además del email de pago existente. Opt-in (`=== 'true'`); sin setear, la reserva pública sigue el flujo solo-email de siempre, sin cambios de comportamiento. Independiente de `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` | `true` |
 
-> ⚠️ Si el comando de arranque del hosting ya corre `prisma migrate deploy` antes de iniciar el server (recomendado), **no** setees `RUN_MIGRATIONS=true` también — no rompe nada (la migración es idempotente), pero la corre dos veces innecesariamente.
+> ⚠️ Si el comando de arranque del hosting ya corre `prisma migrate deploy` antes de iniciar el server (recomendado), **no** setees `RUN_MIGRATIONS=true` también: no rompe nada (la migración es idempotente), pero la corre dos veces innecesariamente.
 
-> 🔒 **El `DOCUMENT_ENCRYPTION_KEY` de ejemplo de arriba es público** (está en un repo público) — igual que con `JWT_SECRET`, en producción el arranque falla si detecta ese valor exacto o cualquier clave que no decodifique a 32 bytes en base64. Genera una propia con `openssl rand -base64 32` antes de desplegar.
+> 🔒 **El `DOCUMENT_ENCRYPTION_KEY` de ejemplo de arriba es público** (está en un repo público): igual que con `JWT_SECRET`, en producción el arranque falla si detecta ese valor exacto o cualquier clave que no decodifique a 32 bytes en base64. Genera una propia con `openssl rand -base64 32` antes de desplegar.
 
-> 🔒 **El `GOOGLE_TOKEN_ENCRYPTION_KEY` de ejemplo de arriba también es público** — mismo criterio y mismo rechazo en producción que `DOCUMENT_ENCRYPTION_KEY`. Genera una propia con `openssl rand -base64 32` antes de desplegar.
+> 🔒 **El `GOOGLE_TOKEN_ENCRYPTION_KEY` de ejemplo de arriba también es público**: mismo criterio y mismo rechazo en producción que `DOCUMENT_ENCRYPTION_KEY`. Genera una propia con `openssl rand -base64 32` antes de desplegar.
 
 > ⚠️ **Feriados de Chile (sdd/patient-self-scheduling):** no son una env var
-> persistente — se cargan con un comando manual e idempotente,
+> persistente: se cargan con un comando manual e idempotente,
 > `SEED_HOLIDAYS=true npm run seed` (desde `backend/`), que hace upsert en
 > `PublicHoliday` contra [Boostr.cl](https://api.boostr.cl/holidays.json)
-> (sin API key) keyeado por `date`. No corre nunca automáticamente — ni en
-> CI, ni al bootear, ni en el `startCommand` de Render — así que hay que
+> (sin API key) keyeado por `date`. No corre nunca automáticamente (ni en
+> CI, ni al bootear, ni en el `startCommand` de Render), así que hay que
 > correrlo a mano una vez al año (o contra `DATABASE_URL` de producción, si
 > el hosting no da shell). Sin correrlo, la auto-agenda funciona igual, solo
 > que nunca excluye feriados de los horarios libres.
 
-> 🔒 **`SEED_ADMIN_PASSWORD` es pública si no la sobrescribes.** El default (`prisma/seed-admin.defaults.ts`) está commiteado en un repo público — cualquiera lo puede leer. La cuenta admin fuerza cambio de contraseña en su primer login (`mustChangePassword`), pero eso solo protege si el operador cambia la clave *antes* de que alguien más la use con la contraseña conocida: quien loguee primero con el default se queda con el `passwordChangeToken` y puede tomar la cuenta. En local/CI el default está bien (nadie más tiene acceso a esa base). En **cualquier entorno alcanzable desde afuera** (staging, producción), configura `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` a valores propios antes de correr el seed por primera vez.
+> 🔒 **`SEED_ADMIN_PASSWORD` es pública si no la sobrescribes.** El default (`prisma/seed-admin.defaults.ts`) está commiteado en un repo público: cualquiera lo puede leer. La cuenta admin fuerza cambio de contraseña en su primer login (`mustChangePassword`), pero eso solo protege si el operador cambia la clave *antes* de que alguien más la use con la contraseña conocida: quien loguee primero con el default se queda con el `passwordChangeToken` y puede tomar la cuenta. En local/CI el default está bien (nadie más tiene acceso a esa base). En **cualquier entorno alcanzable desde afuera** (staging, producción), configura `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` a valores propios antes de correr el seed por primera vez.
 
 ---
 
 ## Licencia
 
-Uso privado — Umbral - RCE © 2026. Todos los derechos reservados.
+Uso privado. Umbral - RCE © 2026. Todos los derechos reservados.

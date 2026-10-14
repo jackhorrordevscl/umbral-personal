@@ -1,6 +1,6 @@
 # Datos verificados para la landing page
 
-Fecha de verificación: 2026-10-06. Fuente: código del repositorio (rama `docs/sync-v1-oct2026`), README y estado de GitHub. Las cifras cambian con cada PR; vuelve a contarlas antes de publicar.
+Fecha de verificación: 2026-10-13. Fuente: código del repositorio (rama `docs/sync-docs-oct2026`, basada en `main` a88be01; las migraciones y los specs se recontaron el 2026-10-14), README y estado de GitHub. Las cifras cambian con cada PR; vuelve a contarlas antes de publicar.
 
 Regla general: afirma solo lo que está en la sección "Funcionalidades reales". Todo lo de "Qué NO afirmar" queda fuera del texto público.
 
@@ -8,7 +8,7 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 
 - **Nombre:** Umbral (en el repositorio y en la documentación técnica también aparece como "Umbral - RCE", sigla de registro clínico electrónico).
 - **Descripción corta:** sistema de fichas clínicas para profesionales de salud mental que atienden por su cuenta, con agenda, cobro en línea y recordatorios, diseñado para alinearse con la normativa chilena de datos personales y de salud.
-- **Descripción larga:** cada profesional tiene su propia cuenta y es dueño exclusivo de sus pacientes; no hay roles jerárquicos ni panel administrativo. El sistema reúne ficha clínica, consultas con historial de correcciones, documentos, calendario, agenda pública para que los pacientes reserven, cobro con Flow y recordatorios por email.
+- **Descripción larga:** cada profesional tiene su propia cuenta y es dueño exclusivo de sus pacientes; no hay roles jerárquicos ni panel administrativo. El sistema reúne ficha clínica, consultas con historial de correcciones, documentos, calendario, agenda pública para que los pacientes reserven, cobro con Flow, recordatorios por email, cierre de tratamiento con informe de alta y registro de representante legal para pacientes menores de edad.
 - **Público objetivo:** psicólogas, psicólogos y terapeutas independientes en Chile. El registro es solo por invitación (código de un solo uso).
 - **Estado:** en preparación para v1 (ver `docs/evaluacion-v1.md`).
 
@@ -31,7 +31,7 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 
 ### Documentos y archivos
 
-- Documentos por paciente (consentimiento informado, asentimiento informado, acuerdo de telemedicina, otros): PDF, Word, Excel, ZIP e imágenes de hasta 25 MB, cifrados antes de almacenarse.
+- Documentos por paciente (consentimiento informado, asentimiento informado, acuerdo de telemedicina, informe del paciente, resumen de sesión, resultado de examen, informe de alta, autorización de entrega, otros): PDF, Word, Excel, ZIP e imágenes de hasta 25 MB, cifrados antes de almacenarse.
 - Anulación de documentos con motivo obligatorio; el documento se conserva (custodia) y queda marcado como anulado.
 - Repositorio personal privado de archivos (plantillas, protocolos, formularios), no compartido entre profesionales.
 
@@ -39,6 +39,21 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 
 - Consentimiento por finalidad (tratamiento y telemedicina) como registro de eventos que no se borra: otorgar o revocar no elimina el historial.
 - Se exige consentimiento vigente antes de registrar datos clínicos de una consulta.
+
+### Pacientes menores de edad
+
+- Registro de hasta 2 representantes legales por paciente (nombre, RUT, relación, contacto, custodia y roles: pagador, avisos, informes, consentimiento).
+- El consentimiento de un menor lo otorga un representante. Hasta el 2026-12-01 el sistema aún acepta el consentimiento legado otorgado por el propio menor; desde esa fecha lo exige otorgado por un representante.
+- Registro del asentimiento del niño, niña o adolescente (informado y oído, otorgado, rechazado o retirado) como ledger que no se borra. Nunca reemplaza el consentimiento del representante.
+- Los cobros de sesión y los avisos de cobro vencido y de cancelación de un menor se dirigen a sus representantes, no al email del menor.
+
+### Cierre de tratamiento e informe de alta
+
+- Estado del tratamiento (activo, alta, derivación, deserción). Al cerrar el tratamiento se cancelan las consultas futuras del paciente y se avisa por email al paciente o a su representante.
+- Informe de alta en PDF, con firma simple del terapeuta (nombre, RUT y registro profesional) y hash SHA-256 para verificar que no fue alterado. No es firma electrónica avanzada. También se puede subir un PDF propio.
+- Un informe emitido no se modifica: corregirlo crea una versión nueva y la anterior queda marcada como reemplazada.
+- Registro de las entregas del informe (paciente, representante o tercero; canal y finalidad). El sistema no envía el informe: se descarga y se registra la entrega. Para un tercero se exige adjuntar un documento de autorización y que el terapeuta declare haberlo revisado; el sistema no comprueba su validez legal.
+- Las reservas públicas se rechazan para un paciente con el tratamiento cerrado.
 
 ### Calendario y Google Calendar
 
@@ -76,7 +91,7 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 
 - MFA (TOTP) obligatorio para toda cuenta, con 10 códigos de recuperación de un solo uso.
 - Recuperación de contraseña y de acceso por email y códigos, sin intervención manual.
-- Contraseñas con Argon2, sesiones revocables, cierre de todas las sesiones al cambiar la contraseña, cierre por inactividad en escritorio.
+- Contraseñas con Argon2, sesiones revocables, cierre de todas las sesiones al cambiar la contraseña, cierre por inactividad a los 8 minutos (corregido en móvil, issue #367).
 - Límite de intentos por ruta sensible.
 
 ### Auditoría y reportes
@@ -84,28 +99,28 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 - Bitácora de auditoría append-only (la base impide modificarla o borrarla).
 - Exportación en PDF de la ficha clínica completa con historial y pie de página con referencia a la Ley 20.584.
 
-## Cifras (verificadas el 2026-10-06)
+## Cifras (verificadas el 2026-10-13)
 
 | Dato | Valor | Cómo se verificó |
 |---|---|---|
-| Módulos de backend | 15 | carpetas de `backend/src/modules/` |
-| Modelos de base de datos | 23 | `model` en `backend/prisma/schema.prisma` |
-| Migraciones | 65 | carpetas de `backend/prisma/migrations/` |
-| Endpoints HTTP | unos 83 | conteo de decoradores de ruta en `backend/src` |
-| Tests unitarios backend | 86 specs | archivos `*.spec.ts` en `backend/src` |
-| Tests e2e backend | 26 specs | `backend/test` |
-| Tests frontend | 65 specs + 1 e2e Playwright (este último no corre en CI) | `frontend/src` y `frontend/e2e` |
-| Páginas del frontend | 17 | archivos en `frontend/src/pages/` |
-| Commits | 403 | `git rev-list --count HEAD` |
-| Pull requests mergeados | 173 | `gh pr list --state merged` |
-| Issues | 195 cerrados, 11 abiertos | `gh issue list` |
-| Días de desarrollo | 65 | desde el primer commit, 2026-08-02, hasta 2026-10-06 |
-| Vulnerabilidades de producción | 0 | `npm audit --omit=dev` en CI (al 2026-10-06 según la auditoría previa) |
+| Módulos de backend | 16 | carpetas de `backend/src/modules/` (además de `health` y `shared-files` en `backend/src/`) |
+| Modelos de base de datos | 27 | `model` en `backend/prisma/schema.prisma` |
+| Migraciones | 74 | carpetas de `backend/prisma/migrations/` |
+| Endpoints HTTP | unos 104 | conteo de decoradores de ruta en `backend/src` |
+| Tests unitarios backend | 115 specs | archivos `*.spec.ts` en `backend/src` |
+| Tests e2e backend | 31 specs | archivos `*.e2e-spec.ts` en `backend/test` |
+| Tests frontend | 84 specs + 3 e2e Playwright (corren en el job `e2e` de CI) | `frontend/src` y `frontend/e2e` |
+| Páginas del frontend | 17 | archivos en `frontend/src/pages/` (sin specs) |
+| Commits | 505 | `git rev-list --count HEAD` |
+| Pull requests mergeados | 229 | `gh pr list --state merged` |
+| Issues | 217 cerrados, 14 abiertos | `gh issue list` |
+| Días de desarrollo | 72 | desde el primer commit, 2026-08-02, hasta 2026-10-13 |
+| Vulnerabilidades de producción | Sin hallazgos de nivel high o critical | `npm audit --omit=dev --audit-level=high` en CI; el CI de `main` pasó el 2026-10-13 |
 
 ## Stack
 
 - **Frontend:** React 19.2, TypeScript, Vite 7, Tailwind CSS 3.4, React Router 8, TanStack Query, React Hook Form con Zod 4, Tiptap 3, Vitest 4, Playwright.
-- **Backend:** NestJS 11, TypeScript, Prisma 6.19, PostgreSQL 16, Passport con JWT, Argon2, PDFKit, Helmet.
+- **Backend:** NestJS 11, TypeScript, Prisma 6.19, PostgreSQL (16 en CI; Supabase corre 17.x según `backup.yml`), Passport con JWT, Argon2, PDFKit, Helmet.
 - **Node:** 22 en CI.
 
 ## Integraciones
@@ -117,8 +132,11 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 | Resend | Email transaccional y de recordatorios, con seguimiento de entrega y apertura |
 | Backblaze B2 | Almacenamiento de avatares, archivos, documentos cifrados y respaldos cifrados |
 | Supabase | Base de datos PostgreSQL de producción (São Paulo, Brasil) |
-| Render | Hosting del backend (plan gratuito a la fecha) |
+| Render | Hosting del backend (plan gratuito a la fecha; región Oregón, EE.UU.) |
+| Cloudflare | Delante del backend: el tráfico de la API pasa por Cloudflare antes de llegar a Render (`render.yaml`, `TRUSTED_PROXY_HOPS`) |
 | Vercel | Hosting del frontend |
+| Google Fonts | Tipografías cargadas desde servidores de Google (`frontend/src/index.css`) |
+| UptimeRobot | Monitor externo que hace ping a `/api/v1/health` para que Render no duerma el servicio (issue #422; ver README) |
 | Sentry | Registro de errores opcional, con datos personales redactados |
 
 ## Seguridad y cumplimiento: redacción segura
@@ -137,8 +155,10 @@ Reglas:
 
 - Nunca escribir "certificado", "certificación" ni "cumple plenamente" respecto de ninguna ley o norma. El proyecto no tiene certificaciones ni validación legal; el RAT mantiene pendientes de revisión legal (transferencia internacional de datos, bases habilitantes).
 - No afirmar aislamiento "a nivel de base de datos" ni por RLS: la separación entre profesionales la hace el código de la aplicación.
-- No afirmar que las notas clínicas están cifradas: solo se cifran los documentos subidos, los tokens de Google, las credenciales de pago y el secreto MFA.
-- No afirmar ubicación de datos solo en Chile: la base está en São Paulo y los archivos y respaldos en Estados Unidos.
+- No afirmar que las notas clínicas están cifradas: solo se cifran los documentos subidos (incluido el PDF del informe de alta), los tokens de Google, las credenciales de pago y el secreto MFA. Los textos del informe de alta y de las notas de consulta no se cifran a nivel de aplicación.
+- No afirmar ubicación de datos solo en Chile: la base está en São Paulo, los archivos y respaldos en Estados Unidos, el backend en Render (Oregón) y el tráfico pasa por Cloudflare y Vercel.
+- No afirmar firma electrónica avanzada ni validez legal del informe de alta: lleva firma simple y un hash de integridad (ADR 0006).
+- No afirmar que el sistema valida la autorización para entregar un informe de alta a un tercero: solo registra el documento cargado y la declaración del terapeuta.
 - No prometer disponibilidad ni recordatorios garantizados mientras el backend siga en el plan gratuito de Render (ver `docs/evaluacion-v1.md`).
 
 ## Qué NO afirmar
@@ -151,7 +171,7 @@ Reglas:
 - Email de confirmación de la reserva al paciente o al terapeuta: no se envía hoy; la reserva queda en la lista de consultas.
 - Registro libre: el alta requiere código de invitación.
 - App móvil nativa: no existe (es una aplicación web).
-- Cierre automático por inactividad en móvil: hoy no funciona de forma confiable (#367).
+- Envío del informe de alta por el sistema: no existe; el informe se descarga y la entrega se registra a mano.
 
 ## Roadmap público (issues abiertos de funcionalidad)
 
@@ -162,4 +182,4 @@ Reglas:
 | #161 | Recordatorios de sesión por WhatsApp | Pospuesto |
 | #162 | Transcriptor de sesiones a notas automáticas | Pospuesto |
 
-Otros issues abiertos son de mantenimiento, infraestructura o cumplimiento (#63, #75, #123, #255, #367, #371, #376) y no deben presentarse como funcionalidades.
+Otros issues abiertos son de mantenimiento, infraestructura o cumplimiento (#63, #75, #123, #255, #382, #387, #398, #419, #422, #458) y no deben presentarse como funcionalidades.

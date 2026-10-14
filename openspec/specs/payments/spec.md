@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Automatic per-session charges keyed to a consultation's group, collected through each therapist's own Flow account (each therapist is the sole merchant of record), with hosted checkout, gateway-verified webhook confirmation, and a one-shot late-payment alert. Umbral never custodies patient funds.
+Automatic per-session charges keyed to a consultation's group, collected through each therapist's own Flow account (each therapist is the sole merchant of record), with hosted checkout, gateway-verified webhook confirmation, periodic reconciliation, and a one-shot late-payment alert. Umbral never custodies patient funds.
 
 ## Requirements
 
 ### Requirement: Payment Identity Keyed by Consultation Group
 
-The system MUST key each `Payment` by `Consultation.groupId`, MUST update the same record on `correct()` instead of creating a second one, and MUST move the due date when a reschedule changes `sessionDate`. Payment status MUST remain mutable operational state, never part of the versioned clinical snapshot.
+The system MUST key each `Payment` by `Consultation.groupId`, MUST update the same record on `correct()` instead of creating a second one, and MUST move the due date when a reschedule changes `sessionDate`. A `LATE` charge whose session is rescheduled into the future MUST return to `PENDING` and become eligible for a new late alert. Payment status MUST remain mutable operational state, never part of the versioned clinical snapshot.
 
 #### Scenario: Correction updates the same charge and moves its due date
 
@@ -16,14 +16,19 @@ The system MUST key each `Payment` by `Consultation.groupId`, MUST update the sa
 - WHEN `correct()` changes `sessionDate`
 - THEN the same `Payment` is updated with the new due date, and no second charge exists
 
+#### Scenario: Late charge returns to pending when rescheduled forward
+
+- GIVEN a consultation whose charge is `LATE`
+- WHEN `correct()` moves `sessionDate` into the future
+- THEN the charge becomes `PENDING` again with the new due date
+
 ### Requirement: Automatic Charge Creation Gated by Gateway Connection
 
-The system MUST create a pending charge automatically on consultation creation, with no manual step, only when the owning therapist's `PaymentAccount.status` is `CONNECTED`. For any other status (`PENDING`, `DISCONNECTED`, or `RECONNECT_REQUIRED`), no charge MUST be created and scheduling MUST succeed exactly as without payments.
-(Previously: gating was a binary "connected Flow account" check against the old single-status model; it now must explicitly cover the added `RECONNECT_REQUIRED` status introduced by the credential-ownership migration, treating it identically to "not connected".)
+The system MUST create a pending charge automatically after a consultation is created (by the therapist or through a public booking), with no manual step, as a non-blocking side effect, only when the owning therapist's `PaymentAccount.status` is `CONNECTED` and the patient has a `defaultSessionAmount`. For any other account status (`PENDING`, `DISCONNECTED`, or `RECONNECT_REQUIRED`), for a patient without a default amount, or for a soft-deleted patient, no charge MUST be created and scheduling MUST succeed exactly as without payments. A failure while creating the charge or its gateway order MUST NOT fail or delay the consultation write.
 
 #### Scenario: Connected therapist gets an automatic charge
 
-- GIVEN a therapist with a `CONNECTED` Flow account
+- GIVEN a therapist with a `CONNECTED` Flow account and a patient with a default session amount
 - WHEN a consultation is created
 - THEN a pending `Payment` is created automatically
 
@@ -39,29 +44,47 @@ The system MUST create a pending charge automatically on consultation creation, 
 - WHEN a consultation is created
 - THEN the consultation succeeds, no `Payment` record exists for it, and the therapist sees the reconnect-required notice
 
+#### Scenario: Patient without a default amount gets no charge
+
+- GIVEN a connected therapist and a patient whose `defaultSessionAmount` is not set
+- WHEN a consultation is created
+- THEN the consultation succeeds and no `Payment` record exists for it
+
 ### Requirement: Charge Amount Resolution and Snapshot
 
-The system MUST source a charge's amount from a session-level override when provided, otherwise from `Patient.defaultSessionAmount`, and MUST snapshot that amount at creation, independent of later edits to `Patient.defaultSessionAmount`.
+The system MUST source a charge's amount from `Patient.defaultSessionAmount` and MUST snapshot that amount at creation, independent of later edits to `Patient.defaultSessionAmount`. The therapist MUST be able to change the amount of a `PENDING` or `LATE` charge afterwards (integer CLP between 0 and 100,000,000); doing so MUST void the previous gateway order, issue a new order and resend the link, and MUST be rejected for a paid or cancelled charge. An amount below the gateway minimum (350 CLP for Flow) MUST NOT produce a gateway order: at creation the charge is kept with an explanatory error, and an amount update below the minimum MUST be rejected with `400`, provided the therapist has a `CONNECTED` Flow account with v2 credentials (without one there is no gateway context and the amount is saved without that check).
 
-#### Scenario: Override takes precedence over the patient default
+#### Scenario: Snapshot is independent of later edits to the default amount
 
-- GIVEN a patient with `defaultSessionAmount` set
-- WHEN a session is scheduled with an explicit amount override
-- THEN the charge amount equals the override, and later edits to `defaultSessionAmount` do not affect it
+- GIVEN a charge created from a patient's `defaultSessionAmount`
+- WHEN the patient's default amount is edited afterwards
+- THEN the existing charge keeps its original amount
+
+#### Scenario: Therapist changes the amount of a pending charge
+
+- GIVEN a pending charge with an issued gateway order
+- WHEN the therapist updates its amount
+- THEN the previous order is voided, a new order and payment link are issued for the new amount, and the link is sent again
+
+#### Scenario: Amount below the gateway minimum
+
+- GIVEN a connected Flow account
+- WHEN the therapist sets a charge amount below 350 CLP
+- THEN the response is `400` and the charge is unchanged
 
 ### Requirement: Due Date and Late Transition
 
-The system MUST set a charge's due date to the session's own `sessionDate`. A charge still pending at or past its due date MUST transition to `LATE`; a charge already `PAID` MUST NOT transition.
+The system MUST set a charge's due date to 24 hours after the later of the session's `sessionDate` and the time of creation (or of a reschedule). A scheduled sweep running every 30 minutes MUST transition a `PENDING` charge whose due date has passed to `LATE`; a charge already `PAID` or `CANCELLED` MUST NOT transition.
 
-#### Scenario: Unpaid charge becomes late at session time
+#### Scenario: Unpaid charge becomes late after the due date
 
-- GIVEN a pending charge due at `sessionDate`
-- WHEN the current time reaches `sessionDate` and it is still unpaid
+- GIVEN a pending charge whose due date has passed
+- WHEN the sweep runs and it is still unpaid
 - THEN the charge transitions to `LATE`
 
 ### Requirement: Automatic Payment-Link Email Delivery
 
-The system MUST email the payment link to `Patient.email` at charge creation, with no therapist action, when that address is present. When `Patient.email` is absent, the system MUST still create the charge, MUST NOT send a link email, and MUST expose a therapist-visible "link not delivered" state. Missing email MUST NOT block charge creation or scheduling.
+The system MUST email the payment link at charge creation, with no therapist action, to the patient's email, or, for a minor, to the legal guardian who receives communications and has an email (preferring the one who pays), addressing the guardian by name and mentioning the patient. The delivery state (`PENDING`, `SENT`, `FAILED`, `SKIPPED_NO_EMAIL`) MUST be recorded and visible to the therapist. When no recipient email exists, the system MUST still create the charge, MUST NOT send a link email, and MUST expose the "link not delivered" state. For a minor without a guardian email, the gateway order MUST NOT be issued and the reason MUST be recorded on the charge. The therapist MUST be able to resend the link of a pending or late charge that has one, and to retry the issuing of an order for a charge that has none. Missing email MUST NOT block charge creation or scheduling.
 
 #### Scenario: Patient with an email receives the link automatically
 
@@ -69,16 +92,27 @@ The system MUST email the payment link to `Patient.email` at charge creation, wi
 - WHEN a charge is created for them
 - THEN a payment-link email is sent at creation
 
+#### Scenario: Minor's link goes to the guardian
+
+- GIVEN a minor patient with a registered guardian who has an email
+- WHEN a charge is created for them
+- THEN the payment-link email is addressed to the guardian
+
 #### Scenario: Patient without an email still gets a charge
 
-- GIVEN a patient with no `email`
+- GIVEN a patient with no `email` and no guardian email
 - WHEN a charge is created for them
 - THEN the charge exists, no email is sent, and the therapist sees "link not delivered"
+
+#### Scenario: Therapist resends the link
+
+- GIVEN a pending charge with a payment link and a recipient email
+- WHEN the therapist requests a resend
+- THEN the email is sent again and the delivery state is updated
 
 ### Requirement: Hosted Checkout via Therapist-Owned Flow Account
 
 The system MUST use Flow's hosted checkout with the credentials of the therapist's own connected Flow account, so each therapist is the sole merchant of record for their own charges and Umbral custodies no funds. The system MUST NOT use split-payment or sub-merchant (Comercios Asociados) semantics.
-(Previously: "Hosted Checkout via Flow Split Payments" — checkout used Comercios Asociados split mode so funds routed to the therapist under Umbral's merchant relationship. Flow confirmed this model does not split funds as required, so checkout now runs entirely under the therapist's own credentials instead.)
 
 #### Scenario: Checkout settles to the owning therapist's account
 
@@ -86,15 +120,15 @@ The system MUST use Flow's hosted checkout with the credentials of the therapist
 - WHEN the patient completes hosted checkout
 - THEN the payment settles 100% to therapist A's own Flow account, with no funds passing through an Umbral-controlled account
 
-#### Scenario: Checkout is unavailable if the owning account is no longer connected
+#### Scenario: Confirmation is unavailable if the owning account is no longer connected
 
 - GIVEN a pending charge whose owning account has moved to `RECONNECT_REQUIRED` or `DISCONNECTED` after the charge was created
-- WHEN the patient attempts to complete hosted checkout
-- THEN the system MUST NOT complete the checkout using stale credentials, and MUST surface an error rather than silently failing
+- WHEN a confirmation or reconciliation for that charge is attempted
+- THEN the system MUST NOT use stale credentials, the confirmation is rejected, and the charge is not marked as paid
 
 ### Requirement: Gateway-Verified Webhook Confirmation
 
-The system MUST NOT trust the content of a payment-confirmation webhook: Flow does not sign this callback and sends only a token. Before processing it, the system MUST re-query the order status at the gateway using the owning therapist's own credentials, and MUST reject the webhook with a uniform error (one that does not reveal which check failed) when the token matches no charge, when the owning payment account is unavailable, when the status lookup fails, or when the gateway does not report the order as paid. Confirmed payments MUST process idempotently, so a replayed webhook for an already-confirmed charge causes no further change.
+The system MUST NOT trust the content of a payment-confirmation webhook (`POST /payments/confirm`): Flow does not sign this callback and sends only a token. Before processing it, the system MUST re-query the order status at the gateway using the owning therapist's own credentials, and MUST reject the webhook with a uniform `400` (one that does not reveal which check failed) when the token matches no charge, when the owning payment account is unavailable, when the status lookup fails, or when the gateway does not report the order as paid. The confirmation endpoint MUST have its own rate limiter. Confirmed payments MUST process idempotently, so a replayed webhook for an already-confirmed charge causes no further change. When the gateway reports a paid amount different from the charge amount, the charge MUST NOT be marked paid and the therapist MUST receive a `PAYMENT_ANOMALY` notification; the same notification MUST be raised when the gateway reports a payment for a charge cancelled in Umbral.
 
 #### Scenario: Gateway confirms payment
 
@@ -122,25 +156,47 @@ The system MUST NOT trust the content of a payment-confirmation webhook: Flow do
 - WHEN the same webhook is delivered again
 - THEN the charge remains `PAID` with no duplicate processing
 
+#### Scenario: Amount mismatch raises an anomaly
+
+- GIVEN a pending charge and a gateway order reported as paid with a different amount
+- WHEN the confirmation is processed
+- THEN the charge is not marked paid and a `PAYMENT_ANOMALY` notification is created for the therapist
+
+#### Scenario: Payment on a cancelled charge raises an anomaly
+
+- GIVEN a charge cancelled in Umbral and a gateway order later reported as paid
+- WHEN the confirmation is processed
+- THEN the charge stays cancelled and a `PAYMENT_ANOMALY` notification is created
+
+### Requirement: Periodic Reconciliation With the Gateway
+
+A scheduled sweep running every 30 minutes MUST re-query the gateway for `PENDING` and `LATE` charges whose order was issued more than 15 minutes earlier, in bounded batches with limited concurrency, and MUST mark as paid those the gateway reports as paid (applying the same amount check as the webhook), so a lost webhook does not leave a paid charge open. A charge whose owning account is not `CONNECTED` MUST be skipped.
+
+#### Scenario: Lost webhook is recovered by the sweep
+
+- GIVEN a pending charge whose webhook never arrived and which the gateway reports as paid
+- WHEN the sweep runs
+- THEN the charge becomes `PAID`
+
 ### Requirement: Cancellation Preserves Paid Charges and Voids Pending Ones
 
-When a consultation is soft-deleted, the system MUST cancel a still-pending or late charge for it, and MUST preserve a paid charge untouched, with no automatic refund.
+When a patient is soft-deleted, or a treatment closure (discharge) cancels the patient's future consultations, the system MUST cancel the still-pending or late charges concerned and void their gateway orders (a gateway failure MUST NOT undo the local cancellation), and MUST preserve a paid charge untouched, with no automatic refund. A closure MUST resolve the cancellations before answering, with each charge isolated so one failure does not stop the others.
 
 #### Scenario: Cancelling a session with a pending charge voids it
 
 - GIVEN a consultation with a pending or late charge
-- WHEN the consultation is soft-deleted
-- THEN the charge is cancelled
+- WHEN the patient is soft-deleted or the consultation is cancelled by a treatment closure
+- THEN the charge is cancelled and its gateway order is voided
 
 #### Scenario: Cancelling a session with a paid charge preserves it
 
 - GIVEN a consultation with a paid charge
-- WHEN the consultation is soft-deleted
+- WHEN the patient is soft-deleted or the consultation is cancelled by a treatment closure
 - THEN the payment remains `PAID` and unchanged, with no refund issued
 
 ### Requirement: One-Shot Late-Payment Notification
 
-On the pending-to-late transition, the system MUST send exactly one late-payment email and create exactly one in-app notification of a `PAYMENT_LATE` type, and MUST NOT repeat either on later checks. This is a single alert, not a recurring reminder cadence.
+On the pending-to-late transition, the system MUST send one late-payment email to the patient (or the guardian of a minor) when a recipient email exists, and MUST create exactly one in-app notification of a `PAYMENT_LATE` type for the therapist, and MUST NOT repeat either on later checks. This is a single alert, not a recurring reminder cadence.
 
 #### Scenario: Late transition fires exactly one alert of each kind, once
 
@@ -150,7 +206,7 @@ On the pending-to-late transition, the system MUST send exactly one late-payment
 
 ### Requirement: Feature Flag Gating
 
-The system MUST expose `PAYMENTS_ENABLED` following the existing `X_ENABLED !== 'false'` convention. When disabled, the system MUST NOT create charges, send link or late-payment emails, or process webhooks, and scheduling MUST behave exactly as without payments.
+The system MUST expose `PAYMENTS_ENABLED` following the existing `X_ENABLED !== 'false'` convention. When disabled, the system MUST NOT create charges, send link or late-payment emails, or run the late and reconciliation sweeps, and scheduling MUST behave exactly as without payments.
 
 #### Scenario: Flag off disables the entire capability
 
@@ -158,37 +214,44 @@ The system MUST expose `PAYMENTS_ENABLED` following the existing `X_ENABLED !== 
 - WHEN a consultation is created
 - THEN no charge, link email, or notification is generated, and scheduling succeeds
 
-### Requirement: Checkout URL Exposure to the Booking Response
+### Requirement: Checkout URL Exposure to the Public Booking
 
-When `ensureCharge()` has already produced a checkout URL at the time a public booking request completes, the system MUST include that checkout URL in the booking response. The system MUST NOT delay or block the booking response waiting for a charge or checkout URL to be created, and a booking response without a checkout URL MUST still represent a successful booking.
+A public booking response MUST NOT wait for a charge or checkout URL to be created: when `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` is on it carries only a checkout hint (`PENDING` or `NOT_APPLICABLE`), and the checkout URL MUST be exposed through the unauthenticated `GET /public/therapists/:therapistId/availability/book/:groupId/checkout` endpoint, which returns the payment URL and amount once the charge has one and a `null` URL otherwise. A booking without a checkout URL MUST still represent a successful booking.
 
-#### Scenario: Booking response carries the checkout URL when already available
+#### Scenario: Checkout endpoint returns the URL once available
 
-- GIVEN a therapist with a `CONNECTED` Flow account and a public booking request that triggers automatic charge creation completed synchronously before the response is built
-- WHEN the booking response is constructed
-- THEN it includes the Flow checkout URL for the newly created charge
+- GIVEN a booking whose charge already has a payment URL
+- WHEN the client queries the checkout endpoint for that group
+- THEN it receives the payment URL and amount
 
-#### Scenario: Booking response omits the checkout URL without failing
+#### Scenario: Checkout endpoint without a URL does not fail
 
-- GIVEN a therapist whose `PaymentAccount.status` is not `CONNECTED`, or a charge/checkout URL not yet available at response time
-- WHEN the booking response is constructed
-- THEN the booking succeeds and the response contains no checkout URL
+- GIVEN a booking whose charge does not exist or has no payment URL yet
+- WHEN the client queries the checkout endpoint
+- THEN the response is successful with a `null` payment URL
 
 ### Requirement: Flow Return Endpoint
 
-The system MUST expose a dedicated backend endpoint that accepts Flow's browser `POST` to `urlReturn` and responds with a redirect to the public booking confirmation page, without performing any endpoint-local action beyond that redirect. This endpoint MUST NOT be treated as a source of payment status; a request reaching it MUST NOT by itself mark any charge as paid, pending, or failed.
+The system MUST expose a backend endpoint (`GET` and `POST /payments/return`) that accepts Flow's browser return to `urlReturn` and responds with a `302` redirect to the frontend payment-received page, carrying the token when present, without performing any other action. A separate read-only status endpoint (`GET /payments/return-status`) MAY be queried by that page: it MUST determine the status from the gateway (using the owning therapist's credentials), answer `PAID`, `REJECTED`, or `PENDING` (also when the token is unknown, the account unavailable, or the gateway lookup fails), and MUST NOT change any charge. Neither endpoint MUST by itself mark any charge as paid, pending, or failed; only the verified confirmation webhook or the reconciliation sweep may transition it.
 
-#### Scenario: Flow POST return redirects to the confirmation page
+#### Scenario: Flow return redirects to the payment-received page
 
 - GIVEN a patient completes or abandons hosted checkout
-- WHEN Flow issues its browser `POST` to the configured `urlReturn`
-- THEN the endpoint responds with a redirect to the public booking confirmation page for that therapist
+- WHEN Flow issues its browser request to the configured `urlReturn`
+- THEN the endpoint responds with a redirect to the frontend payment-received page
 
 #### Scenario: Arrival at the return endpoint does not change payment state
 
 - GIVEN a charge in `PENDING` state
-- WHEN a request reaches the Flow return endpoint for that charge
-- THEN the charge's status is unchanged by that request alone; only `urlConfirmation` or `payment/getStatus` may transition it
+- WHEN a request reaches the Flow return endpoint or the return-status endpoint for that charge
+- THEN the charge's status is unchanged by that request alone
+
+#### Scenario: Return status reflects the gateway
+
+- GIVEN a charge whose gateway order is reported as rejected
+- WHEN the payment-received page queries the return status
+- THEN the answer is `REJECTED` and the page tells the patient to ask their therapist for a new payment link
+
 ## Open Questions
 
-- Charges created while an account was still `CONNECTED` but left pending when the account later flips to `RECONNECT_REQUIRED` or `DISCONNECTED` (mid-flight charges): the proposal does not state whether these are cancelled, left pending indefinitely, or block reconnection. This spec only guarantees checkout does not silently proceed with stale credentials (see "Checkout is unavailable" scenario above); the disposition of those pre-existing pending charges is left as an open question for design.
+- Charges created while an account was still `CONNECTED` but left pending when the account later flips to `RECONNECT_REQUIRED` or `DISCONNECTED` (mid-flight charges): the code leaves them pending, and their confirmation and reconciliation are skipped or rejected while the account is not `CONNECTED`. Whether they should be cancelled or block reconnection is not defined.

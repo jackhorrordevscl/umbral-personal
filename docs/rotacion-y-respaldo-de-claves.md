@@ -4,6 +4,15 @@ Procedimiento operativo del [ADR 0005](decisiones/0005-versionado-y-rotacion-de-
 (issue #382). Cubre el respaldo de las claves, la rotación sin pérdida de datos
 y qué hacer si una clave se pierde.
 
+Estado (2026-10-13): el llavero versionado y el formato con AAD están
+implementados y desplegados (T3a, T3b-U1 y T3b-U2). El código vive en
+`backend/src/common/crypto/` (`keyring.ts`, `aes-gcm.ts`, `reencrypt.ts`) y el
+script en `backend/scripts/reencrypt-keys.ts` (`npm run crypto:reencrypt`). La
+migración de la sección 2.1 ya se aplicó en producción, según informó el
+responsable del proyecto; este documento no guarda un registro de esa corrida.
+El issue #382 sigue abierto en GitHub y el #398 (retirar la clave id 0 del
+entorno) está pendiente.
+
 ## 1. Qué se cifra y qué pasa si falta la clave
 
 | Dato | Variable | Dónde vive | Si se pierde la clave |
@@ -16,6 +25,18 @@ y qué hacer si una clave se pierde.
 Un documento solo se puede leer con **dos cosas juntas**: la clave de cifrado y
 las credenciales del bucket (`B2_PATIENT_DOCUMENTS_ENDPOINT`, `_REGION`,
 `_BUCKET`, `_KEY_ID`, `_APPLICATION_KEY`). Ambas van en el respaldo.
+
+Alcance de cada dato, según el código:
+
+- El dataset `documents` cubre todas las filas de `PatientDocument`, incluidos
+  los informes de alta en PDF (`DISCHARGE_REPORT`) y las autorizaciones de
+  entrega (`DELIVERY_AUTHORIZATION`), y también los documentos anulados.
+- No se cifran con estas claves: los avatares y los archivos personales
+  (`SharedFile`) guardados en B2, y los textos de la base (notas clínicas,
+  textos del informe de alta; ver ADR 0004).
+- El respaldo de la base (`backup.yml`) se cifra aparte con
+  `openssl enc -aes-256-cbc -pbkdf2` y el secreto `BACKUP_PASSPHRASE`, que no
+  forma parte de este llavero.
 
 ## 2. Respaldo de las claves
 
@@ -68,6 +89,12 @@ Orden:
    ```
 
    El informe cuenta, por dataset y clave, qué está al día y qué hay que migrar.
+   El script necesita `DATABASE_URL`, la variable de clave de cada dataset
+   elegido (con su `_KEYRING` y `_ACTIVE_KEY_ID` si existen) y, para
+   `documents`, las variables `B2_PATIENT_DOCUMENTS_*`. Carga además el `.env`
+   de `backend/` si existe (`dotenv`, que no pisa las variables ya definidas en
+   la sesión), por lo que conviene no dejar un `.env` de producción en esa
+   carpeta.
 4. **`--apply` por dataset, en este orden**, revisando el informe y que el
    código de salida sea `0` antes de seguir con el siguiente:
 

@@ -1,6 +1,6 @@
-# Cláusula de transferencia internacional de datos — consentimiento informado
+# Cláusula de transferencia internacional de datos en el consentimiento informado
 
-> ✅ **Aplicada — 2026-08-03.** El texto de abajo ya se agregó a los dos
+> ✅ **Aplicada el 2026-08-03.** El texto de abajo ya se agregó a los dos
 > documentos reales de consentimiento informado (issue #59, cerrado). Este
 > archivo queda como registro de la redacción y de dónde vive en cada
 > documento.
@@ -30,22 +30,68 @@ papel/PDF, no un texto que viva en el código de la app).
 > custodia el profesional tratante, por lo que el proveedor de
 > almacenamiento no tiene acceso al contenido de las mismas.
 
+## Ubicación real de los datos (referencia, 2026-10-13)
+
+Umbral no genera ni provee un formato de consentimiento: cada terapeuta
+usa y sube el suyo. Lo que sigue no es una plantilla de Umbral sino la
+descripción factual de dónde están los datos, para que cada terapeuta
+la contraste con el texto de su propio documento. La redacción aplicada el
+2026-08-03 en los documentos de uno de los profesionales tenía tres
+imprecisiones frente a lo que hace el sistema (verificadas en
+`render.yaml`, `.github/workflows/backup.yml` y
+`docs/registro-actividades-tratamiento.md`). Una redacción que las
+corrige, como ejemplo:
+
+> Su ficha clínica y el resto de sus datos de atención se gestionan a
+> través de **Umbral**, un sistema de registro clínico electrónico (RCE)
+> que, para garantizar su disponibilidad, seguridad y respaldo continuo,
+> opera sobre infraestructura de nube (*cloud computing*). Por este
+> motivo, sus datos se almacenan y procesan en servidores ubicados en más
+> de un país: la base de datos que contiene su ficha y sus consultas se
+> almacena en **São Paulo, Brasil**; la aplicación que la procesa se
+> ejecuta en servidores ubicados en **Estados Unidos**; y los documentos
+> adjuntos a su ficha se almacenan en **Estados Unidos**, cifrados por el
+> sistema antes de ser guardados. Adicionalmente, se generan copias de
+> seguridad cifradas (AES-256) de forma diaria, que también se almacenan
+> en servidores ubicados en **Estados Unidos**; estas copias solo son
+> legibles con una clave de cifrado que el proveedor de almacenamiento no
+> tiene, por lo que no puede acceder a su contenido.
+
+Qué cambió respecto del texto aplicado el 2026-08-03:
+
+- **Documentos adjuntos:** estaban en São Paulo; hoy están en Backblaze B2,
+  región `us-west-004` (Estados Unidos), cifrados por la aplicación antes de
+  subir.
+- **Procesamiento:** el texto decía que los datos se procesan en São Paulo.
+  La base de datos está allí, pero el backend corre en Render (Oregón,
+  Estados Unidos) y es quien procesa los datos.
+- **Custodia de la clave del respaldo:** decía que la custodia "el
+  profesional tratante". La frase de cifrado es el secreto `BACKUP_PASSPHRASE`
+  del repositorio de GitHub del proyecto, en poder del operador del sistema,
+  no de cada profesional. El texto nuevo afirma solo lo que es cierto: el
+  proveedor de almacenamiento no tiene la clave.
+
+Esto es una referencia factual, no un texto que Umbral entregue ni exija.
+Qué diga el consentimiento de cada terapeuta, y si corresponde mencionar a
+los demás proveedores (Render, Vercel, Cloudflare, Resend, Google, Flow,
+Sentry), es decisión de cada profesional y de quien tenga criterio legal.
+
 ## Dónde va este texto
 
-No hay un generador de PDF de consentimiento en la app — el flujo actual
+No hay un generador de PDF de consentimiento en la app: el flujo actual
 es: el profesional gestiona el documento externo, lo hace firmar, y sube
 el PDF firmado vía `PatientDocument` tipo `INFORMED_CONSENT`. Se revisaron
 los dos documentos reales que usa el profesional (no versionados en este
-repo por contener su nombre — ver `.gitignore`), y ambos ya tienen una
+repo por contener su nombre; ver `.gitignore`), y ambos ya tienen una
 sección de confidencialidad/protección de datos donde esta cláusula encaja
 como un subpunto nuevo:
 
-- **`CONSENTIMIENTO INFORMADO ADULTOS Y NNA.docx`** — sección **IV.
+- **`CONSENTIMIENTO INFORMADO ADULTOS Y NNA.docx`**: sección **IV.
   CONFIDENCIALIDAD Y PROTECCIÓN DE DATOS PERSONALES**. Insertar como
   **4.2** (después de "4.1 Principio general de confidencialidad", antes
   de la actual 4.2 "Excepciones legales a la confidencialidad", que pasa a
   ser 4.3; la actual 4.3 "Supervisión y consulta clínica" pasa a 4.4).
-- **`CONSENTIMIENTO INFORMADO TELEPSICOLOGÍA.docx`** — sección **V.
+- **`CONSENTIMIENTO INFORMADO TELEPSICOLOGÍA.docx`**: sección **V.
   CONFIDENCIALIDAD Y PROTECCIÓN DE DATOS PERSONALES**, mismo patrón:
   insertar como **5.2** (después de "5.1", antes de la actual 5.2
   "Excepciones Legales a la Confidencialidad", que pasa a ser 5.3).
@@ -69,10 +115,14 @@ Encabezado sugerido para el subpunto nuevo en ambos documentos:
       documentos adjuntos de la ficha (estos últimos cifrados por la
       aplicación antes de subir), todos en Estados Unidos (región
       `us-west-004`). El texto aplicado el 2026-08-03 dice que los
-      "documentos asociados" se almacenan en São Paulo; esa frase ya no
-      refleja la ubicación de los documentos adjuntos. No se modificó el
-      texto legal ya aplicado: queda pendiente que quien tenga criterio
-      legal decida si corresponde ajustarlo en los `.docx`.
+      "documentos asociados" se almacenan en São Paulo; esa frase no
+      refleja la ubicación de los documentos adjuntos. Confirmado el
+      2026-10-13: van a Backblaze B2 en Estados Unidos. La sección "Ubicación
+      real de los datos (referencia, 2026-10-13)" deja los hechos y una
+      redacción de ejemplo. Pendiente: que el profesional dueño de esos
+      dos `.docx` (4.2 y 5.2), que no viven en este repositorio, ajuste su
+      propio texto; los demás terapeutas hacen lo mismo con el suyo. Umbral
+      no provee plantilla.
 - [ ] **Otros proveedores.** Resend (email), Google (Calendar), Flow (cobro) y
       Sentry (registro de errores, opcional) no están cubiertos por esta
       cláusula; se tratan en el RAT (`docs/registro-actividades-tratamiento.md`,
@@ -84,7 +134,7 @@ Encabezado sugerido para el subpunto nuevo en ambos documentos:
       esta transferencia a Google LLC (Estados Unidos), pero deja
       explícitamente sin resolver si aplica la misma base habilitante que
       esta cláusula (consentimiento informado del paciente) o la de
-      cuenta de profesional — el contenido enviado es metadata minimizada
+      cuenta de profesional, dado que el contenido enviado es metadata minimizada
       (iniciales + código no reversible + fecha/hora), no una
       identificación directa del paciente. No se agrega texto a esta
       cláusula hasta que esa base habilitante se resuelva en el RAT; no
