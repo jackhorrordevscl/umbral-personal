@@ -140,7 +140,7 @@ Chile, pero eso ya no es así:
   `docs/evidencia-compliance/` y la región de procesamiento no está
   documentada en este repositorio.
 - El frontend (la aplicación web que carga el navegador) se sirve desde
-  **Vercel** (`frontend/vercel.json`; dominio `umbral.groundzerodevs.com`
+  **Vercel** (`frontend/vercel.json`; dominio `umbralrce.groundzerodevs.com`
   según el ADR 0003). Vercel entrega los archivos estáticos y ve las IP de los
   visitantes, incluidos los pacientes que usan la agenda pública. No hay un
   DPA de Vercel en `docs/evidencia-compliance/` y su región no está

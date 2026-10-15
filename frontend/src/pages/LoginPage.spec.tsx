@@ -54,7 +54,7 @@ describe('LoginPage', () => {
     vi.clearAllMocks()
   })
 
-  it('login exitoso sin MFA guarda el token y navega al dashboard', async () => {
+  it('login exitoso sin MFA guarda el usuario (sin token) y navega al dashboard', async () => {
     mockedApi.post.mockResolvedValueOnce({
       data: {
         accessToken: 'token-abc',
@@ -68,7 +68,8 @@ describe('LoginPage', () => {
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('/dashboard')
     })
-    expect(localStorage.getItem('token')).toBe('token-abc')
+    expect(localStorage.getItem('token')).toBeNull()
+    expect(localStorage.getItem('user')).not.toBeNull()
     expect(mockedApi.post).toHaveBeenCalledWith('/auth/login', {
       email: 'user@umbral.cl',
       password: 'Password123!',
@@ -131,7 +132,8 @@ describe('LoginPage', () => {
       mfaToken: 'mfa-challenge-token',
       token: '123456',
     })
-    expect(localStorage.getItem('token')).toBe('token-mfa')
+    expect(localStorage.getItem('token')).toBeNull()
+    expect(localStorage.getItem('user')).not.toBeNull()
   })
 
   it('requiresMfaSetup inicia el enrolamiento y muestra el QR', async () => {
@@ -180,7 +182,6 @@ describe('LoginPage', () => {
   })
 
   it('con una sesión activa restaurada de localStorage redirige al dashboard en vez de mostrar el login', () => {
-    localStorage.setItem('token', 'token-previo')
     localStorage.setItem(
       'user',
       JSON.stringify({ id: 'u1', email: 'user@umbral.cl', role: 'PROFESSIONAL', name: 'Test User' }),
@@ -247,7 +248,6 @@ describe('LoginPage', () => {
     )
 
     it('con una sesión restaurada redirige a state.from en vez de al dashboard', () => {
-      localStorage.setItem('token', 'token-previo')
       localStorage.setItem(
         'user',
         JSON.stringify({ id: 'u1', email: 'user@umbral.cl', role: 'PROFESSIONAL', name: 'Test User' }),

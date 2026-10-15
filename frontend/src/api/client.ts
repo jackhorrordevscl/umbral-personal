@@ -17,18 +17,12 @@ if (!apiUrl) {
 
 const api = axios.create({
   baseURL: apiUrl || fallbackApiUrl,
+  // Issue #387: la sesión viaja en una cookie HttpOnly; sin esto el navegador
+  // no la envía a la API (origen distinto).
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
-});
-
-// Agrega el token JWT automáticamente a cada request
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
 });
 
 let onUnauthorized: (() => void) | null = null;
@@ -128,7 +122,6 @@ api.interceptors.response.use(
     const isPublicAuth = isPublicAuthRequest(requestUrl);
     if (error.response?.status === 401 && !isPublicAuth) {
       warnIfUnclassifiedAuthPath(requestUrl);
-      localStorage.removeItem('token');
       localStorage.removeItem('user');
       if (onUnauthorized) {
         // Issue #203: la app registra un handler que actualiza AuthContext y
