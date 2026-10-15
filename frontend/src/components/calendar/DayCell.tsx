@@ -35,7 +35,7 @@ export default function DayCell({ day, isCurrentMonth, sessions, onClick }: DayC
         {visible.map((s) => (
           <span
             key={s.id}
-            className="text-[10px] leading-tight px-1 py-0.5 rounded bg-sage-50 text-sage-700 truncate"
+            className="text-[10px] leading-tight px-1 py-0.5 rounded-sm bg-sage-50 text-sage-700 truncate"
           >
             {formatChileTime(s.sessionDate)} {s.patientName}
           </span>

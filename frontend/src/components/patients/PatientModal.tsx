@@ -490,7 +490,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                               <p className="text-xs text-slate-500">
                                 {DOCUMENT_TYPE_LABELS[doc.type] ?? doc.type}
                                 {isVoided && (
-                                  <span className="ml-2 inline-block rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                                  <span className="ml-2 inline-block rounded-sm bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
                                     Anulado
                                   </span>
                                 )}
@@ -717,7 +717,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                         onChange={(e) =>
                           setEditConsents({ ...editConsents, [purpose]: e.target.checked })
                         }
-                        className="rounded"
+                        className="rounded-sm"
                       />
                       {CONSENT_PURPOSE_LABELS[purpose]}
                     </label>

@@ -88,7 +88,7 @@ export default function Modal({
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
         tabIndex={-1}
-        className={`bg-white rounded-2xl shadow-xl w-full focus:outline-none ${className}`}
+        className={`bg-white rounded-2xl shadow-xl w-full focus:outline-hidden ${className}`}
       >
         {children}
       </div>

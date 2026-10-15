@@ -169,7 +169,7 @@ export default function DashboardPage() {
                     <div
                       role="status"
                       aria-label={`Cargando ${stat.label}`}
-                      className="h-7 w-10 rounded bg-slate-200 animate-pulse"
+                      className="h-7 w-10 rounded-sm bg-slate-200 animate-pulse"
                     />
                   ) : (
                     <p className="text-xl md:text-2xl font-display text-slate-900">

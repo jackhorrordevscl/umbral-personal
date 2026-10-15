@@ -111,7 +111,7 @@ const publicBookingFormSchema = z
 const PRIVACY_POLICY_URL = 'https://umbral.groundzerodevs.com/privacidad-general';
 
 const LINK_FOCUS_RING =
-  'rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white';
+  'rounded-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sage-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white';
 
 type PublicBookingFormValues = z.infer<typeof publicBookingFormSchema>;
 

@@ -6,7 +6,7 @@ import { buildLocalISO, formatChileLongDate } from '../../utils/datetime';
 import type { PublicSlot } from '../../api/publicScheduling';
 
 const FOCUS_RING =
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white';
+  'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sage-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white';
 
 const NAV_BUTTON = `inline-flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-cream-100 hover:text-slate-800 ${FOCUS_RING}`;
 

@@ -204,7 +204,7 @@ export default function PatientForm({
                 onChange={(e) =>
                   onConsentsChange({ ...consents, [purpose]: e.target.checked })
                 }
-                className="rounded"
+                className="rounded-sm"
               />
               {CONSENT_PURPOSE_LABELS[purpose]}
             </label>

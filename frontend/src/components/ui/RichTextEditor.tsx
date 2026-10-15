@@ -57,7 +57,7 @@ export default function RichTextEditor({
     shouldRerenderOnTransaction: true,
     editorProps: {
       attributes: {
-        class: "input-field min-h-[4.5rem] text-slate-800 [&_p]:m-0 [&_ul]:pl-5 [&_ol]:pl-5 [&_ul]:list-disc [&_ol]:list-decimal",
+        class: "input-field min-h-18 text-slate-800 [&_p]:m-0 [&_ul]:pl-5 [&_ol]:pl-5 [&_ul]:list-disc [&_ol]:list-decimal",
         role: "textbox",
         "aria-multiline": "true",
         ...(ariaLabel ? { "aria-label": ariaLabel } : {}),
@@ -128,7 +128,7 @@ export default function RichTextEditor({
         )}
         <EditorContent
           editor={editor}
-          className="[&_.ProseMirror]:rounded-t-none [&_.ProseMirror]:rounded-b-lg [&_.ProseMirror]:outline-none"
+          className="[&_.ProseMirror]:rounded-t-none [&_.ProseMirror]:rounded-b-lg [&_.ProseMirror]:outline-hidden"
         />
       </div>
     </div>
