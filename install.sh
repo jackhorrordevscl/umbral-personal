@@ -104,6 +104,8 @@ GOOGLE_TOKEN_ENCRYPTION_KEY="vihs9JiRKVRGjurFGk+YqxhpvD7zanIZJgbHGeSOMi4="
 MFA_SECRET_ENCRYPTION_KEY="MoDh8f3G8V0hR0m5wq8V0hR0m5wq8V0hR0m5wq8V0i8="
 # Opcionales: sin GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET, la integración con
 # Google Calendar se registra deshabilitada (no bloquea el arranque).
+# Usa un cliente OAuth de DESARROLLO, separado del de produccion: el redirect
+# a localhost solo debe estar registrado en ese cliente, nunca en el de prod.
 GOOGLE_CLIENT_ID=""
 GOOGLE_CLIENT_SECRET=""
 GOOGLE_REDIRECT_URI="http://localhost:3001/api/v1/calendar-integration/callback"
