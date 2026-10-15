@@ -784,12 +784,13 @@ umbral-personal/
   `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` el módulo se registra
   deshabilitado sin bloquear el arranque
 - **Limitación conocida, pendiente de terceros (issue #123):** la app OAuth
-  de Google sigue en modo "Testing" a la espera de la verificación de
-  Google, por lo que cada refresh token conectado expira a los ~7 días en
-  vez de durar indefinidamente. Mientras esa verificación no se complete,
-  una conexión existente puede desconectarse sola (ver el ítem anterior) con
-  más frecuencia de la esperada. No es un bug de Umbral, es una restricción
-  de la app OAuth mientras no esté verificada por Google
+  de Google está publicada (no en modo "Testing"), por lo que los refresh
+  tokens no expiran a los 7 días. La verificación del scope sensible
+  `calendar.events` sigue en revisión en Google; mientras no se complete, el
+  terapeuta ve el aviso de "app no verificada" al conectar y Google limita la
+  app a 100 usuarios. No es un bug de Umbral, es una restricción de la app
+  OAuth mientras no esté verificada. Usa un cliente OAuth de desarrollo
+  separado del de producción para `localhost` (ver `GOOGLE_REDIRECT_URI`)
 - Conectar o desconectar el calendario queda registrado en la bitácora
   (`CALENDAR_CONNECTED`/`CALENDAR_DISCONNECTED`). Si se conecta otra cuenta de Google, Umbral no
   detecta el cambio (el scope `calendar.events` no expone el email de la
