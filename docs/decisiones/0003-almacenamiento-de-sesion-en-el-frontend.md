@@ -131,6 +131,17 @@ anti-CSRF.
 - **Cookie sin `Domain`:** queda atada al host exacto de la API (*host-only*), de
   modo que cambiar de dominio no exige reconfigurar nada en el código.
 
+### Estado de despliegue (2026-10-14)
+
+La descripción de dominios de la sección "Alternativas evaluadas" no coincide
+con producción: el frontend se sirve hoy en `umbral-ind.vercel.app` y solo la
+API está bajo `groundzerodevs.com` (`umbralapi.groundzerodevs.com`). Son sitios
+distintos (*cross-site*), por lo que una cookie `SameSite=Strict` no se guarda
+ni se envía. La parte del frontend de #387 **no debe desplegarse** hasta que la
+app y la API compartan dominio registrable (previsto con `umbralrce.cl`, moviendo
+ambas a la vez). La parte del backend es compatible con el frontend actual: el
+`Bearer` y el `accessToken` del cuerpo siguen funcionando.
+
 ### Condición al cambiar de dominio
 
 El dominio `groundzerodevs.com` es temporal. Al pasar al dominio definitivo,
