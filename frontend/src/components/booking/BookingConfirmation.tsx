@@ -39,7 +39,7 @@ export default function BookingConfirmation(props: BookingConfirmationProps) {
         <h1
           ref={headingRef}
           tabIndex={-1}
-          className="font-display text-2xl text-slate-900 mb-2 outline-none"
+          className="font-display text-2xl text-slate-900 mb-2 outline-hidden"
         >
           ¡Listo!
         </h1>

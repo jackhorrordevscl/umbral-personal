@@ -58,7 +58,7 @@ export default function Layout() {
     <div className="flex h-dvh bg-cream-100">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-sage-700 focus:outline-none focus:ring-2 focus:ring-sage-400"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-sm focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-sage-700 focus:outline-hidden focus:ring-2 focus:ring-sage-400"
       >
         Saltar al contenido
       </a>
@@ -134,11 +134,11 @@ export default function Layout() {
           >
             <Menu size={22} />
           </button>
-          <img src="/favicon.svg" alt="Umbral" className="lg:hidden h-9 w-9 rounded" />
+          <img src="/favicon.svg" alt="Umbral" className="lg:hidden h-9 w-9 rounded-sm" />
           <div className="flex-1" />
           <NotificationBell />
         </header>
-        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto focus:outline-none">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto focus:outline-hidden">
           <Outlet />
         </main>
       </div>

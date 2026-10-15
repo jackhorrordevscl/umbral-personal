@@ -50,7 +50,7 @@ export default function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-9999 p-4"
       onKeyDown={handleKeyDown}
     >
       <div
@@ -59,7 +59,7 @@ export default function ConfirmDialog({
         aria-labelledby="confirm-dialog-title"
         aria-describedby="confirm-dialog-desc"
         tabIndex={-1}
-        className="bg-white rounded-2xl shadow-2xl w-full focus:outline-none max-w-sm p-6 text-center"
+        className="bg-white rounded-2xl shadow-2xl w-full focus:outline-hidden max-w-sm p-6 text-center"
       >
         <div className="flex items-center justify-center w-12 h-12 bg-red-100 rounded-full mx-auto mb-4">
           <AlertTriangle size={24} className="text-red-500" />

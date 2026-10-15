@@ -85,7 +85,7 @@ export default function NotificationList({
   };
 
   return (
-    <div className="max-h-[32rem] overflow-auto">
+    <div className="max-h-128 overflow-auto">
       {todays.length > 0 && (
         <>
           <p className="px-4 pt-3 pb-1 text-[11px] font-semibold text-slate-500 uppercase tracking-wide">

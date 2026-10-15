@@ -217,7 +217,7 @@ export default function PublicBookingPage() {
       <div
         className={
           profile
-            ? 'mx-auto w-full max-w-[96rem] grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:gap-8'
+            ? 'mx-auto w-full max-w-384 grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:gap-8'
             : 'mx-auto w-full max-w-2xl'
         }
       >

@@ -145,7 +145,7 @@ export default function WeeklyScheduleEditor() {
               id="schedule-sessionDurationMinutes"
               type="number"
               min={1}
-              className="input-field max-w-[10rem]"
+              className="input-field max-w-40"
             />
             {errors.sessionDurationMinutes && (
               <p className="text-red-500 text-xs mt-1">

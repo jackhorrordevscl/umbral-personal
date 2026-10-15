@@ -29,7 +29,7 @@ const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
           onClick={() => setVisible((v) => !v)}
           aria-label={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}
           aria-pressed={visible}
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-slate-500 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-sm text-slate-500 hover:text-slate-700 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-slate-400"
         >
           {visible ? (
             <EyeOff size={18} aria-hidden="true" />

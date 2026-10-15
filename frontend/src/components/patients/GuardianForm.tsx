@@ -180,7 +180,7 @@ export default function GuardianForm({
           >
             <input
               type="checkbox"
-              className="rounded"
+              className="rounded-sm"
               checked={flags[key]}
               onChange={(e) => setFlags({ ...flags, [key]: e.target.checked })}
             />

@@ -276,7 +276,7 @@ export default function SharedFilesPage() {
         <div className="grid gap-3">
           {filtered.map(file => (
             <div key={file.id} className="card p-4 flex items-center gap-4 hover:shadow-md transition-shadow">
-              <div className="flex-shrink-0">{categoryIcon(file.category)}</div>
+              <div className="shrink-0">{categoryIcon(file.category)}</div>
               <div
                 role="button"
                 tabIndex={0}
@@ -382,7 +382,7 @@ export default function SharedFilesPage() {
               <p className="text-xs text-slate-500 font-medium mb-1">Formatos admitidos:</p>
               <div className="flex flex-wrap gap-1">
                 {ALLOWED_EXTENSIONS.map(ext => (
-                  <span key={ext} className="text-xs bg-white border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded">
+                  <span key={ext} className="text-xs bg-white border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded-sm">
                     .{ext.toLowerCase()}
                   </span>
                 ))}
@@ -425,7 +425,7 @@ export default function SharedFilesPage() {
 
             {uploadError && (
               <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-100 rounded-lg p-3">
-                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                 <p className="text-red-600 text-xs">{uploadError}</p>
               </div>
             )}
@@ -507,7 +507,7 @@ export default function SharedFilesPage() {
 
             {editError && (
               <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-100 rounded-lg p-3">
-                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                 <p className="text-red-600 text-xs">{editError}</p>
               </div>
             )}

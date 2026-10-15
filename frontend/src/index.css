@@ -1,8 +1,80 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap')
+layer(base);
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@theme {
+  --font-display: 'DM Serif Display', serif;
+  --font-sans: 'DM Sans', sans-serif;
+
+  --color-slate-500: #607187;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+  --color-slate-950: #0a0f1e;
+
+  --color-sage-50: #f2f7f4;
+  --color-sage-100: #e0ede6;
+  --color-sage-200: #c1dbc9;
+  --color-sage-300: #94c2a4;
+  --color-sage-400: #5fa37a;
+  --color-sage-500: #3d8560;
+  --color-sage-600: #2d6b4c;
+  --color-sage-700: #25573e;
+
+  --color-cream-50: #fdfcf8;
+  --color-cream-100: #faf8f0;
+  --color-cream-200: #f5f0e4;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+
+@utility sidebar-link {
+  @apply flex items-center gap-3 px-4 py-3 rounded-lg text-slate-300 
+           hover:bg-slate-800 hover:text-white transition-all duration-200 
+           text-sm font-medium;
+
+  &.active {
+    @apply bg-sage-600 text-white;
+  }
+}
+
+@utility btn-primary {
+  @apply bg-sage-600 hover:bg-sage-700 text-white font-medium px-4 py-2 
+           rounded-lg transition-all duration-200 text-sm;
+}
+
+@utility btn-secondary {
+  @apply bg-cream-200 hover:bg-cream-100 text-slate-700 font-medium px-4 py-2 
+           rounded-lg transition-all duration-200 text-sm border border-slate-200;
+}
+
+@utility input-field {
+  @apply w-full px-3 py-2 bg-white border border-slate-200 rounded-lg 
+           text-sm text-slate-800 placeholder:text-slate-400
+           focus:outline-hidden focus:ring-2 focus:ring-sage-400 focus:border-transparent
+           transition-all duration-200;
+}
+
+@utility card {
+  @apply bg-white rounded-xl border border-slate-100 shadow-xs p-6;
+}
 
 @layer base {
   body {
@@ -11,38 +83,5 @@
 
   h1, h2, h3 {
     @apply font-display;
-  }
-}
-
-@layer components {
-  .sidebar-link {
-    @apply flex items-center gap-3 px-4 py-3 rounded-lg text-slate-300 
-           hover:bg-slate-800 hover:text-white transition-all duration-200 
-           text-sm font-medium;
-  }
-
-  .sidebar-link.active {
-    @apply bg-sage-600 text-white;
-  }
-
-  .btn-primary {
-    @apply bg-sage-600 hover:bg-sage-700 text-white font-medium px-4 py-2 
-           rounded-lg transition-all duration-200 text-sm;
-  }
-
-  .btn-secondary {
-    @apply bg-cream-200 hover:bg-cream-100 text-slate-700 font-medium px-4 py-2 
-           rounded-lg transition-all duration-200 text-sm border border-slate-200;
-  }
-
-  .input-field {
-    @apply w-full px-3 py-2 bg-white border border-slate-200 rounded-lg 
-           text-sm text-slate-800 placeholder-slate-400
-           focus:outline-none focus:ring-2 focus:ring-sage-400 focus:border-transparent
-           transition-all duration-200;
-  }
-
-  .card {
-    @apply bg-white rounded-xl border border-slate-100 shadow-sm p-6;
   }
 }

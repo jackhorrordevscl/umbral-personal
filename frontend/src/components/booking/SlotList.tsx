@@ -6,7 +6,7 @@ import {
 import type { PublicSlot } from '../../api/publicScheduling';
 
 const FOCUS_RING =
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white';
+  'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sage-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white';
 
 interface SlotListProps {
   dayKey: string;

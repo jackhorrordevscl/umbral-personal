@@ -25,10 +25,10 @@ export default function ProfileCard({ profile, avatarUrl }: ProfileCardProps) {
           alt={profile.name}
           width={288}
           height={288}
-          className="h-auto min-h-28 w-28 self-stretch lg:min-h-0 lg:w-full lg:self-auto lg:aspect-square rounded-xl object-cover flex-shrink-0"
+          className="h-auto min-h-28 w-28 self-stretch lg:min-h-0 lg:w-full lg:self-auto lg:aspect-square rounded-xl object-cover shrink-0"
         />
       ) : (
-        <div className="h-auto min-h-28 w-28 self-stretch lg:min-h-0 lg:w-full lg:self-auto lg:aspect-square rounded-xl bg-sage-100 text-sage-700 font-display text-2xl lg:text-7xl flex items-center justify-center flex-shrink-0">
+        <div className="h-auto min-h-28 w-28 self-stretch lg:min-h-0 lg:w-full lg:self-auto lg:aspect-square rounded-xl bg-sage-100 text-sage-700 font-display text-2xl lg:text-7xl flex items-center justify-center shrink-0">
           {initials(profile.name)}
         </div>
       )}
@@ -49,7 +49,7 @@ export default function ProfileCard({ profile, avatarUrl }: ProfileCardProps) {
             href={website.href}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-3 lg:mt-4 inline-flex items-center gap-1.5 text-sm lg:text-base text-sage-700 hover:underline break-all rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage-400"
+            className="mt-3 lg:mt-4 inline-flex items-center gap-1.5 text-sm lg:text-base text-sage-700 hover:underline break-all rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sage-400"
           >
             <Globe size={14} aria-hidden="true" />
             {website.label}
