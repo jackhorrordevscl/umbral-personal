@@ -1,6 +1,7 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
 import { PrismaClient } from '@prisma/client';
+import { createPrismaAdapter } from '../src/prisma/prisma-adapter';
 import * as argon2 from 'argon2';
 import {
   SEED_ADMIN_EMAIL_DEFAULT,
@@ -8,7 +9,7 @@ import {
 } from './seed-admin.defaults';
 import { seedHolidaysFromBoostr } from '../src/common/utils/holiday-seed.util';
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ adapter: createPrismaAdapter() });
 
 async function main() {
   // T7.3 (issue #32): configurable por env para que CI (y cualquier entorno

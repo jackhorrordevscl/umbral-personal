@@ -28,6 +28,7 @@ import * as dotenv from 'dotenv';
 // la primera llamada a B2.
 dotenv.config();
 import { PrismaClient } from '@prisma/client';
+import { createPrismaAdapter } from '../src/prisma/prisma-adapter';
 import { buildKeyring, Keyring } from '../src/common/crypto/keyring';
 import {
   ArgsError,
@@ -212,7 +213,7 @@ export async function main(argv: string[]): Promise<number> {
     throw err;
   }
 
-  const prisma = new PrismaClient();
+  const prisma = new PrismaClient({ adapter: createPrismaAdapter() });
   try {
     // Solo se construyen los llaveros de los datasets elegidos: una clave sin
     // definir de otro dataset no debe bloquear la corrida.

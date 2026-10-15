@@ -11,14 +11,12 @@ generator client {
 // Supabase sirve Postgres detrás de Supavisor (PgBouncer) en modo
 // transaction: no soporta prepared statements ni las transacciones de
 // sesión que usa el Schema Engine de Prisma Migrate. Por eso el runtime de
-// la app usa DATABASE_URL (la conexión pooled, puerto 6543,
-// `?pgbouncer=true`) y `prisma migrate`/`db execute` usan DIRECT_URL (la
-// conexión directa, puerto 5432) — ver
-// https://www.prisma.io/docs/orm/prisma-client/setup-and-configuration/databases-connections/pgbouncer
+// la app usa DATABASE_URL (la conexión pooled, puerto 6543) a través del
+// driver adapter (src/prisma/prisma-adapter.ts) y `prisma migrate`/
+// `db execute` usan DIRECT_URL (la conexión directa, puerto 5432), que se
+// declara en prisma.config.ts desde Prisma 7.
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
 }
 
 model User {

@@ -1,6 +1,7 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
 import { NotificationType, PrismaClient } from '@prisma/client';
+import { createPrismaAdapter } from '../src/prisma/prisma-adapter';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'node:crypto';
@@ -136,7 +137,7 @@ async function main() {
     );
   }
 
-  const publicPrisma = new PrismaClient();
+  const publicPrisma = new PrismaClient({ adapter: createPrismaAdapter() });
   try {
     await seedPublicBookingTherapist(publicPrisma);
   } finally {
@@ -158,7 +159,7 @@ async function main() {
   const storedMfaSecret = crypto.encrypt(mfaSecret.toUpperCase());
 
   const passwordHash = await argon2.hash(password);
-  const prisma = new PrismaClient();
+  const prisma = new PrismaClient({ adapter: createPrismaAdapter() });
   try {
     const data = {
       passwordHash,
