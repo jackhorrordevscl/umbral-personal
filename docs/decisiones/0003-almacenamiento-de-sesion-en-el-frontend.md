@@ -4,6 +4,7 @@
 - **Fecha:** 2026-10-07
 - **Issue:** #384
 - **Nota de estado (2026-10-13):** la Content-Security-Policy del punto 2 de la decisión ya está en `frontend/vercel.json` (issue #386, PR #389 y #390), por lo que la afirmación "hoy no hay Content-Security-Policy" de la sección Contexto describe el estado del 2026-10-07. La migración a cookie `HttpOnly` sigue abierta en el issue #387.
+- **Nota de estado (2026-10-14):** la migración a cookie `HttpOnly` del issue #387 está implementada; ver la sección "Implementación de #387" al final. Las secciones anteriores describen el estado y el razonamiento a la fecha de la decisión.
 
 ## Contexto
 
@@ -107,3 +108,36 @@ Concretamente:
 - Hay trabajo derivado: #386 (CSP) y, después de v1, #387 (migrar a cookie
   `HttpOnly` con `SameSite=Strict`).
 - Esta decisión se reevalúa con los disparadores de arriba, no por calendario.
+
+## Implementación de #387
+
+Se adoptó la alternativa B (cookie `HttpOnly`) con `SameSite=Strict`, sin token
+anti-CSRF.
+
+- **Cookie:** `umbral_session`, `HttpOnly`, `SameSite=Strict`, `Path=/`,
+  `Secure` solo en producción, `Max-Age` igual a la vida del JWT. La emite el
+  backend al terminar el enrolamiento MFA, la verificación MFA, la recuperación
+  de MFA y el cambio de contraseña forzado, y la limpia en `logout` y
+  `logout-all` (`backend/src/modules/auth/session-cookie.ts`).
+- **Lectura:** `JwtStrategy` busca primero la cookie y después el `Bearer`. El
+  `Bearer` sigue siendo válido durante la transición y `accessToken` sigue en el
+  cuerpo de la respuesta; ambos se pueden retirar más adelante.
+- **Frontend:** el cliente envía credenciales (`withCredentials`) y ya no guarda
+  el token. En `localStorage` queda solo `user`, que actúa como marcador de
+  sesión; si la cookie expiró, el primer `401` cierra la sesión. El logout entre
+  pestañas y el cierre por inactividad dependen de ese marcador. El `token` de
+  versiones anteriores se descarta al arrancar.
+- **CSRF:** solo `SameSite=Strict`. No se agregó token anti-CSRF.
+- **Cookie sin `Domain`:** queda atada al host exacto de la API (*host-only*), de
+  modo que cambiar de dominio no exige reconfigurar nada en el código.
+
+### Condición al cambiar de dominio
+
+El dominio `groundzerodevs.com` es temporal. Al pasar al dominio definitivo,
+el frontend y la API deben seguir siendo *same-site* (mismo dominio
+registrable, por ejemplo `app.midominio.cl` y `api.midominio.cl`). Si quedaran
+en dominios registrables distintos, `SameSite=Strict` dejaría de enviar la
+cookie y habría que pasar a `SameSite=None; Secure` más un token anti-CSRF.
+Con el cambio de dominio también deja de aplicar el riesgo de subdominios de
+`groundzerodevs.com` fuera de nuestro control que motivó la duda sobre el CSRF.
+Revisar además `FRONTEND_URL` (CORS) y la CSP del frontend (`connect-src`).
