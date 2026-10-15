@@ -49,7 +49,7 @@ Costo de B y C:
   `credentials: 'include'` en todas las peticiones.
 - **CSRF:** una cookie se envía sola, así que hace falta protección (token
   anti-CSRF o `SameSite` estricto). Hoy el `Bearer` no tiene este riesgo.
-- **Dominios:** el frontend se sirve en `umbral.groundzerodevs.com` (Vercel) y
+- **Dominios:** el frontend se sirve en `umbralrce.groundzerodevs.com` (Vercel) y
   la API en `umbralapi.groundzerodevs.com`, dominio propio vinculado a Render
   (detrás de Cloudflare; el subdominio `onrender.com` está desactivado). Ambos
   comparten el dominio registrable `groundzerodevs.com`, es decir, son
@@ -131,16 +131,21 @@ anti-CSRF.
 - **Cookie sin `Domain`:** queda atada al host exacto de la API (*host-only*), de
   modo que cambiar de dominio no exige reconfigurar nada en el código.
 
-### Estado de despliegue (2026-10-14)
+### Estado de despliegue (2026-10-15)
 
-La descripción de dominios de la sección "Alternativas evaluadas" no coincide
-con producción: el frontend se sirve hoy en `umbral-ind.vercel.app` y solo la
-API está bajo `groundzerodevs.com` (`umbralapi.groundzerodevs.com`). Son sitios
-distintos (*cross-site*), por lo que una cookie `SameSite=Strict` no se guarda
-ni se envía. La parte del frontend de #387 **no debe desplegarse** hasta que la
-app y la API compartan dominio registrable (previsto con `umbralrce.cl`, moviendo
-ambas a la vez). La parte del backend es compatible con el frontend actual: el
-`Bearer` y el `accessToken` del cuerpo siguen funcionando.
+Hasta el 2026-10-14 el frontend se servía en `umbral-ind.vercel.app` y solo la
+API estaba bajo `groundzerodevs.com`. Eran sitios distintos (*cross-site*), por
+lo que una cookie `SameSite=Strict` no se guardaba ni se enviaba, y la parte del
+frontend de #387 no podía desplegarse. La parte del backend era compatible con
+ese frontend: el `Bearer` y el `accessToken` del cuerpo seguían funcionando.
+
+Desde el 2026-10-15 el frontend se sirve en `umbralrce.groundzerodevs.com` y la
+API sigue en `umbralapi.groundzerodevs.com`. Comparten el dominio registrable
+`groundzerodevs.com` (*same-site*), así que la cookie `SameSite=Strict` viaja
+del frontend a la API. `umbral-ind.vercel.app` redirige al dominio nuevo
+(`frontend/vercel.json`), para no romper los links de reserva pública ya
+compartidos. La política de privacidad sigue publicada en la landing
+(`umbral.groundzerodevs.com/privacidad-general`).
 
 ### Condición al cambiar de dominio
 
