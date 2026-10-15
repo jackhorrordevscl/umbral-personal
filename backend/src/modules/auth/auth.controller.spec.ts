@@ -29,6 +29,7 @@ describe('AuthController — logout routes (issue #192)', () => {
     jti: 'j',
   };
   const req = { ip: '1.1.1.1', headers: { 'user-agent': 'ua' } } as never;
+  const res = { clearCookie: jest.fn(), cookie: jest.fn() } as never;
 
   it('logout y logout-all delegan en AuthService con ip y user-agent', async () => {
     const authService = {
@@ -40,8 +41,8 @@ describe('AuthController — logout routes (issue #192)', () => {
       {} as MfaService,
     );
 
-    await controller.logout(user, req);
-    await controller.logoutAll(user, req);
+    await controller.logout(user, req, res);
+    await controller.logoutAll(user, req, res);
 
     expect(authService.logout).toHaveBeenCalledWith(user, '1.1.1.1', 'ua');
     expect(authService.logoutAll).toHaveBeenCalledWith(user, '1.1.1.1', 'ua');
@@ -84,7 +85,7 @@ describe('AuthController — logout routes (issue #192)', () => {
       headers: { 'user-agent': 'ua' },
     } as never;
 
-    await controller.logout(user, proxied);
+    await controller.logout(user, proxied, res);
 
     expect(authService.logout).toHaveBeenCalledWith(
       user,

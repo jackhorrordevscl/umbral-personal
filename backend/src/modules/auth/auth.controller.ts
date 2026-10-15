@@ -1,5 +1,6 @@
-import { Controller, Post, Body, Req, UseGuards } from '@nestjs/common';
-import type { Request } from 'express';
+import { Controller, Post, Body, Req, Res, UseGuards } from '@nestjs/common';
+import type { Request, Response } from 'express';
+import { applySessionCookie, clearSessionCookie } from './session-cookie';
 import { ThrottlerGuard, SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { MfaService } from './mfa.service';
@@ -89,12 +90,17 @@ export class AuthController {
     'payment-return': true,
   })
   @Post('mfa/verify')
-  verifyMfa(@Body() dto: VerifyMfaDto, @Req() req: Request) {
-    return this.mfaService.verifyMfa(
+  async verifyMfa(
+    @Body() dto: VerifyMfaDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.mfaService.verifyMfa(
       dto,
       getRequestClientIp(req),
       req.headers['user-agent'],
     );
+    return applySessionCookie(res, result);
   }
 
   // Issue #5: signup propio, la única ruta no autenticada que crea una
@@ -222,13 +228,18 @@ export class AuthController {
     'payment-return': true,
   })
   @Post('mfa/setup/confirm')
-  confirmMfaSetup(@Body() dto: MfaSetupConfirmDto, @Req() req: Request) {
-    return this.mfaService.confirmMfaSetup(
+  async confirmMfaSetup(
+    @Body() dto: MfaSetupConfirmDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.mfaService.confirmMfaSetup(
       dto.setupToken,
       dto.token,
       getRequestClientIp(req),
       req.headers['user-agent'],
     );
+    return applySessionCookie(res, result);
   }
 
   // T4.4 (issue #22): sin JwtAuthGuard por el mismo motivo que mfa/setup/*:
@@ -251,8 +262,12 @@ export class AuthController {
     'payment-return': true,
   })
   @Post('password/change')
-  changePassword(@Body() dto: ChangePasswordDto) {
-    return this.authService.changePassword(dto);
+  async changePassword(
+    @Body() dto: ChangePasswordDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.changePassword(dto);
+    return applySessionCookie(res, result);
   }
 
   // Issue #50: forgot/reset password self-service. Sin JwtAuthGuard, mismo
@@ -327,12 +342,17 @@ export class AuthController {
     'payment-return': true,
   })
   @Post('mfa/recover')
-  recoverMfa(@Body() dto: MfaRecoverDto, @Req() req: Request) {
-    return this.mfaService.recoverMfa(
+  async recoverMfa(
+    @Body() dto: MfaRecoverDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.mfaService.recoverMfa(
       dto,
       getRequestClientIp(req),
       req.headers['user-agent'],
     );
+    return applySessionCookie(res, result);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -380,22 +400,34 @@ export class AuthController {
   // already-revoked token gets 401 from JwtStrategy, so a repeat is harmless).
   @UseGuards(JwtAuthGuard)
   @Post('logout')
-  logout(@CurrentUser() user: RequestUser, @Req() req: Request) {
-    return this.authService.logout(
+  async logout(
+    @CurrentUser() user: RequestUser,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.logout(
       user,
       getRequestClientIp(req),
       req.headers['user-agent'],
     );
+    clearSessionCookie(res);
+    return result;
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('logout-all')
-  logoutAll(@CurrentUser() user: RequestUser, @Req() req: Request) {
-    return this.authService.logoutAll(
+  async logoutAll(
+    @CurrentUser() user: RequestUser,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.logoutAll(
       user,
       getRequestClientIp(req),
       req.headers['user-agent'],
     );
+    clearSessionCookie(res);
+    return result;
   }
 
   // Issue #124: signup público sin invitación, sin rol ADMIN (decisión
