@@ -255,6 +255,32 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '';
 }
 
+// Issue #398: la variable base (clave id 0) puede faltar en producción cuando
+// el llavero define otra clave y <NOMBRE>_ACTIVE_KEY_ID apunta a ella. Usa el
+// mismo parser que el runtime; cualquier otra combinación no cuenta como
+// retirada y cae en el error de la variable base.
+function isBaseKeyRetired(
+  config: Record<string, unknown>,
+  name: (typeof KEYRING_ENV_VAR_NAMES)[number],
+): boolean {
+  const keyring = config[`${name}_KEYRING`];
+  const activeKeyId = config[`${name}_ACTIVE_KEY_ID`];
+  if (
+    isNonEmptyString(config[name]) ||
+    !isNonEmptyString(keyring) ||
+    !isNonEmptyString(activeKeyId)
+  ) {
+    return false;
+  }
+  try {
+    return (
+      buildKeyring(undefined, keyring, activeKeyId, name).activeKeyId !== 0
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isHttpUrl(value: string): boolean {
   if (!isValidUrl(value)) {
     return false;
@@ -331,8 +357,9 @@ export function validateEnv(
     const documentKeyBytes = Buffer.from(documentKeyRaw, 'base64');
 
     if (
-      documentKeyBytes.length !== DOCUMENT_ENCRYPTION_KEY_BYTE_LENGTH ||
-      KNOWN_EXAMPLE_DOCUMENT_KEY_HASHES.has(sha256(documentKeyRaw))
+      !isBaseKeyRetired(config, 'DOCUMENT_ENCRYPTION_KEY') &&
+      (documentKeyBytes.length !== DOCUMENT_ENCRYPTION_KEY_BYTE_LENGTH ||
+        KNOWN_EXAMPLE_DOCUMENT_KEY_HASHES.has(sha256(documentKeyRaw)))
     ) {
       throw new Error(
         `DOCUMENT_ENCRYPTION_KEY inválida: en producción debe decodificar a ${DOCUMENT_ENCRYPTION_KEY_BYTE_LENGTH} bytes en base64 y no puede ser el valor de ejemplo de README.md/.env.example/install.sh. Generala con: openssl rand -base64 32`,
@@ -352,8 +379,9 @@ export function validateEnv(
     const googleTokenKeyBytes = Buffer.from(googleTokenKeyRaw, 'base64');
 
     if (
-      googleTokenKeyBytes.length !== GOOGLE_TOKEN_ENCRYPTION_KEY_BYTE_LENGTH ||
-      KNOWN_EXAMPLE_GOOGLE_TOKEN_KEY_HASHES.has(sha256(googleTokenKeyRaw))
+      !isBaseKeyRetired(config, 'GOOGLE_TOKEN_ENCRYPTION_KEY') &&
+      (googleTokenKeyBytes.length !== GOOGLE_TOKEN_ENCRYPTION_KEY_BYTE_LENGTH ||
+        KNOWN_EXAMPLE_GOOGLE_TOKEN_KEY_HASHES.has(sha256(googleTokenKeyRaw)))
     ) {
       throw new Error(
         `GOOGLE_TOKEN_ENCRYPTION_KEY inválida: en producción debe decodificar a ${GOOGLE_TOKEN_ENCRYPTION_KEY_BYTE_LENGTH} bytes en base64 y no puede ser el valor de ejemplo de README.md/.env.example/install.sh. Generala con: openssl rand -base64 32`,
@@ -372,9 +400,10 @@ export function validateEnv(
     const paymentKeyBytes = Buffer.from(paymentKeyRaw, 'base64');
 
     if (
-      paymentKeyBytes.length !==
+      !isBaseKeyRetired(config, 'PAYMENT_CREDENTIALS_ENCRYPTION_KEY') &&
+      (paymentKeyBytes.length !==
         PAYMENT_CREDENTIALS_ENCRYPTION_KEY_BYTE_LENGTH ||
-      KNOWN_EXAMPLE_PAYMENT_KEY_HASHES.has(sha256(paymentKeyRaw))
+        KNOWN_EXAMPLE_PAYMENT_KEY_HASHES.has(sha256(paymentKeyRaw)))
     ) {
       throw new Error(
         `PAYMENT_CREDENTIALS_ENCRYPTION_KEY inválida: en producción debe decodificar a ${PAYMENT_CREDENTIALS_ENCRYPTION_KEY_BYTE_LENGTH} bytes en base64 y no puede ser el valor de ejemplo de README.md. Generala con: openssl rand -base64 32`,
@@ -391,8 +420,9 @@ export function validateEnv(
     const mfaKeyBytes = Buffer.from(mfaKeyRaw, 'base64');
 
     if (
-      mfaKeyBytes.length !== MFA_SECRET_ENCRYPTION_KEY_BYTE_LENGTH ||
-      KNOWN_EXAMPLE_MFA_SECRET_KEY_HASHES.has(sha256(mfaKeyRaw))
+      !isBaseKeyRetired(config, 'MFA_SECRET_ENCRYPTION_KEY') &&
+      (mfaKeyBytes.length !== MFA_SECRET_ENCRYPTION_KEY_BYTE_LENGTH ||
+        KNOWN_EXAMPLE_MFA_SECRET_KEY_HASHES.has(sha256(mfaKeyRaw)))
     ) {
       throw new Error(
         `MFA_SECRET_ENCRYPTION_KEY inválida: en producción debe decodificar a ${MFA_SECRET_ENCRYPTION_KEY_BYTE_LENGTH} bytes en base64 y no puede ser el valor de ejemplo de README.md/install.sh. Generala con: openssl rand -base64 32`,

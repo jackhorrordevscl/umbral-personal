@@ -10,8 +10,9 @@ implementados y desplegados (T3a, T3b-U1 y T3b-U2). El código vive en
 script en `backend/scripts/reencrypt-keys.ts` (`npm run crypto:reencrypt`). La
 migración de la sección 2.1 ya se aplicó en producción, según informó el
 responsable del proyecto; este documento no guarda un registro de esa corrida.
-El issue #382 sigue abierto en GitHub y el #398 (retirar la clave id 0 del
-entorno) está pendiente.
+El issue #382 sigue abierto en GitHub (falta la primera rotación real en
+producción). El #398 (retirar la clave id 0 del entorno) está implementado en el
+código; ver "Retirar la clave id 0" más abajo.
 
 ## 1. Qué se cifra y qué pasa si falta la clave
 
@@ -218,8 +219,9 @@ Los ejemplos de abajo usan documentos.
    todas las filas: no acepta `--limit`, porque un escaneo parcial podría dar
    una falsa señal de retiro seguro.
 
-8. **Retirar la clave vieja** (solo ids 1 o superiores, ver la limitación de
-   abajo): quitarla de `<NOMBRE>_KEYRING` y desplegar. Probar antes de dar por
+8. **Retirar la clave vieja** (ids 1 o superiores: quitarla de
+   `<NOMBRE>_KEYRING`; la id 0 se retira distinto, ver "Retirar la clave id 0"
+   abajo) y desplegar. Probar antes de dar por
    cerrado: abrir un documento, un login con MFA, una sincronización de
    calendario o un pago de sandbox, según la clave rotada.
 
@@ -236,13 +238,25 @@ Los ejemplos de abajo usan documentos.
   no puede leer datos con esa cabecera. Tras escribir con T3b-U2 el piso es
   T3b-U1; antes de T3b-U1 el piso es #395 (lectura por llavero).
 
-### Limitación conocida: la clave id 0
+### Retirar la clave id 0
 
-La clave id 0 (la variable `<NOMBRE>` original) es obligatoria al arrancar. Hoy
-no se puede quitar del entorno aunque ya no cifre nada. Después de rotar sigue
-presente, solo para lectura. Retirarla exige un cambio de código aparte (ver el
-ADR 0005, Consecuencias). El comando `--check-retire <NOMBRE>=0` sirve igual
-para comprobar que ya no se usa.
+La clave id 0 (la variable `<NOMBRE>` original) es obligatoria al arrancar
+mientras no se retire. Después de rotar sigue presente, solo para lectura. Se
+puede quitar del entorno cuando se cumplen las tres condiciones a la vez:
+
+1. `<NOMBRE>_KEYRING` define al menos una clave (ids 1 a 255).
+2. `<NOMBRE>_ACTIVE_KEY_ID` apunta a una de ellas (no puede ser 0 ni quedar
+   vacía).
+3. `npm run crypto:reencrypt -- --check-retire <NOMBRE>=0` salió limpio **antes**
+   de borrar la variable (paso 7). Después de retirarla ya no se puede
+   comprobar, porque el script no podría leer lo que siga cifrado con la id 0.
+
+Para retirarla, vaciar o borrar `<NOMBRE>` en Render y desplegar. Si falta
+alguna condición, el arranque falla con un mensaje que nombra la variable
+(`<NOMBRE> inválida` en producción, o `<NOMBRE>_ACTIVE_KEY_ID inválida`). Un
+dato que siga cifrado con la id 0 deja de poder leerse: por eso la verificación
+del paso 7 va primero. Probar igual que en el paso 8 (documento, login con MFA,
+calendario o pago de sandbox) y conservar la clave en el respaldo.
 
 ## 4. Si una clave se pierde
 

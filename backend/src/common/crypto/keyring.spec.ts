@@ -106,6 +106,76 @@ describe('keyring', () => {
         /TEST_ENCRYPTION_KEY_ACTIVE_KEY_ID/,
       );
     });
+
+    // Issue #398: tras rotar y recifrar todo, la variable base (clave id 0)
+    // puede retirarse del entorno si el llavero tiene otra clave activa.
+    describe('con la clave id 0 retirada (issue #398)', () => {
+      it('arranca solo con el llavero y un id activo distinto de 0', () => {
+        const ring = buildKeyring(undefined, `5:${raw5},7:${raw7}`, '5', NAME);
+
+        expect(ring.activeKeyId).toBe(5);
+        expect(ring.keys.has(0)).toBe(false);
+        expect(ring.keys.get(7)?.equals(key7)).toBe(true);
+      });
+
+      it('trata la variable base vacía como retirada', () => {
+        const ring = buildKeyring('  ', `5:${raw5}`, '5', NAME);
+
+        expect(ring.keys.has(0)).toBe(false);
+        expect(ring.activeKeyId).toBe(5);
+      });
+
+      it('rechaza si no hay id activo y el valor por defecto sería el 0 retirado', () => {
+        expect(() =>
+          buildKeyring(undefined, `5:${raw5}`, undefined, NAME),
+        ).toThrow(/TEST_ENCRYPTION_KEY_ACTIVE_KEY_ID/);
+      });
+
+      it('rechaza un id activo 0 explícito si la clave id 0 no existe', () => {
+        expect(() => buildKeyring(undefined, `5:${raw5}`, '0', NAME)).toThrow(
+          /TEST_ENCRYPTION_KEY_ACTIVE_KEY_ID/,
+        );
+      });
+
+      it('sigue fallando si no existe ninguna clave utilizable', () => {
+        expect(() =>
+          buildKeyring(undefined, undefined, undefined, NAME),
+        ).toThrow(/TEST_ENCRYPTION_KEY no está definida/);
+        expect(() => buildKeyring(undefined, '  ', '5', NAME)).toThrow(
+          /TEST_ENCRYPTION_KEY no está definida/,
+        );
+      });
+
+      it('sigue validando la variable base si está definida pero es inválida', () => {
+        expect(() => buildKeyring('abc', `5:${raw5}`, '5', NAME)).toThrow(
+          /TEST_ENCRYPTION_KEY inválida/,
+        );
+      });
+
+      it('descifra lo cifrado con una clave del llavero sin la clave id 0', () => {
+        const withZero = ringWith('5');
+        const retired = buildKeyring(
+          undefined,
+          `5:${raw5},7:${raw7}`,
+          '5',
+          NAME,
+        );
+        const encrypted = encryptWithKeyring(Buffer.from('dato'), withZero);
+
+        expect(decryptWithKeyring(encrypted, retired).toString()).toBe('dato');
+        expect(resolvePayloadKeyId(encrypted, retired)).toBe(5);
+      });
+
+      it('no puede leer un payload que sigue cifrado con la clave id 0', () => {
+        const withZero = ringWith('0');
+        const retired = buildKeyring(undefined, `5:${raw5}`, '5', NAME);
+        const encrypted = encryptWithKeyring(Buffer.from('dato'), withZero);
+        const legacy = encryptAesGcm(Buffer.from('dato'), key0);
+
+        expect(() => decryptWithKeyring(encrypted, retired)).toThrow();
+        expect(() => decryptWithKeyring(legacy, retired)).toThrow();
+      });
+    });
   });
 
   describe('encryptWithKeyring / decryptWithKeyring', () => {

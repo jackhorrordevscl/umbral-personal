@@ -1,6 +1,6 @@
 # ADR 0005 - Versionado y rotación de claves de cifrado
 
-- **Estado:** implementada (nota del 2026-10-13: el llavero, el formato `0x02`/`enc:v3` con AAD y el script `backend/scripts/reencrypt-keys.ts` están en el código; el procedimiento operativo está en `docs/rotacion-y-respaldo-de-claves.md`. El issue #382 sigue abierto en GitHub y #398, retirar la clave id 0, está pendiente)
+- **Estado:** implementada (nota del 2026-10-13: el llavero, el formato `0x02`/`enc:v3` con AAD y el script `backend/scripts/reencrypt-keys.ts` están en el código; el procedimiento operativo está en `docs/rotacion-y-respaldo-de-claves.md`. El issue #382 sigue abierto en GitHub y #398, retirar la clave id 0, quedó implementado en el código)
 - **Fecha:** 2026-10-07
 - **Issue:** #382
 
@@ -168,11 +168,12 @@ forma de perder datos en este procedimiento.
   clave nueva desde el primer día.
 - Los datos que ya estén ilegibles por una clave perdida o cambiada antes de
   este ADR no se recuperan con este mecanismo.
-- Limitación conocida: la clave id 0 (la variable `<NOMBRE>` original) es
-  obligatoria al arrancar, así que hoy no se puede retirar del entorno aunque
-  ya no cifre nada. Las claves con id 1 o superior sí. Si se quiere retirar la
-  id 0 hay que hacer opcional esa variable cuando el llavero tenga otra clave
-  activa, en un cambio aparte.
+- La clave id 0 (la variable `<NOMBRE>` original) era obligatoria al arrancar.
+  Desde el issue #398 puede retirarse del entorno si `<NOMBRE>_KEYRING` define
+  otra clave y `<NOMBRE>_ACTIVE_KEY_ID` apunta a ella; sin esas condiciones el
+  arranque sigue fallando. Antes de retirarla hay que verificar con
+  `--check-retire <NOMBRE>=0` que nada la usa (runbook, "Retirar la clave
+  id 0").
 
 ## Plan de implementación
 
