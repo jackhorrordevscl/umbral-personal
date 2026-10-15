@@ -12,10 +12,10 @@ const PUBLIC_API_BASE_URL =
 // para la agenda pública -- contrato tomado directo de
 // backend/src/modules/public-scheduling/public-scheduling.controller.ts y
 // sus DTOs (public-availability-query.dto.ts, book-public-slot.dto.ts,
-// public-booking-patient.dto.ts), no adivinado. Rutas sin autenticación: el
-// interceptor de api/client.ts simplemente no agrega Authorization cuando no
-// hay token en localStorage (visitante sin sesión), y estos endpoints no
-// exigen JWT en el backend (controller sin JwtAuthGuard, PR 3).
+// public-booking-patient.dto.ts), no adivinado. Rutas sin autenticación: estos
+// endpoints no exigen JWT en el backend (controller sin JwtAuthGuard, PR 3), así
+// que la cookie de sesión que el cliente envíe (api/client.ts usa
+// withCredentials) simplemente se ignora.
 
 export interface PublicSlot {
   start: string; // instante ISO
