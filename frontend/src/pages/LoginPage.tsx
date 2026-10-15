@@ -58,13 +58,12 @@ export default function LoginPage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [setupBeginLoading, setSetupBeginLoading] = useState(false);
-  // Issue #50: mfa/setup/confirm entrega accessToken + recoveryCodes en la
+  // Issue #50: mfa/setup/confirm entrega la sesión + recoveryCodes en la
   // misma respuesta, pero los códigos solo se muestran una vez -- se retiene
   // el login hasta que el usuario confirma haberlos guardado, en vez de
   // loguear directo y perder la única oportunidad de mostrarlos.
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [pendingAuth, setPendingAuth] = useState<{
-    accessToken: string;
     user: { id: string; email: string; role: string; name: string };
   } | null>(null);
 
@@ -95,7 +94,7 @@ export default function LoginPage() {
       setSetupToken(data.setupToken ?? '');
       void beginMfaSetup(data.setupToken ?? '');
     } else if (data.accessToken && data.user) {
-      login(data.accessToken, data.user);
+      login(data.user);
       navigate(postLoginPath);
     }
   };
@@ -182,7 +181,7 @@ export default function LoginPage() {
         mfaToken: mfaChallengeToken,
         token: mfaCode,
       });
-      login(res.data.accessToken, res.data.user);
+      login(res.data.user);
       navigate(postLoginPath);
     } catch (error) {
       setError(getApiErrorMessage(error, 'Código MFA inválido. Intenta de nuevo.'));
@@ -222,10 +221,10 @@ export default function LoginPage() {
         token: setupMfaCode,
       });
       if (res.data.recoveryCodes?.length) {
-        setPendingAuth({ accessToken: res.data.accessToken, user: res.data.user });
+        setPendingAuth({ user: res.data.user });
         setRecoveryCodes(res.data.recoveryCodes);
       } else {
-        login(res.data.accessToken, res.data.user);
+        login(res.data.user);
         navigate(postLoginPath);
       }
     } catch (error) {
@@ -249,7 +248,7 @@ export default function LoginPage() {
             codes={recoveryCodes}
             continueLabel="Ya guardé mis códigos, continuar"
             onContinue={() => {
-              login(pendingAuth.accessToken, pendingAuth.user);
+              login(pendingAuth.user);
               navigate(postLoginPath);
             }}
           />

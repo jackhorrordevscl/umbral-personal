@@ -9,8 +9,7 @@ export interface User {
 
 export interface AuthContextType {
   user: User | null;
-  token: string | null;
-  login: (token: string, user: User) => void;
+  login: (user: User) => void;
   logout: (options?: { expired?: boolean }) => void;
   isAuthenticated: boolean;
   /** false si la sesión terminó por logout voluntario o desde otra pestaña. */

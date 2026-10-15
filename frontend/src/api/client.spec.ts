@@ -24,7 +24,6 @@ function failWith(status: number) {
 
 describe('api client', () => {
   beforeEach(() => {
-    localStorage.setItem('token', 'stored-token')
     localStorage.setItem('user', '{"id":"u1"}')
     Object.defineProperty(window, 'location', {
       value: { href: '/dashboard' },
@@ -43,10 +42,13 @@ describe('api client', () => {
     localStorage.clear()
   })
 
-  it('attaches the stored token as a Bearer header', async () => {
-    let authorization: unknown
+  it('sends the session cookie (withCredentials) and no Authorization header (issue #387)', async () => {
+    let seen: { withCredentials?: boolean; authorization: unknown } | undefined
     api.defaults.adapter = (config: InternalAxiosRequestConfig) => {
-      authorization = config.headers.Authorization
+      seen = {
+        withCredentials: config.withCredentials,
+        authorization: config.headers.Authorization,
+      }
       return Promise.resolve({
         data: {},
         status: 200,
@@ -58,7 +60,7 @@ describe('api client', () => {
 
     await api.get('/patients')
 
-    expect(authorization).toBe('Bearer stored-token')
+    expect(seen).toEqual({ withCredentials: true, authorization: undefined })
   })
 
   it('clears the session and redirects to /login on a 401 from a regular call', async () => {
@@ -66,7 +68,6 @@ describe('api client', () => {
 
     await expect(api.get('/patients')).rejects.toBeInstanceOf(AxiosError)
 
-    expect(localStorage.getItem('token')).toBeNull()
     expect(localStorage.getItem('user')).toBeNull()
     expect(window.location.href).toBe('/login')
   })
@@ -82,7 +83,7 @@ describe('api client', () => {
     cleanup()
 
     expect(calls).toBe(1)
-    expect(localStorage.getItem('token')).toBeNull()
+    expect(localStorage.getItem('user')).toBeNull()
     expect(window.location.href).toBe('/dashboard')
   })
 
@@ -92,7 +93,7 @@ describe('api client', () => {
 
     await expect(api.post(url, {})).rejects.toBeInstanceOf(AxiosError)
 
-    expect(localStorage.getItem('token')).toBe('stored-token')
+    expect(localStorage.getItem('user')).toBe('{"id":"u1"}')
     expect(window.location.href).toBe('/dashboard')
   })
 
@@ -104,7 +105,7 @@ describe('api client', () => {
       AxiosError,
     )
 
-    expect(localStorage.getItem('token')).toBe('stored-token')
+    expect(localStorage.getItem('user')).toBe('{"id":"u1"}')
   })
 
   it('warns in development on a 401 from an /auth/ URL that is in neither list (issue #351)', async () => {
@@ -143,7 +144,7 @@ describe('api client', () => {
 
     await expect(api[method](url, {})).rejects.toBeInstanceOf(AxiosError)
 
-    expect(localStorage.getItem('token')).toBeNull()
+    expect(localStorage.getItem('user')).toBeNull()
     expect(window.location.href).toBe('/login')
   })
 
@@ -152,7 +153,7 @@ describe('api client', () => {
 
     await expect(api.get('/patients')).rejects.toBeInstanceOf(AxiosError)
 
-    expect(localStorage.getItem('token')).toBe('stored-token')
+    expect(localStorage.getItem('user')).toBe('{"id":"u1"}')
     expect(window.location.href).toBe('/dashboard')
   })
 })

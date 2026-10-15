@@ -59,7 +59,6 @@ describe('App — redirección a login con state.from (issue #293)', () => {
   })
 
   it('el handler de 401 cierra la sesión y navega a /login con la ruta actual como from', async () => {
-    localStorage.setItem('token', 'tok')
     localStorage.setItem('user', JSON.stringify(user))
     window.history.replaceState(null, '', '/patients?x=1')
 
@@ -72,11 +71,10 @@ describe('App — redirección a login con state.from (issue #293)', () => {
     expect(JSON.parse(probe.textContent as string)).toEqual({
       from: '/patients?x=1',
     })
-    expect(localStorage.getItem('token')).toBeNull()
+    expect(localStorage.getItem('user')).toBeNull()
   })
 
   it('un logout voluntario no deja state.from en /login (issue #351)', async () => {
-    localStorage.setItem('token', 'tok')
     localStorage.setItem('user', JSON.stringify(user))
     window.history.replaceState(null, '', '/patients?x=1')
 
@@ -88,17 +86,15 @@ describe('App — redirección a login con state.from (issue #293)', () => {
   })
 
   it('un logout hecho en otra pestaña no deja state.from en /login (issue #351)', async () => {
-    localStorage.setItem('token', 'tok')
     localStorage.setItem('user', JSON.stringify(user))
     window.history.replaceState(null, '', '/patients?x=1')
 
     render(<App />)
     expect(await screen.findByText('Pacientes')).toBeInTheDocument()
 
-    localStorage.removeItem('token')
     localStorage.removeItem('user')
     act(() => {
-      window.dispatchEvent(new StorageEvent('storage', { key: 'token' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'user' }))
     })
 
     const probe = await screen.findByTestId('login-from')
