@@ -54,6 +54,15 @@ describe('LoginPage', () => {
     vi.clearAllMocks()
   })
 
+  it('muestra un enlace a la política de privacidad que abre en una pestaña nueva', () => {
+    renderLoginPage()
+
+    const link = screen.getByRole('link', { name: /política de privacidad/i })
+    expect(link).toHaveAttribute('href', 'https://umbral.groundzerodevs.com/privacidad-general')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
+  })
+
   it('login exitoso sin MFA guarda el usuario (sin token) y navega al dashboard', async () => {
     mockedApi.post.mockResolvedValueOnce({
       data: {

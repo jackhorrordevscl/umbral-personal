@@ -8,6 +8,7 @@ import FormField from '../ui/FormField';
 import { getApiErrorMessage } from '../../utils/api-error';
 import { normalizeRut, validateRut } from '../../utils/rut';
 import { isMinorOnChileDay } from '../../utils/age';
+import { PRIVACY_POLICY_URL } from '../../utils/legal';
 import { useBookPublicSlot } from '../../hooks/usePublicScheduling';
 import type {
   BookPublicSlotPayload,
@@ -105,10 +106,6 @@ const publicBookingFormSchema = z
       fail(['guardian', 'email'], 'Email inválido');
     }
   });
-
-// La politica de privacidad vive fuera de este repo (sitio institucional), por
-// eso es un enlace absoluto y no una ruta interna.
-const PRIVACY_POLICY_URL = 'https://umbral.groundzerodevs.com/privacidad-general';
 
 const LINK_FOCUS_RING =
   'rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white';
