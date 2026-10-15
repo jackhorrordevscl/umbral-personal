@@ -232,7 +232,7 @@ npm run dev
 | Backend, unitarias | `cd backend && npm test` | Jest 30; `npm run test:cov` agrega cobertura |
 | Backend, e2e | `cd backend && npm run test:e2e` | Jest + Supertest contra una base Postgres real (`backend/test/`); necesita las variables de entorno del job `backend` de `.github/workflows/ci.yml` |
 | Frontend, unitarias y de componentes | `cd frontend && npm test` | Vitest 4; `npm run test:cov` agrega cobertura |
-| Frontend, e2e | `cd frontend && npm run test:e2e` | Playwright (`frontend/e2e/`): reserva pública y detalle de notificaciones |
+| Frontend, e2e | `cd frontend && npm run test:e2e` | Playwright (`frontend/e2e/`): reserva pública, pago de la reserva y detalle de notificaciones |
 
 Los e2e de Playwright necesitan el backend levantado con las cuentas de prueba
 que crea `npm run seed:e2e` (se niega a correr sin `E2E_SEED_CONFIRM=1`,
@@ -242,6 +242,14 @@ proyectos: escritorio (`*.e2e.ts`) y móvil, con el viewport de un Pixel 7
 (`*.mobile.e2e.ts`, issue #419). En local usan el navegador Brave instalado
 (ruta configurable con `PLAYWRIGHT_BRAVE_PATH`), por lo que no hace falta
 descargar un navegador; en CI usan el Chromium de Playwright.
+
+El e2e del pago (`public-booking-payment.e2e.ts`) nunca usa el sandbox real de
+Flow: Playwright levanta un Flow simulado (`frontend/e2e/support/fake-flow-server.mjs`,
+puerto 4010) y el backend debe arrancar con `PAYMENTS_ENABLED=true`,
+`PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED=true`,
+`FLOW_API_BASE_URL=http://127.0.0.1:4010` y `BACKEND_PUBLIC_URL=http://localhost:3001`
+(como el job `e2e` de `ci.yml`). El seed crea para eso un terapeuta con cuenta de
+pago conectada (credenciales falsas) y un paciente que ya existe con tarifa.
 
 El workflow `ci.yml` corre tres jobs: backend (lint, migraciones, seed, tests
 unitarios con cobertura, e2e y `npm audit`), frontend (lint, tests con
@@ -1411,7 +1419,7 @@ proveedor definido (Backblaze B2 + `rclone`); ver
 | `MFA_SECRET_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar el secreto TOTP de cada usuario (`User.mfaSecret`) en reposo, distinta de las demás claves de cifrado (issue #302). Los secretos guardados en texto plano antes de este cambio siguen funcionando y se re-cifran solos en el siguiente login con MFA. **No reemplazar el valor sin usar el llavero**: cambiarla directamente deja ilegibles los secretos ya cifrados (para rotarla, ver `*_KEYRING` más abajo) | Generar con `openssl rand -base64 32` |
 | `DOCUMENT_ENCRYPTION_KEY_KEYRING` / `GOOGLE_TOKEN_ENCRYPTION_KEY_KEYRING` / `PAYMENT_CREDENTIALS_ENCRYPTION_KEY_KEYRING` / `MFA_SECRET_ENCRYPTION_KEY_KEYRING` | Opcionales (issue #382, ADR 0005). Agregan claves de cifrado al llavero del dato correspondiente con el formato `id:base64,id:base64` (ids enteros de 1 a 255, sin repetir, cada clave de 32 bytes en base64). La variable original sigue siendo la clave id 0. Solo se usan al rotar una clave | Ver [docs/rotacion-y-respaldo-de-claves.md](docs/rotacion-y-respaldo-de-claves.md) |
 | `DOCUMENT_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `GOOGLE_TOKEN_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `PAYMENT_CREDENTIALS_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `MFA_SECRET_ENCRYPTION_KEY_ACTIVE_KEY_ID` | Opcionales (issue #382). Id de la clave con la que se cifran los datos nuevos; debe ser `0` o existir en el `_KEYRING` correspondiente. Si falta, se usa la id 0. Un valor mal formado hace fallar el arranque | Ver [docs/rotacion-y-respaldo-de-claves.md](docs/rotacion-y-respaldo-de-claves.md) |
-| `PAYMENTS_ENABLED` | Si es `false`, desactiva por completo la creación de cargos, el checkout, los emails de pago y el cron de vencimiento sin necesitar un deploy/revert | `true` en el job `backend` de CI (lo necesita `payments.e2e-spec.ts`); `false` en el e2e de Playwright |
+| `PAYMENTS_ENABLED` | Si es `false`, desactiva por completo la creación de cargos, el checkout, los emails de pago y el cron de vencimiento sin necesitar un deploy/revert | `true` en el job `backend` de CI (lo necesita `payments.e2e-spec.ts`) y en el e2e de Playwright (contra un Flow simulado) |
 | `INVITE_CREATOR_EMAIL` | Issue #124: único email autorizado a generar códigos de invitación (`POST /auth/invitations`), requeridos para completar `POST /auth/signup`. Mecanismo temporal sin rol ADMIN (decisión explícita); sin setear, nadie puede generar invitaciones y el signup público queda efectivamente cerrado | `terapeuta@ejemplo.cl` |
 | `PUBLIC_SCHEDULING_ENABLED` | Habilita el portal público de auto-agenda (sdd/patient-self-scheduling): tanto la lectura de disponibilidad como la reserva. **Sin default**: sin setear, ambos endpoints públicos se registran deshabilitados (a diferencia de `PAYMENTS_ENABLED`/`GOOGLE_CALENDAR_SYNC_ENABLED`, acá "ausente" es deshabilitado, no habilitado, por ser superficie pública nueva) | `true` |
 | `FLOW_API_BASE_URL` | Base URL de la API de Flow que usa el cliente de pagos. Opcional | `https://sandbox.flow.cl/api` (default; en producción apuntar a la API productiva de Flow) |

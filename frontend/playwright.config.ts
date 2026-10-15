@@ -40,9 +40,18 @@ export default defineConfig({
       use: { ...devices['Pixel 7'], ...browserLaunch },
     },
   ],
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !IS_CI,
-  },
+  webServer: [
+    {
+      command: 'npm run dev',
+      url: 'http://localhost:5173',
+      reuseExistingServer: !IS_CI,
+    },
+    // Fake Flow gateway for public-booking-payment.e2e.ts. The backend must run
+    // with FLOW_API_BASE_URL pointing at it (see the spec header).
+    {
+      command: 'node e2e/support/fake-flow-server.mjs',
+      url: 'http://127.0.0.1:4010/__health',
+      reuseExistingServer: !IS_CI,
+    },
+  ],
 })
