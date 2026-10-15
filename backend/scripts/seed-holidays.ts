@@ -17,10 +17,11 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
 import { PrismaClient } from '@prisma/client';
+import { createPrismaAdapter } from '../src/prisma/prisma-adapter';
 import { seedHolidaysFromBoostr } from '../src/common/utils/holiday-seed.util';
 
 export async function main(): Promise<void> {
-  const prisma = new PrismaClient();
+  const prisma = new PrismaClient({ adapter: createPrismaAdapter() });
   try {
     const count = await seedHolidaysFromBoostr(prisma);
     console.log(`✅ ${count} feriados sincronizados desde Boostr.cl`);

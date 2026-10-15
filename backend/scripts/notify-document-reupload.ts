@@ -17,6 +17,7 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
 import { PrismaClient, NotificationType } from '@prisma/client';
+import { createPrismaAdapter } from '../src/prisma/prisma-adapter';
 
 const TITLE = 'Es necesario revisar los documentos legales de los pacientes';
 const BODY =
@@ -27,7 +28,7 @@ const BODY =
   'Disculpa las molestias -- preferimos avisar antes de que lo notes por tu cuenta.';
 
 export async function main(): Promise<number> {
-  const prisma = new PrismaClient();
+  const prisma = new PrismaClient({ adapter: createPrismaAdapter() });
   try {
     const users = await prisma.user.findMany({ where: { deletedAt: null }, select: { id: true } });
     if (users.length === 0) {
