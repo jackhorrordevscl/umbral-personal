@@ -215,10 +215,19 @@ jobs:
       SEED_ADMIN_PASSWORD: Umbral2024!
       REMINDERS_ENABLED: 'false'
       GOOGLE_CALENDAR_SYNC_ENABLED: 'false'
-      PAYMENTS_ENABLED: 'false'
       # Public booking e2e (frontend/e2e/public-booking.e2e.ts) needs the
       # public scheduling endpoints on.
       PUBLIC_SCHEDULING_ENABLED: 'true'
+      # Payment e2e (frontend/e2e/public-booking-payment.e2e.ts): payments on and
+      # the gateway pointed at the FAKE Flow that Playwright starts on :4010
+      # (frontend/e2e/support/fake-flow-server.mjs). Only the e2e therapist has a
+      # payment account (seed-e2e.ts), so no other flow is charged. The real Flow
+      # is never contacted from this job.
+      PAYMENTS_ENABLED: 'true'
+      PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED: 'true'
+      FLOW_API_BASE_URL: http://127.0.0.1:4010
+      BACKEND_PUBLIC_URL: http://localhost:3001
+      FRONTEND_URL: http://localhost:5173
       PORT: '3001'
     steps:
       - uses: actions/checkout@v4

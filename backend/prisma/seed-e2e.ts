@@ -6,13 +6,19 @@ import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'node:crypto';
 import { MfaSecretCryptoService } from '../src/modules/auth/mfa-secret-crypto.service';
+import { PaymentCredentialCryptoService } from '../src/modules/payments/payment-credential-crypto.service';
+import { normalizeRut } from '../src/common/utils/rut.util';
 
 // Seed for the Playwright e2e (frontend/e2e/*.e2e.ts). Idempotent
-// (upsert / find-or-create). It creates two independent accounts:
+// (upsert / find-or-create). It creates three independent accounts:
 //  - a PROFESSIONAL with MFA already enabled plus the notification that
 //    notification-detail.e2e.ts clicks on;
 //  - a second PROFESSIONAL with a public profile, a slug and a weekly
-//    schedule for public-booking.e2e.ts (no MFA, no usable password).
+//    schedule for public-booking.e2e.ts (no MFA, no usable password);
+//  - a third PROFESSIONAL like the second one, plus a CONNECTED payment
+//    account (fake Flow credentials) and a patient with a session fee, for
+//    public-booking-payment.e2e.ts. The patient must already exist: a patient
+//    created by the public booking never has a fee, so it is never charged.
 //
 // Safety: this writes a user with a known password and a known TOTP secret,
 // so it must never touch a real database. It refuses to run in production and
@@ -30,12 +36,40 @@ const LOCAL_DATABASE_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 
 // Public-booking therapist (frontend/e2e/public-booking.e2e.ts). The e2e opens
 // /book/<slug>, so keep PUBLIC_BOOKING_SLUG in sync with that spec.
-const PUBLIC_BOOKING_EMAIL = 'e2e-public-booking@umbral.local';
-const PUBLIC_BOOKING_SLUG = 'e2e-reserva-publica';
-const PUBLIC_BOOKING_NAME = 'Terapeuta E2E Reserva';
+interface BookingTherapist {
+  email: string;
+  slug: string;
+  name: string;
+  bio: string;
+}
+
+const PUBLIC_BOOKING_THERAPIST: BookingTherapist = {
+  email: 'e2e-public-booking@umbral.local',
+  slug: 'e2e-reserva-publica',
+  name: 'Terapeuta E2E Reserva',
+  bio: 'Perfil de prueba para el e2e de la reserva pública.',
+};
 const PUBLIC_BOOKING_SPECIALTY = 'Psicología clínica E2E';
-const PUBLIC_BOOKING_BIO =
-  'Perfil de prueba para el e2e de la reserva pública.';
+
+// Payment therapist (frontend/e2e/public-booking-payment.e2e.ts): keep the slug,
+// the patient and the amount in sync with that spec. The Flow credentials are
+// fake and must match the defaults of frontend/e2e/support/fake-flow-server.mjs.
+const PAYMENT_BOOKING_THERAPIST: BookingTherapist = {
+  email: 'e2e-payment-booking@umbral.local',
+  slug: 'e2e-reserva-pago',
+  name: 'Terapeuta E2E Pago',
+  bio: 'Perfil de prueba para el e2e del pago de la reserva pública.',
+};
+const PAYMENT_PATIENT = {
+  fullName: 'Paciente E2E Pago',
+  rut: '11.111.111-1',
+  birthDate: new Date('1988-03-20T00:00:00.000Z'),
+  email: 'paciente-e2e-pago@example.com',
+  defaultSessionAmount: 25000,
+};
+const FLOW_API_KEY = process.env.E2E_FLOW_API_KEY || 'e2e-flow-api-key';
+const FLOW_SECRET_KEY =
+  process.env.E2E_FLOW_SECRET_KEY || 'e2e-flow-secret-key';
 const SESSION_MINUTES = 60;
 // Every ISO weekday (1=Mon .. 7=Sun) from 09:00 to 18:00 Chile time. Slots
 // come from this weekly rule, not from fixed dates, so whatever day the suite
@@ -62,16 +96,19 @@ function requireEnv(name: string): string {
   return value;
 }
 
-async function seedPublicBookingTherapist(prisma: PrismaClient) {
+async function seedPublicBookingTherapist(
+  prisma: PrismaClient,
+  { email, slug, name, bio }: BookingTherapist,
+) {
   // Nobody logs in as this account: the hash is of random bytes that are
   // discarded, so there is no credential to leak. It is only used on create
   // (the update below never touches the password).
   const passwordHash = await argon2.hash(randomBytes(32).toString('hex'));
   const profile = {
-    name: PUBLIC_BOOKING_NAME,
-    slug: PUBLIC_BOOKING_SLUG,
+    name,
+    slug,
     specialty: PUBLIC_BOOKING_SPECIALTY,
-    bio: PUBLIC_BOOKING_BIO,
+    bio,
     sessionDurationMinutes: SESSION_MINUTES,
     mustChangePassword: false,
     mfaEnabled: false,
@@ -79,10 +116,10 @@ async function seedPublicBookingTherapist(prisma: PrismaClient) {
     deletedAt: null,
   };
   const therapist = await prisma.user.upsert({
-    where: { email: PUBLIC_BOOKING_EMAIL },
+    where: { email },
     update: profile,
     create: {
-      email: PUBLIC_BOOKING_EMAIL,
+      email,
       role: 'PROFESSIONAL',
       passwordHash,
       ...profile,
@@ -107,9 +144,69 @@ async function seedPublicBookingTherapist(prisma: PrismaClient) {
       })),
     }),
   ]);
-  console.log(
-    `E2E public booking therapist ready: /book/${PUBLIC_BOOKING_SLUG}`,
+  console.log(`E2E public booking therapist ready: /book/${slug}`);
+  return therapist;
+}
+
+// Payment side of the payment e2e: a CONNECTED Flow account whose credentials
+// are the fake ones, and a patient with a session fee already registered with
+// the therapist (the public booking matches it by email + RUT). Credentials are
+// encrypted with the app's own PaymentCredentialCryptoService, the same shape
+// PaymentAccountService.connect() writes (credentialVersion 2).
+async function seedPaymentAccountAndPatient(
+  prisma: PrismaClient,
+  therapistId: string,
+) {
+  const crypto = new PaymentCredentialCryptoService(
+    new ConfigService(process.env as Record<string, unknown>),
   );
+  crypto.onModuleInit();
+  const credentialEncrypted = Uint8Array.from(
+    crypto.encrypt(
+      Buffer.from(
+        JSON.stringify({ apiKey: FLOW_API_KEY, secretKey: FLOW_SECRET_KEY }),
+        'utf-8',
+      ),
+    ),
+  );
+  const account = {
+    provider: 'FLOW' as const,
+    status: 'CONNECTED' as const,
+    displayName: 'Flow E2E (simulado)',
+    keyFingerprint: 'e2e-fake-flow',
+    credentialVersion: 2,
+    credentialEncrypted,
+    connectedAt: new Date(),
+    lastError: null,
+  };
+  await prisma.paymentAccount.upsert({
+    where: { therapistId },
+    update: account,
+    create: { therapistId, ...account },
+  });
+
+  // No unique key to upsert on (the RUT index is partial and SQL-only), so
+  // find-or-create by the normalized RUT within this therapist.
+  const rut = normalizeRut(PAYMENT_PATIENT.rut);
+  const patient = {
+    fullName: PAYMENT_PATIENT.fullName,
+    birthDate: PAYMENT_PATIENT.birthDate,
+    email: PAYMENT_PATIENT.email,
+    defaultSessionAmount: PAYMENT_PATIENT.defaultSessionAmount,
+    isActive: true,
+    deletedAt: null,
+    treatmentStatus: 'ACTIVE' as const,
+  };
+  const existing = await prisma.patient.findFirst({
+    where: { therapistId, rut },
+    select: { id: true },
+  });
+  if (existing) {
+    await prisma.patient.update({ where: { id: existing.id }, data: patient });
+  } else {
+    await prisma.patient.create({ data: { ...patient, rut, therapistId } });
+  }
+  console.log('E2E payment account and patient ready');
 }
 
 async function main() {
@@ -139,7 +236,12 @@ async function main() {
 
   const publicPrisma = new PrismaClient({ adapter: createPrismaAdapter() });
   try {
-    await seedPublicBookingTherapist(publicPrisma);
+    await seedPublicBookingTherapist(publicPrisma, PUBLIC_BOOKING_THERAPIST);
+    const paymentTherapist = await seedPublicBookingTherapist(
+      publicPrisma,
+      PAYMENT_BOOKING_THERAPIST,
+    );
+    await seedPaymentAccountAndPatient(publicPrisma, paymentTherapist.id);
   } finally {
     await publicPrisma.$disconnect();
   }
