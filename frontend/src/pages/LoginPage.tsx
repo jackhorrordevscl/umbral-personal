@@ -11,6 +11,7 @@ import { normalizeMfaCode } from '../utils/mfa-code';
 import RecoveryCodesReveal from '../components/RecoveryCodesReveal';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import PasswordInput from "../components/ui/PasswordInput";
+import { PRIVACY_POLICY_URL } from '../utils/legal';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -492,6 +493,17 @@ export default function LoginPage() {
               <Link to="/signup" className="text-white lg:text-slate-900 font-medium hover:underline">
                 Regístrate
               </Link>
+            </p>
+
+            <p className="text-center text-xs text-slate-400 lg:text-slate-500">
+              <a
+                href={PRIVACY_POLICY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline"
+              >
+                Política de privacidad
+              </a>
             </p>
           </form>
         </div>
