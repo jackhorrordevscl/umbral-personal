@@ -1,6 +1,6 @@
 # ADR 0005 - Versionado y rotación de claves de cifrado
 
-- **Estado:** implementada (nota del 2026-10-13: el llavero, el formato `0x02`/`enc:v3` con AAD y el script `backend/scripts/reencrypt-keys.ts` están en el código; el procedimiento operativo está en `docs/rotacion-y-respaldo-de-claves.md`. El issue #382 sigue abierto en GitHub y #398, retirar la clave id 0, quedó implementado en el código)
+- **Estado:** aceptada el 2026-10-15 (implementada: el llavero, el formato `0x02`/`enc:v3` con AAD, el script `backend/scripts/reencrypt-keys.ts` y el retiro de la clave id 0, issue #398, están en el código; el procedimiento operativo está en `docs/rotacion-y-respaldo-de-claves.md`. En producción, el 2026-10-14 las cuatro claves se reemplazaron por completo al reiniciar la base de datos; el procedimiento de rotación con datos existentes, con `<NOMBRE>_KEYRING` y `<NOMBRE>_ACTIVE_KEY_ID`, no se ha ejercitado en producción)
 - **Fecha:** 2026-10-07
 - **Issue:** #382
 

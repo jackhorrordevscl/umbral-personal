@@ -10,9 +10,11 @@ implementados y desplegados (T3a, T3b-U1 y T3b-U2). El código vive en
 script en `backend/scripts/reencrypt-keys.ts` (`npm run crypto:reencrypt`). La
 migración de la sección 2.1 ya se aplicó en producción, según informó el
 responsable del proyecto; este documento no guarda un registro de esa corrida.
-El issue #382 sigue abierto en GitHub (falta la primera rotación real en
-producción). El #398 (retirar la clave id 0 del entorno) está implementado en el
-código; ver "Retirar la clave id 0" más abajo.
+El issue #382 está cerrado. El 2026-10-14 las cuatro claves de producción se
+reemplazaron por completo al reiniciar la base de datos, así que el
+procedimiento de rotación con datos existentes (sección 3) no se ha ejercitado
+en producción. El #398 (retirar la clave id 0 del entorno) está
+implementado en el código; ver "Retirar la clave id 0" más abajo.
 
 ## 1. Qué se cifra y qué pasa si falta la clave
 
