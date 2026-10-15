@@ -105,14 +105,16 @@ jobs:
 
       - run: npm ci
 
+      # Prisma 7 ya no genera el cliente en el postinstall: el lint necesita
+      # los tipos generados para resolver @prisma/client.
+      - name: Generar Prisma Client
+        run: npx prisma generate
+
       - name: Lint
         run: npx eslint "{src,apps,libs,test}/**/*.ts"
 
       - name: Migrar base de datos de CI
         run: npx prisma migrate deploy
-
-      - name: Generar Prisma Client
-        run: npx prisma generate
 
       - name: Seed (usuario admin de test)
         run: npm run seed
