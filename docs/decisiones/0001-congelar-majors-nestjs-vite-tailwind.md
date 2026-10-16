@@ -3,7 +3,7 @@
 - **Estado:** aceptada
 - **Fecha:** 2026-09-25
 - **Issue:** #210
-- **Nota de estado (2026-10-13):** las versiones del repositorio siguen siendo NestJS `^11.0.1`, Vite `^7.3.1` y Tailwind `^3.4.19`. Está abierto el issue #458 (migrar el frontend a Tailwind 4 para resolver 7 vulnerabilidades de desarrollo), que reabriría la parte de Tailwind de esta decisión.
+- **Nota de estado (2026-10-16):** NestJS `^11.0.1` y Vite `^7.3.1` siguen congelados. La parte de Tailwind se reabrió y se resolvió: el frontend migró a Tailwind `^4.3.3` (issue #458, PR #479) para resolver 7 vulnerabilidades de desarrollo.
 
 ## Contexto
 

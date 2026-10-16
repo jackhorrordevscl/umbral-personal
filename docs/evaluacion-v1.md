@@ -1,6 +1,6 @@
 # Evaluación de preparación para v1
 
-Fecha: 2026-10-14 (revisión anterior: 2026-10-06). Rama evaluada: `docs/sync-docs-oct2026` (basada en `main` a88be01, último PR mergeado #463).
+Fecha: 2026-10-14, con el estado de pendientes actualizado el 2026-10-16 (revisión anterior: 2026-10-06). Las tablas de evidencia son del 2026-10-13/14; la deuda planificada y el checklist reflejan `main` en `720df4c` (PR #479).
 
 Este documento resume qué tan lista está Umbral para una v1 con pacientes reales. Cada afirmación se contrastó con el código o con el estado de GitHub a la fecha indicada; lo que no se pudo verificar se marca como tal. No es una validación legal.
 
@@ -60,7 +60,7 @@ El núcleo clínico, la seguridad de cuentas, los respaldos y el pipeline de CI 
 | R4 | Google OAuth publicado pero sin verificar | Issue #123 (abierto, verificación en revisión); README, sección Google Calendar | La app está publicada, así que el refresh token no caduca a los 7 días. Mientras Google no verifique el scope `calendar.events`, el terapeuta ve el aviso de "app no verificada" al conectar y hay un tope de 100 usuarios. Es opcional y el sistema degrada con aviso. Pendiente: video de demostración actualizado y resolución de Google |
 | R5 | La cláusula de consentimiento ya aplicada ubica los "documentos asociados" en São Paulo | `docs/clausula-transferencia-internacional.md`; los documentos adjuntos viven en buckets de Backblaze (Estados Unidos) según el RAT | Hechos corregidos el 2026-10-13 en la cláusula como referencia (documentos y procesamiento en Estados Unidos, custodia de la clave del respaldo). Cada terapeuta ajusta su propio consentimiento (Umbral no provee plantilla); falta la revisión legal. Ver también la transferencia internacional abierta en el RAT |
 | R6 | Transferencia internacional sin revisión legal | RAT, sección "Transferencia internacional de datos". DPA de Sentry y de Render recopilados el 2026-10-08 (`docs/evidencia-compliance/`); sin evidencia de Cloudflare, Vercel ni Google Fonts, que forman parte de la ruta del tráfico | Es el pendiente más importante del RAT. No es de ingeniería |
-| R7 | ~~Cobertura mínima exigida baja y e2e fuera de CI~~ Mejorado (#383) | Umbrales 80/70/75/80 (statements/branches/functions/lines) en `backend/package.json:115-121` y 70/65/65/70 en `frontend/vitest.config.ts:18-23`; los e2e de Playwright corren en el job `e2e` de `ci.yml` | Hay 199 specs unitarios (115 de backend y 84 de frontend) y 31 e2e de backend. Seguimiento en #419 (pago simulado y revisión móvil automatizada) |
+| R7 | ~~Cobertura mínima exigida baja y e2e fuera de CI~~ Mejorado (#383) | Umbrales 80/70/75/80 (statements/branches/functions/lines) en `backend/package.json:115-121` y 70/65/65/70 en `frontend/vitest.config.ts:18-23`; los e2e de Playwright corren en el job `e2e` de `ci.yml` | Hay 199 specs unitarios (115 de backend y 84 de frontend) y 31 e2e de backend. El seguimiento #419 (pago simulado) se cerró con el PR #474 |
 
 ## Riesgos aceptables o documentados
 
@@ -77,12 +77,10 @@ El núcleo clínico, la seguridad de cuentas, los respaldos y el pipeline de CI 
 
 ## Deuda planificada
 
-- Prisma 6 a 7 (#75, `prio: 6-deuda`, sin decisión) y el aviso de dependencias de desarrollo #255 (espera a #75).
-- Majors congelados por el ADR 0001 (`docs/decisiones/0001-congelar-majors-nestjs-vite-tailwind.md`): NestJS 11 (el 12 queda fuera), Vite 7 (el 8 queda fuera) y Tailwind 3 (el 4 queda fuera) hasta después de la v1.
+- Resuelto desde la revisión anterior: Prisma 6 a 7 (#75, PR #471; el aviso de dependencias de desarrollo #255 también está cerrado), Tailwind 3 a 4 (#458, PR #479, que dejó 0 vulnerabilidades en `npm audit`), cookie `HttpOnly` (#387, activa en producción con el dominio común), e2e de reserva pública y pago simulado (#419, PR #474) y retiro de la clave id 0 del entorno (#398, PR #469).
+- Majors congelados por el ADR 0001 (`docs/decisiones/0001-congelar-majors-nestjs-vite-tailwind.md`): NestJS 11 (el 12 queda fuera) y Vite 7 (el 8 queda fuera) hasta después de la v1. La parte de Tailwind del ADR se reabrió y se resolvió con #458.
 - Retiro de `merchantId` y `credentialVersion` (A7) cuando no queden cuentas v1.
-- Migrar el frontend a Tailwind 4 para resolver 7 vulnerabilidades de desarrollo (#458, abierto; reabriría el ADR 0001). La migración de la sesión a cookie `HttpOnly` (#387) está implementada en la rama, pendiente de activarse con el dominio común.
-- Seguimiento de las pruebas e2e de reserva pública y pago (#419) y retiro de la clave id 0 del entorno (#398).
-- Funcionalidades pospuestas: recordatorios por WhatsApp (#161), boleta electrónica SII (#160), transcriptor de sesiones con IA (#162), múltiples tipos de servicio en la agenda (#156).
+- Funcionalidades pospuestas: recordatorios por WhatsApp (#161), boleta electrónica SII (#160) y transcriptor de sesiones con IA (#162). Múltiples tipos de servicio en la agenda (#156) sigue abierto, sin la etiqueta `pospuesto`.
 
 ## Checklist de salida a v1
 
@@ -94,7 +92,7 @@ El núcleo clínico, la seguridad de cuentas, los respaldos y el pipeline de CI 
 - [ ] R4: iniciar la verificación de la app OAuth de Google (#123) o dejar documentada la limitación.
 - [ ] R5 y R6: revisión legal de la cláusula de transferencia internacional y del RAT (incluidos Sentry, Cloudflare, Vercel y Google Fonts).
 - [x] A8: RLS habilitada en `TreatmentDischarge` (#461, PR #462) y prueba que exige RLS en toda tabla nueva.
-- [ ] A4: confirmar copia segura, fuera de Render, de las 4 claves de cifrado y del secreto de cifrado de respaldos.
-- [ ] Confirmar que el DSN de Sentry está cargado en Render y Vercel y que los eventos recibidos no contienen datos personales.
-- [ ] Confirmar en producción las variables obligatorias (`RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`) y que las migraciones recientes quedaron aplicadas.
+- [x] A4: copia segura, fuera de Render, de las 4 claves de cifrado vigentes (confirmada por el responsable del proyecto el 2026-10-15). Las claves anteriores a la rotación del 14-15 de octubre siguen respaldadas para restaurar el respaldo previo.
+- [x] Sentry: DSN cargado en Render y Vercel (2026-10-15). El backend registra eventos; en el frontend se observó una request de envelope a `ingest.us.sentry.io` con el SDK `sentry.javascript.react/11.0.0`. Pendiente: confirmar que los eventos recibidos no contienen datos personales.
+- [x] Variables obligatorias en producción (`RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`): configuradas y funcionando, según el responsable del proyecto. Migraciones: el deploy `live` (2026-10-15) es el commit `720df4c`, igual a `main`, y `/api/v1/health` responde 200; las migraciones se aplican en el arranque (`render.yaml:19`), por lo que la última (`20261014120000_enable_rls_treatment_discharge`) quedó aplicada por inferencia, no con `prisma migrate status`.
 - [ ] Revisar el texto público (landing, redes) contra `docs/datos-landing.md`: sin afirmaciones de certificación, aislamiento por RLS ni cifrado de notas clínicas.
