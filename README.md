@@ -935,8 +935,10 @@ umbral-personal/
 - Compresión gzip + cifrado AES-256 de los respaldos (nunca se escribe un
   volcado sin cifrar a disco)
 - Sin rotación: se conserva todo indefinidamente. Al volumen real
-  (~40 KB/backup diario), 15 años de historial completo entran cómodos en
-  los 10 GB gratis de B2, sin necesidad de distinguir "operativo" de
+  (~250 KB/backup diario, medido el 2026-10-14 en un respaldo con datos de
+  prueba), 15 años de historial completo ocupan ~1,4 GB y entran en los 10 GB
+  gratis de B2; si el volumen crece unas 7 veces se superaría ese tope. No hace
+  falta distinguir "operativo" de
   "custodia legal" (Ley 20.584: 15 años)
 - Copia offsite real vía Backblaze B2 + `rclone`, con una Application Key
   restringida (sin `deleteFiles`) para que un secret filtrado no permita
