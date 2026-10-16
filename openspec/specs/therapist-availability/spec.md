@@ -28,6 +28,22 @@ The system MUST let a therapist define a recurring weekly schedule as a set of `
 - WHEN they save
 - THEN the system rejects the schedule with an error naming the day and the overlapping ranges, and nothing is persisted
 
+### Requirement: Availability Management Endpoints
+
+The backend MUST expose, behind an authenticated session and scoped to the requesting therapist: `GET /availability/schedule` (returns `{ sessionDurationMinutes, entries }`, entries ordered by day and start with `id`, `dayOfWeek`, `startMinute`, `endMinute`; when the therapist never configured a duration it returns the default of 50 minutes), `PUT /availability/schedule` (body `{ sessionDurationMinutes, entries }`, replaces the whole schedule and the duration in one transaction), `GET /availability/blockouts` (ordered by `startsAt` ascending), `POST /availability/blockouts` (body `startsAt`, `endsAt`, `kind` and optional `reason`) and `DELETE /availability/blockouts/:id`. Entries MUST satisfy `dayOfWeek` 1-7, `startMinute` 0-1439 and `endMinute` 1-1440, and `kind` MUST be one of `FULL_DAY`, `PARTIAL_DAY` or `DATE_RANGE`; any violation MUST be rejected with `400`.
+
+#### Scenario: Reading a schedule never configured
+
+- GIVEN a therapist who has not saved a schedule
+- WHEN they call `GET /availability/schedule`
+- THEN the response has an empty `entries` list and `sessionDurationMinutes` of 50
+
+#### Scenario: Invalid blockout kind is rejected
+
+- GIVEN a therapist submitting a blockout
+- WHEN `kind` is not `FULL_DAY`, `PARTIAL_DAY` or `DATE_RANGE`, or `endsAt` is not after `startsAt`
+- THEN the response is `400` and no blockout is created
+
 ### Requirement: Per-Therapist Session Duration
 
 The system MUST store one `sessionDurationMinutes` value per therapist (between 5 and 240 minutes), saved together with the weekly schedule, and MUST use it to segment every weekly window into fixed-length slots. It MUST NOT support a per-session-type override. Each consultation MUST store the duration in force when it was created (or booked) and keep it when later corrected, so changing the configured duration never alters existing sessions.

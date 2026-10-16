@@ -26,6 +26,12 @@ Split account settings into `Perfil` (identity, public profile, credentials and 
 - WHEN the page renders
 - THEN it shows MFA controls and the full Google Calendar connect/disconnect panel
 
+#### Scenario: Security history fails to load
+
+- GIVEN the MFA security history request fails
+- WHEN `Seguridad` renders
+- THEN an error banner states the history could not be loaded, and the rest of the page (MFA controls, Google Calendar panel) remains usable
+
 #### Scenario: Invitation generator only for allowed accounts
 
 - GIVEN a therapist whose profile does not report `canInvite`

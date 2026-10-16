@@ -14,7 +14,7 @@ The system MUST present a 5-step connection flow (welcome/checklist, go to Flow,
 
 - GIVEN a therapist pastes a well-formed `apiKey`/`secretKey` pair
 - WHEN the system validates them live against Flow and Flow confirms them
-- THEN the credentials are encrypted and persisted, the account status becomes `CONNECTED`, a `PAYMENT_ACCOUNT_CONNECTED` audit entry is recorded, and the confirmation step shows the commerce name Flow returned
+- THEN the credentials are encrypted and persisted, the account status becomes `CONNECTED`, a `PAYMENT_ACCOUNT_CONNECTED` audit entry is recorded, and the confirmation step shows the provider, the masked API key and the key fingerprint, plus the commerce name only when the gateway returns one (the Flow client currently does not, so the step offers an optional field, up to 200 characters, for the therapist to name the account)
 
 #### Scenario: Malformed credentials are rejected before calling Flow
 
@@ -26,11 +26,11 @@ The system MUST present a 5-step connection flow (welcome/checklist, go to Flow,
 
 - GIVEN a well-formed `apiKey`/`secretKey` pair that Flow does not recognize
 - WHEN the system calls Flow's live validation
-- THEN the system shows Flow's actionable rejection reason, persists no credential and does not change the account status, and the therapist remains on the paste step. The paste-step validation writes nothing; the failure reason is recorded as the account's last error only when Flow rejects the confirmation step's connect call
+- THEN the system persists no credential and does not change the account status, and the therapist remains on the paste step. The paste-step validation (`POST /payments/account/validate`) writes nothing. Flow signals valid credentials by answering `400`/`404` to a probe with a non-existent token (the signature authenticates before the token is resolved) and invalid ones with `401`/`403`. A `401`/`403` or a transient Flow failure during the paste step is not translated into an HTTP error by the API: it surfaces as `500` with a generic body, so the wizard shows its own fallback message ("Flow no reconoció estas credenciales."). When Flow rejects the confirmation step's connect call (`POST /payments/account`), the API responds `400` with Flow's message and records it as the account's last error (creating the account row with status `PENDING` when none exists)
 
 ### Requirement: Encrypted Credential Storage With Non-Secret Display Metadata
 
-The system MUST store `{apiKey, secretKey}` encrypted with AES-256-GCM, using a dedicated key (`PAYMENT_CREDENTIALS_ENCRYPTION_KEY`) managed through the versioned keyring (`..._KEYRING`, `..._ACTIVE_KEY_ID`), and MUST NOT store or display the plaintext `merchantId`. The system MUST expose only non-secret metadata for display: provider, the commerce name Flow returned (editable by the therapist at confirmation), the connection date, a fingerprint of the key, and the last error. The system MUST NOT return or log a decrypted secret in any API response, error message, or log line. Credentials of a legacy storage version MUST NOT be used to create charges.
+The system MUST store `{apiKey, secretKey}` encrypted with AES-256-GCM, using a dedicated key (`PAYMENT_CREDENTIALS_ENCRYPTION_KEY`) managed through the versioned keyring (`..._KEYRING`, `..._ACTIVE_KEY_ID`), and MUST NOT write or display the legacy plaintext `merchantId` (the deprecated column remains in the schema only for rows of the retired model). The system MUST expose only non-secret metadata for display through `GET /payments/account`: `status`, `provider`, `displayName` (the commerce name returned by the gateway when it provides one, otherwise the optional name typed by the therapist), `connectedAt`, `keyFingerprint` and `lastError`; a therapist with no account row gets `status: 'PENDING'` and the remaining fields as `null`. Credentials are persisted with `credentialVersion` 2. The system MUST NOT return or log a decrypted secret in any API response, error message, or log line. Credentials of a legacy storage version MUST NOT be used to create charges.
 
 #### Scenario: Post-connection view exposes no secret
 

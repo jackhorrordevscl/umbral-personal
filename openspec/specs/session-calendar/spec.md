@@ -8,7 +8,7 @@ Give a therapist a month-view agenda of their own sessions via a read-only, ther
 
 ### Requirement: Month Range Read Endpoint
 
-The system MUST expose a read-only endpoint returning the authenticated therapist's sessions within a requested date range, scoped to `therapistId` from the session. It MUST NOT return another therapist's sessions. The range MUST be half-open (`from` inclusive, `to` exclusive) and MUST be rejected with `400` when `to` is not after `from` or when it spans more than 62 days. Each returned session MUST include its Google Calendar sync status (`null` when it has no event link) and the status of its latest reminder email (`null` when none was sent).
+The system MUST expose a read-only endpoint returning the authenticated therapist's sessions within a requested date range, scoped to `therapistId` from the session. It MUST NOT return another therapist's sessions. Both `from` and `to` MUST be ISO instants with an explicit time and offset (for example `2026-09-01T00:00:00-04:00`); a bare date MUST be rejected with `400`. The range MUST be half-open (`from` inclusive, `to` exclusive) and MUST be rejected with `400` when `to` is not after `from` or when it spans more than 62 days. Each session is returned ordered by `sessionDate` ascending with `id`, `groupId`, `sessionDate`, `sessionType`, `patientId`, `patientName`, `calendarSync` and `reminderEmailStatus` (`status`, `deliveredAt`, `openedAt`), and no clinical text. Each returned session MUST include its Google Calendar sync status (`null` when it has no event link) and the status of its latest reminder email (`null` when none was sent). Sessions MUST be ordered by `sessionDate` ascending and expose `id`, `groupId`, `sessionDate`, `sessionType`, `patientId`, `patientName`, `calendarSync` and `reminderEmailStatus` (`status`, `deliveredAt`, `openedAt`), without clinical text.
 
 #### Scenario: Therapist requests a month range
 
@@ -25,7 +25,7 @@ The system MUST expose a read-only endpoint returning the authenticated therapis
 #### Scenario: Invalid or oversized range is rejected
 
 - GIVEN an authenticated therapist
-- WHEN they request a range where `to` is not after `from`, or longer than 62 days
+- WHEN they request a range where `to` is not after `from`, longer than 62 days, or with a bound lacking time and offset
 - THEN the response is `400` and no sessions are returned
 
 ### Requirement: Session Date Anchoring
@@ -91,6 +91,18 @@ Creating a session for a patient whose treatment is closed (any status other tha
 - GIVEN a patient whose treatment was closed by a discharge
 - WHEN the therapist creates a session without confirming the reopening
 - THEN the response is `409` with code `PATIENT_TREATMENT_CLOSED` and no session is created
+
+#### Scenario: Correcting a future session of a closed treatment
+
+- GIVEN a patient whose treatment is closed
+- WHEN the therapist corrects a session so that its resulting date is in the future
+- THEN the response is `409` with code `PATIENT_TREATMENT_CLOSED` and the session is not corrected
+
+#### Scenario: Correcting a future session of a closed treatment
+
+- GIVEN a patient whose treatment is closed
+- WHEN the therapist corrects a session so that its resulting date is in the future
+- THEN the response is `409` with code `PATIENT_TREATMENT_CLOSED` and the session is not corrected
 
 #### Scenario: Confirmed reopening
 

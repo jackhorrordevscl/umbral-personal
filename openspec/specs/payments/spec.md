@@ -82,6 +82,22 @@ The system MUST set a charge's due date to 24 hours after the later of the sessi
 - WHEN the sweep runs and it is still unpaid
 - THEN the charge transitions to `LATE`
 
+### Requirement: Therapist Charge Management Endpoints
+
+The backend MUST expose, behind an authenticated session, `PATCH /payments/:groupId` (body `amount`), `POST /payments/:groupId/resend-link` and `POST /payments/:groupId/retry-charge`. Each MUST first verify that the charge belongs to the requesting therapist and answer a uniform `404` otherwise, indistinguishable from a nonexistent group. `PATCH` on a charge that is not `PENDING` or `LATE` MUST answer `404`. `resend-link` MUST answer `400` when the charge is paid or cancelled, when it has no payment link, or when no recipient email exists (the message distinguishes a minor without a guardian email from a patient without an email). `retry-charge` MUST answer `400` when the charge is not `PENDING` or `LATE`, when it already has a payment link, or when the therapist has no connected payment account.
+
+#### Scenario: Another therapist's charge is not reachable
+
+- GIVEN a charge owned by therapist A
+- WHEN therapist B calls any of the three endpoints with its `groupId`
+- THEN the response is `404`
+
+#### Scenario: Resending the link of a paid charge
+
+- GIVEN a charge in `PAID` status
+- WHEN its owner requests `resend-link`
+- THEN the response is `400` and no email is sent
+
 ### Requirement: Automatic Payment-Link Email Delivery
 
 The system MUST email the payment link at charge creation, with no therapist action, to the patient's email, or, for a minor, to the legal guardian who receives communications and has an email (preferring the one who pays), addressing the guardian by name and mentioning the patient. The delivery state (`PENDING`, `SENT`, `FAILED`, `SKIPPED_NO_EMAIL`) MUST be recorded and visible to the therapist. When no recipient email exists, the system MUST still create the charge, MUST NOT send a link email, and MUST expose the "link not delivered" state. For a minor without a guardian email, the gateway order MUST NOT be issued and the reason MUST be recorded on the charge. The therapist MUST be able to resend the link of a pending or late charge that has one, and to retry the issuing of an order for a charge that has none. Missing email MUST NOT block charge creation or scheduling.

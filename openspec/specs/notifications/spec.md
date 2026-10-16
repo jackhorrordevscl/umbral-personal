@@ -8,7 +8,7 @@ Therapist-scoped notification records with a read/unread lifecycle, an authentic
 
 ### Requirement: Therapist-Scoped Persistence
 
-Every notification MUST be persisted with an owning therapist (`userId`), a `type`, a title, a body, and an optional in-app `linkPath`, and MUST be visible or mutable only by that therapist. The emitted types are `SESSION_REMINDER` (session reminders), `GOOGLE_CALENDAR_DISCONNECTED` (Google grant revoked or expired), `PAYMENT_LATE` (a charge became overdue), `PAYMENT_ANOMALY` (the gateway reported a payment the local charge cannot represent) and `PATIENT_MISSING_SESSION_AMOUNT` (a patient auto-created by a public booking has no session amount).
+Every notification MUST be persisted with an owning therapist (`userId`), a `type`, a title, a body, and an optional in-app `linkPath`, and MUST be visible or mutable only by that therapist. The emitted types are `SESSION_REMINDER` (session reminders), `GOOGLE_CALENDAR_DISCONNECTED` (Google grant revoked or expired), `PAYMENT_LATE` (a charge became overdue), `PAYMENT_ANOMALY` (the gateway reported a payment the local charge cannot represent) and `PATIENT_MISSING_SESSION_AMOUNT` (a patient auto-created by a public booking has no session amount). The enum also defines `PATIENT_DOCUMENT_REUPLOAD_REQUIRED`, which no application flow emits: it was sent once by an operations script (`backend/scripts/notify-document-reupload.ts`) as a broadcast asking therapists to re-upload lost legal documents.
 
 #### Scenario: Notification created for the owning therapist
 
@@ -18,7 +18,7 @@ Every notification MUST be persisted with an owning therapist (`userId`), a `typ
 
 ### Requirement: Authorized, Owner-Scoped Retrieval
 
-The retrieval API MUST require authentication (same guard convention as `patients`/`consultations` modules) and MUST return only notifications owned by the requesting therapist, newest first. The list MUST support optional pagination (`page`, `pageSize`, returning the total) and, without pagination parameters, MUST return at most a fixed safety limit. A separate endpoint MUST return the owner's unread count.
+The retrieval API MUST require authentication (same guard convention as `patients`/`consultations` modules) and MUST return only notifications owned by the requesting therapist, newest first. The list MUST support optional pagination (`page`, `pageSize`, returning the total) and, without pagination parameters, MUST return at most a fixed safety limit. A separate endpoint MUST return the owner's unread count. The endpoints are `GET /notifications` (list), `GET /notifications/unread-count` (response `{ count }`), `PATCH /notifications/read-all` (response `{ count }` with the number of notifications updated) and `PATCH /notifications/:id/read`.
 
 #### Scenario: Therapist B cannot see therapist A's notifications
 
@@ -60,9 +60,25 @@ Notifications MUST start unread. Only the owning therapist MUST be able to mark 
 - WHEN therapist A marks all notifications read
 - THEN only A's notifications become read
 
+### Requirement: Notification Bell in the Authenticated Layout
+
+The authenticated layout MUST show a notification bell that polls the unread count every 30 seconds and displays a badge with the count (capped at `99+`) when it is greater than zero. Opening a notification from the list MUST mark it read when it is unread and show a detail view; when the notification has a `linkPath`, the detail view MUST offer navigation to it.
+
+#### Scenario: Opening an unread notification marks it read
+
+- GIVEN the bell shows unread notifications
+- WHEN the therapist opens one from the list
+- THEN it is marked read, its detail is shown, and the unread count is refreshed
+
+#### Scenario: Detail with a link navigates in-app
+
+- GIVEN an opened notification that carries a `linkPath`
+- WHEN the therapist follows the link in the detail view
+- THEN the detail closes and the app navigates to that path
+
 ### Requirement: Read Notification Retention
 
-The system MUST run a daily scheduled job (04:30) that deletes notifications read more than 30 days ago (configurable through `NOTIFICATIONS_PURGE_RETENTION_DAYS`), in bounded batches, skipping a run if the previous one is still in progress. Unread notifications MUST NOT be purged. The job MUST be disabled only when `NOTIFICATIONS_PURGE_ENABLED` is exactly `'false'`.
+The system MUST run a daily scheduled job (04:30) that deletes notifications read more than 30 days ago (configurable through `NOTIFICATIONS_PURGE_RETENTION_DAYS`), in bounded batches (1000 rows per batch, at most 100 batches per run by default, configurable through `NOTIFICATIONS_PURGE_MAX_BATCHES`; an invalid retention value falls back to 30 days), skipping a run if the previous one is still in progress. Unread notifications MUST NOT be purged. The job MUST be disabled only when `NOTIFICATIONS_PURGE_ENABLED` is exactly `'false'`.
 
 #### Scenario: Old read notifications are purged, unread are kept
 

@@ -1,5 +1,14 @@
 # Exploration: Backend — Prisma 6 → 7 migration (issue #75)
 
+> **Status (as of 2026-10-16): IMPLEMENTED — kept as historical record.** The migration was merged in PR #471 (commit `eed135f`, "feat(backend): migrar Prisma de 6.19 a 7.10 con driver adapter pg"; a follow-up CI commit generates the client before lint). The text below is the original exploration and is intentionally not rewritten, so its "Current State", test counts and open questions describe the pre-migration repository. What the code looks like now:
+>
+> - `prisma`, `@prisma/client` and `@prisma/adapter-pg` are at `^7.10.0` in `backend/package.json`.
+> - `PrismaService` builds its client with `createPrismaAdapter()` (`backend/src/prisma/prisma-adapter.ts`): a `PrismaPg` adapter over `DATABASE_URL` with a 5-second connection timeout (the explicit pool/timeout setting the risk section asked for).
+> - `backend/prisma.config.ts` holds the CLI configuration (schema and migrations paths, `seed: 'ts-node prisma/seed.ts'`, and a datasource URL of `DIRECT_URL`, falling back to `DATABASE_URL`); the `datasource` block in `schema.prisma` no longer declares `url`/`directUrl`.
+> - The generator is still `prisma-client-js` without a custom `output`, so imports from `@prisma/client` were not relocated (the staged "mandatory `output` path" concern did not materialize in this form). The client is no longer generated on `postinstall`: CI and `render.yaml` run `npx prisma generate` explicitly.
+>
+> No proposal, tasks or spec deltas were ever created under this change, so there is nothing to apply to `openspec/specs/`. Recommendation: archive this folder under `openspec/changes/archive/` with a dated name (for example `2026-10-16-prisma-7-migration`); that move is a git operation outside this task's scope.
+
 ## Current State
 
 Backend runs NestJS 11 on Prisma `^6.19.x` (`prisma` in devDependencies as of commit reachable via `git log` on main today, fixing the `deepmerge-ts`/`@prisma/config` CVE that was blocking `npm audit --omit=dev --audit-level=high` in CI — that narrow fix is done and out of scope here).

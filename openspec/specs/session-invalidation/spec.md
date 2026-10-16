@@ -78,7 +78,13 @@ Once `passwordChangedAt` is non-null, `JwtStrategy.validate()` MUST reject (`401
 
 ### Requirement: Revocable Sessions
 
-Every session token MUST carry a `jti` claim backed by a `Session` row (`jti` unique, `userId`, `expiresAt`, nullable `revokedAt`, optional `ipAddress`/`userAgent`) created when the token is issued. Session tokens MUST be issued only after the MFA step completes (MFA verification, forced MFA enrollment confirmation), never directly by the password step. `JwtStrategy.validate()` MUST reject with `401` a session token that has no `jti`, whose `Session` does not exist or belongs to another user, is revoked, or is past `expiresAt`, and a token whose user does not exist or is soft-deleted. Tokens issued before this requirement shipped carry no `jti` and are rejected once (users log in again).
+Every session token MUST carry a `jti` claim backed by a `Session` row (`jti` unique, `userId`, `expiresAt`, nullable `revokedAt`, optional `ipAddress`/`userAgent`) created when the token is issued. Session tokens MUST be issued only after the MFA step completes (MFA verification, forced MFA enrollment confirmation), never directly by the password step. `JwtStrategy.validate()` MUST reject with `401` a session token that has no `jti`, whose `Session` does not exist or belongs to another user, is revoked, or is past `expiresAt`, and a token whose user does not exist or is soft-deleted. Tokens issued before this requirement shipped carry no `jti` and are rejected once (users log in again). The backend MUST deliver the session token in an `HttpOnly` cookie named `umbral_session` (`SameSite=Strict`, `Secure` in production, `path=/`, lifetime equal to the token's, 8 hours by default through `JWT_EXPIRES_IN`) set by the response that issues the token, and `JwtStrategy` MUST read the token from that cookie first and from the `Authorization: Bearer` header otherwise. The frontend MUST NOT keep the token in `localStorage` or any script-readable storage; it only keeps a non-secret `user` marker and sends requests with credentials.
+
+#### Scenario: Session token travels in an HttpOnly cookie
+
+- GIVEN a user completes the MFA step successfully
+- WHEN the response is sent
+- THEN it sets the `umbral_session` cookie as `HttpOnly` and `SameSite=Strict`, and the frontend stores no token in `localStorage`
 
 #### Scenario: Token without jti is rejected
 
@@ -100,7 +106,7 @@ Every session token MUST carry a `jti` claim backed by a `Session` row (`jti` un
 
 ### Requirement: Logout and Logout-All
 
-`POST /auth/logout` MUST revoke the `Session` of the token presented; `POST /auth/logout-all` MUST revoke every still-active `Session` of the authenticated user and report how many were revoked. Both MUST require `JwtAuthGuard` and write an audit entry (`LOGOUT` and `LOGOUT_ALL` respectively). The frontend `logout()` MUST remain synchronous: it fires the API call best-effort and clears local state (token, user, activity mark, query cache) regardless of the outcome.
+`POST /auth/logout` MUST revoke the `Session` of the token presented; `POST /auth/logout` MUST revoke the `Session` of the token presented and answer `{ message: 'Sesión cerrada' }`; `POST /auth/logout-all` MUST revoke every still-active `Session` of the authenticated user and answer `{ message: 'Sesiones cerradas', revoked: <count> }`. Both MUST require `JwtAuthGuard`, write an audit entry (`LOGOUT` and `LOGOUT_ALL` respectively) and clear the `umbral_session` cookie in the response. The frontend `logout()` MUST remain synchronous: it fires the API call best-effort and clears local state (user marker, activity mark, query cache) regardless of the outcome.
 
 #### Scenario: Logout revokes only the current session
 

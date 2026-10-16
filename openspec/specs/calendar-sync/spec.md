@@ -34,6 +34,22 @@ The system MUST let a therapist connect their Google account via OAuth 2.0 autho
 - WHEN they request to disconnect
 - THEN the response is `404`
 
+### Requirement: Calendar Integration Endpoints
+
+The backend MUST expose, under `/calendar-integration`: `GET /status` and `POST /authorize` and `POST /disconnect`, all requiring an authenticated session (JWT), and `GET /callback`, which is unauthenticated because Google redirects the browser there without an `Authorization` header (identity travels only in the signed `state`). `GET /status` MUST return `status`, `googleAccountEmail`, `connectedAt`, `lastSyncAt` and `lastError`; for a therapist with no connection it MUST return `status: 'PENDING'` and the remaining fields as `null`. `POST /authorize` MUST return `{ url }` with the Google consent URL (`access_type=offline`, `prompt=consent`, only the `calendar.events` scope). Links between consultations and events MUST record a sync state of `SYNCED` or `FAILED`.
+
+#### Scenario: Status without a connection
+
+- GIVEN a therapist who never started the connection
+- WHEN `GET /calendar-integration/status` is called
+- THEN the response has `status: 'PENDING'` and `googleAccountEmail`, `connectedAt`, `lastSyncAt` and `lastError` as `null`
+
+#### Scenario: Authorize returns the consent URL
+
+- GIVEN the Google client credentials are configured
+- WHEN an authenticated therapist calls `POST /calendar-integration/authorize`
+- THEN the response is `{ url }` pointing to Google's consent screen with offline access and forced consent
+
 ### Requirement: Encrypted Token Custody
 
 The system MUST encrypt the refresh token with AES-256-GCM before persisting it, using a dedicated key (`GOOGLE_TOKEN_ENCRYPTION_KEY`, never shared with the document encryption key) managed through the versioned keyring (`..._KEYRING`, `..._ACTIVE_KEY_ID`). New ciphertexts MUST be written with the active key in the authenticated format that binds the key id and dataset label, and decryption MUST also accept legacy payloads. The token MUST NOT be stored or exposed as plaintext.
