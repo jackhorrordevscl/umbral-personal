@@ -10,7 +10,7 @@
 
 - El informe de alta de la sección 5 ya está implementado (ADR 0006): el módulo `backend/src/modules/discharges/` entrega el informe de un menor solo al representante con `canAccessReports` (`PATIENT` se rechaza con 400), y el aviso de cancelación de consultas al representante existe (ADR 0006, punto 8).
 - El issue #376 (nota de privacidad de la agenda pública) está cerrado desde el 2026-10-08; el estado y la ubicación de los textos para revisión legal están en ese issue.
-- La base de producción pasó por un clean total el 2026-10-14 (ver `docs/incident-log.md`). El caso del menor real de producción citado en el Contexto corresponde a los datos anteriores a ese clean; la constante `MINOR_GUARDIAN_ENFORCEMENT_DATE = '2026-12-01'` y las reglas de transición siguen vigentes en el código.
+- La base de producción pasó por un clean total el 2026-10-14 (ver `docs/incident-log.md`). Tras ese clean no queda ningún paciente menor en producción (solo existe la cuenta de administración); el caso del menor real citado en el Contexto es histórico. La constante `MINOR_GUARDIAN_ENFORCEMENT_DATE = '2026-12-01'` y las reglas de transición siguen vigentes en el código.
 
 ## Contexto
 
