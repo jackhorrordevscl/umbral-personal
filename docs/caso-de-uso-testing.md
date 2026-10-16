@@ -215,7 +215,9 @@ Pruebas extra, también en la ventana de incógnito:
 Entra al **Dashboard**: deberías ver los contadores "Pacientes activos",
 "Consultas registradas", "Consentimientos firmados" y "Próximas sesiones",
 además de "Pacientes recientes" y "Origen de pacientes" (el paciente que
-reservó por tu link debería aparecer ahí como "directo"). Haz clic en un
+reservó por tu link, sin parámetros de campaña ni sitio de origen, debería
+aparecer ahí como "directo"; los pacientes que cargaste a mano aparecen como
+"Registro manual"). Haz clic en un
 contador para comprobar que te lleva a la sección correspondiente.
 
 Luego entra a **Calendario**: navega al mes anterior y al siguiente, abre un

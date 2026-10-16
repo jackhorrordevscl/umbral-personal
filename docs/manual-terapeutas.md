@@ -597,7 +597,8 @@ sesión directamente, sin que tengas que agendarlos tú a mano.
   guarda ese origen junto con la ficha nueva. En el Dashboard tienes una
   sección "Origen de pacientes" con el desglose por origen: el valor de
   `utm_source` si lo hay, si no el sitio desde donde llegó, y "directo" si no
-  hay ninguno de los dos.
+  hay ninguno de los dos. Los pacientes que registras tú a mano (y los
+  creados antes de esta función) aparecen aparte, como "Registro manual".
 - **Ventana de reserva.** Solo se puede reservar con al menos 24 horas de
   anticipación (para que siempre tengas tiempo de verla) y hasta 60 días
   hacia adelante: no vas a ver reservas de último minuto ni agendadas a

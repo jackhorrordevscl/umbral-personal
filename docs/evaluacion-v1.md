@@ -1,6 +1,6 @@
 # Evaluación de preparación para v1
 
-Fecha: 2026-10-14, con el estado de pendientes actualizado el 2026-10-16 (revisión anterior: 2026-10-06). Las tablas de evidencia son del 2026-10-13/14; la deuda planificada y el checklist reflejan `main` en `720df4c` (PR #479).
+Fecha: 2026-10-14, con el estado actualizado el 2026-10-16 (revisión anterior: 2026-10-06). Las cifras de la tabla de evidencia se recontaron el 2026-10-16 sobre `main` en `959a5a8`, que es el commit etiquetado como `v1.0.0` ese mismo día; el resto de la evidencia es del 2026-10-13/14. El estado de issues es el del 2026-10-16 (6 abiertos: #63, #123, #156, #160, #161 y #162). El etiquetado de `v1.0.0` no cerró las condiciones de salida que siguen abiertas en el checklist.
 
 Este documento resume qué tan lista está Umbral para una v1 con pacientes reales. Cada afirmación se contrastó con el código o con el estado de GitHub a la fecha indicada; lo que no se pudo verificar se marca como tal. No es una validación legal.
 
@@ -18,13 +18,13 @@ El núcleo clínico, la seguridad de cuentas, los respaldos y el pipeline de CI 
 
 ## Qué está sólido (con evidencia)
 
-| Área | Evidencia (verificada el 2026-10-13) |
+| Área | Evidencia (recontada el 2026-10-16, salvo donde se indica otra fecha) |
 |---|---|
 | Tamaño y estructura | 16 módulos en `backend/src/modules/` (más `health` y `shared-files` en `backend/src/`), 27 modelos en `backend/prisma/schema.prisma`, 74 migraciones en `backend/prisma/migrations/` (74 carpetas más `migration_lock.toml`), unos 104 handlers HTTP (conteo de decoradores `@Get/@Post/@Patch/@Put/@Delete`), 17 archivos de página en `frontend/src/pages/` |
-| Pruebas | 115 specs unitarios en `backend/src`, 31 specs e2e en `backend/test`, 84 specs en `frontend/src`, 3 e2e de Playwright en `frontend/e2e/` (`notification-detail`, `public-booking` y `public-booking.mobile`) |
-| CI | `.github/workflows/ci.yml`: Postgres 16, lint, migraciones, seed, Jest con cobertura, e2e backend, `npm audit --omit=dev --audit-level=high` (`ci.yml:133` y `ci.yml:169`) y un job `e2e` con Playwright contra un backend real. El CI de `main` pasó el 2026-10-13 |
+| Pruebas | 116 specs unitarios en `backend/src`, 32 specs e2e en `backend/test`, 84 specs en `frontend/src`, 4 e2e de Playwright en `frontend/e2e/` (`notification-detail`, `public-booking`, `public-booking.mobile` y `public-booking-payment`) |
+| CI | `.github/workflows/ci.yml`: Postgres 16, lint, migraciones, seed, Jest con cobertura, e2e backend, `npm audit --omit=dev --audit-level=high` (`ci.yml:136` y `ci.yml:172`) y un job `e2e` con Playwright contra un backend real. El CI de `main` pasó el 2026-10-16 (últimas tres ejecuciones en `success`) |
 | Dependencias | Sin hallazgos high o critical en producción en el CI; evidencia de `npm audit` en `docs/evidencia-compliance/npm-audit/` |
-| Respaldos | `.github/workflows/backup.yml`, cron `0 5 * * *` (diario 05:00 UTC), cifrado AES-256 y subida a Backblaze B2; las últimas 8 ejecuciones (2026-10-07 a 2026-10-13) terminaron en `success` según `gh run list`. Restore verificado el 2026-08-03 (ver `docs/incident-log.md`) |
+| Respaldos | `.github/workflows/backup.yml`, cron `0 5 * * *` (diario 05:00 UTC), cifrado AES-256 y subida a Backblaze B2; las últimas 10 ejecuciones (2026-10-09 a 2026-10-16) terminaron en `success` según `gh run list`. Restore verificado el 2026-08-03 y repetido el 2026-10-14 (ver `docs/incident-log.md`) |
 | Cifrado en reposo (aplicación) | 4 claves AES-256-GCM separadas, validadas al arrancar en `backend/src/config/env.validation.ts`: documentos (`DOCUMENT_ENCRYPTION_KEY`), tokens de Google (`GOOGLE_TOKEN_ENCRYPTION_KEY`), credenciales de pago (`PAYMENT_CREDENTIALS_ENCRYPTION_KEY`) y secreto MFA (`MFA_SECRET_ENCRYPTION_KEY`). Llavero versionado y formato con AAD en `backend/src/common/crypto/` (`keyring.ts`, `aes-gcm.ts`), re-cifrado con `backend/scripts/reencrypt-keys.ts` (ADR 0005, `docs/rotacion-y-respaldo-de-claves.md`) |
 | Autenticación | Argon2 para contraseñas, MFA TOTP obligatorio con 10 códigos de recuperación (`MfaRecoveryCode`) y anti-reutilización de código (`User.lastUsedStep`), sesiones revocables con `jti` (`Session`), throttling por ruta (`backend/src/config/throttler.config.ts`, decoradores de throttling en `auth.controller.ts`) |
 | Hardening HTTP | Helmet, `ValidationPipe` estricto y DTOs validados con class-validator |
@@ -60,7 +60,7 @@ El núcleo clínico, la seguridad de cuentas, los respaldos y el pipeline de CI 
 | R4 | Google OAuth publicado pero sin verificar | Issue #123 (abierto, verificación en revisión); README, sección Google Calendar | La app está publicada, así que el refresh token no caduca a los 7 días. Mientras Google no verifique el scope `calendar.events`, el terapeuta ve el aviso de "app no verificada" al conectar y hay un tope de 100 usuarios. Es opcional y el sistema degrada con aviso. Pendiente: video de demostración actualizado y resolución de Google |
 | R5 | La cláusula de consentimiento ya aplicada ubica los "documentos asociados" en São Paulo | `docs/clausula-transferencia-internacional.md`; los documentos adjuntos viven en buckets de Backblaze (Estados Unidos) según el RAT | Hechos corregidos el 2026-10-13 en la cláusula como referencia (documentos y procesamiento en Estados Unidos, custodia de la clave del respaldo). Cada terapeuta ajusta su propio consentimiento (Umbral no provee plantilla); falta la revisión legal. Ver también la transferencia internacional abierta en el RAT |
 | R6 | Transferencia internacional sin revisión legal | RAT, sección "Transferencia internacional de datos". DPA de Sentry y de Render recopilados el 2026-10-08 (`docs/evidencia-compliance/`); sin evidencia de Cloudflare, Vercel ni Google Fonts, que forman parte de la ruta del tráfico | Es el pendiente más importante del RAT. No es de ingeniería |
-| R7 | ~~Cobertura mínima exigida baja y e2e fuera de CI~~ Mejorado (#383) | Umbrales 80/70/75/80 (statements/branches/functions/lines) en `backend/package.json:115-121` y 70/65/65/70 en `frontend/vitest.config.ts:18-23`; los e2e de Playwright corren en el job `e2e` de `ci.yml` | Hay 199 specs unitarios (115 de backend y 84 de frontend) y 31 e2e de backend. El seguimiento #419 (pago simulado) se cerró con el PR #474 |
+| R7 | ~~Cobertura mínima exigida baja y e2e fuera de CI~~ Mejorado (#383) | Umbrales 80/70/75/80 (statements/branches/functions/lines) en `backend/package.json:116-122` y 70/65/65/70 en `frontend/vitest.config.ts:18-23`; los e2e de Playwright corren en el job `e2e` de `ci.yml` | Hay 200 specs unitarios (116 de backend y 84 de frontend), 32 e2e de backend y 4 e2e de Playwright. El seguimiento #419 (pago simulado) se cerró con el PR #474 |
 
 ## Riesgos aceptables o documentados
 
@@ -72,7 +72,7 @@ El núcleo clínico, la seguridad de cuentas, los respaldos y el pipeline de CI 
 | A4 | Claves de cifrado: respaldo y rotación | Llavero versionado y formato con AAD en `backend/src/common/crypto/keyring.ts` (ADR 0005); script `backend/scripts/reencrypt-keys.ts`; procedimiento en `docs/rotacion-y-respaldo-de-claves.md`. Issues #382 y #398 cerrados | El versionado y el re-cifrado ya existen, y la clave id 0 puede retirarse del entorno una vez rotadas y re-cifradas todas las filas. La rotación con datos existentes no se ha ejercitado en producción (el 2026-10-14 las claves se reemplazaron al reiniciar la base). Perder `DOCUMENT_ENCRYPTION_KEY` deja los documentos ilegibles. Aceptable si las claves tienen copia segura fuera de Render. Checklist de salida: confirmar esa copia |
 | A5 | "Multigateway" es una abstracción | `backend/src/modules/payments/payment-gateway.registry.ts`: hoy solo se registra `FLOW` | No afirmar soporte de varias pasarelas |
 | A6 | Accesibilidad y responsive con auditoría automatizada parcial | `@axe-core/playwright` en `frontend/package.json` y `frontend/e2e/helpers/axe.ts`, usado en los e2e de la reserva pública; PR #355 hizo una revisión manual; seguimiento #371 (cerrado) | La cobertura automática alcanza solo las pantallas de los e2e. No afirmar cumplimiento de estándares de accesibilidad |
-| A7 | Campos de pago deprecados | `backend/prisma/schema.prisma:1028` (`merchantId`) y `:1035` (`credentialVersion`) | Se conservan para cuentas del modelo anterior hasta que no quede ninguna fila v1; costo de mantenerlos es bajo |
+| A7 | Campos de pago deprecados | `backend/prisma/schema.prisma:1026` (`merchantId`) y `:1033` (`credentialVersion`) | Se conservan para cuentas del modelo anterior hasta que no quede ninguna fila v1; costo de mantenerlos es bajo |
 | A8 | ~~La tabla `TreatmentDischarge` no tenía RLS habilitada~~ Corregido (#461, PR #462) | `backend/prisma/migrations/20261011130000_add_treatment_discharge/migration.sql` creó la tabla sin `ENABLE ROW LEVEL SECURITY`; `20261014120000_enable_rls_treatment_discharge` la habilita y `backend/src/common/utils/migrations-rls.spec.ts` exige RLS en toda tabla nueva. Registro en `docs/incident-log.md` | La tabla guarda los textos clínicos del informe de alta sin cifrar (A3). Según el registro, la tabla tenía 0 filas en producción al corregirlo (no verificable desde el repositorio) |
 
 ## Deuda planificada
@@ -80,7 +80,7 @@ El núcleo clínico, la seguridad de cuentas, los respaldos y el pipeline de CI 
 - Resuelto desde la revisión anterior: Prisma 6 a 7 (#75, PR #471; el aviso de dependencias de desarrollo #255 también está cerrado), Tailwind 3 a 4 (#458, PR #479, que dejó 0 vulnerabilidades en `npm audit`), cookie `HttpOnly` (#387, activa en producción con el dominio común), e2e de reserva pública y pago simulado (#419, PR #474) y retiro de la clave id 0 del entorno (#398, PR #469).
 - Majors congelados por el ADR 0001 (`docs/decisiones/0001-congelar-majors-nestjs-vite-tailwind.md`): NestJS 11 (el 12 queda fuera) y Vite 7 (el 8 queda fuera) hasta después de la v1. La parte de Tailwind del ADR se reabrió y se resolvió con #458.
 - Retiro de `merchantId` y `credentialVersion` (A7) cuando no queden cuentas v1.
-- Funcionalidades pospuestas: recordatorios por WhatsApp (#161), boleta electrónica SII (#160) y transcriptor de sesiones con IA (#162). Múltiples tipos de servicio en la agenda (#156) sigue abierto, sin la etiqueta `pospuesto`.
+- Funcionalidades pospuestas: recordatorios por WhatsApp (#161), boleta electrónica SII (#160) y transcriptor de sesiones con IA (#162). Múltiples tipos de servicio en la agenda (#156) también está abierto y lleva la etiqueta `pospuesto`.
 
 ## Checklist de salida a v1
 
