@@ -38,8 +38,10 @@ descripción factual de dónde están los datos, para que cada terapeuta
 la contraste con el texto de su propio documento. La redacción aplicada el
 2026-08-03 en los documentos de uno de los profesionales tenía tres
 imprecisiones frente a lo que hace el sistema (verificadas en
-`render.yaml`, `.github/workflows/backup.yml` y
-`docs/registro-actividades-tratamiento.md`). Una redacción que las
+`render.yaml` para la región `us-west-004` del bucket de avatares,
+`.github/workflows/backup.yml` y `docs/registro-actividades-tratamiento.md`;
+la región de Render, Oregón, no consta en `render.yaml` y la confirmó el
+responsable del proyecto el 2026-10-08). Una redacción que las
 corrige, como ejemplo:
 
 > Su ficha clínica y el resto de sus datos de atención se gestionan a

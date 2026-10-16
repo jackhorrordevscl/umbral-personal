@@ -21,3 +21,16 @@ Los snapshots y las cifras de la línea base de arriba no se modifican. Después
 - #257: `js-yaml` (transitiva) pasó del rango afectado 4.0.0 - 4.3.1 a 4.3.2, y `nanoid` (transitiva) del rango afectado <3.3.18 a 3.3.19. Ambas versiones se verificaron en `package-lock.json` de backend y frontend.
 
 `esbuild` quedó fijado en 0.28.1 (#230).
+
+## Verificación al 2026-10-16 (v1.0.0)
+
+Las cifras de la línea base y los snapshots de arriba no se modifican. Se corrió `npm audit` otra vez sobre los `package-lock.json` de la rama con el código de v1.0.0; el resultado depende de la base de avisos de npm del día, así que puede cambiar sin que cambie el código.
+
+| Paquete  | Comando | Resultado |
+|----------|---------|-----------|
+| backend  | `npm audit --omit=dev` (lo que valida CI) | 0 vulnerabilidades |
+| backend  | `npm audit` (completo) | 23: 19 moderate y 4 high; las 4 high están bajo `prisma` 7.10.0, que es una devDependency (`prisma`, `@prisma/config`, `deepmerge-ts` y `mysql2`) |
+| frontend | `npm audit --omit=dev` | 0 vulnerabilidades |
+| frontend | `npm audit` (completo) | 0 vulnerabilidades |
+
+Versiones verificadas en los `package-lock.json`: `sanitize-html` 2.17.7 (backend), `vitest` 4.1.11 (frontend), `esbuild` 0.28.1 (frontend), `js-yaml` 4.3.2 y `nanoid` 3.3.19 (ambos paquetes) y `@tiptap/core` 3.31.3 (frontend). CI sigue corriendo `npm audit --omit=dev --audit-level=high` en backend y frontend (`.github/workflows/ci.yml`).
