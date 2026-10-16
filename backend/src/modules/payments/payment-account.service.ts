@@ -93,7 +93,11 @@ export class PaymentAccountService {
     this.assertWellFormed(input);
     const provider = input.provider ?? PaymentProvider.FLOW;
     const credentials = new GatewayCredentials(input.apiKey, input.secretKey);
-    return this.registry.get(provider).validateCredentials(credentials);
+    try {
+      return await this.registry.get(provider).validateCredentials(credentials);
+    } catch (err) {
+      throw new BadRequestException(this.describeGatewayError(err));
+    }
   }
 
   // design.md sequence "Connect account — after", step 2: re-validate (same

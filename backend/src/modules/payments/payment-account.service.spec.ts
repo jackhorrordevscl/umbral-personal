@@ -104,18 +104,18 @@ describe('PaymentAccountService', () => {
       expect(prisma.paymentAccount.updateMany).not.toHaveBeenCalled();
     });
 
-    it('propaga el rechazo de Flow (credenciales bien formadas pero inválidas) sin persistir nada', async () => {
+    it('convierte el rechazo de Flow (credenciales bien formadas pero inválidas) en 400 con el mensaje de Flow, sin persistir nada', async () => {
       gatewayClient.validateCredentials.mockRejectedValue(
         new PaymentGatewayError('credentials', 'apiKey/firma inválida'),
       );
 
-      await expect(
-        service.validate({
-          apiKey: VALID_API_KEY,
-          secretKey: VALID_SECRET_KEY,
-        }),
-      ).rejects.toBeInstanceOf(PaymentGatewayError);
+      const attempt = service.validate({
+        apiKey: VALID_API_KEY,
+        secretKey: VALID_SECRET_KEY,
+      });
 
+      await expect(attempt).rejects.toBeInstanceOf(BadRequestException);
+      await expect(attempt).rejects.toThrow('apiKey/firma inválida');
       expect(prisma.paymentAccount.upsert).not.toHaveBeenCalled();
     });
   });
