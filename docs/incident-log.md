@@ -136,7 +136,8 @@ migraciones) corresponden al esquema vigente el 2026-08-03. A la fecha de esta
 nota `backend/prisma/migrations/` tiene 66 migraciones y `schema.prisma` define
 23 modelos, por lo que esas cifras ya no describen el estado actual. La
 verificación de restauración no se ha repetido desde entonces; conviene
-repetirla contra el esquema actual antes de la salida a v1.
+repetirla contra el esquema actual antes de la salida a v1. La verificación se
+repitió el 2026-10-14; ver la entrada de restauración al final de este registro.
 
 ---
 
@@ -185,3 +186,39 @@ aplicar todas las migraciones, los 27 modelos también lo tienen.
 migraciones y falla si alguna tabla creada con `CREATE TABLE` no tiene su
 `ENABLE ROW LEVEL SECURITY`. Una tabla nueva sin RLS rompe la integración
 continua antes de llegar a producción.
+
+---
+
+## 2026-10-14: Verificación de restauración contra el esquema actual (R3 de la evaluación de v1)
+
+**Qué se verificó.** Que un respaldo offsite reciente se descarga, se descifra
+y se restaura contra el esquema vigente. Repite la verificación del
+2026-08-03 (issue #56), cuyas cifras ya no describían el estado actual. No es un
+incidente; se documenta como evidencia de un control de continuidad.
+
+**Procedimiento.** Antes del clean total de la base de producción se generó un
+respaldo manual con el workflow `backup.yml` (`workflow_dispatch`):
+`umbral_backup_2026-10-14_23-46-14.sql.gz.enc` en B2. Se descifró con `openssl`
+(primero) y se descomprimió con `gunzip`, y se restauró en una base descartable
+(`umbral_restore_test`) del Postgres local en Docker. Nunca se restauró contra
+producción.
+
+**Resultado.** La restauración produjo las 28 tablas del schema `public` (los
+27 modelos de Prisma más `_prisma_migrations`). El dump arrastra unos 734
+errores esperables de roles y extensiones internas de Supabase, que no existen
+fuera de su infraestructura; `psql -f` los saltea y continúa.
+
+**Alcance y límites.**
+
+- El respaldo se generó con el mismo workflow que el cron diario, pero se
+  disparó a mano; no se restauró un archivo producido por la ejecución
+  programada de las 05:00 UTC.
+- Este registro no incluye la verificación de contenido fila por fila ni la del
+  trigger `trg_audit_log_append_only` tras restaurar, que sí se hicieron en la
+  prueba de agosto.
+- Los datos cifrados de ese respaldo (documentos, tokens de Google,
+  credenciales de pago y secreto MFA) solo se pueden leer con las claves
+  anteriores al reemplazo del 14-15 de octubre; el responsable del proyecto las
+  conserva. No se probó descifrar esos campos dentro de la base restaurada.
+- El volcado en claro generado durante la prueba se borró (local y Docker); en
+  `Docs Umbral` quedó solo el archivo `.enc`.
