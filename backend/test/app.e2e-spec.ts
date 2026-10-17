@@ -22,4 +22,17 @@ describe('AppController (e2e)', () => {
       .expect(200)
       .expect('Hello World!');
   });
+
+  // Hallazgo del judgment-day transversal (#502): ninguna ruta enviaba
+  // Cache-Control, así que PDFs, descargas y JSON clínico podían quedar en el
+  // caché del navegador (helmet() no lo fija).
+  it('toda respuesta lleva Cache-Control: no-store, también las de error', async () => {
+    const ok = await request(app.getHttpServer()).get('/').expect(200);
+    expect(ok.headers['cache-control']).toBe('no-store');
+
+    const unauthorized = await request(app.getHttpServer())
+      .get('/patients')
+      .expect(401);
+    expect(unauthorized.headers['cache-control']).toBe('no-store');
+  });
 });
