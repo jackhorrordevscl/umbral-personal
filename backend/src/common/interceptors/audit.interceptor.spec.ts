@@ -101,6 +101,50 @@ describe('AuditInterceptor', () => {
       });
   });
 
+  it('no guarda el query string en el detalle: una búsqueda por nombre o RUT no deja datos personales en la auditoría', (done) => {
+    const logMock = jest.fn().mockResolvedValue(undefined);
+    const auditService = { log: logMock } as unknown as AuditService;
+    const interceptor = new AuditInterceptor(auditService);
+
+    interceptor
+      .intercept(
+        buildContext({
+          url: '/api/v1/patients?search=Juan%20P%C3%A9rez&page=2',
+          params: {},
+        }),
+        buildCallHandler(),
+      )
+      .subscribe(() => {
+        setImmediate(() => {
+          const entry = firstLogEntry(logMock);
+          expect(entry.detail).toBe('GET /api/v1/patients');
+          expect(entry.resource).toBe('Patient');
+          done();
+        });
+      });
+  });
+
+  it('clasifica el recurso por la ruta y no por el texto del query string', (done) => {
+    const logMock = jest.fn().mockResolvedValue(undefined);
+    const auditService = { log: logMock } as unknown as AuditService;
+    const interceptor = new AuditInterceptor(auditService);
+
+    interceptor
+      .intercept(
+        buildContext({
+          url: '/api/v1/patients?search=ana/consents',
+          params: {},
+        }),
+        buildCallHandler(),
+      )
+      .subscribe(() => {
+        setImmediate(() => {
+          expect(firstLogEntry(logMock).resource).toBe('Patient');
+          done();
+        });
+      });
+  });
+
   describe('lectura auditada (@AuditRead)', () => {
     function run(
       context: ExecutionContext,
