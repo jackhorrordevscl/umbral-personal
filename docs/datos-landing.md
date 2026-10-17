@@ -2,6 +2,8 @@
 
 Fecha de verificación: 2026-10-16. Fuente: código del repositorio (`main` en `959a5a8`, etiquetado como `v1.0.0`), README y estado de GitHub. Las cifras cambian con cada PR; vuelve a contarlas antes de publicar.
 
+Actualización del 2026-10-17: solo lo relativo al cifrado de los textos clínicos libres (`main` en `c671a75`), que quedó activo en producción ese día con el recifrado de los datos existentes terminado (ADR 0004, `docs/evaluacion-v1.md` A3). El resto del documento conserva la verificación del 2026-10-16.
+
 Regla general: afirma solo lo que está en la sección "Funcionalidades reales". Todo lo de "Qué NO afirmar" queda fuera del texto público.
 
 ## Producto
@@ -24,6 +26,7 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 ### Consultas y notas
 
 - Registro de cada sesión con motivo, intervención, acuerdos y próxima sesión; presencial o telemedicina.
+- Los textos libres de la consulta (motivo, intervención y acuerdos), incluidas las versiones anteriores del historial de correcciones, se guardan cifrados en la base de datos.
 - Editor de texto enriquecido para las notas.
 - Corrección con versionado: corregir no sobrescribe, crea una versión nueva y conserva la original.
 - Registro de sesión propio adjunto (opcional) al corregir una consulta.
@@ -51,6 +54,7 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 
 - Estado del tratamiento (activo, alta, derivación, deserción). Al cerrar el tratamiento se cancelan las consultas futuras del paciente y se avisa por email al paciente o a su representante.
 - Informe de alta en PDF, con firma simple del terapeuta (nombre, RUT y registro profesional) y hash SHA-256 para verificar que no fue alterado. No es firma electrónica avanzada. También se puede subir un PDF propio.
+- Los textos libres del informe de alta (motivo, diagnóstico, evolución, estado al alta, recomendaciones, nota de deserción y destino de derivación) se guardan cifrados en la base de datos; el hash se calcula sobre el texto en claro, así que sigue siendo verificable.
 - Un informe emitido no se modifica: corregirlo crea una versión nueva y la anterior queda marcada como reemplazada.
 - Registro de las entregas del informe (paciente, representante o tercero; canal y finalidad). El sistema no envía el informe: se descarga y se registra la entrega. Para un tercero se exige adjuntar un documento de autorización y que el terapeuta declare haberlo revisado; el sistema no comprueba su validez legal.
 - Las reservas públicas se rechazan para un paciente con el tratamiento cerrado.
@@ -147,6 +151,7 @@ Frases que se pueden usar:
 - "Cada profesional ve únicamente a sus propios pacientes."
 - "Autenticación de dos factores obligatoria."
 - "Los documentos clínicos subidos se almacenan cifrados."
+- "Los textos clínicos de las consultas y de los informes de alta se almacenan cifrados en la base de datos (cifrado a nivel de aplicación, AES-256-GCM)."
 - "Las fichas y consultas nunca se borran físicamente: se conservan para cumplir la custodia de 15 años."
 - "Respaldos diarios cifrados fuera de la plataforma principal."
 - "Registro de auditoría que no se puede modificar."
@@ -155,7 +160,8 @@ Reglas:
 
 - Nunca escribir "certificado", "certificación" ni "cumple plenamente" respecto de ninguna ley o norma. El proyecto no tiene certificaciones ni validación legal; el RAT mantiene pendientes de revisión legal (transferencia internacional de datos, bases habilitantes).
 - No afirmar aislamiento "a nivel de base de datos" ni por RLS: la separación entre profesionales la hace el código de la aplicación.
-- No afirmar que las notas clínicas están cifradas: solo se cifran los documentos subidos (incluido el PDF del informe de alta), los tokens de Google, las credenciales de pago y el secreto MFA. Los textos del informe de alta y de las notas de consulta no se cifran a nivel de aplicación.
+- No afirmar que todos los datos personales están cifrados: se cifran los textos clínicos libres de consultas e informes de alta, los documentos subidos (incluido el PDF del informe de alta), los tokens de Google, las credenciales de pago y el secreto MFA. El nombre, el RUT y los datos de contacto del paciente se guardan en texto plano en la base (paso 3 del ADR 0004).
+- No afirmar cifrado "de extremo a extremo" ni que la plataforma no puede leer las notas: Umbral las descifra para mostrarlas y la clave está en el servidor. Tampoco afirmar que el cifrado impide alterar los textos con acceso de escritura a la base: no liga cada texto a su fila (ADR 0004, issue #486).
 - No afirmar ubicación de datos solo en Chile: la base está en São Paulo, los archivos y respaldos en Estados Unidos, el backend en Render (Oregón) y el tráfico pasa por Cloudflare y Vercel.
 - No afirmar firma electrónica avanzada ni validez legal del informe de alta: lleva firma simple y un hash de integridad (ADR 0006).
 - No afirmar que el sistema valida la autorización para entregar un informe de alta a un tercero: solo registra el documento cargado y la declaración del terapeuta.
