@@ -152,9 +152,17 @@ export class EmailChangeService {
       );
     }
 
+    let applied: { count: number };
     try {
-      await this.prisma.user.update({
-        where: { id: user.id },
+      // Compare-and-set sobre el estado pendiente que validó el token: si
+      // entre el SELECT y este UPDATE el dueño cambió la contraseña (que limpia
+      // pendingEmail) o se pidió otro cambio, no se aplica el email viejo.
+      applied = await this.prisma.user.updateMany({
+        where: {
+          id: user.id,
+          pendingEmail: user.pendingEmail,
+          pendingEmailTokenIssuedAt: user.pendingEmailTokenIssuedAt,
+        },
         data: {
           email: user.pendingEmail,
           emailVerified: true,
@@ -171,6 +179,12 @@ export class EmailChangeService {
         throw new ConflictException('El email ya está registrado');
       }
       throw err;
+    }
+
+    if (applied.count === 0) {
+      throw new BadRequestException(
+        'Token de confirmación inválido o ya utilizado',
+      );
     }
 
     await this.auditService.log({

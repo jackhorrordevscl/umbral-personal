@@ -483,6 +483,35 @@ describe('ProfileService', () => {
     });
   });
 
+  describe('update — password y email juntos', () => {
+    it('audita PASSWORD_CHANGED aunque requestChange falle después de aplicar la nueva password', async () => {
+      prisma.user.findFirst
+        .mockResolvedValueOnce(buildUser())
+        .mockResolvedValueOnce(null);
+      mockArgon2.verify.mockResolvedValue(true as never);
+      mockArgon2.hash.mockResolvedValue('new-hashed-password' as never);
+      prisma.user.update.mockResolvedValue(buildUser());
+      emailChangeService.requestChange.mockRejectedValue(
+        new Error('mail provider down'),
+      );
+
+      await expect(
+        service.update('user-1', {
+          email: 'new@example.com',
+          password: 'NuevaPassword789!',
+          currentPassword: 'correct-password',
+        }),
+      ).rejects.toThrow('mail provider down');
+
+      expect(auditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-1',
+          action: 'PASSWORD_CHANGED',
+        }),
+      );
+    });
+  });
+
   describe('update — cambio de password', () => {
     it('camino feliz: hashea la nueva password, setea passwordChangedAt y audita PASSWORD_CHANGED', async () => {
       prisma.user.findFirst.mockResolvedValue(buildUser());

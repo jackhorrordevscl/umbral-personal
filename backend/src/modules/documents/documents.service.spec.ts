@@ -211,6 +211,37 @@ describe('DocumentsService', () => {
       expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
+    it('borra el objeto cifrado de B2 y propaga el error si falla el insert del documento', async () => {
+      prisma.patientDocument.create.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.uploadDocument(
+          'patient-1',
+          'therapist-1',
+          buildFile(),
+          'INFORMED_CONSENT',
+        ),
+      ).rejects.toThrow('db down');
+
+      const writtenPath = mockWritePatientDocumentBuffer.mock.calls[0][0];
+      expect(mockDeletePatientDocumentObject).toHaveBeenCalledWith(writtenPath);
+      expect(patientsService.recordConsent).not.toHaveBeenCalled();
+    });
+
+    it('propaga el error original aunque falle también el borrado del huérfano', async () => {
+      prisma.patientDocument.create.mockRejectedValue(new Error('db down'));
+      mockDeletePatientDocumentObject.mockRejectedValue(new Error('b2 down'));
+
+      await expect(
+        service.uploadDocument(
+          'patient-1',
+          'therapist-1',
+          buildFile(),
+          'INFORMED_CONSENT',
+        ),
+      ).rejects.toThrow('db down');
+    });
+
     describe('paciente menor de edad (M2b)', () => {
       beforeEach(() => {
         jest.useFakeTimers().setSystemTime(new Date('2026-10-08T15:00:00Z'));

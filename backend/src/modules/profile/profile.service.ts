@@ -228,6 +228,19 @@ export class ProfileService {
       select: PROFILE_SELECT,
     });
 
+    // La contraseña ya quedó cambiada (y las sesiones invalidadas): se audita
+    // antes de requestChange, que puede fallar por el correo y dejaría el
+    // cambio sin registro.
+    if (dto.password) {
+      await this.auditService.log({
+        userId: id,
+        action: 'PASSWORD_CHANGED',
+        resource: 'User',
+        resourceId: id,
+        detail: 'Contraseña actualizada por el propio usuario (step-up auth)',
+      });
+    }
+
     if (emailDelta) {
       await this.emailChangeService.requestChange(
         { id: user.id, email: user.email, name: user.name },
@@ -238,16 +251,6 @@ export class ProfileService {
       // clase); el caller necesita ver el pendingEmail recién seteado en la
       // respuesta sin pagar un tercer round-trip.
       updated.pendingEmail = newEmail as string;
-    }
-
-    if (dto.password) {
-      await this.auditService.log({
-        userId: id,
-        action: 'PASSWORD_CHANGED',
-        resource: 'User',
-        resourceId: id,
-        detail: 'Contraseña actualizada por el propio usuario (step-up auth)',
-      });
     }
 
     return updated;

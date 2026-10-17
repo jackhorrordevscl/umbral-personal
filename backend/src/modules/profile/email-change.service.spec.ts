@@ -34,7 +34,9 @@ function buildUser(overrides: Partial<User> = {}): User {
  */
 describe('EmailChangeService', () => {
   let service: EmailChangeService;
-  let prisma: { user: { update: jest.Mock; findUnique: jest.Mock } };
+  let prisma: {
+    user: { update: jest.Mock; updateMany: jest.Mock; findUnique: jest.Mock };
+  };
   let jwtService: { sign: jest.Mock; verify: jest.Mock };
   let config: { get: jest.Mock };
   let mailService: {
@@ -47,6 +49,7 @@ describe('EmailChangeService', () => {
     prisma = {
       user: {
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUnique: jest.fn(),
       },
     };
@@ -262,14 +265,18 @@ describe('EmailChangeService', () => {
           emailVerified: false,
         }),
       );
-      prisma.user.update.mockResolvedValue(
-        buildUser({ email: 'new@example.com' }),
-      );
 
       const result = await service.confirm('token');
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
+      // Compare-and-set: el UPDATE solo aplica si el estado pendiente sigue
+      // siendo el que validó el token (una contraseña cambiada o una nueva
+      // solicitud entre el SELECT y el UPDATE lo invalida).
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'user-1',
+          pendingEmail: 'new@example.com',
+          pendingEmailTokenIssuedAt: new Date(1000),
+        },
         data: {
           email: 'new@example.com',
           emailVerified: true,
@@ -303,9 +310,31 @@ describe('EmailChangeService', () => {
           pendingEmailTokenIssuedAt: new Date(1000),
         }),
       );
-      prisma.user.update.mockRejectedValue({ code: 'P2002' });
+      prisma.user.updateMany.mockRejectedValue({ code: 'P2002' });
 
       await expect(service.confirm('token')).rejects.toThrow(ConflictException);
+    });
+
+    it('rechaza como ya utilizado, sin auditar, si el estado pendiente cambió entre la lectura y la escritura (carrera con cambio de contraseña)', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'email-change',
+        pendingEmail: 'new@example.com',
+        changeIssuedAt: 1000,
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({
+          email: 'old@example.com',
+          pendingEmail: 'new@example.com',
+          pendingEmailTokenIssuedAt: new Date(1000),
+        }),
+      );
+      prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.confirm('token')).rejects.toThrow(
+        'Token de confirmación inválido o ya utilizado',
+      );
+      expect(auditService.log).not.toHaveBeenCalled();
     });
   });
 });
