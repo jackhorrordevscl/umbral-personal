@@ -64,7 +64,7 @@ For an adult, the email is required and the system MUST resolve the patient by `
 
 For a minor, the guardian data MUST be required and the patient MUST be identified by the patient RUT scoped to the therapist plus the RUT of one of their registered guardians. If none exists, the system MUST create the patient and a legal guardian record (payer, contact, consent holder and report access by default) in the same transaction; no consent is captured publicly. A guardian RUT equal to the patient RUT MUST be rejected with `400`, and guardian data submitted for an adult MUST be rejected with `400`.
 
-Every identity failure (RUT collision, unverified identity, ambiguous email, invalid check digit, stored patient already a minor or adult in the other path, closed treatment, duplicate email on a new minor) MUST answer the same uniform `409` ("No fue posible procesar la reserva.") without revealing which check failed, and logs MUST NOT contain RUT or email. The system MUST NOT require OTP or any authentication step. When a booking auto-creates a patient, the therapist MUST receive an in-app notification (the patient has no default session amount, so no charge is generated for the first session).
+Every identity failure (RUT collision, unverified identity, ambiguous email, invalid patient check digit, stored patient already a minor or adult in the other path, closed treatment, duplicate email on a new minor, concurrent RUT creation) MUST be answered exactly like a booking for a new patient (`201` with the same shape, invented ids, and the same checkout hint a new patient gets) while creating no consultation, booked slot, patient, guardian or notification. This is what keeps the endpoint from telling an anonymous caller whether a person is a patient of the therapist (issue #502). When the colliding record has an email, the system MUST send that address a notice that a booking request could not be completed; the notice MUST NOT name the therapist or say which check failed. Rejections decided from the request alone, before reading any stored data (an invalid guardian check digit, an unavailable slot), keep answering `409`. Logs MUST NOT contain RUT or email. The system MUST NOT require OTP or any authentication step. When a booking auto-creates a patient, the therapist MUST receive an in-app notification (the patient has no default session amount, so no charge is generated for the first session).
 
 #### Scenario: Existing patient books into their own record
 
@@ -76,7 +76,13 @@ Every identity failure (RUT collision, unverified identity, ambiguous email, inv
 
 - GIVEN a patient registered under a therapist
 - WHEN someone books with that patient's email but a different RUT
-- THEN the booking is rejected with the uniform `409` and nothing is created
+- THEN nothing is created, the response is indistinguishable from a new patient's booking, and the registered email receives a notice that the request could not be completed
+
+#### Scenario: Membership cannot be probed with an invalid check digit
+
+- GIVEN one registered email and one unknown email
+- WHEN each is submitted with a RUT whose check digit is invalid
+- THEN both receive the same response and nothing is created
 
 #### Scenario: New patient is created and linked
 
@@ -106,7 +112,7 @@ Every identity failure (RUT collision, unverified identity, ambiguous email, inv
 
 - GIVEN a patient whose treatment was closed by a discharge
 - WHEN they try to book publicly
-- THEN the booking is rejected with the uniform `409`
+- THEN no booking is created and the response is indistinguishable from a new patient's booking
 
 ### Requirement: Double-Booking Protection
 

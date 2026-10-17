@@ -154,7 +154,7 @@ Un representante que ya firmó un consentimiento no se puede quitar; si cambió 
 
 **Cobros y correos van al representante.** Para un menor, el link de pago y el aviso de cobro vencido se envían al representante con "Recibe comunicaciones" y email (se prefiere el marcado como pagador), con el nombre del paciente en el texto y sin datos clínicos. El correo del propio menor no se usa. Si no hay ningún representante con email, el correo no se envía y el cobro queda como "sin email"; al reenviar el link la app avisa que el menor no tiene representante con email. En ese caso el cobro queda creado pero sin link de pago, porque Flow necesita el email del pagador para emitirlo y el sistema no usa el tuyo en su lugar; el cobro muestra el motivo. Carga el email de un representante y usa "Reintentar cobro" para generar el link. Los recordatorios de sesión siguen llegando a ti.
 
-**Reserva pública de un menor.** En la agenda pública (sección 13), quien reserva marca "Reservo para un menor de edad" e ingresa los datos del paciente y del representante (nombre, RUT, correo y teléfono opcional). El sistema valida que el paciente sea menor de 18 años y que el RUT del representante sea distinto al del paciente. Un menor se identifica por **su propio RUT** (no por el email del representante, porque un mismo representante puede reservar para dos hijos); si ya existe una ficha con ese RUT, solo se reutiliza si el RUT del representante coincide con uno ya registrado. En cualquier otro caso el paciente ve el mismo mensaje genérico de "no fue posible procesar la reserva". Al crear una ficha nueva, el representante queda con todas las marcas activas (consiente, pagador, avisos e informes) y cuidado personal no informado. La reserva no registra consentimiento: debes cargarlo tú después.
+**Reserva pública de un menor.** En la agenda pública (sección 13), quien reserva marca "Reservo para un menor de edad" e ingresa los datos del paciente y del representante (nombre, RUT, correo y teléfono opcional). El sistema valida que el paciente sea menor de 18 años y que el RUT del representante sea distinto al del paciente. Un menor se identifica por **su propio RUT** (no por el email del representante, porque un mismo representante puede reservar para dos hijos); si ya existe una ficha con ese RUT, solo se reutiliza si el RUT del representante coincide con uno ya registrado. En cualquier otro caso no se crea nada y quien reservó ve la misma confirmación que una reserva nueva (ver sección 13). Al crear una ficha nueva, el representante queda con todas las marcas activas (consiente, pagador, avisos e informes) y cuidado personal no informado. La reserva no registra consentimiento: debes cargarlo tú después.
 
 **Deber de denuncia y secreto profesional (guía, sin funcionalidad).** Esta guía requiere revisión legal y no está implementada en la app. Como orientación general, el Código Procesal Penal (art. 175) establece quiénes están obligados a denunciar ciertos delitos de los que toman conocimiento, y el secreto profesional tiene excepciones y tensiones con esa obligación y con el derecho de los padres a ser informados sobre un adolescente. La app no avisa ni decide por ti: ante sospecha de vulneración de derechos o de un delito contra un niño, niña o adolescente, consulta con asesoría legal o con tu colegio profesional antes de actuar, y deja constancia de tu decisión en la ficha.
 
@@ -575,9 +575,13 @@ sesión directamente, sin que tengas que agendarlos tú a mano.
   RUT también coincide con el de su ficha**, la reserva se liga
   automáticamente a esa ficha; si es alguien nuevo, se crea una ficha nueva
   con esos datos mínimos. Si el email existe pero el RUT no coincide, o la
-  ficha es de un menor o tiene el tratamiento cerrado, el paciente ve el
-  mismo mensaje genérico de "no fue posible procesar la reserva", sin que se
-  revele nada de la ficha.
+  ficha es de un menor o tiene el tratamiento cerrado, no se crea nada y quien
+  reservó ve la misma pantalla de confirmación que una reserva nueva, para que
+  nadie pueda averiguar quién es tu paciente. Si esa ficha tiene email, ese
+  email recibe un aviso genérico de que la solicitud no pudo completarse (no
+  nombra a quién se pidió la hora ni qué dato falló). Por eso, si un paciente
+  tuyo dice que reservó y no ve la hora en tu agenda, revisa que haya escrito
+  bien su RUT y su email.
 - **Qué queda en tu lista de consultas.** La sesión reservada aparece con el
   motivo "Reserva pública en línea" y la intervención "Pendiente de definir
   por el terapeuta", como sesión presencial. Corrígela después con lo que

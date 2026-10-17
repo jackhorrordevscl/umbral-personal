@@ -906,8 +906,8 @@ export class PatientsService {
         throw new PublicBookingRejectedException(matches[0].email);
       }
       // Informe de alta (T1): un tratamiento cerrado no admite reservas
-      // públicas nuevas. Mismo 409 uniforme: el endpoint es anónimo y no debe
-      // revelar el estado clínico del paciente.
+      // públicas nuevas. Mismo rechazo uniforme: el endpoint es anónimo y no
+      // debe revelar el estado clínico del paciente.
       if (matches[0].treatmentStatus !== TreatmentStatus.ACTIVE) {
         this.logger.warn(
           `Reserva pública rechazada: tratamiento cerrado bajo therapistId=${therapistId}`,
@@ -959,7 +959,7 @@ export class PatientsService {
     // que dos reservas simultáneas del mismo paciente nuevo (doble click,
     // doble pestaña, reintento de red) pueden pasar ambas el chequeo. La
     // unicidad parcial de (therapistId, rut) es el guard real: la perdedora recibe P2002 y
-    // se traduce al mismo 409 uniforme, nunca a un 500.
+    // se traduce al mismo rechazo uniforme, nunca a un 500.
     try {
       const patient = await client.patient.create({
         data: {
@@ -996,8 +996,8 @@ export class PatientsService {
 
   // Minor public booking. Identity is the patient RUT scoped to the therapist
   // (a minor often has no email of their own) plus the RUT of one of their
-  // registered guardians. Every identity failure is the same uniform 409 as the
-  // adult flow, and logs carry only the therapistId (no RUT, no email).
+  // registered guardians. Every identity failure is the same uniform rejection
+  // as the adult flow, and logs carry only the therapistId (no RUT, no email).
   // Guardians are written through the received client directly (not
   // GuardiansService, which is therapist-scoped and would create a cycle), so
   // patient + guardian + consultation share one transaction.
@@ -1064,7 +1064,7 @@ export class PatientsService {
 
     const email = dto.email?.trim().toLowerCase() || null;
     // A duplicate email would make the adult email-first lookup ambiguous for
-    // the existing patient forever, so it is rejected with the uniform 409.
+    // the existing patient forever, so it is rejected with the uniform response.
     if (email) {
       const emailTaken = await client.patient.findMany({
         where: {
