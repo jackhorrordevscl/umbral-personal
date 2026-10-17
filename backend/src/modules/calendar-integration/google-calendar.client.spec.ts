@@ -109,6 +109,56 @@ describe('GoogleCalendarClient', () => {
       expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
+    it('clasifica un rechazo 400 del endpoint de tokens como invalid_grant', async () => {
+      const oauth2Client = {
+        getAccessToken: jest.fn().mockRejectedValue(
+          Object.assign(new Error('Bad Request'), {
+            response: { status: 400, data: { error: 'invalid_grant' } },
+          }),
+        ),
+      } as unknown as OAuth2Client;
+
+      await expect(
+        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY),
+      ).rejects.toMatchObject({
+        kind: 'invalid_grant',
+      } as Partial<GoogleCalendarError>);
+    });
+
+    it('clasifica un error de red al refrescar el access_token como transient', async () => {
+      const oauth2Client = {
+        getAccessToken: jest
+          .fn()
+          .mockRejectedValue(
+            new Error('getaddrinfo ENOTFOUND oauth2.googleapis.com'),
+          ),
+      } as unknown as OAuth2Client;
+
+      await expect(
+        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<GoogleCalendarError>);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it('clasifica un 5xx al refrescar el access_token como transient', async () => {
+      const oauth2Client = {
+        getAccessToken: jest.fn().mockRejectedValue(
+          Object.assign(new Error('Service Unavailable'), {
+            response: { status: 503, data: {} },
+          }),
+        ),
+      } as unknown as OAuth2Client;
+
+      await expect(
+        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<GoogleCalendarError>);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
     it('clasifica un 403 (rate limit) como transient', async () => {
       const oauth2Client = buildOAuth2Client();
       mockFetchOnce({ ok: false, status: 403 });
