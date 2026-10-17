@@ -18,13 +18,19 @@ import {
 // 0x01 / enc:v2 (versionados sin AAD) y texto plano, aunque la clave activa
 // sea la que ya los cifra.
 
-export type DatasetName = 'mfa' | 'google' | 'payment' | 'documents';
+export type DatasetName =
+  | 'mfa'
+  | 'google'
+  | 'payment'
+  | 'documents'
+  | 'clinical';
 
 export const DATASET_NAMES: readonly DatasetName[] = [
   'mfa',
   'google',
   'payment',
   'documents',
+  'clinical',
 ];
 
 // Variable de entorno de la clave de cada dataset (para --check-retire).
@@ -33,6 +39,7 @@ export const DATASET_KEY_NAMES: Record<DatasetName, string> = {
   google: 'GOOGLE_TOKEN_ENCRYPTION_KEY',
   payment: 'PAYMENT_CREDENTIALS_ENCRYPTION_KEY',
   documents: 'DOCUMENT_ENCRYPTION_KEY',
+  clinical: 'CLINICAL_TEXT_ENCRYPTION_KEY',
 };
 
 const MAX_KEY_ID = 255;

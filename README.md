@@ -377,8 +377,8 @@ copia offsite de backups en **Backblaze B2** (ver
    las migraciones se aplican solas en cada deploy. Cargar ahí
    mismo: `DATABASE_URL`/`DIRECT_URL` del paso 1, `DOCUMENT_ENCRYPTION_KEY`
    (`openssl rand -base64 32`), `GOOGLE_TOKEN_ENCRYPTION_KEY`,
-   `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` y `MFA_SECRET_ENCRYPTION_KEY` (cada
-   una con su propia clave), `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`
+   `PAYMENT_CREDENTIALS_ENCRYPTION_KEY`, `MFA_SECRET_ENCRYPTION_KEY` y
+   `CLINICAL_TEXT_ENCRYPTION_KEY` (cada una con su propia clave), `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`
    (nunca el default del README), `RESEND_API_KEY`/`MAIL_FROM` (issue #5),
    `INVITE_CREATOR_EMAIL` (issue #124), `BACKEND_PUBLIC_URL` (URL pública del
    backend, usada para armar la URL de confirmación de pagos) y

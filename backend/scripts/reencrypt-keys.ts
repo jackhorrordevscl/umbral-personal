@@ -11,7 +11,7 @@
 //
 // Flags:
 //   --apply                          escribe (por defecto es dry-run)
-//   --only mfa,google,payment,documents   datasets a procesar (por defecto todos)
+//   --only mfa,google,payment,documents,clinical   datasets a procesar (por defecto todos)
 //   --limit N                        máximo de filas por dataset
 //   --check-retire NOMBRE=id         cuenta las filas que aún usan esa clave
 //                                    (ej. DOCUMENT_ENCRYPTION_KEY=0); sale con
@@ -45,12 +45,16 @@ import {
   textCodec,
 } from '../src/common/crypto/reencrypt';
 import {
+  buildClinicalPort,
+  paged,
+  pageArgs,
+} from '../src/common/crypto/clinical-text.port';
+import {
   isPatientDocumentNotFoundError,
   readPatientDocumentBuffer,
   writePatientDocumentBuffer,
 } from '../src/common/utils/patient-document-storage.util';
 
-const PAGE_SIZE = 200;
 const DOCUMENT_CONCURRENCY = 5;
 
 function keyringFor(name: string): Keyring {
@@ -61,27 +65,6 @@ function keyringFor(name: string): Keyring {
     name,
   );
 }
-
-// Pagina por cursor de id; incluye filas de usuarios borrados y documentos
-// anulados porque no se filtra por deletedAt/voidedAt.
-async function* paged<T extends { id: string }>(
-  fetchPage: (cursor: string | undefined) => Promise<T[]>,
-): AsyncGenerator<T> {
-  let cursor: string | undefined;
-  for (;;) {
-    const page = await fetchPage(cursor);
-    if (page.length === 0) return;
-    yield* page;
-    if (page.length < PAGE_SIZE) return;
-    cursor = page[page.length - 1].id;
-  }
-}
-
-const pageArgs = (cursor: string | undefined) => ({
-  take: PAGE_SIZE,
-  orderBy: { id: 'asc' as const },
-  ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-});
 
 // Prisma 6 devuelve Bytes como Uint8Array.
 const toBuffer = (value: Uint8Array | null): Buffer | null =>
@@ -173,6 +156,10 @@ function buildPort(
           return count === 1;
         },
       };
+    case 'clinical':
+      // Textos libres de consultas, informes de alta y snapshots del historial
+      // (ADR 0004, opción B).
+      return buildClinicalPort(prisma, keyring);
     case 'documents':
       // Se sobrescribe el mismo objeto de B2 (storagePath). B2 no tiene PUT
       // condicional: se relee justo antes de escribir y se descarta si cambió.

@@ -24,6 +24,7 @@ implementado en el código; ver "Retirar la clave id 0" más abajo.
 | Secreto MFA | `MFA_SECRET_ENCRYPTION_KEY` | `User.mfaSecret` | Nadie valida el MFA. `recoverMfa` borra el secreto para volver a enrolar |
 | Tokens de Google | `GOOGLE_TOKEN_ENCRYPTION_KEY` | `GoogleCalendarConnection.refreshTokenEncrypted` | Hay que reconectar Google (no probado en producción) |
 | Credenciales de pago | `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | `PaymentAccount.credentialEncrypted` | Hay que volver a cargar las credenciales de Flow (no probado en producción) |
+| Textos clínicos | `CLINICAL_TEXT_ENCRYPTION_KEY` | `Consultation` (motivo, intervención, acuerdos), `TreatmentDischarge` (siete textos libres) y los snapshots de `ConsultationHistory` | **Irrecuperables.** Las notas y los textos del informe quedan ilegibles, también en los respaldos. Solo sirve recuperar la clave desde el gestor de contraseñas |
 
 Un documento solo se puede leer con **dos cosas juntas**: la clave de cifrado y
 las credenciales del bucket (`B2_PATIENT_DOCUMENTS_ENDPOINT`, `_REGION`,
@@ -34,9 +35,12 @@ Alcance de cada dato, según el código:
 - El dataset `documents` cubre todas las filas de `PatientDocument`, incluidos
   los informes de alta en PDF (`DISCHARGE_REPORT`) y las autorizaciones de
   entrega (`DELIVERY_AUTHORIZATION`), y también los documentos anulados.
+- El dataset `clinical` cubre las columnas de texto libre de `Consultation` y
+  `TreatmentDischarge` y los textos dentro de `ConsultationHistory.snapshot`,
+  incluidas las filas borradas o canceladas (ADR 0004, opción B).
 - No se cifran con estas claves: los avatares y los archivos personales
-  (`SharedFile`) guardados en B2, y los textos de la base (notas clínicas,
-  textos del informe de alta; ver ADR 0004).
+  (`SharedFile`) guardados en B2, ni los datos de identificación y contacto de
+  la base (nombre, RUT, teléfono; ADR 0004, alternativa C descartada).
 - El respaldo de la base (`backup.yml`) se cifra aparte con
   `openssl enc -aes-256-cbc -pbkdf2` y el secreto `BACKUP_PASSPHRASE`, que no
   forma parte de este llavero.
@@ -106,6 +110,7 @@ Orden:
    npm run crypto:reencrypt -- --only payment --apply
    npm run crypto:reencrypt -- --only mfa --apply
    npm run crypto:reencrypt -- --only documents --apply
+   npm run crypto:reencrypt -- --only clinical --apply
    ```
 
    `documents` va al final porque reescribe objetos en B2 (el más lento y el
@@ -146,7 +151,7 @@ lectura de `0x02` no puede leer lo que escribió T3b-U2.
 - [ ] Se eligió una ventana de poco uso.
 
 La rotación se hace **de a una clave por vez**. Los pasos son los mismos para
-las cuatro; cambian el nombre de la variable y el valor de `--only`:
+las cinco; cambian el nombre de la variable y el valor de `--only`:
 
 | Variable | Valor de `--only` |
 | --- | --- |
@@ -154,6 +159,7 @@ las cuatro; cambian el nombre de la variable y el valor de `--only`:
 | `MFA_SECRET_ENCRYPTION_KEY` | `mfa` |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | `google` |
 | `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | `payment` |
+| `CLINICAL_TEXT_ENCRYPTION_KEY` | `clinical` |
 
 Los ejemplos de abajo usan documentos.
 
@@ -277,7 +283,7 @@ Todos desde `backend/`:
 | Comando | Qué hace |
 | --- | --- |
 | `npm run crypto:reencrypt` | Cuenta por dataset y por clave. No escribe |
-| `npm run crypto:reencrypt -- --only mfa,google,payment,documents` | Limita los datasets |
+| `npm run crypto:reencrypt -- --only mfa,google,payment,documents,clinical` | Limita los datasets |
 | `npm run crypto:reencrypt -- --limit N` | Máximo de filas por dataset |
 | `npm run crypto:reencrypt -- --apply` | Re-cifra con la clave activa (y migra al formato con AAD) |
 | `npm run crypto:reencrypt -- --check-retire NOMBRE=id` | Verifica que una clave ya no se usa (no se combina con `--apply` ni `--limit`) |
