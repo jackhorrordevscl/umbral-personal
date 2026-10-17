@@ -73,6 +73,22 @@ const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
 // conexión colgada bloquea reconcile() indefinidamente (issue #286).
 export const GOOGLE_REQUEST_TIMEOUT_MS = 15_000;
 
+// ¿El endpoint de tokens rechazó la credencial? google-auth-library lanza un
+// GaxiosError con response.status y response.data.error; si el shape no
+// viene, el mensaje 'invalid_grant' sigue contando. Todo lo demás (DNS,
+// reset de conexión, 5xx) es transitorio.
+function isTokenRejection(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const { response } = err as {
+    response?: { status?: number; data?: { error?: unknown } };
+  };
+  if (response?.status === 400 || response?.status === 401) return true;
+  return (
+    response?.data?.error === 'invalid_grant' ||
+    err.message.includes('invalid_grant')
+  );
+}
+
 @Injectable()
 export class GoogleCalendarClient {
   private readonly logger = new Logger(GoogleCalendarClient.name);
@@ -210,21 +226,23 @@ export class GoogleCalendarClient {
   }
 
   // Separado de request() para que un fallo al refrescar el access_token
-  // (p. ej. el refresh token fue revocado en Google) se clasifique siempre
-  // como invalid_grant sin llegar a intentar el fetch -- google-auth-library
-  // no garantiza un shape de error consistente acá, así que cualquier
-  // rechazo en este paso se trata como credencial inválida.
+  // (p. ej. el refresh token fue revocado en Google) se clasifique como
+  // invalid_grant sin llegar a intentar el fetch. Solo cuenta como credencial
+  // inválida un rechazo del endpoint de tokens (400/401 o error invalid_grant);
+  // google-auth-library no garantiza un shape de error consistente, por eso
+  // se inspecciona de forma defensiva.
   private async getAccessToken(oauth2Client: OAuth2Client): Promise<string> {
     let token: string | null | undefined;
     try {
       ({ token } = await this.withTimeout(oauth2Client.getAccessToken()));
     } catch (err) {
-      // Un timeout no dice nada sobre la credencial: tratarlo como
-      // invalid_grant desconectaría al terapeuta por una caída de red.
+      // Un timeout, una caída de red o un 5xx no dicen nada sobre la
+      // credencial: tratarlos como invalid_grant desconectaría al terapeuta.
       if (err instanceof GoogleCalendarError) throw err;
+      const detail = `Fallo al refrescar el access_token: ${err instanceof Error ? err.message : String(err)}`;
       throw new GoogleCalendarError(
-        'invalid_grant',
-        `Fallo al refrescar el access_token: ${err instanceof Error ? err.message : String(err)}`,
+        isTokenRejection(err) ? 'invalid_grant' : 'transient',
+        detail,
       );
     }
 
