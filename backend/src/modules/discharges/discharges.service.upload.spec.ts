@@ -1,3 +1,4 @@
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import {
   BadRequestException,
   ConflictException,
@@ -169,6 +170,8 @@ describe('DischargesService T3b (PDF propio)', () => {
       calendarSync as unknown as CalendarSyncService,
       documentsService as unknown as DocumentsService,
       { notify: jest.fn() } as unknown as DischargeCancellationNotifier,
+
+      buildTestClinicalCrypto(),
     );
   });
 
