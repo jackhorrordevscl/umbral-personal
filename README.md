@@ -581,7 +581,7 @@ umbral-personal/
 - Ownership estricto por `therapistId` en cada consulta: sin roles ni
   jerarquías, cada cuenta ve y administra únicamente sus propios pacientes
 - Rate limiting con throttlers independientes por endpoint sensible (login,
-  mfa/verify, signup, mfa/setup, password/change, password/reset,
+  mfa/verify, signup, mfa/setup, mfa/enable, mfa/disable, password/change, password/reset,
   mfa/recover, verificación y reenvío de email, confirmación de cambio de
   email, `PATCH /profile`, y los endpoints públicos de pagos y de
   auto-agenda; `@nestjs/throttler`). La IP del cliente se resuelve con
