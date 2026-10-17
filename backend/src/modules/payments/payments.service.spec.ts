@@ -315,6 +315,55 @@ describe('PaymentsService', () => {
       });
     });
 
+    // Hallazgo del judgment-day transversal (#502): un alta o un soft-delete
+    // que confirma después de la lectura inicial ya corrió cancelUnpaid sin
+    // ver este cargo. Con la fila ya creada, cualquier cancelación posterior
+    // la encuentra; la de antes se detecta releyendo la consulta.
+    describe('carrera con una cancelación concurrente', () => {
+      it('no emite orden ni envía el link si la consulta dejó de estar vigente tras crear el cargo', async () => {
+        prisma.consultation.findFirst
+          .mockResolvedValueOnce(buildConsultation())
+          .mockResolvedValueOnce(null);
+        paymentAccountService.resolveGatewayContext.mockResolvedValue(
+          buildContext(),
+        );
+        prisma.payment.findUnique.mockResolvedValue(null);
+        prisma.payment.create.mockResolvedValue(buildPayment());
+        prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+
+        await service.ensureCharge('group-1');
+
+        expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+          where: { id: 'payment-1', status: { in: ['PENDING', 'LATE'] } },
+          data: expect.objectContaining({ status: 'CANCELLED' }) as unknown,
+        });
+        expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+        expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+      });
+
+      it('anula la orden y no envía el link si el cargo se canceló mientras se emitía la orden', async () => {
+        prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
+        paymentAccountService.resolveGatewayContext.mockResolvedValue(
+          buildContext(),
+        );
+        prisma.payment.findUnique
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            status: 'CANCELLED',
+            gatewayToken: 'order-token',
+          });
+        prisma.payment.create.mockResolvedValue(buildPayment());
+
+        await service.ensureCharge('group-1');
+
+        expect(gatewayAdapter.voidOrder).toHaveBeenCalledWith(
+          buildContext().credentials,
+          'order-token',
+        );
+        expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+      });
+    });
+
     describe('paciente menor de edad', () => {
       const guardian = {
         fullName: 'Ana Soto',
@@ -1650,6 +1699,29 @@ describe('PaymentsService', () => {
       await service.cancelUnpaid('group-1');
 
       expect(gatewayAdapter.voidOrder).not.toHaveBeenCalled();
+    });
+
+    // Hallazgo del judgment-day transversal (#502): ensureCharge puede guardar
+    // el token entre la lectura del cargo y la cancelación; con el token
+    // viejo (null) el link recién emitido quedaba vivo en la pasarela.
+    it('anula la orden con el token guardado después de leer el cargo', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ gatewayToken: null }),
+      );
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.payment.findUnique.mockResolvedValue({
+        gatewayToken: 'token-emitido-despues',
+      });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+
+      await service.cancelUnpaid('group-1');
+
+      expect(gatewayAdapter.voidOrder).toHaveBeenCalledWith(
+        buildContext().credentials,
+        'token-emitido-despues',
+      );
     });
 
     // issue #111: si la anulación en la pasarela falla (p.ej. un race real

@@ -213,6 +213,23 @@ export class PaymentsService {
       return;
     }
 
+    // Un alta o un soft-delete que confirmó después de la lectura de arriba ya
+    // corrió cancelUnpaid sin ver este cargo. Con la fila creada, cualquier
+    // cancelación posterior la encuentra; la anterior se detecta releyendo.
+    const stillLive = await this.prisma.consultation.findFirst({
+      where: {
+        groupId,
+        correctedBy: null,
+        deletedAt: null,
+        patient: { deletedAt: null },
+      },
+      select: { id: true },
+    });
+    if (!stillLive) {
+      await this.cancelPaymentRow(created, new Map());
+      return;
+    }
+
     const order = await this.issueOrder({
       paymentId: created.id,
       context,
@@ -224,6 +241,23 @@ export class PaymentsService {
         consultation.therapist.email,
       ),
     });
+
+    // Si el cargo se canceló mientras se emitía la orden, el link recién
+    // creado no debe llegar al paciente ni quedar vivo en la pasarela.
+    if (order) {
+      const current = await this.prisma.payment.findUnique({
+        where: { id: created.id },
+        select: { status: true, gatewayToken: true },
+      });
+      if (current?.status === 'CANCELLED') {
+        await this.voidGatewayOrder(context, {
+          ...created,
+          gatewayToken: current.gatewayToken,
+        });
+        return;
+      }
+    }
+
     await this.deliverPaymentLink(
       created.id,
       consultation.patient,
@@ -696,7 +730,15 @@ export class PaymentsService {
       return;
     }
 
-    if (!payment.gatewayToken) return;
+    // ensureCharge puede guardar el token entre la lectura de `payment` y esta
+    // cancelación: con el estado ya CANCELLED, el token que se relee es el
+    // definitivo (uno posterior lo anula el propio ensureCharge).
+    const latest = await this.prisma.payment.findUnique({
+      where: { id: payment.id },
+      select: { gatewayToken: true },
+    });
+    const gatewayToken = latest?.gatewayToken ?? payment.gatewayToken;
+    if (!gatewayToken) return;
 
     // design.md Decision 2 (reconcilePendingPayments): same run-scoped memo
     // cache reuse -- a patient with several stale charges under the same
@@ -707,7 +749,7 @@ export class PaymentsService {
     );
     if (!context) return;
 
-    await this.voidGatewayOrder(context, payment);
+    await this.voidGatewayOrder(context, { ...payment, gatewayToken });
   }
 
   // issue #111: anula la orden en la pasarela sin dejar que un fallo
