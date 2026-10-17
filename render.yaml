@@ -77,6 +77,13 @@ services:
       # Render ANTES de desplegar: sin ella el arranque falla.
       - key: MFA_SECRET_ENCRYPTION_KEY
         sync: false
+      # ADR 0004 (opción B): clave AES-256-GCM propia que cifra los textos
+      # clínicos libres (notas de consulta e informe de alta), mismo criterio
+      # (openssl rand -base64 32). Cargarla en Render ANTES de desplegar: sin
+      # ella el arranque falla. Guardar una copia en el gestor de contraseñas:
+      # sin la clave el texto cifrado es irrecuperable.
+      - key: CLINICAL_TEXT_ENCRYPTION_KEY
+        sync: false
       # Issue #382 (ADR 0005): llavero opcional de cada clave de cifrado.
       # <NOMBRE>_KEYRING agrega claves "id:base64,id:base64" (ids 1-255) y
       # <NOMBRE>_ACTIVE_KEY_ID elige con cuál se cifra (por defecto 0, la
@@ -99,6 +106,10 @@ services:
       - key: MFA_SECRET_ENCRYPTION_KEY_KEYRING
         sync: false
       - key: MFA_SECRET_ENCRYPTION_KEY_ACTIVE_KEY_ID
+        sync: false
+      - key: CLINICAL_TEXT_ENCRYPTION_KEY_KEYRING
+        sync: false
+      - key: CLINICAL_TEXT_ENCRYPTION_KEY_ACTIVE_KEY_ID
         sync: false
       # Google Calendar (OAuth) y flag del sync.
       - key: GOOGLE_CLIENT_ID

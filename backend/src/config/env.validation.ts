@@ -39,19 +39,28 @@ const KNOWN_EXAMPLE_MFA_SECRET_KEY_HASHES = new Set([
   '118b329aca3fd5e6ac5476289d3a7f25ff146af8e684e77b5393a2877bda528b', // README.md / install.sh / ci.yml
 ]);
 
+// ADR 0004 (opción B): mismo criterio, para CLINICAL_TEXT_ENCRYPTION_KEY (clave
+// AES-256-GCM propia que cifra los textos clínicos libres, no compartida con
+// las demás).
+const KNOWN_EXAMPLE_CLINICAL_TEXT_KEY_HASHES = new Set([
+  '540bbac712658e0525a0f782d4e5e218b2a08d830170dd312aee54882f4eddcf', // README.md / install.sh / ci.yml
+]);
+
 const MIN_JWT_SECRET_LENGTH = 32;
+const CLINICAL_TEXT_ENCRYPTION_KEY_BYTE_LENGTH = 32;
 const DOCUMENT_ENCRYPTION_KEY_BYTE_LENGTH = 32;
 const GOOGLE_TOKEN_ENCRYPTION_KEY_BYTE_LENGTH = 32;
 const PAYMENT_CREDENTIALS_ENCRYPTION_KEY_BYTE_LENGTH = 32;
 const MFA_SECRET_ENCRYPTION_KEY_BYTE_LENGTH = 32;
 
-// Issue #382 (ADR 0005): nombres de las cuatro claves de cifrado que admiten
-// un llavero opcional (<NOMBRE>_KEYRING y <NOMBRE>_ACTIVE_KEY_ID).
+// Issue #382 (ADR 0005): nombres de las claves de cifrado que admiten un
+// llavero opcional (<NOMBRE>_KEYRING y <NOMBRE>_ACTIVE_KEY_ID).
 const KEYRING_ENV_VAR_NAMES = [
   'DOCUMENT_ENCRYPTION_KEY',
   'GOOGLE_TOKEN_ENCRYPTION_KEY',
   'PAYMENT_CREDENTIALS_ENCRYPTION_KEY',
   'MFA_SECRET_ENCRYPTION_KEY',
+  'CLINICAL_TEXT_ENCRYPTION_KEY',
 ] as const;
 
 // Clave id 0 de relleno: buildKeyring la exige, pero aquí solo se validan
@@ -426,6 +435,25 @@ export function validateEnv(
     ) {
       throw new Error(
         `MFA_SECRET_ENCRYPTION_KEY inválida: en producción debe decodificar a ${MFA_SECRET_ENCRYPTION_KEY_BYTE_LENGTH} bytes en base64 y no puede ser el valor de ejemplo de README.md/install.sh. Generala con: openssl rand -base64 32`,
+      );
+    }
+
+    // ADR 0004 (opción B): mismo criterio -- clave independiente que cifra los
+    // textos clínicos libres, exigida siempre en producción
+    // (ClinicalTextCryptoService.onModuleInit la valida igual).
+    const clinicalKeyRaw =
+      typeof config.CLINICAL_TEXT_ENCRYPTION_KEY === 'string'
+        ? config.CLINICAL_TEXT_ENCRYPTION_KEY
+        : '';
+    const clinicalKeyBytes = Buffer.from(clinicalKeyRaw, 'base64');
+
+    if (
+      !isBaseKeyRetired(config, 'CLINICAL_TEXT_ENCRYPTION_KEY') &&
+      (clinicalKeyBytes.length !== CLINICAL_TEXT_ENCRYPTION_KEY_BYTE_LENGTH ||
+        KNOWN_EXAMPLE_CLINICAL_TEXT_KEY_HASHES.has(sha256(clinicalKeyRaw)))
+    ) {
+      throw new Error(
+        `CLINICAL_TEXT_ENCRYPTION_KEY inválida: en producción debe decodificar a ${CLINICAL_TEXT_ENCRYPTION_KEY_BYTE_LENGTH} bytes en base64 y no puede ser el valor de ejemplo de README.md/install.sh. Genérala con: openssl rand -base64 32`,
       );
     }
 

@@ -77,6 +77,9 @@ jobs:
       # siempre -- sin esto, AppModule no arranca en CI. Mismo valor dummy ya
       # conocido que las claves anteriores (evita alertas nuevas de escaneo).
       MFA_SECRET_ENCRYPTION_KEY: MoDh8f3G8V0hR0m5wq8V0hR0m5wq8V0hR0m5wq8V0i8=
+      # ADR 0004 (opción B): ClinicalTextCryptoService.onModuleInit exige esta
+      # clave siempre. Mismo valor dummy de ejemplo que README.md/install.sh.
+      CLINICAL_TEXT_ENCRYPTION_KEY: Y2xpbmljYWwtdGV4dC1leGFtcGxlLWtleS0wMDAwMDA=
       # A diferencia de REMINDERS_ENABLED/GOOGLE_CALENDAR_SYNC_ENABLED, este
       # SÍ debe quedar habilitado: payments.e2e-spec.ts crea una consulta y
       # espera que PaymentsService.ensureCharge() (gateado por este flag)
