@@ -1,3 +1,4 @@
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import {
   BadRequestException,
   ConflictException,
@@ -144,6 +145,7 @@ describe('ConsultationsService', () => {
       paymentsService as unknown as PaymentsService,
       availabilityService as unknown as AvailabilityService,
       auditService as unknown as AuditService,
+      buildTestClinicalCrypto(),
     );
   });
 
@@ -870,13 +872,22 @@ describe('ConsultationsService', () => {
           }) as unknown,
         }),
       );
+      // ADR 0004 (opción B): la versión nueva se persiste cifrada.
       expect(prisma.consultation.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             correctsId: 'consultation-1',
-            consultReason: 'Motivo corregido',
+            consultReason: expect.stringMatching(/^enc:v3:/) as unknown,
           }) as unknown,
         }),
+      );
+      const persisted = (
+        prisma.consultation.create.mock.calls[0] as [
+          { data: { consultReason: string } },
+        ]
+      )[0].data.consultReason;
+      expect(buildTestClinicalCrypto().decrypt(persisted)).toBe(
+        'Motivo corregido',
       );
       expect(result.id).toBe('consultation-2');
     });

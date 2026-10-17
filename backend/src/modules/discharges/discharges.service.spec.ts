@@ -1,3 +1,4 @@
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import {
   BadRequestException,
   ConflictException,
@@ -147,6 +148,8 @@ describe('DischargesService', () => {
       calendarSync as unknown as CalendarSyncService,
       {} as unknown as DocumentsService,
       cancellationNotifier as unknown as DischargeCancellationNotifier,
+
+      buildTestClinicalCrypto(),
     );
     // T3: la generación del PDF tras emitir se prueba en
     // discharges.service.pdf.spec.ts; aquí se neutraliza para que las pruebas

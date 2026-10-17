@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ClinicalTextCryptoModule } from '../../common/crypto/clinical-text-crypto.module';
 import { DischargesController } from './discharges.controller';
 import { DischargesService } from './discharges.service';
 import { DischargeDeliveriesService } from './discharge-deliveries.service';
@@ -20,6 +21,7 @@ import { DischargeCancellationNotifier } from './discharge-cancellation-notifier
 // PDF del informe; no importa este módulo, así que no hay ciclo.
 @Module({
   imports: [
+    ClinicalTextCryptoModule,
     PatientsModule,
     AvailabilityModule,
     PaymentsModule,

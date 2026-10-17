@@ -19,6 +19,13 @@ import { PatientsService } from '../patients/patients.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { PaymentsService } from '../payments/payments.service';
 import { AvailabilityService } from '../availability/availability.service';
+import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
+import {
+  decryptConsultationRow,
+  decryptHistoryEntry,
+  encryptConsultationTexts,
+  encryptSnapshotTexts,
+} from './util/consultation-text.util';
 import { AuditService } from '../audit/audit.service';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
@@ -90,6 +97,7 @@ export class ConsultationsService {
     private paymentsService: PaymentsService,
     private availabilityService: AvailabilityService,
     private auditService: AuditService,
+    private clinicalCrypto: ClinicalTextCryptoService,
   ) {}
 
   // design.md "Fire-and-forget intents plus a bounded reconciler": nunca se
@@ -223,9 +231,15 @@ export class ConsultationsService {
           sessionDate: parseDate(dto.sessionDate),
           durationMinutes:
             therapist?.sessionDurationMinutes ?? DEFAULT_SESSION_MINUTES,
-          consultReason: sanitizeClinicalNote(dto.consultReason),
-          intervention: sanitizeClinicalNote(dto.intervention),
-          agreements: sanitizeClinicalNote(dto.agreements),
+          // ADR 0004 (opción B): los textos clínicos se guardan cifrados.
+          ...encryptConsultationTexts(
+            {
+              consultReason: sanitizeClinicalNote(dto.consultReason),
+              intervention: sanitizeClinicalNote(dto.intervention),
+              agreements: sanitizeClinicalNote(dto.agreements),
+            },
+            this.clinicalCrypto,
+          ),
           nextSessionDate: dto.nextSessionDate
             ? parseDate(dto.nextSessionDate)
             : null,
@@ -259,7 +273,7 @@ export class ConsultationsService {
     this.availabilityService.invalidate(therapistId);
     this.emitCalendarSync(consultation.groupId);
     this.emitPaymentCharge(consultation.groupId);
-    return consultation;
+    return decryptConsultationRow(consultation, this.clinicalCrypto);
   }
 
   /**
@@ -273,11 +287,14 @@ export class ConsultationsService {
     groupId: string,
     client: PrismaService | Prisma.TransactionClient = this.prisma,
   ) {
-    return client.consultationHistory.findMany({
+    const entries = await client.consultationHistory.findMany({
       where: { consultationId: groupId },
       orderBy: { editedAt: 'desc' },
       include: { editedBy: { select: { name: true, email: true } } },
     });
+    return entries.map((entry) =>
+      decryptHistoryEntry(entry, this.clinicalCrypto),
+    );
   }
 
   // Sin page/pageSize devuelve la lista completa (retrocompatible); con
@@ -329,7 +346,9 @@ export class ConsultationsService {
       });
       for (const groupId of groupIds) historyMap.set(groupId, []);
       for (const entry of allHistory) {
-        historyMap.get(entry.consultationId)?.push(entry);
+        historyMap
+          .get(entry.consultationId)
+          ?.push(decryptHistoryEntry(entry, this.clinicalCrypto));
       }
     }
 
@@ -351,7 +370,7 @@ export class ConsultationsService {
     );
 
     const data = consultations.map((c) => ({
-      ...c,
+      ...decryptConsultationRow(c, this.clinicalCrypto),
       history: historyMap.get(c.groupId) ?? [],
       payment: paymentMap.get(c.groupId) ?? null,
       reminderEmailStatus: reminderEmailStatusMap.get(c.groupId) ?? null,
@@ -428,7 +447,10 @@ export class ConsultationsService {
 
     const history = await this.getHistory(consultation.groupId);
 
-    return { ...consultation, history };
+    return {
+      ...decryptConsultationRow(consultation, this.clinicalCrypto),
+      history,
+    };
   }
 
   async correct(id: string, dto: CorrectConsultationDto, therapistId: string) {
@@ -449,14 +471,19 @@ export class ConsultationsService {
     }
 
     // Snapshot del estado actual antes de crear la corrección
-    const snapshot = toJsonSnapshot({
-      sessionDate: original.sessionDate,
-      consultReason: original.consultReason,
-      intervention: original.intervention,
-      agreements: original.agreements,
-      nextSessionDate: original.nextSessionDate,
-      sessionType: original.sessionType,
-    });
+    // ADR 0004 (opción B): `original` ya viene en claro (findOne); el snapshot
+    // vuelve a cifrar los tres textos antes de persistirse.
+    const snapshot = encryptSnapshotTexts(
+      toJsonSnapshot({
+        sessionDate: original.sessionDate,
+        consultReason: original.consultReason,
+        intervention: original.intervention,
+        agreements: original.agreements,
+        nextSessionDate: original.nextSessionDate,
+        sessionType: original.sessionType,
+      }),
+      this.clinicalCrypto,
+    );
 
     const result = await this.prisma.$transaction(async (tx) => {
       // Issue #131 (Ley 20.584 Art. 14 / review R3-001): cubre el caso de
@@ -547,16 +574,21 @@ export class ConsultationsService {
             : original.sessionDate,
           // issue #336: una corrección conserva la duración reservada.
           durationMinutes: original.durationMinutes,
-          consultReason: dto.consultReason
-            ? sanitizeClinicalNote(dto.consultReason)
-            : original.consultReason,
-          intervention: dto.intervention
-            ? sanitizeClinicalNote(dto.intervention)
-            : original.intervention,
-          agreements:
-            dto.agreements !== undefined
-              ? sanitizeClinicalNote(dto.agreements)
-              : original.agreements,
+          ...encryptConsultationTexts(
+            {
+              consultReason: dto.consultReason
+                ? sanitizeClinicalNote(dto.consultReason)
+                : original.consultReason,
+              intervention: dto.intervention
+                ? sanitizeClinicalNote(dto.intervention)
+                : original.intervention,
+              agreements:
+                dto.agreements !== undefined
+                  ? sanitizeClinicalNote(dto.agreements)
+                  : original.agreements,
+            },
+            this.clinicalCrypto,
+          ),
           nextSessionDate:
             dto.nextSessionDate === null
               ? null
@@ -598,7 +630,7 @@ export class ConsultationsService {
       }
 
       return {
-        ...corrected,
+        ...decryptConsultationRow(corrected, this.clinicalCrypto),
         history: await this.getHistory(original.groupId, tx),
       };
     });
@@ -780,8 +812,16 @@ export class ConsultationsService {
           therapistId,
           sessionDate: slotStart,
           durationMinutes: sessionDurationMinutes,
-          consultReason: 'Reserva pública en línea',
-          intervention: 'Pendiente de definir por el terapeuta',
+          // ADR 0004 (opción B): también los textos genéricos se guardan
+          // cifrados, para que toda fila de esta tabla siga el mismo contrato.
+          ...encryptConsultationTexts(
+            {
+              consultReason: 'Reserva pública en línea',
+              intervention: 'Pendiente de definir por el terapeuta',
+              agreements: null,
+            },
+            this.clinicalCrypto,
+          ),
           sessionType: 'IN_PERSON',
           scheduledAt: slotStart,
           patientRut,

@@ -34,6 +34,8 @@ import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { DEFAULT_PATIENTS_PAGE_SIZE } from './dto/patients-query.dto';
 import { isValidRut, normalizeRut } from '../../common/utils/rut.util';
+import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
+import { decryptConsultationRow } from '../consultations/util/consultation-text.util';
 
 // issue #157: origen de adquisición capturado en el frontend (referrer +
 // utm_source) y pasado por PublicSchedulingService.book() ->
@@ -177,6 +179,7 @@ export class PatientsService {
     private calendarSync: CalendarSyncService,
     private paymentsService: PaymentsService,
     private availabilityService: AvailabilityService,
+    private clinicalCrypto: ClinicalTextCryptoService,
   ) {}
 
   // Issue #176: no exige consentimiento vigente a propósito. La Ley 20.584
@@ -405,6 +408,10 @@ export class PatientsService {
       buildConsentStatusMap([id], latestEvents).get(id) ?? emptyConsentStatus();
     return {
       ...patient,
+      // ADR 0004 (opción B): los textos clínicos salen en claro.
+      consultations: patient.consultations.map((c) =>
+        decryptConsultationRow(c, this.clinicalCrypto),
+      ),
       consents,
       ...minorFields(patient.birthDate, patient.guardians, latestEvents),
     };

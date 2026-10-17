@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
+import { ClinicalTextCryptoModule } from '../../common/crypto/clinical-text-crypto.module';
 import { ReportsService } from './reports.service';
 import { ReportsController } from './reports.controller';
 import { PatientsModule } from '../patients/patients.module';
 
 @Module({
-  imports: [PatientsModule],
+  imports: [ClinicalTextCryptoModule, PatientsModule],
   controllers: [ReportsController],
   providers: [ReportsService],
 })

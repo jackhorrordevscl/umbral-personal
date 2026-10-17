@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ClinicalTextCryptoModule } from '../../common/crypto/clinical-text-crypto.module';
 import { ConsultationsService } from './consultations.service';
 import { ConsultationsController } from './consultations.controller';
 import { PatientsModule } from '../patients/patients.module';
@@ -22,6 +23,7 @@ import { AvailabilityModule } from '../availability/availability.module';
 // escribir consultas -- sin ciclo, AvailabilityModule no importa nada.
 @Module({
   imports: [
+    ClinicalTextCryptoModule,
     PatientsModule,
     CalendarIntegrationModule,
     PaymentsModule,

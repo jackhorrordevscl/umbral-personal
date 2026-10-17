@@ -1,3 +1,4 @@
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import {
   BadRequestException,
   ConflictException,
@@ -123,6 +124,7 @@ describe('PatientsService', () => {
       calendarSync as unknown as CalendarSyncService,
       paymentsService as unknown as PaymentsService,
       availabilityService as unknown as AvailabilityService,
+      buildTestClinicalCrypto(),
     );
   });
 
@@ -357,7 +359,10 @@ describe('PatientsService', () => {
     });
 
     it('acota los documentos con el cap de seguridad (issue #290)', async () => {
-      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patient.findFirst.mockResolvedValue({
+        ...buildPatient(),
+        consultations: [],
+      });
 
       await service.findOne('patient-1', 'therapist-1');
 
@@ -373,8 +378,37 @@ describe('PatientsService', () => {
       );
     });
 
+    it('descifra los textos clínicos de las consultas incluidas (ADR 0004)', async () => {
+      const crypto = buildTestClinicalCrypto();
+      prisma.patient.findFirst.mockResolvedValue({
+        ...buildPatient(),
+        consultations: [
+          {
+            id: 'c-1',
+            consultReason: crypto.encrypt('<p>Motivo reservado</p>'),
+            intervention: crypto.encrypt('<p>Intervención reservada</p>'),
+            agreements: null,
+          },
+        ],
+      });
+
+      const result = await service.findOne('patient-1', 'therapist-1');
+
+      expect(result.consultations).toEqual([
+        {
+          id: 'c-1',
+          consultReason: '<p>Motivo reservado</p>',
+          intervention: '<p>Intervención reservada</p>',
+          agreements: null,
+        },
+      ]);
+    });
+
     it('devuelve el paciente con el estado de consentimiento vigente', async () => {
-      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patient.findFirst.mockResolvedValue({
+        ...buildPatient(),
+        consultations: [],
+      });
       prisma.patientConsent.findMany.mockResolvedValue([
         {
           patientId: 'patient-1',
@@ -468,6 +502,7 @@ describe('PatientsService', () => {
         const guardian = { id: 'g-1', canConsent: true };
         prisma.patient.findFirst.mockResolvedValue({
           ...buildPatient({ birthDate: yearsAgo(10) }),
+          consultations: [],
           guardians: [guardian],
         });
         prisma.patientConsent.findMany.mockResolvedValue([
@@ -491,6 +526,7 @@ describe('PatientsService', () => {
       it('incluye los representantes ordenados por createdAt', async () => {
         prisma.patient.findFirst.mockResolvedValue({
           ...buildPatient(),
+          consultations: [],
           guardians: [],
         });
 
@@ -508,6 +544,7 @@ describe('PatientsService', () => {
       it('para un adulto no incluye la fecha de vigencia y marca ADULT', async () => {
         prisma.patient.findFirst.mockResolvedValue({
           ...buildPatient({ birthDate: yearsAgo(30) }),
+          consultations: [],
           guardians: [],
         });
 
@@ -526,6 +563,7 @@ describe('PatientsService', () => {
       it('consulta los consentimientos una sola vez', async () => {
         prisma.patient.findFirst.mockResolvedValue({
           ...buildPatient(),
+          consultations: [],
           guardians: [],
         });
 
