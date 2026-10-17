@@ -1714,7 +1714,7 @@ describe('PatientsService', () => {
       expect(result).toEqual({ patient: existing, isNew: false });
     });
 
-    it('paciente nuevo con DV inválido -> 409 uniforme y no crea la ficha (issue #289)', async () => {
+    it('paciente nuevo con DV inválido -> rechazo uniforme y no crea la ficha (issues #289, #502)', async () => {
       prisma.patient.findMany.mockResolvedValue([]);
 
       const attempt = service.resolveForPublicBooking('therapist-1', {
@@ -2260,7 +2260,7 @@ describe('PatientsService', () => {
 
       // Mirrors the adult flow (#289): the patient RUT check digit is only
       // required when creating a new patient.
-      it('menor nuevo con DV inválido -> 409 uniforme, sin crear', async () => {
+      it('menor nuevo con DV inválido -> rechazo uniforme, sin crear (issue #502)', async () => {
         prisma.patient.findFirst.mockResolvedValue(null);
 
         await expect(
