@@ -3,8 +3,9 @@
 - **Estado:** aceptada
 - **Fecha:** 2026-10-07
 - **Issue:** #381
-- **Nota de estado (2026-10-17):** el paso 2 está implementado (ver "Implementación del paso 2" más abajo). La nota siguiente describe el estado previo y se conserva como historia.
+- **Nota de estado (2026-10-17):** el paso 2 está implementado (ver "Implementación del paso 2" más abajo). Las dos notas siguientes describen estados previos y se conservan como historia.
 - **Nota de estado (2026-10-13, previa a la implementación):** el paso 2 (cifrar las notas clínicas) sigue sin implementarse; el versionado de claves que lo condicionaba ya existe (ADR 0005). La tabla del informe de alta, agregada después (`TreatmentDischarge`), también guarda sus textos sin cifrar. La migración que crea `TreatmentDischarge` (`20261011130000_add_treatment_discharge`) no incluyó `ENABLE ROW LEVEL SECURITY`; se corrigió el 2026-10-14 con `20261014120000_enable_rls_treatment_discharge` (issue #461), de modo que hoy las 28 tablas tienen RLS (27 sentencias directas y la de `AuditLog`, dentro de un bloque `DO`).
+- **Nota de estado (2026-10-16, previa a la implementación):** el ADR 0005 pasó a "aceptada" con el llavero, el formato `0x02`/`enc:v3` y el issue #398 implementados, y #382 está cerrado, por lo que la condición del paso 2 se cumple. A esta fecha no existe un issue de implementación del paso 2 (la sección Consecuencias prevé abrirlo) y los servicios de consultas y de informes de alta no cifran sus textos. Las afirmaciones de la sección Contexto sobre el secreto MFA con prefijo `enc:v1:` y la ausencia de rotación describen el 2026-10-07; el formato vigente está en el ADR 0005.
 
 ## Contexto
 

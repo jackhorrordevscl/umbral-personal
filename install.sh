@@ -10,8 +10,8 @@ if [ -z "$NODE_VERSION" ]; then
   echo "❌ Node.js no encontrado. Instalando via nvm..."
   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
   source ~/.bashrc
-  nvm install 20
-  nvm use 20
+  nvm install 22
+  nvm use 22
 else
   echo "✅ Node.js $NODE_VERSION encontrado"
 fi
@@ -121,6 +121,8 @@ else
 fi
 
 npm install
+# Prisma 7 ya no genera el cliente en el postinstall: sin este paso el seed falla
+npx prisma generate
 npx prisma migrate deploy
 npm run seed
 

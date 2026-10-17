@@ -30,7 +30,7 @@ The system MUST expose an unauthenticated `GET /api/v1/public/therapists/:therap
 
 ### Requirement: Public Booking Write Endpoint
 
-The system MUST expose an unauthenticated `POST /api/v1/public/therapists/:therapistId/availability/book` endpoint that creates a consultation for a chosen slot after revalidating it against current availability without using the slot cache. The consultation MUST be created through the existing `ConsultationsService` path (public booking variant, with a placeholder clinical content that the therapist completes later), followed by the fire-and-forget calendar sync and charge creation. The response MUST contain the consultation `id`, `groupId` and `sessionDate`. When `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` is `'true'` the response MUST also contain a `checkout` hint with status `PENDING` (the patient has a default session amount and the therapist's payment account is `CONNECTED`) or `NOT_APPLICABLE`; the checkout URL itself MUST be obtained from the unauthenticated `GET .../availability/book/:groupId/checkout` endpoint, which returns `{ paymentUrl, amount }` once the charge has a payment URL and `{ paymentUrl: null }` otherwise. Booking success MUST NOT depend on charge or checkout URL creation succeeding.
+The system MUST expose an unauthenticated `POST /api/v1/public/therapists/:therapistId/availability/book` endpoint that creates a consultation for a chosen slot after revalidating it against current availability without using the slot cache. The consultation MUST be created through the existing `ConsultationsService` path (public booking variant, with a placeholder clinical content that the therapist completes later), followed by the fire-and-forget calendar sync and charge creation. The request body MUST carry `slotStart` (strict ISO instant) and `patient`, and MAY carry `origin` (acquisition data) and `guardian` (required only for a minor). The response MUST contain the consultation `id`, `groupId` and `sessionDate`. When `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` is `'true'` the response MUST also contain a `checkout` hint with status `PENDING` (the patient has a default session amount and the therapist's payment account is `CONNECTED`) or `NOT_APPLICABLE`; the checkout URL itself MUST be obtained from the unauthenticated `GET .../availability/book/:groupId/checkout` endpoint, which returns `{ paymentUrl, amount }` once the charge has a payment URL and `{ paymentUrl: null }` otherwise. Booking success MUST NOT depend on charge or checkout URL creation succeeding.
 
 #### Scenario: Booking a currently free slot succeeds
 
@@ -199,6 +199,12 @@ The public booking form MUST offer the option to book for a minor. When it is se
 - GIVEN a therapist whose profile has `website` set to an `https` URL
 - WHEN the public profile endpoint is called and the booking page renders
 - THEN the response includes `website` with that URL and the page header shows it as a link
+
+#### Scenario: Public avatar of the therapist
+
+- GIVEN a therapist with a profile photo (`hasAvatar: true`)
+- WHEN a client requests `GET /public/therapists/:therapistId/avatar`
+- THEN the image is returned with its stored MIME type and `Cross-Origin-Resource-Policy: cross-origin`; for a therapist without a photo the response is `404`
 
 #### Scenario: Therapist without a website shows no link
 

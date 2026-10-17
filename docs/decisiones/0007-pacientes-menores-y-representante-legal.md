@@ -6,6 +6,12 @@
 
 > El ADR 0006 es el del informe de alta (firma simple y hash de integridad).
 
+**Nota de estado (2026-10-16):** las secciones siguientes describen el estado y el razonamiento a la fecha de la decisión (2026-10-08). Cambios posteriores verificables en el código y en el repositorio:
+
+- El informe de alta de la sección 5 ya está implementado (ADR 0006): el módulo `backend/src/modules/discharges/` entrega el informe de un menor solo al representante con `canAccessReports` (`PATIENT` se rechaza con 400), y el aviso de cancelación de consultas al representante existe (ADR 0006, punto 8).
+- El issue #376 (nota de privacidad de la agenda pública) está cerrado desde el 2026-10-08; el estado y la ubicación de los textos para revisión legal están en ese issue.
+- La base de producción pasó por un clean total el 2026-10-14 (ver `docs/incident-log.md`). Tras ese clean no queda ningún paciente menor en producción (solo existe la cuenta de administración); el caso del menor real citado en el Contexto es histórico. La constante `MINOR_GUARDIAN_ENFORCEMENT_DATE = '2026-12-01'` y las reglas de transición siguen vigentes en el código.
+
 ## Contexto
 
 Hasta este cambio el sistema no distinguía a un menor de edad: no calculaba la
@@ -135,7 +141,7 @@ issue #376.
 
 ### 5. Informe de alta de un menor
 
-Decidido para el bloque del informe de alta (aún sin implementar): en v1 se
+Decidido para el bloque del informe de alta (implementado después; ver ADR 0006): en v1 se
 entrega solo al representante con `canAccessReports`, no al adolescente de 14 a
 17 años; a un tercero (por ejemplo un colegio) solo con autorización del
 representante; a un tribunal solo con oficio, registrando el documento.
@@ -176,7 +182,7 @@ representante; a un tribunal solo con oficio, registrando el documento.
   del Colegio de Psicólogos. El art. 13 de la Ley 20.584 ya se leyó (ver el ADR
   0006).
 - Aviso de cancelación de consultas al representante (bloque del informe de
-  alta) y alta de menores nuevos con consentimiento diferido hasta cargar al
+  alta; implementado, ver ADR 0006, punto 8) y alta de menores nuevos con consentimiento diferido hasta cargar al
   representante (ya implementado en la ficha).
 - Deber de denuncia (Código Procesal Penal, art. 175) y secreto profesional: hoy
   solo hay una guía en el manual del terapeuta, sin funcionalidad, y requiere

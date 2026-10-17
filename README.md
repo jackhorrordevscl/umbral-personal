@@ -45,8 +45,9 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
   verificados (funcionalidades, cifras, stack y qué no afirmar) para
   actualizar la landing page.
 - [`docs/decisiones/`](docs/decisiones/): decisiones de arquitectura (ADR),
-  p. ej. por qué NestJS, Vite y Tailwind están congelados en su major actual
-  (0001), el almacenamiento de la sesión en el frontend (0003), el cifrado de
+  p. ej. por qué NestJS y Vite están congelados en su major actual (0001; la
+  parte de Tailwind se resolvió al migrar a la versión 4), la validación de
+  formularios del frontend (0002), el almacenamiento de la sesión en el frontend (0003), el cifrado de
   datos clínicos (0004), el versionado y la rotación de claves (0005), el
   informe de alta con firma simple y hash (0006) y los pacientes menores y su
   representante legal (0007).
@@ -56,28 +57,31 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 ## Stack Tecnológico
 
 **Frontend**
-- React 19.2 + TypeScript
+- React 19.2 + TypeScript 5.9
 - Vite 7 (congelado en su major actual, ver
   [ADR 0001](docs/decisiones/0001-congelar-majors-nestjs-vite-tailwind.md))
-- Tailwind CSS 3.4 (congelado, mismo ADR)
+- Tailwind CSS 4.3 (vía `@tailwindcss/postcss`; migrado desde la 3.4, issue
+  #458)
 - React Router v8
 - TanStack Query (React Query)
 - React Hook Form + Zod 4
-- Tiptap 3 (editor de texto enriquecido de las notas clínicas)
+- Tiptap 3 (editor de texto enriquecido de las notas clínicas) y DOMPurify
 - Axios
 - Lucide React
 - `react-window` (listas virtualizadas)
 - Sentry (`@sentry/react`, captura de errores, opcional)
 - Vitest 4 (tests unitarios y de componentes)
-- Playwright (tests e2e de la reserva pública y las notificaciones)
+- Playwright con `@axe-core/playwright` (tests e2e y de accesibilidad de la
+  reserva pública, el pago de la reserva y las notificaciones)
 
 **Backend**
 - NestJS 11 + TypeScript
-- PostgreSQL 16
-- Prisma ORM 6.19
+- PostgreSQL 16 (local y CI; ver Requisitos Previos para producción)
+- Prisma ORM 7.10 (con el adaptador `@prisma/adapter-pg`)
 - JWT + Passport
 - Argon2 (hash de contraseñas)
-- Speakeasy (MFA/TOTP)
+- Speakeasy (MFA/TOTP) y `qrcode` (código QR de enrolamiento)
+- `google-auth-library` (OAuth 2.0 de Google Calendar)
 - PDFKit (generación de la ficha clínica y del informe de alta en PDF)
 - Helmet.js (seguridad HTTP)
 - `@nestjs/throttler` (rate limiting)
@@ -92,9 +96,12 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
 
 ## Requisitos Previos
 
-- Node.js v22+ (versión usada en CI; v20+ también funciona)
-- PostgreSQL 16 (en producción, Supabase gestiona la base: ver sección
-  [Despliegue](#despliegue-issue-8)); en local puede levantarse con el
+- Node.js 22.22 o superior (CI usa Node 22; `react-router` 8 exige
+  `>=22.22.0` y `jsdom` 30 exige `^22.22.2` en el frontend, y Prisma 7 exige
+  `^20.19 || ^22.12 || >=24`)
+- PostgreSQL 16 en local y en CI; en producción Supabase gestiona la base
+  (Postgres 17.x según el comentario de `.github/workflows/backup.yml`, ver
+  sección [Despliegue](#despliegue-issue-8)). En local puede levantarse con el
   `docker-compose.yml` de la raíz (Postgres 16)
 - npm
 
@@ -130,13 +137,15 @@ ALTER USER umbral_user CREATEDB;
 > usarlas fuera de desarrollo.
 >
 > Alternativa: `./install.sh` automatiza estos pasos (Node, PostgreSQL,
-> creación de base, `.env`, dependencias y cron de backup) en Ubuntu/Debian.
+> creación de base, `.env`, dependencias, migraciones y seed) en
+> Ubuntu/Debian. No configura backups: el respaldo corre en GitHub Actions
+> (ver [Configuración de Backups](#configuración-de-backups)).
 
 ### 3. Configurar el Backend
 
 ```bash
 cd backend
-npm install --legacy-peer-deps
+npm install   # backend/.npmrc ya activa legacy-peer-deps
 ```
 
 Crea el archivo `.env` a partir de `.env.example`:
@@ -190,9 +199,13 @@ PAYMENTS_ENABLED="false"
 > que depende de `B2_PATIENT_DOCUMENTS_*`. El resto de la app funciona igual
 > sin ellas.
 
-Ejecutar migraciones y seed inicial:
+Generar el cliente de Prisma, ejecutar migraciones y seed inicial (Prisma 7 ya
+no genera el cliente en el `postinstall`, así que `npx prisma generate` es un
+paso explícito; `prisma.config.ts` toma la conexión de `DIRECT_URL`, o de
+`DATABASE_URL` si no está definida):
 
 ```bash
+npx prisma generate
 npx prisma migrate deploy
 npm run seed
 ```
@@ -204,12 +217,16 @@ cd ../frontend
 npm install --legacy-peer-deps
 ```
 
-Si vas a usar en red local, setea `VITE_API_URL` en el `.env` del frontend
-con la IP de tu servidor (ver `frontend/src/api/client.ts`):
+En desarrollo, sin `VITE_API_URL` el frontend usa `http://localhost:3001/api/v1`
+(ver `frontend/src/api/client.ts`). Si vas a usarlo en red local, define
+`VITE_API_URL` en el `.env` del frontend con la IP de tu servidor:
 
 ```
 VITE_API_URL=http://TU_IP:3001/api/v1
 ```
+
+Y en el `.env` del backend define `LAN_DEV_URL` con el origen desde el que se
+abre el frontend (por ejemplo `http://TU_IP:5173`), para que CORS lo acepte.
 
 ---
 
@@ -235,17 +252,19 @@ npm run dev
 |---|---|---|
 | Backend, unitarias | `cd backend && npm test` | Jest 30; `npm run test:cov` agrega cobertura |
 | Backend, e2e | `cd backend && npm run test:e2e` | Jest + Supertest contra una base Postgres real (`backend/test/`); necesita las variables de entorno del job `backend` de `.github/workflows/ci.yml` |
-| Frontend, unitarias y de componentes | `cd frontend && npm test` | Vitest 4; `npm run test:cov` agrega cobertura |
-| Frontend, e2e | `cd frontend && npm run test:e2e` | Playwright (`frontend/e2e/`): reserva pública, pago de la reserva y detalle de notificaciones |
+| Frontend, unitarias y de componentes | `cd frontend && npm test` | Vitest 4 (jsdom); `npm run test:cov` agrega cobertura |
+| Frontend, e2e | `cd frontend && npm run test:e2e` | Playwright (`frontend/e2e/`): reserva pública (escritorio y móvil), pago de la reserva y detalle de notificaciones |
 
-Los e2e de Playwright necesitan el backend levantado con las cuentas de prueba
-que crea `npm run seed:e2e` (se niega a correr sin `E2E_SEED_CONFIRM=1`,
-`E2E_TEST_PASSWORD` y `E2E_TEST_MFA_SECRET`, y nunca en producción) y con
-`PUBLIC_SCHEDULING_ENABLED=true`. `frontend/playwright.config.ts` define dos
-proyectos: escritorio (`*.e2e.ts`) y móvil, con el viewport de un Pixel 7
-(`*.mobile.e2e.ts`, issue #419). En local usan el navegador Brave instalado
-(ruta configurable con `PLAYWRIGHT_BRAVE_PATH`), por lo que no hace falta
-descargar un navegador; en CI usan el Chromium de Playwright.
+Los e2e de Playwright necesitan el backend levantado (`npm run start:dev` o
+`start:prod`) con las cuentas de prueba que crea `npm run seed:e2e` (se niega
+a correr sin `E2E_SEED_CONFIRM=1`, `E2E_TEST_PASSWORD` y `E2E_TEST_MFA_SECRET`,
+y nunca en producción) y con `PUBLIC_SCHEDULING_ENABLED=true`. Playwright
+levanta por su cuenta el frontend (`npm run dev`) y el Flow simulado.
+`frontend/playwright.config.ts` define dos proyectos: escritorio (`*.e2e.ts`)
+y móvil, con el viewport de un Pixel 7 (`*.mobile.e2e.ts`, issue #419). En
+local usan el navegador Brave instalado (ruta por defecto de Windows,
+configurable con `PLAYWRIGHT_BRAVE_PATH`), por lo que no hace falta descargar
+un navegador; en CI (`CI` definida) usan el Chromium de Playwright.
 
 El e2e del pago (`public-booking-payment.e2e.ts`) nunca usa el sandbox real de
 Flow: Playwright levanta un Flow simulado (`frontend/e2e/support/fake-flow-server.mjs`,
@@ -255,10 +274,12 @@ puerto 4010) y el backend debe arrancar con `PAYMENTS_ENABLED=true`,
 (como el job `e2e` de `ci.yml`). El seed crea para eso un terapeuta con cuenta de
 pago conectada (credenciales falsas) y un paciente que ya existe con tarifa.
 
-El workflow `ci.yml` corre tres jobs: backend (lint, migraciones, seed, tests
-unitarios con cobertura, e2e y `npm audit`), frontend (lint, tests con
-cobertura, typecheck y build, y `npm audit`) y e2e de Playwright contra un
-backend real con Postgres.
+El workflow `ci.yml` (en `pull_request` y `push` a `main`, con Node 22 y
+Postgres 16) corre tres jobs: backend (`prisma generate`, lint, migraciones,
+seed, tests unitarios con cobertura, e2e y `npm audit --omit=dev
+--audit-level=high`), frontend (lint, tests con cobertura, typecheck y build,
+y el mismo `npm audit`) y e2e de Playwright contra un backend real con
+Postgres.
 
 ### Cómo entrar la primera vez
 
@@ -271,14 +292,14 @@ invitación:
   con `emailVerified: false`. El código se obtiene con `POST
   /auth/invitations` (requiere sesión), pero solo lo acepta si quien está
   logueado tiene el email configurado en `INVITE_CREATOR_EMAIL`; sin esa
-  variable seteada, nadie puede generar invitaciones y el signup público
+  variable definida, nadie puede generar invitaciones y el signup público
   queda efectivamente cerrado. Sin `RESEND_API_KEY` configurada en local, el
-  email de verificación no se envía de verdad: `MailService` lo saltea con
-  un warning en el log del backend (revísalo ahí para sacar el link mientras
+  email de verificación no se envía de verdad: `MailService` lo omite con
+  un warning en el log del backend (revísalo ahí para obtener el enlace mientras
   pruebas en dev).
 - **Cuenta semilla** (`npm run seed`, ver más abajo): crea una única cuenta
   de prueba para no tener que pasar por signup+verificación en cada corrida
-  local. Es la vía más simple en dev para generar la primera invitación: setea
+  local. Es la vía más simple en dev para generar la primera invitación: define
   `INVITE_CREATOR_EMAIL` con el mismo email de la cuenta semilla
   (`SEED_ADMIN_EMAIL`), inicia sesión con ella, y llama a `POST /auth/invitations`
   desde la sección "Generar invitación" de Seguridad (o directo por API) para
@@ -407,8 +428,7 @@ copia offsite de backups en **Backblaze B2** (ver
    `B2_SHARED_FILES_APPLICATION_KEY` (issue #170): storage de los archivos de la biblioteca privada
    de cada terapeuta (`shared-files`), en otro bucket B2 **propio**, también
    separado del de avatares y del de backups offsite: crear otra
-   Application Key restringida solo a ese bucket, Read+Write. Ya está
-   cargada en el `.env` local y en las variables de entorno de Render.
+   Application Key restringida solo a ese bucket, Read+Write.
    Mismo criterio para `B2_PATIENT_DOCUMENTS_ENDPOINT`/
    `B2_PATIENT_DOCUMENTS_REGION`/`B2_PATIENT_DOCUMENTS_BUCKET`/
    `B2_PATIENT_DOCUMENTS_KEY_ID`/`B2_PATIENT_DOCUMENTS_APPLICATION_KEY`
@@ -428,7 +448,7 @@ copia offsite de backups en **Backblaze B2** (ver
 3. **Frontend en Vercel**: importar el repo con root directory `frontend/`
    (usa `vercel.json` para el rewrite de rutas del SPA). Variable
    `VITE_API_URL` apuntando a la URL pública del backend de Render + `/api/v1`.
-   Con la URL final de Vercel, volver al paso 2 y setear `FRONTEND_URL` en
+   Con la URL final de Vercel, volver al paso 2 y definir `FRONTEND_URL` en
    Render (lo usa `main.ts` para CORS).
 4. Correr `npm run seed` una vez contra la base de Supabase (con
    `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` de producción en el entorno) para
@@ -472,9 +492,11 @@ afectada carga en producción.
 ```
 umbral-personal/
 ├── backend/
+│   ├── prisma.config.ts          # Configuración de Prisma 7 (schema, migraciones, seed y conexión DIRECT_URL)
 │   ├── prisma/
 │   │   ├── schema.prisma         # Modelos de base de datos (un solo Role: PROFESSIONAL)
 │   │   ├── seed.ts               # Seed de la cuenta semilla (y feriados con SEED_HOLIDAYS=true)
+│   │   ├── seed-admin.defaults.ts # Credenciales por defecto de la cuenta semilla (compartidas con los e2e)
 │   │   ├── seed-e2e.ts           # Seed de la cuenta con MFA para los tests e2e de Playwright (opt-in)
 │   │   └── migrations/           # Historial de migraciones
 │   ├── src/
@@ -511,7 +533,7 @@ umbral-personal/
 │   │   ├── shared-files/         # Biblioteca personal (plantillas, protocolos) -- privada por usuario
 │   │   └── prisma/               # Servicio Prisma
 │   ├── test/                     # Tests e2e del backend (Jest + Supertest, contra Postgres real)
-│   ├── scripts/                  # Scripts manuales (seed-holidays, notify-document-reupload, reencrypt-keys)
+│   ├── scripts/                  # Scripts manuales (seed-holidays, notify-document-reupload, reencrypt-keys; este último con `npm run crypto:reencrypt`)
 │   └── .env.example
 ├── frontend/
 │   ├── src/
@@ -535,7 +557,7 @@ umbral-personal/
 │       │                         # useProfile, useMfa, etc.) + useIdleTimeout
 │       ├── utils/                # api-error, availability, datetime, download,
 │       │                         # error-tracking (Sentry), age, rut, etc.
-│       ├── types/, test/         # Tipos compartidos y setup de Vitest
+│       ├── types/, test/         # Tipos compartidos, setup de Vitest y tests de accesibilidad (test/a11y)
 │       └── pages/                # Login, Signup, VerifyEmail, ForgotPassword,
 │                                  # ResetPassword, MfaRecover, ConfirmEmailChange,
 │                                  # Dashboard, Patients, Consultations, Calendar,
@@ -543,17 +565,22 @@ umbral-personal/
 │                                  # Profile (datos de cuenta), Security (MFA,
 │                                  # conexión Google Calendar), SharedFiles
 │   ├── e2e/                      # Tests e2e de Playwright (*.e2e.ts, *.mobile.e2e.ts) y helpers
-│   └── playwright.config.ts      # Proyectos de escritorio y móvil (Pixel 7)
+│   ├── playwright.config.ts      # Proyectos de escritorio y móvil (Pixel 7)
+│   ├── vitest.config.ts          # Configuración de Vitest (jsdom, cobertura)
+│   └── vercel.json               # Rewrite del SPA y headers de seguridad (CSP)
 ├── docs/                         # Manual de uso, caso de testing, RAT, cláusulas, rotación de claves,
 │   │                             # incident-log, evaluación de v1 y ficha de datos para la landing
 │   ├── decisiones/               # ADR (decisiones de arquitectura)
 │   └── evidencia-compliance/     # DPA y términos de proveedores, salida de npm audit
 ├── odd/tasks/                    # Documentos de seguimiento de features (ODD)
 ├── openspec/                     # Specs y cambios SDD (changes/, specs/)
-├── .github/workflows/            # CI (ci.yml: backend, frontend y e2e de Playwright) y backup diario (backup.yml)
+├── .github/
+│   ├── workflows/                # CI (ci.yml: backend, frontend y e2e de Playwright) y backup diario (backup.yml)
+│   └── ISSUE_TEMPLATE/           # Plantillas de issues (bug, feature, deuda técnica)
 ├── docker-compose.yml            # Postgres 16 para desarrollo local
 ├── render.yaml                   # Blueprint del backend en Render
 ├── install.sh                    # Instalador para Ubuntu/Debian
+├── LICENSE
 └── README.md
 ```
 
@@ -568,7 +595,11 @@ umbral-personal/
   el único email configurado en `INVITE_CREATOR_EMAIL` (sin rol ADMIN,
   decisión explícita; ver Variables de Entorno)
 - Login con email y contraseña (hash Argon2)
-- Tokens JWT con expiración configurable y sesiones revocables (ver Perfil)
+- Tokens JWT con expiración configurable y sesiones revocables (ver Perfil).
+  La sesión viaja en una cookie HttpOnly `SameSite=Strict`, por lo que
+  frontend y API deben ser same-site (mismo dominio registrable); en el
+  navegador solo queda en `localStorage` el dato no secreto `user` (issue
+  #387, ADR 0003)
 - **MFA obligatorio para toda cuenta** (TOTP, compatible con Google
   Authenticator y Authy): se enrola forzosamente en el primer login exitoso,
   no es opcional ni depende de un rol. El secreto TOTP se guarda cifrado en
@@ -891,7 +922,7 @@ umbral-personal/
   (escritura, mismo presupuesto conservador que login/signup), keyed por
   IP + terapeuta (y hash SHA-256 del email en booking, nunca en claro)
 - Desactivable por completo con `PUBLIC_SCHEDULING_ENABLED=false` (o sin
-  setear, que es el default) sin necesitar un deploy/revert; cubre tanto
+  definir, que es el default) sin necesitar un deploy/revert; cubre tanto
   la lectura de disponibilidad como la reserva
 
 #### Overlay de Google Calendar y checkout en línea (sdd/public-booking-payment-calendar)
@@ -903,12 +934,12 @@ umbral-personal/
 - Checkout en línea opcional (`PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED=true`):
   si el terapeuta tiene una cuenta Flow `CONNECTED` y el paciente ya existe
   con `defaultSessionAmount` resuelto, la confirmación de la reserva
-  pública pollea `GET .../book/:groupId/checkout` y muestra el link de
+  pública consulta periódicamente `GET .../book/:groupId/checkout` y muestra el link de
   pago en la misma página, además del email existente
 - Los dos flags son independientes entre sí: cada uno lee su propia env
   var y ninguno consulta ni depende del estado del otro: apagar uno no
   afecta al otro. Ambos son opt-in (`=== 'true'`, no `!== 'false'`): sin
-  setear, ninguno de los dos cambia el comportamiento pre-existente
+  definir, ninguno de los dos cambia el comportamiento pre-existente
 
 ### Exportación PDF
 - Generación de ficha clínica completa en PDF (`GET /reports/patient/:patientId`)
@@ -1125,7 +1156,10 @@ GET /api/v1/health    (sin auth, SELECT 1 contra la base; 200 {"status":"ok"} o 
 GET /api/v1/          (sin auth, respuesta de texto fija de `AppController`, sin uso funcional)
 ```
 
-> 🔒 Requiere token JWT en el header `Authorization: Bearer <token>`
+> 🔒 Requiere sesión: el JWT viaja en la cookie `umbral_session` (HttpOnly,
+> `SameSite=Strict`, `Secure` en producción) que el backend emite al iniciar
+> sesión, o en el header `Authorization: Bearer <token>`, que sigue siendo
+> válido (`JwtStrategy` acepta ambos; issue #387, ADR 0003).
 
 ---
 
@@ -1148,9 +1182,11 @@ electronic files"* (ver la discusión completa en el issue #17).
 Este repo corre el backend en Render free tier, que no tiene un proceso
 persistente para cron (issue #10 evaluó y descartó migrar a una VM por
 ahora). Por eso la copia offsite en producción corre como un workflow
-programado (`.github/workflows/backup.yml`): todos los días hace `pg_dump`
-contra Supabase, cifra el resultado (gzip + AES-256) y lo sube a B2 vía
-rclone, sin depender de ningún servidor propio.
+programado (`.github/workflows/backup.yml`): todos los días a las 05:00 UTC
+(y a demanda con `workflow_dispatch`) hace `pg_dump` contra Supabase (con el
+cliente `postgres:17-alpine` vía Docker), cifra el resultado (gzip + AES-256)
+y lo sube a B2 vía `rclone` (versión 1.75.0 fijada y verificada con SHA256),
+sin depender de ningún servidor propio.
 
 Setup (una sola vez):
 
@@ -1189,11 +1225,10 @@ Setup (una sola vez):
    verificado el 2026-08-03** (issue #56); detalle completo del
    procedimiento y resultado en [`docs/incident-log.md`](docs/incident-log.md).
 
-> Mientras estos 4 secrets no estén cargados, el workflow no falla: corta
-> antes de instalar nada y termina en success con un aviso en el step
-> summary de la corrida ("Backup offsite salteado: faltan uno o más
-> secrets de B2"). No hace falta desactivar el cron a mano mientras B2
-> todavía no está configurado.
+> Si falta alguno de estos 4 secrets, el workflow falla (queda en rojo) en su
+> primer paso con el error "Backup offsite sin configurar, faltan secrets: ..."
+> antes de instalar nada (issue #209): un backup omitido en silencio pasaría
+> desapercibido. Los secrets deben estar cargados antes de habilitar el cron.
 
 #### B) Tercera copia local (regla 3-2-1, issue #57)
 
@@ -1238,7 +1273,7 @@ Setup (una sola vez):
    ```
 
 3. Automatizar con el Task Scheduler de Windows (`onlogon`, para no
-   depender de que la máquina esté prendida a una hora fija):
+   depender de que la máquina esté encendida a una hora fija):
 
    ```
    schtasks /create /tn "UmbralBackupLocalMirror" /tr "<ruta>\backup-local-mirror.bat" /sc onlogon /rl limited /f
@@ -1271,7 +1306,7 @@ Postgres que no es Supabase (ej. un descartable local para probar), vas a ver
 ~600 líneas de `ERROR: no existe el rol «...»` para roles internos de
 Supabase (`supabase_admin`, `dashboard_user`, `vault`, `pgbouncer`, etc.);
 son esperables y no afectan las tablas de la app, `psql -f`/`psql <` los
-saltea y sigue. Confirma que restauró bien mirando solo tus tablas:
+omite y sigue. Confirma que restauró bien mirando solo tus tablas:
 
 ```sql
 SELECT relname, n_live_tup FROM pg_stat_user_tables WHERE schemaname = 'public';
@@ -1309,8 +1344,9 @@ del RAT, que es la fuente de verdad.
 |---|---|---|---|
 | Supabase | Base de datos primaria (fichas, consultas, auditoría) | São Paulo, Brasil | Se incorpora al aceptar los Términos de Servicio (cláusula 12.2) |
 | Backblaze B2 | Backups offsite cifrados con AES-256 antes de subir; avatares, archivos personales y documentos de ficha (buckets privados y separados) | Estados Unidos, región `us-west-004` en todos los buckets | Se incorpora al aceptar los Términos de Servicio, pero el DPA público está acotado a GDPR |
+| Render, Cloudflare y Vercel | Hosting del backend (Render), proxy delante de la API (Cloudflare, ver `TRUSTED_PROXY_HOPS` en `render.yaml`) y hosting del frontend (Vercel, `frontend/vercel.json`): todo el tráfico de la API, incluidos datos de pacientes en tránsito, pasa por Render y Cloudflare | Ver el RAT | Ver el RAT |
 | Resend | Nombre y email del profesional (verificación, recuperación de cuenta, recordatorios); si se activa el cobro, también el email del paciente con el link de pago | Estados Unidos | Se incorpora al aceptar los Términos de Servicio |
-| Sentry (opcional, solo si se define `SENTRY_DSN`) | Trazas de errores 500 y excepciones no controladas. En el backend se redactan emails y RUT y se descartan bodies, cookies, headers y breadcrumbs; en el frontend se descartan bodies, cookies y headers de las requests | Según la región del proyecto Sentry (por confirmar) | Por confirmar (ver RAT) |
+| Sentry (opcional, solo si se define `SENTRY_DSN`) | Trazas de errores 500 y excepciones no controladas. En el backend se redactan emails y RUT y se descartan bodies, cookies, headers y breadcrumbs; en el frontend se descartan bodies, cookies y headers de las requests | Estados Unidos (Iowa; host `ingest.us.sentry.io`) | DPA firmado el 2026-10-08 (`docs/evidencia-compliance/sentry-dpa-firmado-2026-10-08.pdf`) |
 | Google (opcional) | Metadata minimizada de sesiones, solo si el terapeuta conecta su calendario | Estados Unidos | Pendiente de confirmar si aplica a cuentas personales |
 | Flow (opcional) | Nombre y email del paciente, monto y fecha, si el terapeuta activa el cobro | AWS us-east-2 (Ohio, EE.UU.) | Sin DPA descargable; ver política de privacidad |
 
@@ -1406,15 +1442,15 @@ proveedor definido (Backblaze B2 + `rclone`); ver
 | `TRUSTED_PROXY_HOPS` | Cantidad de proxies confiables delante de la app, para identificar la IP real del cliente (helper común `getClientIp`): la usan todos los rate-limits (auth, payments, profile, reserva pública) y se registra en `AuditLog`, `Session` y el historial de MFA. Si `X-Forwarded-For` trae menos valores que este número se usa la IP del socket (`req.ip`), nunca un valor de la cabecera (ver comentario en `auth.module.ts`) | `1` (un único proxy de edge, sin CDN delante). Con Render detrás de Cloudflare (deploy actual): `3` |
 | `SEED_ADMIN_EMAIL` | Email del admin creado por `prisma db seed` (`npm run seed`) | `admin@umbral.cl` (default, ver `prisma/seed-admin.defaults.ts`) |
 | `SEED_ADMIN_PASSWORD` | Contraseña inicial del admin creado por el seed | Ver advertencia abajo: **nunca dejar el default en un entorno alcanzable** |
-| `RESEND_API_KEY` | API key de [Resend](https://resend.com) (free tier) para el email de verificación del signup propio (issue #5). Sin setear, `MailService` saltea el envío con un warning en logs; no bloquea signup en dev/test. **Obligatoria en producción** (issue #287) | Conseguir en el dashboard de Resend |
+| `RESEND_API_KEY` | API key de [Resend](https://resend.com) (free tier) para el email de verificación del signup propio (issue #5). Sin definir, `MailService` omite el envío con un warning en logs; no bloquea signup en dev/test. **Obligatoria en producción** (issue #287) | Conseguir en el dashboard de Resend |
 | `MAIL_FROM` | Remitente del email de verificación. **Obligatoria en producción** (issue #287) | `Umbral - RCE <onboarding@resend.dev>` (default) |
-| `RESEND_WEBHOOK_SECRET` | Secreto del webhook de Resend (issue #163) para verificar la firma Svix de `POST /webhooks/resend` (tracking de entrega/apertura de recordatorios por email). Sin setear, esa ruta responde `501` sin intentar verificar nada; no bloquea el resto de la app. **Obligatoria en producción** (issue #287) | Conseguir en el dashboard de Resend, sección Webhooks |
+| `RESEND_WEBHOOK_SECRET` | Secreto del webhook de Resend (issue #163) para verificar la firma Svix de `POST /webhooks/resend` (tracking de entrega/apertura de recordatorios por email). Sin definir, esa ruta responde `501` sin intentar verificar nada; no bloquea el resto de la app. **Obligatoria en producción** (issue #287) | Conseguir en el dashboard de Resend, sección Webhooks |
 | `SENTRY_DSN` (backend) / `VITE_SENTRY_DSN` (frontend) | DSN de un proyecto Sentry (issue #191) para capturar errores 500 y excepciones no controladas. Opcional: sin DSN el SDK queda desactivado. No se envían bodies, cookies ni headers de las requests | Proyecto Node (backend) y proyecto React (frontend) en sentry.io |
 | `B2_AVATARS_ENDPOINT` / `B2_AVATARS_REGION` / `B2_AVATARS_BUCKET` / `B2_AVATARS_KEY_ID` / `B2_AVATARS_APPLICATION_KEY` | Credenciales de un bucket Backblaze B2 **privado**, dedicado solo a fotos de perfil (issue #170): storage vía `@aws-sdk/client-s3` (S3-compatible), reemplaza el disco local que Render (free tier) no persiste entre deploys. Sin estas variables, subir/ver un avatar falla. **Obligatorias en producción** (issue #287); `*_ENDPOINT` debe incluir `https://` | Ver [Despliegue](#despliegue-issue-8), paso 2 |
 | `B2_SHARED_FILES_ENDPOINT` / `B2_SHARED_FILES_REGION` / `B2_SHARED_FILES_BUCKET` / `B2_SHARED_FILES_KEY_ID` / `B2_SHARED_FILES_APPLICATION_KEY` | Mismo patrón que `B2_AVATARS_*` (issue #170), pero para la biblioteca personal de archivos (`shared-files`): bucket B2 propio y separado del de avatares. Sin estas variables, subir/descargar un archivo personal falla. **Obligatorias en producción** (issue #287) | Ver [Despliegue](#despliegue-issue-8), paso 2 |
 | `B2_PATIENT_DOCUMENTS_ENDPOINT` / `B2_PATIENT_DOCUMENTS_REGION` / `B2_PATIENT_DOCUMENTS_BUCKET` / `B2_PATIENT_DOCUMENTS_KEY_ID` / `B2_PATIENT_DOCUMENTS_APPLICATION_KEY` | Mismo patrón que `B2_AVATARS_*`/`B2_SHARED_FILES_*` (issue #158), pero para los documentos de ficha clínica (`documents`: exámenes, certificados, consentimientos, informes de alta): bucket B2 propio, separado de los anteriores. El contenido sigue cifrado en reposo con `DOCUMENT_ENCRYPTION_KEY` (AES-256-GCM) antes de subirse. Sin estas variables, subir/descargar un documento clínico falla. **Obligatorias en producción** (issue #287) | Ver [Despliegue](#despliegue-issue-8), paso 2 |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar el refresh token de Google Calendar en reposo, distinta de `DOCUMENT_ENCRYPTION_KEY` a propósito (sdd/google-calendar-integration) | Generar con `openssl rand -base64 32` |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Credenciales OAuth del proyecto de Google Cloud. Sin setear, el módulo de integración con Google Calendar se registra deshabilitado (mismo criterio que `MailService` sin `RESEND_API_KEY`); no bloquea el arranque en dev/test/CI | Conseguir en Google Cloud Console |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Credenciales OAuth del proyecto de Google Cloud. Sin definir, el módulo de integración con Google Calendar se registra deshabilitado (mismo criterio que `MailService` sin `RESEND_API_KEY`); no bloquea el arranque en dev/test/CI | Conseguir en Google Cloud Console |
 | `GOOGLE_REDIRECT_URI` | Redirect URI del handshake OAuth, registrada en Google Cloud Console. Usa un cliente OAuth de **desarrollo** separado del de producción: la URI de `localhost` se registra solo en el cliente de desarrollo; el de producción lleva únicamente la URI HTTPS del backend (Google marca como inseguro un cliente de producción con redirects de loopback) | Desarrollo: `http://localhost:3001/api/v1/calendar-integration/callback`. Producción: `https://<host-del-backend>/api/v1/calendar-integration/callback` |
 | `GOOGLE_CALENDAR_SYNC_ENABLED` | Si es `false`, desactiva el cron de reconciliación y los intents de sync sin necesitar un deploy/revert | `false` en CI/e2e |
 | `SESSION_PURGE_ENABLED` | Si es `false`, desactiva el cron diario (04:00, hora del servidor) que borra sesiones expiradas o revocadas hace más de 7 días (`SessionPurgeService`, issue #287). Debe ser exactamente `true` o `false` | Habilitado si no se define |
@@ -1428,8 +1464,10 @@ proveedor definido (Backblaze B2 + `rclone`); ver
 | `DOCUMENT_ENCRYPTION_KEY_KEYRING` / `GOOGLE_TOKEN_ENCRYPTION_KEY_KEYRING` / `PAYMENT_CREDENTIALS_ENCRYPTION_KEY_KEYRING` / `MFA_SECRET_ENCRYPTION_KEY_KEYRING` / `CLINICAL_TEXT_ENCRYPTION_KEY_KEYRING` | Opcionales (issue #382, ADR 0005). Agregan claves de cifrado al llavero del dato correspondiente con el formato `id:base64,id:base64` (ids enteros de 1 a 255, sin repetir, cada clave de 32 bytes en base64). La variable original sigue siendo la clave id 0. Solo se usan al rotar una clave | Ver [docs/rotacion-y-respaldo-de-claves.md](docs/rotacion-y-respaldo-de-claves.md) |
 | `DOCUMENT_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `GOOGLE_TOKEN_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `PAYMENT_CREDENTIALS_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `MFA_SECRET_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `CLINICAL_TEXT_ENCRYPTION_KEY_ACTIVE_KEY_ID` | Opcionales (issue #382). Id de la clave con la que se cifran los datos nuevos; debe ser `0` o existir en el `_KEYRING` correspondiente. Si falta, se usa la id 0. Un valor mal formado hace fallar el arranque | Ver [docs/rotacion-y-respaldo-de-claves.md](docs/rotacion-y-respaldo-de-claves.md) |
 | `PAYMENTS_ENABLED` | Si es `false`, desactiva por completo la creación de cargos, el checkout, los emails de pago y el cron de vencimiento sin necesitar un deploy/revert | `true` en el job `backend` de CI (lo necesita `payments.e2e-spec.ts`) y en el e2e de Playwright (contra un Flow simulado) |
-| `INVITE_CREATOR_EMAIL` | Issue #124: único email autorizado a generar códigos de invitación (`POST /auth/invitations`), requeridos para completar `POST /auth/signup`. Mecanismo temporal sin rol ADMIN (decisión explícita); sin setear, nadie puede generar invitaciones y el signup público queda efectivamente cerrado | `terapeuta@ejemplo.cl` |
-| `PUBLIC_SCHEDULING_ENABLED` | Habilita el portal público de auto-agenda (sdd/patient-self-scheduling): tanto la lectura de disponibilidad como la reserva. **Sin default**: sin setear, ambos endpoints públicos se registran deshabilitados (a diferencia de `PAYMENTS_ENABLED`/`GOOGLE_CALENDAR_SYNC_ENABLED`, acá "ausente" es deshabilitado, no habilitado, por ser superficie pública nueva) | `true` |
+| `INVITE_CREATOR_EMAIL` | Issue #124: único email autorizado a generar códigos de invitación (`POST /auth/invitations`), requeridos para completar `POST /auth/signup`. Mecanismo temporal sin rol ADMIN (decisión explícita); sin definir, nadie puede generar invitaciones y el signup público queda efectivamente cerrado | `terapeuta@ejemplo.cl` |
+| `PUBLIC_SCHEDULING_ENABLED` | Habilita el portal público de auto-agenda (sdd/patient-self-scheduling): tanto la lectura de disponibilidad como la reserva. **Sin default**: sin definir, ambos endpoints públicos se registran deshabilitados (a diferencia de `PAYMENTS_ENABLED`/`GOOGLE_CALENDAR_SYNC_ENABLED`, acá "ausente" es deshabilitado, no habilitado, por ser superficie pública nueva) | `true` |
+| `BACKEND_PUBLIC_URL` | URL pública del backend, usada para armar las URL de confirmación y de retorno (`confirmUrl`, `returnUrl`) de los cobros de Flow. Opcional; sin definir usa `http://localhost:3001`, por lo que en producción debe definirse | `https://umbralapi.groundzerodevs.com` |
+| `E2E_SEED_CONFIRM` / `E2E_TEST_PASSWORD` / `E2E_TEST_MFA_SECRET` (y opcionales `E2E_TEST_EMAIL`, `E2E_FLOW_API_KEY`, `E2E_FLOW_SECRET_KEY`) | Solo para `npm run seed:e2e` (cuentas de los e2e de Playwright). `E2E_SEED_CONFIRM=1` es un opt-in explícito; `E2E_TEST_MFA_SECRET` debe ser una cadena base32. El seed se niega a correr con `NODE_ENV=production` | Ver [Pruebas](#pruebas) |
 | `FLOW_API_BASE_URL` | Base URL de la API de Flow que usa el cliente de pagos. Opcional | `https://sandbox.flow.cl/api` (default; en producción apuntar a la API productiva de Flow) |
 | `LAN_DEV_URL` | Origen adicional permitido por CORS para probar el frontend desde otro dispositivo de la red local. Opcional; si se define, debe ser una URL válida (se valida al arrancar) | `http://192.168.1.10:5173` |
 | `VITE_API_URL` (frontend) | URL base del backend (incluye `/api/v1`) que usa el frontend. Variable de build de Vite; en Vercel se define en el proyecto. Sin definir, en desarrollo cae a `http://localhost:3001/api/v1`; en un build de producción es un error de configuración | `http://localhost:3001/api/v1` |
@@ -1439,8 +1477,8 @@ proveedor definido (Backblaze B2 + `rclone`); ver
 | `PUBLIC_BOOKING_IP_THROTTLE_LIMIT` / `PUBLIC_BOOKING_IP_THROTTLE_TTL_MS` | Límite extra de la reserva pública por `ip:therapistId`, independiente del email enviado (el bucket por email se reabre con cada email distinto) | `10` req / `3600000` ms (default); `1000` en `NODE_ENV=test` |
 | `UNAUTHORIZED_AUDIT_LIMIT` / `UNAUTHORIZED_AUDIT_WINDOW_MS` | Máximo de filas `UNAUTHORIZED_ATTEMPT` (requests sin token válido) que se escriben en `AuditLog` por IP de cliente y ventana; el resto se rechaza igual con 401 pero sin auditar. Solo se guarda el path, sin query string. Contador en memoria por proceso | `10` filas / `60000` ms |
 | `PUBLIC_BOOKING_DAILY_LIMIT` / `PUBLIC_BOOKING_DAILY_TTL_MS` | Tope de reservas públicas **exitosas** por terapeuta en la ventana (sin importar la IP); se cuenta en base de datos (`BookedSlot`), los intentos fallidos no lo consumen; al alcanzarlo responde 429 | `100` reservas / `86400000` ms (default); `10000` en `NODE_ENV=test` |
-| `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` | Habilita el overlay de bloqueos de Google Calendar sobre `computeSlots()` (sdd/public-booking-payment-calendar): el cron `CalendarBusyService` deja de sincronizar `CalendarBusyBlock` y el cálculo de horarios libres deja de consultarlo. Opt-in (`=== 'true'`, no el `!== 'false'` de `GOOGLE_CALENDAR_SYNC_ENABLED`/`PAYMENTS_ENABLED`); sin setear, `computeSlots()` es byte-idéntico al comportamiento anterior a este cambio. Independiente de `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED`: cada flag lee su propia env var, ninguno depende del estado del otro | `true` |
-| `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` | Habilita el link de checkout Flow en la propia página de confirmación de la auto-agenda pública (sdd/public-booking-payment-calendar), además del email de pago existente. Opt-in (`=== 'true'`); sin setear, la reserva pública sigue el flujo solo-email de siempre, sin cambios de comportamiento. Independiente de `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` | `true` |
+| `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` | Habilita el overlay de bloqueos de Google Calendar sobre `computeSlots()` (sdd/public-booking-payment-calendar): el cron `CalendarBusyService` deja de sincronizar `CalendarBusyBlock` y el cálculo de horarios libres deja de consultarlo. Opt-in (`=== 'true'`, no el `!== 'false'` de `GOOGLE_CALENDAR_SYNC_ENABLED`/`PAYMENTS_ENABLED`); sin definir, `computeSlots()` es byte-idéntico al comportamiento anterior a este cambio. Independiente de `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED`: cada flag lee su propia env var, ninguno depende del estado del otro | `true` |
+| `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` | Habilita el link de checkout Flow en la propia página de confirmación de la auto-agenda pública (sdd/public-booking-payment-calendar), además del email de pago existente. Opt-in (`=== 'true'`); sin definir, la reserva pública sigue el flujo solo-email de siempre, sin cambios de comportamiento. Independiente de `CALENDAR_AVAILABILITY_OVERLAY_ENABLED` | `true` |
 
 > ⚠️ Si el comando de arranque del hosting ya corre `prisma migrate deploy` antes de iniciar el server (recomendado), **no** setees `RUN_MIGRATIONS=true` también: no rompe nada (la migración es idempotente), pero la corre dos veces innecesariamente.
 

@@ -1,6 +1,6 @@
 # Datos verificados para la landing page
 
-Fecha de verificación: 2026-10-13. Fuente: código del repositorio (rama `docs/sync-docs-oct2026`, basada en `main` a88be01; las migraciones y los specs se recontaron el 2026-10-14), README y estado de GitHub. Las cifras cambian con cada PR; vuelve a contarlas antes de publicar.
+Fecha de verificación: 2026-10-16. Fuente: código del repositorio (`main` en `959a5a8`, etiquetado como `v1.0.0`), README y estado de GitHub. Las cifras cambian con cada PR; vuelve a contarlas antes de publicar.
 
 Regla general: afirma solo lo que está en la sección "Funcionalidades reales". Todo lo de "Qué NO afirmar" queda fuera del texto público.
 
@@ -10,7 +10,7 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 - **Descripción corta:** sistema de fichas clínicas para profesionales de salud mental que atienden por su cuenta, con agenda, cobro en línea y recordatorios, diseñado para alinearse con la normativa chilena de datos personales y de salud.
 - **Descripción larga:** cada profesional tiene su propia cuenta y es dueño exclusivo de sus pacientes; no hay roles jerárquicos ni panel administrativo. El sistema reúne ficha clínica, consultas con historial de correcciones, documentos, calendario, agenda pública para que los pacientes reserven, cobro con Flow, recordatorios por email, cierre de tratamiento con informe de alta y registro de representante legal para pacientes menores de edad.
 - **Público objetivo:** psicólogas, psicólogos y terapeutas independientes en Chile. El registro es solo por invitación (código de un solo uso).
-- **Estado:** en preparación para v1 (ver `docs/evaluacion-v1.md`).
+- **Estado:** `v1.0.0` etiquetada el 2026-10-16, con condiciones de salida abiertas (ver `docs/evaluacion-v1.md`).
 
 ## Funcionalidades reales
 
@@ -91,7 +91,7 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 
 - MFA (TOTP) obligatorio para toda cuenta, con 10 códigos de recuperación de un solo uso.
 - Recuperación de contraseña y de acceso por email y códigos, sin intervención manual.
-- Contraseñas con Argon2, sesiones revocables, cierre de todas las sesiones al cambiar la contraseña, cierre por inactividad a los 8 minutos (corregido en móvil, issue #367).
+- Sesión en cookie `HttpOnly` (no legible por scripts), contraseñas con Argon2, sesiones revocables, cierre de todas las sesiones al cambiar la contraseña, cierre por inactividad a los 8 minutos (corregido en móvil, issue #367).
 - Límite de intentos por ruta sensible.
 
 ### Auditoría y reportes
@@ -99,7 +99,7 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 - Bitácora de auditoría append-only (la base impide modificarla o borrarla).
 - Exportación en PDF de la ficha clínica completa con historial y pie de página con referencia a la Ley 20.584.
 
-## Cifras (verificadas el 2026-10-13)
+## Cifras (verificadas el 2026-10-16)
 
 | Dato | Valor | Cómo se verificó |
 |---|---|---|
@@ -107,20 +107,20 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 | Modelos de base de datos | 27 | `model` en `backend/prisma/schema.prisma` |
 | Migraciones | 74 | carpetas de `backend/prisma/migrations/` |
 | Endpoints HTTP | unos 104 | conteo de decoradores de ruta en `backend/src` |
-| Tests unitarios backend | 115 specs | archivos `*.spec.ts` en `backend/src` |
-| Tests e2e backend | 31 specs | archivos `*.e2e-spec.ts` en `backend/test` |
-| Tests frontend | 84 specs + 3 e2e Playwright (corren en el job `e2e` de CI) | `frontend/src` y `frontend/e2e` |
-| Páginas del frontend | 17 | archivos en `frontend/src/pages/` (sin specs) |
-| Commits | 505 | `git rev-list --count HEAD` |
-| Pull requests mergeados | 229 | `gh pr list --state merged` |
-| Issues | 217 cerrados, 14 abiertos | `gh issue list` |
-| Días de desarrollo | 72 | desde el primer commit, 2026-08-02, hasta 2026-10-13 |
-| Vulnerabilidades de producción | Sin hallazgos de nivel high o critical | `npm audit --omit=dev --audit-level=high` en CI; el CI de `main` pasó el 2026-10-13 |
+| Tests unitarios backend | 116 specs | archivos `*.spec.ts` en `backend/src` |
+| Tests e2e backend | 32 specs | archivos `*.e2e-spec.ts` en `backend/test` |
+| Tests frontend | 84 specs + 4 e2e Playwright (corren en el job `e2e` de CI) | `frontend/src` y `frontend/e2e` |
+| Páginas del frontend | 17 | archivos de página (sin contar specs) en `frontend/src/pages/` |
+| Commits | 565 | `git rev-list --count HEAD` |
+| Pull requests mergeados | 249 | `gh pr list --state merged` |
+| Issues | 227 cerrados, 6 abiertos | `gh issue list` |
+| Días de desarrollo | 75 | desde el primer commit, 2026-08-02, hasta 2026-10-16 |
+| Vulnerabilidades de producción | Sin hallazgos de nivel high o critical | `npm audit --omit=dev --audit-level=high` en CI; el CI de `main` pasó el 2026-10-16 |
 
 ## Stack
 
-- **Frontend:** React 19.2, TypeScript, Vite 7, Tailwind CSS 3.4, React Router 8, TanStack Query, React Hook Form con Zod 4, Tiptap 3, Vitest 4, Playwright.
-- **Backend:** NestJS 11, TypeScript, Prisma 6.19, PostgreSQL (16 en CI; Supabase corre 17.x según `backup.yml`), Passport con JWT, Argon2, PDFKit, Helmet.
+- **Frontend:** React 19.2, TypeScript, Vite 7, Tailwind CSS 4, React Router 8, TanStack Query, React Hook Form con Zod 4, Tiptap 3, Vitest 4, Playwright.
+- **Backend:** NestJS 11, TypeScript, Prisma 7.10 (driver adapter `pg`), PostgreSQL (16 en CI; Supabase corre 17.x según `backup.yml`), Passport con JWT, Argon2, PDFKit, Helmet.
 - **Node:** 22 en CI.
 
 ## Integraciones
@@ -182,4 +182,4 @@ Reglas:
 | #161 | Recordatorios de sesión por WhatsApp | Pospuesto |
 | #162 | Transcriptor de sesiones a notas automáticas | Pospuesto |
 
-Otros issues abiertos son de mantenimiento, infraestructura o cumplimiento (#63, #75, #123, #255, #382, #387, #398, #419, #422, #458) y no deben presentarse como funcionalidades.
+Los otros dos issues abiertos son de infraestructura (#63, plan de Render, y #123, verificación de la app OAuth de Google) y no deben presentarse como funcionalidades.

@@ -98,7 +98,7 @@ Email dispatch MUST use a dedicated `MailService` method including the patient's
 
 ### Requirement: Channels Dispatch Independently
 
-The email and in-app channels MUST be dispatched and tracked independently; a failure on one MUST NOT prevent or duplicate the other.
+The email and in-app channels MUST be dispatched and tracked independently; a failure on one MUST NOT prevent or duplicate the other. The in-app channel MUST create a `SESSION_REMINDER` notification for the therapist titled with the offset label ("24 horas" or "2 horas"), naming the patient and the session date and time in the Chile time zone, with a `linkPath` to `/consultations?patientId=<patientId>&consultationId=<consultationId>`. The webhook endpoint is `POST /webhooks/resend` and reads the Svix headers `svix-id`, `svix-timestamp` and `svix-signature`.
 
 #### Scenario: Email send throws
 
@@ -134,7 +134,7 @@ The system MUST expose a public webhook for Resend events that verifies the Svix
 
 #### Scenario: Invalid signature is rejected
 
-- GIVEN a webhook request with an invalid or stale signature
+- GIVEN a webhook request with an invalid or stale signature, or one whose raw body is unavailable for verification
 - WHEN it reaches the endpoint
 - THEN the response is `401` and nothing is recorded
 

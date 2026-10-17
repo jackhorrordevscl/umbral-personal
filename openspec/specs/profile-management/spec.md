@@ -164,7 +164,7 @@ The system MUST record a distinguishable `AuditLog` row per credential change, w
 
 ### Requirement: Public Profile Fields and Slug
 
-`PATCH /profile` MUST accept an optional `bio` (at most 500 characters) and `specialty` (at most 120 characters); an empty string MUST clear them. `GET /profile` MUST return `bio`, `specialty`, `slug`, and `canInvite` (true only for the account whose email equals the configured `INVITE_CREATOR_EMAIL`). When the `name` changes (or the account has no slug yet), the system MUST regenerate the public `slug` from the name, ensuring uniqueness; the previous public link MUST stop resolving.
+`PATCH /profile` MUST accept an optional `bio` (at most 500 characters) and `specialty` (at most 120 characters); an empty string MUST clear them. `GET /profile` MUST return `id`, `email`, `name`, `mfaEnabled`, `createdAt`, `pendingEmail`, `avatarUpdatedAt`, `bio`, `specialty`, `website`, `rut`, `professionalRegistration`, `slug`, and `canInvite` (true only for the account whose email equals the configured `INVITE_CREATOR_EMAIL`). When the `name` changes (or the account has no slug yet), the system MUST regenerate the public `slug` from the name, ensuring uniqueness; the previous public link MUST stop resolving.
 
 #### Scenario: Name change regenerates the public link
 
