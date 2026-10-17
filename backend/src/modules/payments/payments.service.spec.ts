@@ -1,4 +1,10 @@
-import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PaymentProvider } from '@prisma/client';
 import { PaymentsService } from './payments.service';
@@ -887,6 +893,13 @@ describe('PaymentsService', () => {
   // limpiar paymentUrl/gatewayToken si la reemisión fallaba.
   describe('updateAmount con una orden previa', () => {
     function arrangeWithPreviousOrder() {
+      prisma.payment.findUnique.mockResolvedValue({
+        id: 'payment-1',
+        therapistId: 'therapist-1',
+        status: 'PENDING',
+        gatewayToken: 'old-token',
+      });
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PENDING' });
       prisma.payment.updateMany.mockResolvedValue({ count: 1 });
       prisma.payment.findUniqueOrThrow.mockResolvedValue(
         buildPayment({
@@ -1009,20 +1022,12 @@ describe('PaymentsService', () => {
         expect(gatewayAdapter.createOrder).toHaveBeenCalled();
       });
 
-      it('si la orden estaba pagada sigue logueando ERROR', async () => {
-        gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PAID' });
-
-        await service.updateAmount('group-1', 45000);
-
-        expect(errorSpy).toHaveBeenCalledWith(
-          expect.stringContaining('old-token') as unknown,
-        );
-      });
-
-      it('si no se puede consultar el estado de la orden sigue logueando ERROR', async () => {
-        gatewayAdapter.getOrderStatus.mockRejectedValue(
-          new PaymentGatewayError('transient', 'Error de red hacia Flow'),
-        );
+      it('si no se puede consultar el estado de la orden al anular sigue logueando ERROR', async () => {
+        gatewayAdapter.getOrderStatus
+          .mockResolvedValueOnce({ status: 'PENDING' })
+          .mockRejectedValueOnce(
+            new PaymentGatewayError('transient', 'Error de red hacia Flow'),
+          );
 
         await service.updateAmount('group-1', 45000);
 
@@ -1032,17 +1037,106 @@ describe('PaymentsService', () => {
         expect(gatewayAdapter.createOrder).toHaveBeenCalled();
       });
 
-      it('un fallo de credenciales al anular no consulta el estado y loguea ERROR', async () => {
+      it('un fallo de credenciales al anular no consulta el estado de nuevo y loguea ERROR', async () => {
         gatewayAdapter.voidOrder.mockRejectedValue(
           new PaymentGatewayError('credentials', 'apiKey/firma inválida'),
         );
 
         await service.updateAmount('group-1', 45000);
 
-        expect(gatewayAdapter.getOrderStatus).not.toHaveBeenCalled();
+        // Solo la verificación previa al cambio de monto; ninguna tras anular.
+        expect(gatewayAdapter.getOrderStatus).toHaveBeenCalledTimes(1);
         expect(errorSpy).toHaveBeenCalledWith(
           expect.stringContaining('old-token') as unknown,
         );
+      });
+    });
+
+    // Hallazgo del judgment-day de payments: si el paciente ya pagó la orden
+    // vigente y el webhook aún no la registró, reemitir sobrescribía el token
+    // y el pago cobrado quedaba sin registrar (y el paciente podía pagar dos
+    // veces el link nuevo).
+    describe('orden vigente ya pagada en la pasarela', () => {
+      beforeEach(() => {
+        arrangeWithPreviousOrder();
+        // markPaid relee la fila: el monto local todavía es el original.
+        prisma.payment.findUnique.mockResolvedValue({
+          id: 'payment-1',
+          therapistId: 'therapist-1',
+          status: 'PENDING',
+          gatewayToken: 'old-token',
+          amount: 30000,
+        });
+        gatewayAdapter.getOrderStatus.mockResolvedValue({
+          status: 'PAID',
+          gatewayPaymentId: 'flow-pay-1',
+          amount: 30000,
+        });
+      });
+
+      it('registra el pago, rechaza con 409 y no cambia el monto ni reemite', async () => {
+        const call = service.updateAmount('group-1', 45000);
+
+        await expect(call).rejects.toThrow(ConflictException);
+        await expect(call).rejects.toThrow(/ya fue pagado/);
+        expect(gatewayAdapter.getOrderStatus).toHaveBeenCalledWith(
+          expect.anything(),
+          'old-token',
+        );
+        expect(prisma.payment.updateMany).toHaveBeenCalledTimes(1);
+        expect(prisma.payment.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              id: 'payment-1',
+              status: { in: ['PENDING', 'LATE'] },
+            },
+            data: expect.objectContaining({
+              status: 'PAID',
+              gatewayPaymentId: 'flow-pay-1',
+            }) as unknown,
+          }),
+        );
+        expect(prisma.payment.updateMany).not.toHaveBeenCalledWith({
+          where: { groupId: 'group-1', status: { in: ['PENDING', 'LATE'] } },
+          data: { amount: 45000 },
+        });
+        expect(gatewayAdapter.voidOrder).not.toHaveBeenCalled();
+        expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+        expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+      });
+
+      it('si no se puede consultar el estado (red), falla cerrado y no reemite', async () => {
+        gatewayAdapter.getOrderStatus.mockRejectedValue(
+          new PaymentGatewayError('transient', 'Error de red hacia Flow'),
+        );
+        const errorSpy = jest
+          .spyOn(Logger.prototype, 'error')
+          .mockImplementation(() => undefined);
+
+        await expect(service.updateAmount('group-1', 45000)).rejects.toThrow(
+          ServiceUnavailableException,
+        );
+
+        expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+        expect(gatewayAdapter.voidOrder).not.toHaveBeenCalled();
+        expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+        errorSpy.mockRestore();
+      });
+
+      it('si Flow no conoce el token (rejected), no hay pago posible y reemite', async () => {
+        gatewayAdapter.getOrderStatus
+          .mockRejectedValueOnce(
+            new PaymentGatewayError('rejected', 'Flow devolvió 400: code 1700'),
+          )
+          .mockResolvedValue({ status: 'REJECTED' });
+        const warnSpy = jest
+          .spyOn(Logger.prototype, 'warn')
+          .mockImplementation(() => undefined);
+
+        await service.updateAmount('group-1', 45000);
+
+        expect(gatewayAdapter.createOrder).toHaveBeenCalled();
+        warnSpy.mockRestore();
       });
     });
 

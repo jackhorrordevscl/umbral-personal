@@ -1136,7 +1136,7 @@ GET    /api/v1/payments/account                  🔒
 POST   /api/v1/payments/account/validate         🔒 (paso previo del wizard, sin persistir)
 POST   /api/v1/payments/account                   🔒 (confirmación, persiste la cuenta Flow)
 DELETE /api/v1/payments/account                   🔒
-PATCH  /api/v1/payments/:groupId                  🔒 (corrige el monto de un cargo)
+PATCH  /api/v1/payments/:groupId                  🔒 (corrige el monto de un cargo; 409 si la pasarela ya lo registra pagado)
 POST   /api/v1/payments/:groupId/resend-link       🔒
 POST   /api/v1/payments/:groupId/retry-charge      🔒 (reintenta crear el cargo cuando aún no tiene link de pago, issue #271)
 POST   /api/v1/payments/confirm                       (webhook de Flow, sin auth, firma verificada)
