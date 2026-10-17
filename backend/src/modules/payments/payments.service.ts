@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NotificationType, Payment } from '@prisma/client';
@@ -346,7 +348,7 @@ export class PaymentsService {
     // amount can't be charged, instead of a silently failed order later.
     const owner = await this.prisma.payment.findUnique({
       where: { groupId },
-      select: { therapistId: true },
+      select: { id: true, therapistId: true, status: true, gatewayToken: true },
     });
     const gatewayContext = owner
       ? await this.paymentAccountService.resolveGatewayContext(
@@ -356,6 +358,18 @@ export class PaymentsService {
     if (gatewayContext) {
       const belowMinimum = this.minimumAmountError(gatewayContext, amount);
       if (belowMinimum) throw new BadRequestException(belowMinimum);
+      // Antes de tocar el monto: si el paciente ya pagó la orden vigente y el
+      // webhook aún no la registró, reemitir sobrescribiría el token y ese pago
+      // quedaría sin registrar.
+      if (
+        owner?.gatewayToken &&
+        (CANCELLABLE_STATUSES as readonly string[]).includes(owner.status)
+      ) {
+        await this.assertCurrentOrderNotPaid(gatewayContext, {
+          id: owner.id,
+          gatewayToken: owner.gatewayToken,
+        });
+      }
     }
 
     const result = await this.prisma.payment.updateMany({
@@ -733,6 +747,49 @@ export class PaymentsService {
         `Fallo al anular la orden en la pasarela de pago (paymentId=${payment.id}, groupId=${payment.groupId}, token=${payment.gatewayToken}): ${message}`,
       );
     }
+  }
+
+  // Hallazgo del judgment-day de payments: updateAmount() anula la orden
+  // vigente y reemite, pero si esa orden ya estaba pagada la anulación falla
+  // (solo se loguea), el token se sobrescribe y el pago cobrado deja de ser
+  // rastreable. Si la pasarela reporta la orden como pagada se registra el
+  // pago (con el monto original, aún sin tocar) y se rechaza el cambio. Si no
+  // se puede saber, falla cerrado: reemitir a ciegas puede cobrar dos veces.
+  // Un 'rejected' al consultar (token que la pasarela no conoce) significa
+  // que no hay pago posible y la reemisión sigue su curso.
+  private async assertCurrentOrderNotPaid(
+    context: GatewayContext,
+    payment: Pick<Payment, 'id'> & { gatewayToken: string },
+  ): Promise<void> {
+    let orderStatus: Awaited<
+      ReturnType<ReturnType<PaymentGatewayRegistry['get']>['getOrderStatus']>
+    >;
+    try {
+      orderStatus = await this.gatewayRegistry
+        .get(context.provider)
+        .getOrderStatus(context.credentials, payment.gatewayToken);
+    } catch (err) {
+      if (err instanceof PaymentGatewayError && err.kind === 'rejected') {
+        return;
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `No se pudo verificar la orden vigente antes de cambiar el monto (paymentId=${payment.id}): ${message}`,
+      );
+      throw new ServiceUnavailableException(
+        'No se pudo verificar el estado del cobro en la pasarela de pago. Intenta de nuevo en unos minutos.',
+      );
+    }
+    if (orderStatus.status !== 'PAID') return;
+
+    await this.markPaid(
+      payment.id,
+      orderStatus.gatewayPaymentId,
+      orderStatus.amount,
+    );
+    throw new ConflictException(
+      'El cobro ya fue pagado en la pasarela de pago, por lo que no se puede cambiar el monto.',
+    );
   }
 
   // issue #434: false ante cualquier duda (incluida una falla al consultar),
