@@ -515,7 +515,7 @@ describe('parseArgs', () => {
   it('usa dry-run y todos los datasets por defecto', () => {
     expect(parseArgs([])).toEqual({
       apply: false,
-      only: ['mfa', 'google', 'payment', 'documents'],
+      only: ['mfa', 'google', 'payment', 'documents', 'clinical'],
       limit: undefined,
       checkRetire: undefined,
     });

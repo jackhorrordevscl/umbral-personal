@@ -10,7 +10,7 @@ export interface ConsultationTexts {
   agreements?: string | null;
 }
 
-const SNAPSHOT_TEXT_KEYS = [
+export const CONSULTATION_TEXT_KEYS = [
   'consultReason',
   'intervention',
   'agreements',
@@ -54,7 +54,7 @@ function mapSnapshotTexts<T>(
     return snapshot;
   }
   const mapped = { ...snapshot } as Record<string, unknown>;
-  for (const key of SNAPSHOT_TEXT_KEYS) {
+  for (const key of CONSULTATION_TEXT_KEYS) {
     const value = mapped[key];
     if (typeof value === 'string') mapped[key] = transform(value);
   }
