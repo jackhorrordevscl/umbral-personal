@@ -210,6 +210,38 @@ export class MailService {
     }
   }
 
+  // Issue #502: una reserva pública colisionó con la ficha de este titular y
+  // no se creó nada. La respuesta pública es idéntica a la de un paciente
+  // nuevo, así que este correo es la única señal (y la vía de corrección si
+  // quien reservó era el propio paciente con un dato mal escrito). No nombra
+  // al terapeuta ni qué dato falló.
+  async sendPublicBookingAttemptNoticeEmail(to: string): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn(
+        `RESEND_API_KEY no configurada: se salteó el aviso de reserva no completada a ${maskEmail(to)}.`,
+      );
+      return;
+    }
+
+    const { error } = await this.resend.emails.send({
+      from: this.from,
+      to,
+      subject: 'No pudimos completar tu solicitud de reserva',
+      html: `
+        <p>Hola,</p>
+        <p>Recibimos una solicitud para agendar una sesión con tus datos, pero no pudo completarse.</p>
+        <p>Si fuiste tú, revisa que tu RUT y tu correo coincidan con los que registraste, o contacta directamente a tu profesional para coordinar la sesión.</p>
+        <p>Si no fuiste tú, puedes ignorar este mensaje: no se agendó nada.</p>
+      `,
+    });
+
+    if (error) {
+      this.logger.error(
+        `Falló el envío del aviso de reserva no completada a ${maskEmail(to)}: ${error.message}`,
+      );
+    }
+  }
+
   // sdd/session-reminders PR 2 (T5.1): llamado por RemindersService por cada
   // (consultation, offset) despachado por el canal EMAIL. Mismo contrato
   // "nunca lanza" que el resto de esta clase -- design.md "Email Channel

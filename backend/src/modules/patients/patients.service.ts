@@ -30,6 +30,7 @@ import {
 import { getAgeBand, isMinor } from '../../common/utils/age.util';
 import { chileDayKeyFromInstant } from '../../common/utils/chile-time.util';
 import { MINOR_GUARDIAN_ENFORCEMENT_DATE } from './patients.constants';
+import { PublicBookingRejectedException } from './public-booking-rejected.exception';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { DEFAULT_PATIENTS_PAGE_SIZE } from './dto/patients-query.dto';
@@ -829,8 +830,12 @@ export class PatientsService {
   // interfiere. Patient.email es nullable y NO único -- el match por email
   // es case-insensitive y scopeado a therapistId; más de un match es
   // ambiguo. Ambos casos (colisión de RUT con este terapeuta, email
-  // ambiguo) devuelven el MISMO ConflictException uniforme, sin distinguir
-  // hacia afuera cuál ocurrió.
+  // ambiguo) lanzan la MISMA PublicBookingRejectedException, sin distinguir
+  // hacia afuera cuál ocurrió. Issue #502: PublicSchedulingService la
+  // convierte en una respuesta de éxito idéntica a la de un paciente nuevo
+  // (un 409 solo para quien ya es paciente delataba quién se atiende con el
+  // terapeuta); los 409 que dependen únicamente del request (RUT con DV
+  // inválido) siguen siendo un ConflictException común.
   //
   // issue #139: devuelve { patient, isNew } (no solo Patient) para que el
   // caller (PublicSchedulingService.book()) pueda notificar al terapeuta
@@ -888,7 +893,7 @@ export class PatientsService {
         this.logger.warn(
           `Reserva pública rechazada: identidad no verificada bajo therapistId=${therapistId}`,
         );
-        throw new ConflictException('No fue posible procesar la reserva.');
+        throw new PublicBookingRejectedException(matches[0].email);
       }
       // A stored patient who is currently a minor can only be booked through
       // the minor path (patient RUT + guardian RUT), never by email alone.
@@ -896,7 +901,7 @@ export class PatientsService {
         this.logger.warn(
           `Reserva pública rechazada: la ficha corresponde a un menor bajo therapistId=${therapistId}`,
         );
-        throw new ConflictException('No fue posible procesar la reserva.');
+        throw new PublicBookingRejectedException(matches[0].email);
       }
       // Informe de alta (T1): un tratamiento cerrado no admite reservas
       // públicas nuevas. Mismo 409 uniforme: el endpoint es anónimo y no debe
@@ -905,7 +910,7 @@ export class PatientsService {
         this.logger.warn(
           `Reserva pública rechazada: tratamiento cerrado bajo therapistId=${therapistId}`,
         );
-        throw new ConflictException('No fue posible procesar la reserva.');
+        throw new PublicBookingRejectedException(matches[0].email);
       }
       return { patient: matches[0], isNew: false };
     }
@@ -917,7 +922,7 @@ export class PatientsService {
       this.logger.warn(
         `Reserva pública ambigua: más de un paciente coincide por email bajo therapistId=${therapistId}`,
       );
-      throw new ConflictException('No fue posible procesar la reserva.');
+      throw new PublicBookingRejectedException(normalizedEmail);
     }
 
     // Issue #289: el DTO público valida solo la forma del RUT para que un
@@ -935,13 +940,14 @@ export class PatientsService {
     const rut = normalizeRut(dto.rut);
     const existingRut = await client.patient.findFirst({
       where: { therapistId, rut, deletedAt: null },
-      select: { id: true },
+      select: { id: true, email: true },
     });
     // Colisión de RUT con una ficha de ESTE terapeuta (no matcheó por email
-    // arriba, p. ej. email distinto o ficha activa): 409 uniforme. Las fichas dadas de baja no cuentan (#285). Un
-    // RUT registrado con otro terapeuta ya no colisiona (issue #314).
+    // arriba, p. ej. email distinto o ficha activa): rechazo uniforme (issue
+    // #502). Las fichas dadas de baja no cuentan (#285). Un RUT registrado con
+    // otro terapeuta ya no colisiona (issue #314).
     if (existingRut) {
-      throw new ConflictException('No fue posible procesar la reserva.');
+      throw new PublicBookingRejectedException(existingRut.email);
     }
 
     // issue #199: el findUnique de arriba y este create no son atómicos, así
@@ -977,7 +983,7 @@ export class PatientsService {
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002'
       ) {
-        throw new ConflictException('No fue posible procesar la reserva.');
+        throw new PublicBookingRejectedException();
       }
       throw err;
     }
@@ -1032,14 +1038,14 @@ export class PatientsService {
         this.logger.warn(
           `Reserva pública de menor rechazada: identidad no verificada bajo therapistId=${therapistId}`,
         );
-        throw new ConflictException('No fue posible procesar la reserva.');
+        throw new PublicBookingRejectedException(existing.email);
       }
       // Informe de alta (T1): mismo bloqueo que en el flujo de adultos.
       if (existing.treatmentStatus !== TreatmentStatus.ACTIVE) {
         this.logger.warn(
           `Reserva pública de menor rechazada: tratamiento cerrado bajo therapistId=${therapistId}`,
         );
-        throw new ConflictException('No fue posible procesar la reserva.');
+        throw new PublicBookingRejectedException(existing.email);
       }
       return { patient: existing, isNew: false };
     }
@@ -1068,7 +1074,7 @@ export class PatientsService {
         this.logger.warn(
           `Reserva pública de menor rechazada: email ya registrado bajo therapistId=${therapistId}`,
         );
-        throw new ConflictException('No fue posible procesar la reserva.');
+        throw new PublicBookingRejectedException(email);
       }
     }
 
@@ -1116,7 +1122,7 @@ export class PatientsService {
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002'
       ) {
-        throw new ConflictException('No fue posible procesar la reserva.');
+        throw new PublicBookingRejectedException();
       }
       throw err;
     }

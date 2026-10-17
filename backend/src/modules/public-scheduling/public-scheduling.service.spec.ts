@@ -13,6 +13,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../availability/availability.service';
 import { PatientsService } from '../patients/patients.service';
 import { ConsultationsService } from '../consultations/consultations.service';
+import { MailService } from '../mail/mail.service';
+import { PublicBookingRejectedException } from '../patients/public-booking-rejected.exception';
 import {
   NotificationsService,
   CreateNotificationData,
@@ -43,6 +45,7 @@ describe('PublicSchedulingService', () => {
   let notificationsService: {
     create: jest.Mock<Promise<unknown>, [CreateNotificationData]>;
   };
+  let mailService: { sendPublicBookingAttemptNoticeEmail: jest.Mock };
   // Por defecto actúa como identidad (la referencia ya es el id); los tests de
   // slug lo reconfiguran.
   let resolver: { resolveId: jest.Mock };
@@ -68,6 +71,7 @@ describe('PublicSchedulingService', () => {
       consultationsService as unknown as ConsultationsService,
       notificationsService as unknown as NotificationsService,
       resolver as unknown as PublicTherapistResolverService,
+      mailService as unknown as MailService,
     );
   }
 
@@ -91,6 +95,11 @@ describe('PublicSchedulingService', () => {
       create: jest
         .fn<Promise<unknown>, [CreateNotificationData]>()
         .mockResolvedValue({}),
+    };
+    mailService = {
+      sendPublicBookingAttemptNoticeEmail: jest
+        .fn()
+        .mockResolvedValue(undefined),
     };
     resolver = {
       resolveId: jest.fn((ref: string) => Promise.resolve<string | null>(ref)),
@@ -527,6 +536,131 @@ describe('PublicSchedulingService', () => {
         consultationsService.createFromPublicBooking,
       ).not.toHaveBeenCalled();
       expect(notificationsService.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // Issue #502: el endpoint es anónimo; un 409 para "ya es paciente" contra un
+  // 201 para "no lo es" permitía averiguar quién se atiende con un terapeuta.
+  // La colisión de identidad responde igual que una reserva nueva, sin crear
+  // nada, y avisa al titular de la ficha por correo.
+  describe('colisión de identidad: respuesta uniforme (issue #502)', () => {
+    const dto = {
+      slotStart: '2026-09-05T13:00:00.000Z',
+      patient: {
+        fullName: 'Paciente Público',
+        rut: '11.111.111-1',
+        birthDate: '1990-01-01',
+        email: 'paciente@ejemplo.cl',
+      },
+    } as never;
+    const UUID_V4 =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+    function setUpCollision(notifyEmail: string | null): void {
+      prisma.user.findUnique.mockResolvedValue({ sessionDurationMinutes: 50 });
+      availabilityService.computeSlots.mockResolvedValue([
+        { start: '2026-09-05T13:00:00.000Z', end: '2026-09-05T13:50:00.000Z' },
+      ]);
+      patientsService.resolveForPublicBooking.mockRejectedValue(
+        new PublicBookingRejectedException(notifyEmail),
+      );
+    }
+
+    it('responde con la misma forma que una reserva nueva, sin crear consulta ni efectos', async () => {
+      setUpCollision('paciente@ejemplo.cl');
+
+      const result = (await service.book('therapist-1', dto)) as {
+        id: string;
+        groupId: string;
+        sessionDate: Date;
+      };
+
+      expect(Object.keys(result).sort()).toEqual([
+        'groupId',
+        'id',
+        'sessionDate',
+      ]);
+      expect(result.id).toMatch(UUID_V4);
+      expect(result.groupId).toBe(result.id);
+      expect(result.sessionDate).toEqual(new Date('2026-09-05T13:00:00.000Z'));
+      expect(
+        consultationsService.createFromPublicBooking,
+      ).not.toHaveBeenCalled();
+      expect(
+        consultationsService.afterPublicBookingCommit,
+      ).not.toHaveBeenCalled();
+      expect(notificationsService.create).not.toHaveBeenCalled();
+    });
+
+    it('cada colisión inventa ids distintos (no reusa ni filtra ninguno real)', async () => {
+      setUpCollision(null);
+
+      const first = (await service.book('therapist-1', dto)) as { id: string };
+      const second = (await service.book('therapist-1', dto)) as {
+        id: string;
+      };
+
+      expect(first.id).not.toBe(second.id);
+    });
+
+    it('con el checkout inline prendido, la respuesta trae NOT_APPLICABLE como un paciente nuevo', async () => {
+      service = buildService(true, true);
+      setUpCollision(null);
+
+      const result = await service.book('therapist-1', dto);
+
+      expect(result).toMatchObject({ checkout: { status: 'NOT_APPLICABLE' } });
+      expect(prisma.paymentAccount.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('avisa por correo al email de la ficha encontrada', async () => {
+      setUpCollision('paciente@ejemplo.cl');
+
+      await service.book('therapist-1', dto);
+      await Promise.resolve();
+
+      expect(
+        mailService.sendPublicBookingAttemptNoticeEmail,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        mailService.sendPublicBookingAttemptNoticeEmail,
+      ).toHaveBeenCalledWith('paciente@ejemplo.cl');
+    });
+
+    it('sin email guardado no envía ningún correo', async () => {
+      setUpCollision(null);
+
+      await service.book('therapist-1', dto);
+      await Promise.resolve();
+
+      expect(
+        mailService.sendPublicBookingAttemptNoticeEmail,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('un fallo del aviso no cambia la respuesta ni la hace fallar', async () => {
+      setUpCollision('paciente@ejemplo.cl');
+      mailService.sendPublicBookingAttemptNoticeEmail.mockRejectedValue(
+        new Error('resend caído'),
+      );
+
+      await expect(service.book('therapist-1', dto)).resolves.toMatchObject({
+        sessionDate: new Date('2026-09-05T13:00:00.000Z'),
+      });
+    });
+
+    it('un 409 común (p. ej. RUT con DV inválido) sigue propagándose y no manda correo', async () => {
+      setUpCollision(null);
+      patientsService.resolveForPublicBooking.mockRejectedValue(
+        new ConflictException('No fue posible procesar la reserva.'),
+      );
+
+      await expect(service.book('therapist-1', dto)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(
+        mailService.sendPublicBookingAttemptNoticeEmail,
+      ).not.toHaveBeenCalled();
     });
   });
 

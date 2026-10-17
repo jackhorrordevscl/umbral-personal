@@ -444,3 +444,46 @@ describe('MailService: destinatario representante legal (menores)', () => {
     expect(payload.html).not.toContain('<b>x</b>');
   });
 });
+
+// Issue #502: aviso al titular cuando una reserva pública colisiona con su
+// ficha. No debe nombrar al terapeuta ni dar pistas de qué dato falló.
+describe('MailService.sendPublicBookingAttemptNoticeEmail', () => {
+  beforeEach(() => {
+    sendMock.mockReset();
+  });
+
+  it('envía el aviso al destinatario sin nombrar al terapeuta ni la especialidad', async () => {
+    sendMock.mockResolvedValue({ data: { id: 'email-1' }, error: null });
+    const service = new MailService(
+      buildConfig({ RESEND_API_KEY: 'test-key' }),
+    );
+
+    await service.sendPublicBookingAttemptNoticeEmail('paciente@example.com');
+
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    const payload = sendMock.mock.calls[0][0];
+    expect(payload.to).toBe('paciente@example.com');
+    expect(payload.subject).toContain('reserva');
+    expect(payload.html).not.toMatch(/terapeuta|psic|paciente/i);
+  });
+
+  it('no lanza ni intenta enviar si RESEND_API_KEY no está configurada', async () => {
+    const service = new MailService(buildConfig({}));
+
+    await expect(
+      service.sendPublicBookingAttemptNoticeEmail('paciente@example.com'),
+    ).resolves.toBeUndefined();
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('no lanza si el proveedor responde con error', async () => {
+    sendMock.mockResolvedValue({ data: null, error: { message: 'boom' } });
+    const service = new MailService(
+      buildConfig({ RESEND_API_KEY: 'test-key' }),
+    );
+
+    await expect(
+      service.sendPublicBookingAttemptNoticeEmail('paciente@example.com'),
+    ).resolves.toBeUndefined();
+  });
+});
