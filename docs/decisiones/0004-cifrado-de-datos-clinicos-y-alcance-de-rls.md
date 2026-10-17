@@ -122,6 +122,13 @@ Se adopta la alternativa **B**, con esta secuencia:
   guardado antes del despliegue sigue en claro hasta ejecutar el recifrado. Los
   respaldos además salen cifrados (`backup.yml`, AES-256).
 - El cifrado en reposo del disco de Supabase no está verificado.
+- Límite del AAD: el formato `enc:v3` liga el texto al dataset y a la clave, no a
+  la fila ni al campo. Quien tenga escritura directa en la base puede mover un
+  texto cifrado a otro paciente o campo y se descifra sin error. El cifrado
+  protege la confidencialidad ante una filtración, no la integridad ante
+  escritura directa en la base. Seguimiento en el issue #486 (formato `enc:v4`).
+- Un texto heredado en claro que empiece con `enc:v1:`, `enc:v2:` o `enc:v3:` se
+  trata como cifrado y falla al descifrar. Riesgo bajo; también en el issue #486.
 - Material público: el cifrado a nivel de aplicación de los textos clínicos se
   puede afirmar solo cuando el despliegue con la clave esté en producción y los
   datos existentes estén recifrados. No afirmar aislamiento por RLS ni "a nivel
