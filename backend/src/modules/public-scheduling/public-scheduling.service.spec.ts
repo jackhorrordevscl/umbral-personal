@@ -649,7 +649,7 @@ describe('PublicSchedulingService', () => {
       });
     });
 
-    it('un 409 común (p. ej. RUT con DV inválido) sigue propagándose y no manda correo', async () => {
+    it('un 409 común (p. ej. DV inválido del representante, decidido antes de leer datos guardados) sigue propagándose y no manda correo', async () => {
       setUpCollision(null);
       patientsService.resolveForPublicBooking.mockRejectedValue(
         new ConflictException('No fue posible procesar la reserva.'),

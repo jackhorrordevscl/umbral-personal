@@ -834,8 +834,10 @@ export class PatientsService {
   // hacia afuera cuál ocurrió. Issue #502: PublicSchedulingService la
   // convierte en una respuesta de éxito idéntica a la de un paciente nuevo
   // (un 409 solo para quien ya es paciente delataba quién se atiende con el
-  // terapeuta); los 409 que dependen únicamente del request (RUT con DV
-  // inválido) siguen siendo un ConflictException común.
+  // terapeuta). Solo los rechazos que se deciden con el request, antes de
+  // leer cualquier dato guardado (DV del RUT del representante), siguen siendo
+  // un ConflictException común; el DV inválido del paciente se decide después
+  // del match por email, así que también es un rechazo uniforme.
   //
   // issue #139: devuelve { patient, isNew } (no solo Patient) para que el
   // caller (PublicSchedulingService.book()) pueda notificar al terapeuta
@@ -928,13 +930,16 @@ export class PatientsService {
     // Issue #289: el DTO público valida solo la forma del RUT para que un
     // paciente existente con un DV inválido guardado pueda autoagendarse (el
     // match de arriba compara por RUT normalizado). El DV se exige solo al crear
-    // una ficha nueva. Mismo 409 uniforme que el resto del flujo: un 400 propio
-    // acá permitiría distinguir si un email está registrado (endpoint anónimo).
+    // una ficha nueva. Mismo rechazo uniforme que el resto del flujo: un 400 o
+    // un 409 propio acá permitiría distinguir si un email está registrado
+    // (endpoint anónimo): con el DV inválido, un email registrado ya salió
+    // arriba como colisión (issue #502). El frontend valida el DV, así que solo
+    // un cliente que no es la UI llega acá.
     if (!isValidRut(dto.rut)) {
       this.logger.warn(
         `Reserva pública rechazada: RUT con dígito verificador inválido bajo therapistId=${therapistId}`,
       );
-      throw new ConflictException('No fue posible procesar la reserva.');
+      throw new PublicBookingRejectedException();
     }
 
     const rut = normalizeRut(dto.rut);
@@ -1054,7 +1059,7 @@ export class PatientsService {
       this.logger.warn(
         `Reserva pública de menor rechazada: RUT con dígito verificador inválido bajo therapistId=${therapistId}`,
       );
-      throw new ConflictException('No fue posible procesar la reserva.');
+      throw new PublicBookingRejectedException();
     }
 
     const email = dto.email?.trim().toLowerCase() || null;

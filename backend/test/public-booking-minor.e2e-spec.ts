@@ -5,6 +5,7 @@ import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { uniqueTestRut } from './support/unique-rut';
+import { computeRutCheckDigit } from '../src/common/utils/rut.util';
 import {
   chileDayKeyFromInstant,
   chileWallTimeToInstant,
@@ -366,6 +367,49 @@ describe('Public booking for a minor (e2e)', () => {
     await expectUniformCollisionResponse(
       response.body as { id: string; groupId: string; sessionDate: string },
     );
+  });
+
+  // Probe found by the independent verifier of PR #503: an invalid check digit
+  // must not turn "registered email" into a different answer than "unknown
+  // email" (201 vs 409 would be the membership oracle again).
+  it('an invalid check digit answers the same for a registered and an unknown email', async () => {
+    const registeredEmail = `dv.registrado.${runId}@ejemplo.cl`;
+    await prisma.patient.create({
+      data: {
+        fullName: 'Paciente Registrado DV',
+        rut: uniqueTestRut(),
+        birthDate: new Date(birthDateYearsAgo(30)),
+        email: registeredEmail,
+        therapistId,
+      },
+    });
+    const rutBody = uniqueTestRut().split('-')[0];
+    const invalidDvRut = `${rutBody}-${computeRutCheckDigit(rutBody) === '0' ? '1' : '0'}`;
+    const attempt = (email: string) =>
+      book({
+        slotStart: thirdSlot.toISOString(),
+        patient: {
+          fullName: 'Probe DV',
+          rut: invalidDvRut,
+          birthDate: birthDateYearsAgo(30),
+          email,
+        },
+      });
+
+    const registered = await attempt(registeredEmail).expect(201);
+    const unknown = await attempt(`dv.desconocido.${runId}@ejemplo.cl`).expect(
+      201,
+    );
+
+    for (const response of [registered, unknown]) {
+      await expectUniformCollisionResponse(
+        response.body as { id: string; groupId: string; sessionDate: string },
+      );
+    }
+    const created = await prisma.patient.findFirst({
+      where: { therapistId, fullName: 'Probe DV' },
+    });
+    expect(created).toBeNull();
   });
 
   it('an adult without email is rejected with 400', async () => {
