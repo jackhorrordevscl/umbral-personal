@@ -2,7 +2,7 @@ import * as argon2 from 'argon2';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildClinicalPort } from './clinical-text.port';
 import { buildKeyring } from './keyring';
-import { runReencrypt } from './reencrypt';
+import { DatasetPort, runReencrypt } from './reencrypt';
 
 // ADR 0004 + ADR 0005: el recifrado manual cubre las columnas de texto clínico
 // y los textos dentro de los snapshots de ConsultationHistory.
@@ -106,12 +106,23 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
     await prisma.$disconnect();
   });
 
+  const scoped = (port: DatasetPort): DatasetPort => ({
+    ...port,
+    async *list() {
+      const mine = [consultationId, historyId, dischargeId];
+      for await (const row of port.list()) {
+        if (mine.some((id) => row.id.includes(id))) yield row;
+      }
+    },
+  });
+
   it('dry-run no escribe; apply recifra columnas y snapshots; la segunda corrida no encuentra nada', async () => {
-    const port = () => buildClinicalPort(prisma, keyring);
+    // Otros tests comparten la base: el puerto se acota a las filas de este
+    // test para no recifrar (con otra clave) datos ajenos.
+    const port = () => scoped(buildClinicalPort(prisma, keyring));
 
     const dry = await runReencrypt([port()], { apply: false });
-    // Solo cuento las filas lógicas de este test: la base puede tener más.
-    expect(dry.datasets[0].wouldReencrypt).toBeGreaterThanOrEqual(9);
+    expect(dry.datasets[0].wouldReencrypt).toBe(9);
     const untouched = await prisma.consultation.findUniqueOrThrow({
       where: { id: consultationId },
     });
@@ -119,7 +130,7 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
 
     const applied = await runReencrypt([port()], { apply: true });
     expect(applied.datasets[0].failed).toBe(0);
-    expect(applied.datasets[0].reencrypted).toBeGreaterThanOrEqual(9);
+    expect(applied.datasets[0].reencrypted).toBe(9);
 
     const consultation = await prisma.consultation.findUniqueOrThrow({
       where: { id: consultationId },
@@ -154,10 +165,16 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
       'plan',
     );
 
-    const again = await runReencrypt([port()], { apply: true });
-    expect(again.datasets[0].reencrypted).toBe(0);
-    expect(again.datasets[0].wouldReencrypt).toBe(0);
+    const lines: string[] = [];
+    const again = await runReencrypt([port()], {
+      apply: true,
+      log: (line) => lines.push(line),
+    });
     expect(again.datasets[0].failed).toBe(0);
+    expect(again.datasets[0].scanned).toBe(9);
+    expect(again.datasets[0].upToDate).toBe(9);
+    expect(again.datasets[0].reencrypted).toBe(0);
+    expect(lines).toEqual([]);
   }, 30000);
 
   it('writeIfUnchanged rechaza la escritura si el valor cambió en paralelo (columna y snapshot)', async () => {
