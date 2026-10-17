@@ -212,7 +212,7 @@ jobs:
       JWT_SECRET: ci-only-jwt-secret-never-used-outside-github-actions
       JWT_EXPIRES_IN: 8h
       MFA_APP_NAME: Umbral - RCE (CI)
-      # The four *_ENCRYPTION_KEY variables are generated per run in the next
+      # The five *_ENCRYPTION_KEY variables are generated per run in the next
       # step (no literal keys in the repo).
       SEED_ADMIN_EMAIL: admin@umbral.cl
       SEED_ADMIN_PASSWORD: Umbral2024!
@@ -253,7 +253,7 @@ jobs:
           echo "E2E_TEST_MFA_SECRET=$MFA_SECRET" >> "$GITHUB_ENV"
           # Each key must decode to 32 bytes (base64). Generated per run so
           # the workflow carries no literal encryption keys.
-          for NAME in DOCUMENT GOOGLE_TOKEN PAYMENT_CREDENTIALS MFA_SECRET; do
+          for NAME in DOCUMENT GOOGLE_TOKEN PAYMENT_CREDENTIALS MFA_SECRET CLINICAL_TEXT; do
             KEY="$(openssl rand -base64 32)"
             echo "::add-mask::$KEY"
             echo "${NAME}_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
