@@ -998,7 +998,7 @@ DELETE /api/v1/patients/:id                    🔒
 POST   /api/v1/patients/:id/consents           🔒
 GET    /api/v1/patients/:id/consents/status    🔒
 GET    /api/v1/patients/:id/consents           🔒
-POST   /api/v1/patients/consents/bulk-declare  🔒 (declaración retroactiva en bloque, issue #131)
+POST   /api/v1/patients/consents/bulk-declare  🔒 (declaración retroactiva en bloque, issue #131; no revierte revocaciones ni repite ids)
 GET    /api/v1/patients/:patientId/guardians                🔒 (representantes legales, máx. 2)
 POST   /api/v1/patients/:patientId/guardians                🔒
 PATCH  /api/v1/patients/:patientId/guardians/:guardianId    🔒

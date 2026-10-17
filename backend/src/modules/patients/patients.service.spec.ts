@@ -1036,6 +1036,83 @@ describe('PatientsService', () => {
       ]);
     });
 
+    it('bulkDeclareConsent no revierte una revocación: el paciente que revocó queda fuera del lote con la razón', async () => {
+      prisma.patient.findFirst
+        .mockResolvedValueOnce(buildPatient())
+        .mockResolvedValueOnce(buildPatient({ id: 'patient-2' }));
+      prisma.patientConsent.findMany
+        .mockResolvedValueOnce([
+          {
+            patientId: 'patient-1',
+            purpose: 'TREATMENT',
+            action: 'REVOKE',
+            grantedBy: 'PATIENT',
+          },
+        ])
+        .mockResolvedValueOnce([]);
+      prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+
+      const results = await service.bulkDeclareConsent(
+        {
+          patientIds: ['patient-1', 'patient-2'],
+          purpose: 'TREATMENT',
+          evidence: 'Consentimiento en papel del expediente físico previo',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.patientConsent.create).toHaveBeenCalledTimes(1);
+      expect(results).toEqual([
+        {
+          patientId: 'patient-1',
+          ok: false,
+          error: expect.stringContaining('revocó') as unknown,
+        },
+        { patientId: 'patient-2', ok: true },
+      ]);
+    });
+
+    it('bulkDeclareConsent no agrega otro GRANT si el consentimiento ya está vigente', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patientConsent.findMany.mockResolvedValue([
+        {
+          patientId: 'patient-1',
+          purpose: 'TREATMENT',
+          action: 'GRANT',
+          grantedBy: 'PATIENT',
+        },
+      ]);
+
+      const results = await service.bulkDeclareConsent(
+        {
+          patientIds: ['patient-1'],
+          purpose: 'TREATMENT',
+          evidence: 'Consentimiento en papel del expediente físico previo',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.patientConsent.create).not.toHaveBeenCalled();
+      expect(results).toEqual([{ patientId: 'patient-1', ok: true }]);
+    });
+
+    it('bulkDeclareConsent procesa una sola vez los ids repetidos del lote', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+
+      const results = await service.bulkDeclareConsent(
+        {
+          patientIds: ['patient-1', 'patient-1'],
+          purpose: 'TREATMENT',
+          evidence: 'Consentimiento en papel del expediente físico previo',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.patientConsent.create).toHaveBeenCalledTimes(1);
+      expect(results).toEqual([{ patientId: 'patient-1', ok: true }]);
+    });
+
     it('bulkDeclareConsent no aborta el lote si un paciente no pertenece al terapeuta', async () => {
       prisma.patient.findFirst
         .mockResolvedValueOnce(buildPatient())
