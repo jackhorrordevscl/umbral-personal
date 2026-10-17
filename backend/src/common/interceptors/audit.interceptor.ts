@@ -73,7 +73,11 @@ export class AuditInterceptor implements NestInterceptor {
     if (skip) return next.handle();
 
     const method = request.method;
-    const url = request.url;
+    // Solo la ruta: el query string puede traer datos personales (ej. el
+    // nombre o RUT de GET /patients?search=) que no deben quedar en el log de
+    // auditoría, y su texto tampoco debe influir en la clasificación del
+    // recurso.
+    const url = request.url.split('?')[0];
     const ipAddress = getRequestClientIp(request);
     const userAgent = request.headers['user-agent'];
 

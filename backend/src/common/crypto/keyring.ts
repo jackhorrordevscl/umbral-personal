@@ -38,6 +38,7 @@ const DATASET_LABELS: Record<string, string> = {
   GOOGLE_TOKEN_ENCRYPTION_KEY: 'google',
   PAYMENT_CREDENTIALS_ENCRYPTION_KEY: 'payment',
   MFA_SECRET_ENCRYPTION_KEY: 'mfa',
+  CLINICAL_TEXT_ENCRYPTION_KEY: 'clinical',
 };
 
 export interface Keyring {

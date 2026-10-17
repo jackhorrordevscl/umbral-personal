@@ -1,3 +1,4 @@
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
@@ -18,6 +19,10 @@ import { AvailabilityService } from '../availability/availability.service';
 import { DocumentsService } from '../documents/documents.service';
 import { DischargesService } from './discharges.service';
 import { DischargeCancellationNotifier } from './discharge-cancellation-notifier.service';
+import {
+  computeDischargeHash,
+  dischargeHashInputFromRow,
+} from './util/discharge-hash.util';
 
 // Fecha futura determinista: `daysAhead` días después de hoy (UTC) a `hourUtc`.
 function futureUtcDay(daysAhead: number, hourUtc: number): Date {
@@ -237,6 +242,7 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
       calendarSync,
       buildPaymentsService(),
       availability,
+      buildTestClinicalCrypto(),
     );
     consultationsService = new ConsultationsService(
       prisma,
@@ -245,6 +251,7 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
       buildPaymentsService(),
       availability,
       auditService,
+      buildTestClinicalCrypto(),
     );
     dischargesService = new DischargesService(
       prisma,
@@ -257,6 +264,8 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
       {} as unknown as DocumentsService,
       // T4b: el aviso por email no se ejercita en las carreras de cierre.
       { notify: jest.fn() } as unknown as DischargeCancellationNotifier,
+
+      buildTestClinicalCrypto(),
     );
     jest
       .spyOn(dischargesService, 'ensurePdf')
@@ -815,5 +824,61 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
       expect(closingResult.value.cancelledConsultations).toBe(1);
     }
     await expectNoLiveFutureState(patient.id, original.groupId);
+  }, 30000);
+
+  // ADR 0004 (opción B): los textos libres del informe se guardan cifrados; el
+  // hash de contenido y la verificación trabajan sobre el texto en claro.
+  it('guarda cifrados los textos del informe, emite y verifica sobre texto plano y re-cifra la corrección', async () => {
+    const patient = await createConsentedPatient('Cifrado Alta');
+    const texts = {
+      consultReason: 'Motivo reservado',
+      diagnosis: 'Diagnóstico reservado',
+      evolutionSummary: 'Evolución reservada',
+      statusAtDischarge: 'Estado reservado',
+      recommendations: 'Recomendaciones reservadas',
+    };
+    const expectEncrypted = async (id: string) => {
+      const raw = await prisma.treatmentDischarge.findUniqueOrThrow({
+        where: { id },
+      });
+      for (const field of Object.keys(texts) as (keyof typeof texts)[]) {
+        expect(raw[field]).toMatch(/^enc:v3:/);
+      }
+      expect(JSON.stringify(raw)).not.toContain('reservad');
+    };
+
+    const draft = await dischargesService.createDraft(
+      patient.id,
+      { closureReason: 'DISCHARGED' } as never,
+      therapistId,
+    );
+    const updated = await dischargesService.update(
+      draft.id,
+      texts as never,
+      therapistId,
+    );
+    expect(updated).toMatchObject(texts);
+    await expectEncrypted(draft.id);
+
+    const issued = await dischargesService.issue(draft.id, therapistId);
+    expect(issued).toMatchObject(texts);
+    expect(issued.contentHash).toBe(
+      computeDischargeHash(dischargeHashInputFromRow(issued)),
+    );
+    await expectEncrypted(draft.id);
+    const verification = await dischargesService.verify(draft.id, therapistId);
+    expect(verification.valid).toBe(true);
+
+    const corrected = await dischargesService.correct(draft.id, therapistId);
+    expect(corrected).toMatchObject(texts);
+    await expectEncrypted(corrected.id);
+    const listed = await dischargesService.findByPatient(
+      patient.id,
+      therapistId,
+    );
+    expect(listed.map((d) => d.consultReason)).toEqual([
+      texts.consultReason,
+      texts.consultReason,
+    ]);
   }, 30000);
 });

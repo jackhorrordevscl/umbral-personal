@@ -78,6 +78,18 @@ const installShExampleMfaKey = extractExample(
 );
 const validMfaKey = Buffer.alloc(32, 17).toString('base64');
 
+// ADR 0004 (opción B): idem para CLINICAL_TEXT_ENCRYPTION_KEY, cuyo valor de
+// ejemplo público (README.md/install.sh) también se rechaza en producción.
+const readmeExampleClinicalKey = extractExample(
+  readmePath,
+  'CLINICAL_TEXT_ENCRYPTION_KEY',
+);
+const installShExampleClinicalKey = extractExample(
+  installShPath,
+  'CLINICAL_TEXT_ENCRYPTION_KEY',
+);
+const validClinicalKey = Buffer.alloc(32, 19).toString('base64');
+
 // Issue #287: variables que en producción son obligatorias además de las
 // claves de cifrado (valores ficticios, sin forma de credencial real).
 const b2Vars = (prefix: string) => ({
@@ -89,6 +101,7 @@ const b2Vars = (prefix: string) => ({
 });
 
 const productionRequiredVars: Record<string, string> = {
+  CLINICAL_TEXT_ENCRYPTION_KEY: validClinicalKey,
   FRONTEND_URL: 'https://umbral.example.com',
   DATABASE_URL: 'postgresql://usuario:clave@db.example.com:5432/umbral',
   RESEND_API_KEY: 'resend-api-key-de-prueba',
@@ -597,6 +610,57 @@ describe('validateEnv', () => {
     expect(validateEnv(config)).toBe(config);
   });
 
+  // ADR 0004 (opción B): CLINICAL_TEXT_ENCRYPTION_KEY cifra los textos
+  // clínicos libres (consultas e informe de alta).
+  const productionWithMfa = {
+    ...productionBase,
+    MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
+  };
+
+  it('rechaza CLINICAL_TEXT_ENCRYPTION_KEY ausente en producción', () => {
+    expect(() => validateEnv({ ...productionWithMfa })).toThrow(
+      /CLINICAL_TEXT_ENCRYPTION_KEY inválida/,
+    );
+  });
+
+  it('rechaza un CLINICAL_TEXT_ENCRYPTION_KEY que no decodifica a 32 bytes en producción', () => {
+    expect(() =>
+      validateEnv({
+        ...productionWithMfa,
+        CLINICAL_TEXT_ENCRYPTION_KEY: Buffer.alloc(16, 19).toString('base64'),
+      }),
+    ).toThrow(/CLINICAL_TEXT_ENCRYPTION_KEY inválida/);
+  });
+
+  it.each([
+    ['README.md', readmeExampleClinicalKey],
+    ['install.sh', installShExampleClinicalKey],
+  ])(
+    'rechaza el valor de ejemplo de %s para CLINICAL_TEXT_ENCRYPTION_KEY en producción',
+    (_file, example) => {
+      expect(() =>
+        validateEnv({
+          ...productionWithMfa,
+          CLINICAL_TEXT_ENCRYPTION_KEY: example,
+        }),
+      ).toThrow(/CLINICAL_TEXT_ENCRYPTION_KEY inválida/);
+    },
+  );
+
+  it('permite un CLINICAL_TEXT_ENCRYPTION_KEY válido en producción', () => {
+    const config = { ...productionWithMfa, ...productionRequiredVars };
+
+    expect(validateEnv(config)).toBe(config);
+  });
+
+  it('valida el llavero opcional de CLINICAL_TEXT_ENCRYPTION_KEY en cualquier entorno', () => {
+    expect(() =>
+      validateEnv({
+        CLINICAL_TEXT_ENCRYPTION_KEY_KEYRING: 'sin-formato-id-base64',
+      }),
+    ).toThrow(/CLINICAL_TEXT_ENCRYPTION_KEY_KEYRING/);
+  });
+
   // Issue #287: variables obligatorias en producción.
   describe('variables obligatorias en producción (issue #287)', () => {
     const validProduction = {
@@ -626,7 +690,10 @@ describe('validateEnv', () => {
 
     it.each(
       Object.keys(productionRequiredVars).filter(
-        (name) => name !== 'FRONTEND_URL' && !name.endsWith('_ENDPOINT'),
+        (name) =>
+          name !== 'FRONTEND_URL' &&
+          name !== 'CLINICAL_TEXT_ENCRYPTION_KEY' &&
+          !name.endsWith('_ENDPOINT'),
       ),
     )('rechaza %s vacía en producción', (varName) => {
       expect(() =>

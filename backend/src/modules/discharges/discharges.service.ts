@@ -16,6 +16,11 @@ import { CalendarSyncService } from '../calendar-integration/calendar-sync.servi
 import { DocumentsService } from '../documents/documents.service';
 import { isMinor } from '../../common/utils/age.util';
 import { DischargeCancellationNotifier } from './discharge-cancellation-notifier.service';
+import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
+import {
+  decryptDischargeRow,
+  encryptDischargeTexts,
+} from './util/discharge-text.util';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 import {
   chileDayKeyFromInstant,
@@ -100,7 +105,15 @@ export class DischargesService {
     private calendarSync: CalendarSyncService,
     private documentsService: DocumentsService,
     private cancellationNotifier: DischargeCancellationNotifier,
+    private clinicalCrypto: ClinicalTextCryptoService,
   ) {}
+
+  // ADR 0004 (opción B): las columnas de texto libre se guardan cifradas. Toda
+  // fila que sale de la base pasa por aquí, así el hash de contenido, el PDF y
+  // la API trabajan siempre sobre el texto en claro.
+  private decryptRow<T extends object>(row: T): T {
+    return decryptDischargeRow(row, this.clinicalCrypto);
+  }
 
   // POST /patients/:patientId/discharges
   async createDraft(
@@ -150,19 +163,20 @@ export class DischargesService {
         await this.prefillFromSessions(tx, patientId, therapistId);
 
       const id = randomUUID();
-      return tx.treatmentDischarge.create({
+      const created = await tx.treatmentDischarge.create({
         data: {
           id,
           groupId: id,
           version: 1,
           patientId,
           therapistId,
-          ...closure,
+          ...encryptDischargeTexts(closure, this.clinicalCrypto),
           admissionDate: toDateOnly(admissionDay),
           dischargeDate: toDateOnly(today),
           sessionCount,
         },
       });
+      return this.decryptRow(created);
     });
   }
 
@@ -262,7 +276,7 @@ export class DischargesService {
     // Condicional a DRAFT: si una emisión concurrente ganó, count = 0 -> 409.
     const result = await this.prisma.treatmentDischarge.updateMany({
       where: { id, therapistId, status: 'DRAFT' },
-      data,
+      data: encryptDischargeTexts(data, this.clinicalCrypto),
     });
     if (result.count === 0) {
       throw new ConflictException(
@@ -297,10 +311,11 @@ export class DischargesService {
       if (!patient) throw new NotFoundException('Paciente no encontrado');
 
       // Releer bajo el lock: el estado pudo cambiar desde la lectura previa.
-      const fresh = await tx.treatmentDischarge.findFirst({
+      const freshRow = await tx.treatmentDischarge.findFirst({
         where: { id, therapistId },
       });
-      if (!fresh) throw new NotFoundException('Informe no encontrado');
+      if (!freshRow) throw new NotFoundException('Informe no encontrado');
+      const fresh = this.decryptRow(freshRow);
       if (fresh.status !== 'DRAFT') {
         throw new ConflictException('El informe ya fue emitido.');
       }
@@ -366,9 +381,9 @@ export class DischargesService {
         throw new ConflictException('El informe ya fue emitido.');
       }
 
-      const row = await tx.treatmentDischarge.findUniqueOrThrow({
-        where: { id },
-      });
+      const row = this.decryptRow(
+        await tx.treatmentDischarge.findUniqueOrThrow({ where: { id } }),
+      );
       const cancelledGroupIds = await this.applyClosureInTransaction(
         tx,
         row,
@@ -540,7 +555,7 @@ export class DischargesService {
             therapistId,
             source: 'UPLOADED',
             status: 'ISSUED',
-            ...closure,
+            ...encryptDischargeTexts(closure, this.clinicalCrypto),
             admissionDate,
             dischargeDate,
             sessionCount,
@@ -556,7 +571,7 @@ export class DischargesService {
           row,
           patient.treatmentStatus,
         );
-        return { row, cancelledGroupIds };
+        return { row: this.decryptRow(row), cancelledGroupIds };
       });
     } catch (err) {
       await this.discardSurplusDocument(stored.id);
@@ -669,7 +684,7 @@ export class DischargesService {
             therapistId,
             source: 'UPLOADED',
             status: 'ISSUED',
-            ...closure,
+            ...encryptDischargeTexts(closure, this.clinicalCrypto),
             admissionDate: fresh.admissionDate,
             dischargeDate,
             sessionCount: fresh.sessionCount,
@@ -686,7 +701,7 @@ export class DischargesService {
           patient.treatmentStatus,
         );
         return {
-          row,
+          row: this.decryptRow(row),
           cancelledGroupIds,
           // Con el paciente reabierto la corrección es solo un registro.
           closureApplied: patient.treatmentStatus !== 'ACTIVE',
@@ -1101,16 +1116,22 @@ export class DischargesService {
           status: 'DRAFT',
           closureReason: original.closureReason,
           dropoutReason: original.dropoutReason,
-          dropoutNote: original.dropoutNote,
-          referralDestination: original.referralDestination,
           admissionDate: original.admissionDate,
           dischargeDate: original.dischargeDate,
           sessionCount: original.sessionCount,
-          consultReason: original.consultReason,
-          diagnosis: original.diagnosis,
-          evolutionSummary: original.evolutionSummary,
-          statusAtDischarge: original.statusAtDischarge,
-          recommendations: original.recommendations,
+          // `original` viene en claro (findOwned): la copia se vuelve a cifrar.
+          ...encryptDischargeTexts(
+            {
+              dropoutNote: original.dropoutNote,
+              referralDestination: original.referralDestination,
+              consultReason: original.consultReason,
+              diagnosis: original.diagnosis,
+              evolutionSummary: original.evolutionSummary,
+              statusAtDischarge: original.statusAtDischarge,
+              recommendations: original.recommendations,
+            },
+            this.clinicalCrypto,
+          ),
         },
       });
     } catch (err) {
@@ -1137,7 +1158,7 @@ export class DischargesService {
       userAgent: ctx.userAgent,
     });
 
-    return created;
+    return this.decryptRow(created);
   }
 
   // GET /discharges/:id
@@ -1151,10 +1172,11 @@ export class DischargesService {
     therapistId: string,
   ): Promise<TreatmentDischarge[]> {
     await this.patientsService.assertAccess(patientId, therapistId);
-    return this.prisma.treatmentDischarge.findMany({
+    const rows = await this.prisma.treatmentDischarge.findMany({
       where: { patientId, therapistId },
       orderBy: [{ createdAt: 'asc' }, { version: 'asc' }],
     });
+    return rows.map((row) => this.decryptRow(row));
   }
 
   // GET /patients/:patientId/discharges/cancellation-preview: consultas futuras
@@ -1185,11 +1207,13 @@ export class DischargesService {
     id: string,
     therapistId: string,
   ): Promise<DischargeVerification> {
-    const row = await this.prisma.treatmentDischarge.findFirst({
+    const found = await this.prisma.treatmentDischarge.findFirst({
       where: { id, therapistId, patient: { deletedAt: null } },
       include: { correctedBy: { select: { id: true } } },
     });
-    if (!row) throw new NotFoundException('Informe no encontrado');
+    if (!found) throw new NotFoundException('Informe no encontrado');
+    // El hash se calculó al emitir sobre el texto en claro.
+    const row = this.decryptRow(found);
     if (row.status !== 'ISSUED' || !row.issuedAt) {
       throw new ConflictException(
         'El informe aún no está emitido: no hay hash que verificar.',
@@ -1284,7 +1308,7 @@ export class DischargesService {
       where: { id, therapistId, patient: { deletedAt: null } },
     });
     if (!row) throw new NotFoundException('Informe no encontrado');
-    return row;
+    return this.decryptRow(row);
   }
 
   private assertDates(row: { admissionDate: Date; dischargeDate: Date }): void {

@@ -1,3 +1,4 @@
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { TreatmentDischarge } from '@prisma/client';
@@ -114,6 +115,8 @@ describe('DischargesService PDF (T3)', () => {
       {} as unknown as CalendarSyncService,
       documents as unknown as DocumentsService,
       { notify: jest.fn() } as unknown as DischargeCancellationNotifier,
+
+      buildTestClinicalCrypto(),
     );
   });
 
@@ -180,7 +183,7 @@ describe('DischargesService PDF (T3)', () => {
         data: { documentId: 'doc-1', pdfSha256: expectedSha },
       });
       expect(documents.discardGeneratedDocument).not.toHaveBeenCalled();
-      expect(result).toBe(winner);
+      expect(result).toEqual(winner);
     });
 
     it('es la única mutación sobre una fila ISSUED: no toca contentHash ni el contenido', async () => {
@@ -196,13 +199,38 @@ describe('DischargesService PDF (T3)', () => {
       ]);
     });
 
+    it('descifra los textos antes de armar el PDF (ADR 0004)', async () => {
+      const crypto = buildTestClinicalCrypto();
+      prisma.treatmentDischarge.findFirst
+        .mockResolvedValueOnce(
+          issuedRow({
+            consultReason: crypto.encrypt('Motivo reservado'),
+            evolutionSummary: crypto.encrypt('Evolución reservada'),
+            statusAtDischarge: crypto.encrypt('Estado reservado'),
+            recommendations: crypto.encrypt('Recomendaciones reservadas'),
+            contentHash: 'x',
+          }),
+        )
+        .mockResolvedValueOnce(issuedRow({ documentId: 'doc-1' }));
+
+      await service.ensurePdf('dis-1', 'therapist-1');
+
+      const arg = buildPdfSpy.mock.calls[0][0];
+      expect(arg.discharge).toMatchObject({
+        consultReason: 'Motivo reservado',
+        evolutionSummary: 'Evolución reservada',
+        statusAtDischarge: 'Estado reservado',
+        recommendations: 'Recomendaciones reservadas',
+      });
+    });
+
     it('es idempotente: si ya hay documentId no genera ni escribe', async () => {
       const row = issuedRow({ documentId: 'doc-existente', pdfSha256: 'abc' });
       prisma.treatmentDischarge.findFirst.mockResolvedValue(row);
 
       const result = await service.ensurePdf('dis-1', 'therapist-1');
 
-      expect(result).toBe(row);
+      expect(result).toEqual(row);
       expect(buildPdfSpy).not.toHaveBeenCalled();
       expect(documents.storeGeneratedDocument).not.toHaveBeenCalled();
       expect(prisma.treatmentDischarge.updateMany).not.toHaveBeenCalled();
@@ -211,7 +239,7 @@ describe('DischargesService PDF (T3)', () => {
     it('un informe UPLOADED (T3b) no se genera: trae su propio PDF', async () => {
       const row = issuedRow({ source: 'UPLOADED' });
       prisma.treatmentDischarge.findFirst.mockResolvedValue(row);
-      expect(await service.ensurePdf('dis-1', 'therapist-1')).toBe(row);
+      expect(await service.ensurePdf('dis-1', 'therapist-1')).toEqual(row);
       expect(buildPdfSpy).not.toHaveBeenCalled();
     });
 

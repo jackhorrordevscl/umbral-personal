@@ -11,6 +11,7 @@ import { buildAppThrottlerOptions } from './config/throttler.config';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
+import { ClinicalTextCryptoModule } from './common/crypto/clinical-text-crypto.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { PatientsModule } from './modules/patients/patients.module';
 import { ConsultationsModule } from './modules/consultations/consultations.module';
@@ -52,6 +53,8 @@ import { HealthController } from './health/health.controller';
       useFactory: buildAppThrottlerOptions,
     }),
     PrismaModule,
+    // ADR 0004 (opción B): valida CLINICAL_TEXT_ENCRYPTION_KEY al arrancar.
+    ClinicalTextCryptoModule,
     AuditModule,
     AuthModule,
     ProfileModule,

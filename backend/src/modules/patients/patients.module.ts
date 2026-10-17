@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ClinicalTextCryptoModule } from '../../common/crypto/clinical-text-crypto.module';
 import { PatientsService } from './patients.service';
 import { PatientsController } from './patients.controller';
 import { GuardiansService } from './guardians.service';
@@ -24,7 +25,12 @@ import { AvailabilityModule } from '../availability/availability.module';
 // issue #285: AvailabilityModule para invalidar el cache de slots tras liberar
 // los BookedSlot en softDelete() -- sin ciclo, no importa nada.
 @Module({
-  imports: [CalendarIntegrationModule, PaymentsModule, AvailabilityModule],
+  imports: [
+    ClinicalTextCryptoModule,
+    CalendarIntegrationModule,
+    PaymentsModule,
+    AvailabilityModule,
+  ],
   controllers: [PatientsController, GuardiansController, AssentsController],
   providers: [PatientsService, GuardiansService, AssentsService],
   exports: [PatientsService],

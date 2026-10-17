@@ -15,6 +15,7 @@ propia clave (ver `backend/src/common/crypto/aes-gcm.ts`):
 | Tokens de Google | `GOOGLE_TOKEN_ENCRYPTION_KEY` | `refreshTokenEncrypted` (bytes) |
 | Credenciales de pago | `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | `credentialEncrypted` (bytes) |
 | Secreto MFA | `MFA_SECRET_ENCRYPTION_KEY` | `User.mfaSecret` (texto `enc:v1:<base64>`) |
+| Textos clínicos (agregado después, ADR 0004) | `CLINICAL_TEXT_ENCRYPTION_KEY` | Columnas de texto de `Consultation` y `TreatmentDischarge` y textos de `ConsultationHistory.snapshot` (texto `enc:v3:<keyId>:<base64>` desde el primer día) |
 
 Problemas actuales:
 
@@ -75,6 +76,7 @@ derivan del nombre de la variable, para que renombrarla no invalide datos):
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | `google` |
 | `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | `payment` |
 | `MFA_SECRET_ENCRYPTION_KEY` | `mfa` |
+| `CLINICAL_TEXT_ENCRYPTION_KEY` | `clinical` |
 
 Efecto: una cabecera alterada (por ejemplo cambiar el `keyId`) o un payload
 movido a otro dataset falla la autenticación de GCM aunque ambos usen la misma

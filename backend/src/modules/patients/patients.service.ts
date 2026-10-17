@@ -34,6 +34,8 @@ import { toJsonSnapshot } from '../../common/utils/json-clone.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { DEFAULT_PATIENTS_PAGE_SIZE } from './dto/patients-query.dto';
 import { isValidRut, normalizeRut } from '../../common/utils/rut.util';
+import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
+import { decryptConsultationRow } from '../consultations/util/consultation-text.util';
 
 // issue #157: origen de adquisición capturado en el frontend (referrer +
 // utm_source) y pasado por PublicSchedulingService.book() ->
@@ -177,6 +179,7 @@ export class PatientsService {
     private calendarSync: CalendarSyncService,
     private paymentsService: PaymentsService,
     private availabilityService: AvailabilityService,
+    private clinicalCrypto: ClinicalTextCryptoService,
   ) {}
 
   // Issue #176: no exige consentimiento vigente a propósito. La Ley 20.584
@@ -405,6 +408,10 @@ export class PatientsService {
       buildConsentStatusMap([id], latestEvents).get(id) ?? emptyConsentStatus();
     return {
       ...patient,
+      // ADR 0004 (opción B): los textos clínicos salen en claro.
+      consultations: patient.consultations.map((c) =>
+        decryptConsultationRow(c, this.clinicalCrypto),
+      ),
       consents,
       ...minorFields(patient.birthDate, patient.guardians, latestEvents),
     };
@@ -579,6 +586,18 @@ export class PatientsService {
     documentId?: string,
   ) {
     const patient = await this.assertAccess(id, userId);
+    return this.writeConsent(patient, dto, userId, documentId);
+  }
+
+  // Escribe el evento de consentimiento de un paciente cuyo acceso ya se
+  // verificó; lo comparten recordConsent y bulkDeclareConsent.
+  private async writeConsent(
+    patient: { id: string; birthDate: Date },
+    dto: RecordConsentDto,
+    userId: string,
+    documentId?: string,
+  ) {
+    const id = patient.id;
     const { grantedBy, guardianId } = await this.resolveConsentGrantor(
       patient,
       dto,
@@ -723,10 +742,35 @@ export class PatientsService {
   async bulkDeclareConsent(dto: BulkDeclareConsentDto, userId: string) {
     const results: Array<{ patientId: string; ok: boolean; error?: string }> =
       [];
-    for (const patientId of dto.patientIds) {
+    // Un id repetido en el lote no debe dejar dos eventos en el ledger.
+    for (const patientId of new Set(dto.patientIds)) {
       try {
-        await this.recordConsent(
-          patientId,
+        const patient = await this.assertAccess(patientId, userId);
+        const latest = (await this.getLatestConsentEvents([patientId])).find(
+          (event) => event.purpose === dto.purpose,
+        );
+        // La declaración retroactiva es para el consentimiento en papel que
+        // nunca se digitalizó: no puede deshacer una revocación registrada.
+        if (latest?.action === ConsentAction.REVOKE) {
+          results.push({
+            patientId,
+            ok: false,
+            error:
+              'El paciente revocó su consentimiento para esta finalidad: debe registrarse de forma individual si volvió a otorgarlo.',
+          });
+          continue;
+        }
+        // Ya vigente (adulto): no se agrega otro evento al ledger. Un menor
+        // con consentimiento heredado sigue su regla de siempre abajo.
+        if (
+          latest?.action === ConsentAction.GRANT &&
+          !isMinor(patient.birthDate)
+        ) {
+          results.push({ patientId, ok: true });
+          continue;
+        }
+        await this.writeConsent(
+          patient,
           {
             purpose: dto.purpose,
             action: 'GRANT' as const,

@@ -3,15 +3,16 @@
 - **Estado:** aceptada
 - **Fecha:** 2026-10-07
 - **Issue:** #381
-- **Nota de estado (2026-10-13):** el paso 2 (cifrar las notas clínicas) sigue sin implementarse; el versionado de claves que lo condicionaba ya existe (ADR 0005). La tabla del informe de alta, agregada después (`TreatmentDischarge`), también guarda sus textos sin cifrar. La migración que crea `TreatmentDischarge` (`20261011130000_add_treatment_discharge`) no incluyó `ENABLE ROW LEVEL SECURITY`; se corrigió el 2026-10-14 con `20261014120000_enable_rls_treatment_discharge` (issue #461), de modo que hoy las 28 tablas tienen RLS (27 sentencias directas y la de `AuditLog`, dentro de un bloque `DO`).
-- **Nota de estado (2026-10-16):** el ADR 0005 pasó a "aceptada" con el llavero, el formato `0x02`/`enc:v3` y el issue #398 implementados, y #382 está cerrado, por lo que la condición del paso 2 se cumple. A esta fecha no existe un issue de implementación del paso 2 (la sección Consecuencias prevé abrirlo) y los servicios de consultas y de informes de alta no cifran sus textos. Las afirmaciones de la sección Contexto sobre el secreto MFA con prefijo `enc:v1:` y la ausencia de rotación describen el 2026-10-07; el formato vigente está en el ADR 0005.
+- **Nota de estado (2026-10-17):** el paso 2 está implementado (ver "Implementación del paso 2" más abajo). Las dos notas siguientes describen estados previos y se conservan como historia.
+- **Nota de estado (2026-10-13, previa a la implementación):** el paso 2 (cifrar las notas clínicas) sigue sin implementarse; el versionado de claves que lo condicionaba ya existe (ADR 0005). La tabla del informe de alta, agregada después (`TreatmentDischarge`), también guarda sus textos sin cifrar. La migración que crea `TreatmentDischarge` (`20261011130000_add_treatment_discharge`) no incluyó `ENABLE ROW LEVEL SECURITY`; se corrigió el 2026-10-14 con `20261014120000_enable_rls_treatment_discharge` (issue #461), de modo que hoy las 28 tablas tienen RLS (27 sentencias directas y la de `AuditLog`, dentro de un bloque `DO`).
+- **Nota de estado (2026-10-16, previa a la implementación):** el ADR 0005 pasó a "aceptada" con el llavero, el formato `0x02`/`enc:v3` y el issue #398 implementados, y #382 está cerrado, por lo que la condición del paso 2 se cumple. A esta fecha no existe un issue de implementación del paso 2 (la sección Consecuencias prevé abrirlo) y los servicios de consultas y de informes de alta no cifran sus textos. Las afirmaciones de la sección Contexto sobre el secreto MFA con prefijo `enc:v1:` y la ausencia de rotación describen el 2026-10-07; el formato vigente está en el ADR 0005.
 
 ## Contexto
 
-Hoy solo se cifran a nivel de aplicación los documentos subidos, los tokens de
+Al redactar este ADR solo se cifraban a nivel de aplicación los documentos subidos, los tokens de
 Google, las credenciales de pago y el secreto MFA (AES-256-GCM, una clave por
 dominio; ver `backend/src/common/crypto/aes-gcm.ts`). Los datos clínicos se
-guardan en texto plano en la base:
+guardaban en texto plano en la base:
 
 - `Consultation.consultReason`, `intervention`, `agreements` y `patientRut`.
 - `PatientHistory.snapshot` y `diff`, y `ConsultationHistory.snapshot` (copias
@@ -81,6 +82,31 @@ Se adopta la alternativa **B**, con esta secuencia:
 4. **RLS:** no se escriben políticas. Se mantiene como defensa contra el
    acceso directo por PostgREST y se documenta como tal.
 
+## Implementación del paso 2 (2026-10-17)
+
+- **Qué se cifra:** `Consultation.consultReason`, `intervention` y `agreements`; los
+  siete textos libres de `TreatmentDischarge` (`consultReason`, `diagnosis`,
+  `evolutionSummary`, `statusAtDischarge`, `recommendations`, `dropoutNote`,
+  `referralDestination`); y esos mismos tres textos de la consulta dentro de
+  `ConsultationHistory.snapshot`.
+- **Cómo:** AES-256-GCM con la clave propia `CLINICAL_TEXT_ENCRYPTION_KEY`
+  (dataset `clinical`, formato `enc:v3:<keyId>:<base64>`, con la cabecera y la
+  etiqueta del dataset como AAD; ADR 0005). La clave admite llavero y rotación
+  como las demás (`CLINICAL_TEXT_ENCRYPTION_KEY_KEYRING` y `_ACTIVE_KEY_ID`).
+- **Dónde:** `ClinicalTextCryptoService` cifra al escribir y descifra al leer en
+  los servicios de consultas, pacientes (lecturas anidadas), reportes e
+  informes de alta. La API y el PDF siempre devuelven texto en claro.
+- **Hash del informe de alta:** se calcula, y se verifica, sobre el texto en
+  claro, así que el hash emitido sigue siendo válido.
+- **Datos existentes:** un valor sin prefijo `enc:` se lee como texto plano
+  heredado. `npm run crypto:reencrypt -- --only clinical --apply` lo cifra con
+  la clave activa; el script también rota claves y verifica el retiro de una.
+- **No se cifra:** `PatientHistory.snapshot` y `diff` (copias de datos de
+  identificación y contacto, igual que el paso 3), `PatientDocument.voidReason`
+  y los campos `treatingDoctor` y `treatingPsychiatrist` del paciente.
+- **En producción:** el backend no arranca sin `CLINICAL_TEXT_ENCRYPTION_KEY`.
+  Perder la clave deja ilegibles estos textos, también en los respaldos.
+
 ## Por qué
 
 - Las notas clínicas son el contenido más sensible y el que menos usa la
@@ -92,10 +118,20 @@ Se adopta la alternativa **B**, con esta secuencia:
 
 ## Consecuencias
 
-- Hasta que se implemente el paso 2, una filtración de la base expone las notas
-  clínicas en claro. Los respaldos sí salen cifrados (`backup.yml`, AES-256),
-  pero el volcado contiene el texto plano antes de cifrarse.
+- Con el paso 2 desplegado y los datos recifrados, una filtración de la base o
+  de un volcado no expone los textos clínicos libres sin la clave. Un dato
+  guardado antes del despliegue sigue en claro hasta ejecutar el recifrado. Los
+  respaldos además salen cifrados (`backup.yml`, AES-256).
 - El cifrado en reposo del disco de Supabase no está verificado.
-- Material público: no afirmar cifrado de notas clínicas ni aislamiento por RLS
-  o "a nivel de base de datos" (ver `docs/datos-landing.md`).
-- Se abrirá un issue de implementación del paso 2 cuando #382 esté cerrado.
+- Límite del AAD: el formato `enc:v3` liga el texto al dataset y a la clave, no a
+  la fila ni al campo. Quien tenga escritura directa en la base puede mover un
+  texto cifrado a otro paciente o campo y se descifra sin error. El cifrado
+  protege la confidencialidad ante una filtración, no la integridad ante
+  escritura directa en la base. Seguimiento en el issue #486 (formato `enc:v4`).
+- Un texto heredado en claro que empiece con `enc:v1:`, `enc:v2:` o `enc:v3:` se
+  trata como cifrado y falla al descifrar. Riesgo bajo; también en el issue #486.
+- Material público: el cifrado a nivel de aplicación de los textos clínicos se
+  puede afirmar solo cuando el despliegue con la clave esté en producción y los
+  datos existentes estén recifrados. No afirmar aislamiento por RLS ni "a nivel
+  de base de datos" (ver `docs/datos-landing.md`).
+- El nombre, el RUT y los datos de contacto siguen en texto plano (paso 3).

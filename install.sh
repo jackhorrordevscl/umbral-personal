@@ -102,6 +102,10 @@ GOOGLE_TOKEN_ENCRYPTION_KEY="vihs9JiRKVRGjurFGk+YqxhpvD7zanIZJgbHGeSOMi4="
 # Issue #302: clave AES-256-GCM propia para cifrar User.mfaSecret en reposo --
 # genera la tuya con: openssl rand -base64 32
 MFA_SECRET_ENCRYPTION_KEY="MoDh8f3G8V0hR0m5wq8V0hR0m5wq8V0hR0m5wq8V0i8="
+# ADR 0004 (opción B): clave AES-256-GCM propia para cifrar los textos clínicos
+# libres (notas de consulta e informe de alta) en reposo -- genera la tuya con:
+# openssl rand -base64 32
+CLINICAL_TEXT_ENCRYPTION_KEY="Y2xpbmljYWwtdGV4dC1leGFtcGxlLWtleS0wMDAwMDA="
 # Opcionales: sin GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET, la integración con
 # Google Calendar se registra deshabilitada (no bloquea el arranque).
 # Usa un cliente OAuth de DESARROLLO, separado del de produccion: el redirect
