@@ -2,6 +2,8 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import PDFDocument from 'pdfkit';
+import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
+import { decryptConsultationRow } from '../consultations/util/consultation-text.util';
 import { renderClinicalNoteToPdf } from './clinical-note-pdf.util';
 import { CHILE_TIMEZONE } from '../../common/utils/chile-time.util';
 
@@ -21,6 +23,7 @@ export class ReportsService {
   constructor(
     private prisma: PrismaService,
     private patientsService: PatientsService,
+    private clinicalCrypto: ClinicalTextCryptoService,
   ) {}
 
   async generatePatientReport(
@@ -164,10 +167,14 @@ export class ReportsService {
       doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
       doc.moveDown(0.5);
 
-      if (patient.consultations.length === 0) {
+      // ADR 0004 (opción B): los textos clínicos se descifran para el PDF.
+      const consultations = patient.consultations.map((c) =>
+        decryptConsultationRow(c, this.clinicalCrypto),
+      );
+      if (consultations.length === 0) {
         doc.fontSize(10).font('Helvetica').text('Sin consultas registradas.');
       } else {
-        patient.consultations.forEach((c, index) => {
+        consultations.forEach((c, index) => {
           // Título de sesión con mejor espaciado
           doc.moveDown(0.5);
           doc.rect(50, doc.y, 500, 20).fill('#f1f5f9');

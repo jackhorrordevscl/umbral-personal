@@ -1,3 +1,4 @@
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
@@ -237,6 +238,7 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
       calendarSync,
       buildPaymentsService(),
       availability,
+      buildTestClinicalCrypto(),
     );
     consultationsService = new ConsultationsService(
       prisma,
@@ -245,6 +247,7 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
       buildPaymentsService(),
       availability,
       auditService,
+      buildTestClinicalCrypto(),
     );
     dischargesService = new DischargesService(
       prisma,

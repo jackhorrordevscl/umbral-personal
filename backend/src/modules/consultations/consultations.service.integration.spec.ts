@@ -1,3 +1,4 @@
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import { ConfigService } from '@nestjs/config';
 import { ConflictException } from '@nestjs/common';
 import * as argon2 from 'argon2';
@@ -196,6 +197,7 @@ describe('ConsultationsService + CalendarSyncService (integration, Google client
       calendarSync,
       buildDisabledPaymentsService(prisma),
       buildAvailabilityService(prisma),
+      buildTestClinicalCrypto(),
     );
     consultationsService = new ConsultationsService(
       prisma,
@@ -204,6 +206,7 @@ describe('ConsultationsService + CalendarSyncService (integration, Google client
       buildDisabledPaymentsService(prisma),
       buildAvailabilityService(prisma),
       new AuditService(prisma),
+      buildTestClinicalCrypto(),
     );
   }, 30000);
 
@@ -386,6 +389,7 @@ describe('ConsultationsService.findByRange (integration, real Prisma)', () => {
       calendarSync,
       buildDisabledPaymentsService(prisma),
       buildAvailabilityService(prisma),
+      buildTestClinicalCrypto(),
     );
     consultationsService = new ConsultationsService(
       prisma,
@@ -394,6 +398,7 @@ describe('ConsultationsService.findByRange (integration, real Prisma)', () => {
       buildDisabledPaymentsService(prisma),
       buildAvailabilityService(prisma),
       new AuditService(prisma),
+      buildTestClinicalCrypto(),
     );
   }, 30000);
 
@@ -570,6 +575,7 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
       calendarSync,
       buildDisabledPaymentsService(prisma),
       buildAvailabilityService(prisma),
+      buildTestClinicalCrypto(),
     );
     consultationsService = new ConsultationsService(
       prisma,
@@ -578,6 +584,7 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
       buildDisabledPaymentsService(prisma),
       buildAvailabilityService(prisma),
       new AuditService(prisma),
+      buildTestClinicalCrypto(),
     );
   }, 30000);
 
@@ -1173,6 +1180,7 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
       calendarSync,
       buildDisabledPaymentsService(prisma),
       buildAvailabilityService(prisma),
+      buildTestClinicalCrypto(),
     );
 
     const registry = new PaymentGatewayRegistry([
@@ -1203,6 +1211,7 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
       paymentsService,
       buildAvailabilityService(prisma),
       new AuditService(prisma),
+      buildTestClinicalCrypto(),
     );
   }, 30000);
 
@@ -1486,6 +1495,7 @@ describe('ConsultationsService consent guardrail for minors (integration, real P
       calendarSync,
       buildDisabledPaymentsService(prisma),
       buildAvailabilityService(prisma),
+      buildTestClinicalCrypto(),
     );
     consultationsService = new ConsultationsService(
       prisma,
@@ -1494,6 +1504,7 @@ describe('ConsultationsService consent guardrail for minors (integration, real P
       buildDisabledPaymentsService(prisma),
       buildAvailabilityService(prisma),
       new AuditService(prisma),
+      buildTestClinicalCrypto(),
     );
   }, 30000);
 
@@ -1574,4 +1585,162 @@ describe('ConsultationsService consent guardrail for minors (integration, real P
       ),
     ).rejects.toThrow(/representante legal/);
   }, 15000);
+});
+
+// ADR 0004 (opción B): los textos clínicos se guardan cifrados (enc:v3) en la
+// fila y en el snapshot del historial, y el servicio los devuelve en claro.
+describe('ConsultationsService clinical text encryption (integration, real Prisma)', () => {
+  let prisma: PrismaService;
+  let consultationsService: ConsultationsService;
+  const runId = Date.now();
+
+  let therapistId: string;
+  let patientId: string;
+
+  const REASON = '<p>Motivo reservado</p>';
+  const INTERVENTION = '<p>Intervención reservada</p>';
+  const AGREEMENTS = '<p>Acuerdos reservados</p>';
+
+  beforeAll(async () => {
+    prisma = new PrismaService();
+    await prisma.onModuleInit();
+
+    const therapist = await prisma.user.create({
+      data: {
+        email: `consultations-clinical-crypto-${runId}@example.com`,
+        passwordHash: await argon2.hash('TestPass123!'),
+        name: 'Dra. Cifrado',
+      },
+    });
+    therapistId = therapist.id;
+    patientId = (
+      await prisma.patient.create({
+        data: {
+          fullName: 'Paciente Cifrado',
+          rut: `${runId}-c`,
+          birthDate: new Date('1990-01-01T12:00:00.000Z'),
+          therapistId,
+        },
+      })
+    ).id;
+    await prisma.patientConsent.create({
+      data: {
+        patientId,
+        purpose: 'TREATMENT',
+        action: 'GRANT',
+        recordedById: therapistId,
+        evidence: 'Consentimiento otorgado en fixture de test (integration)',
+      },
+    });
+
+    const calendarSync = {
+      syncGroup: jest.fn().mockResolvedValue(undefined),
+    } as unknown as CalendarSyncService;
+    const patientsService = new PatientsService(
+      prisma,
+      new AuditService(prisma),
+      calendarSync,
+      buildDisabledPaymentsService(prisma),
+      buildAvailabilityService(prisma),
+      buildTestClinicalCrypto(),
+    );
+    consultationsService = new ConsultationsService(
+      prisma,
+      patientsService,
+      calendarSync,
+      buildDisabledPaymentsService(prisma),
+      buildAvailabilityService(prisma),
+      new AuditService(prisma),
+      buildTestClinicalCrypto(),
+    );
+  }, 30000);
+
+  afterAll(async () => {
+    await prisma.consultationHistory.deleteMany({
+      where: { editedById: therapistId },
+    });
+    await prisma.consultation.deleteMany({ where: { therapistId } });
+    await prisma.patientConsent.deleteMany({ where: { patientId } });
+    await prisma.patient.deleteMany({ where: { id: patientId } });
+    await prisma.user.deleteMany({ where: { id: therapistId } });
+    await prisma.onModuleDestroy();
+  }, 30000);
+
+  const createOne = () =>
+    consultationsService.create(
+      {
+        patientId,
+        sessionDate: '2026-04-10',
+        consultReason: REASON,
+        intervention: INTERVENTION,
+        agreements: AGREEMENTS,
+      } as never,
+      therapistId,
+    );
+
+  it('create() guarda los tres textos cifrados y devuelve el texto en claro', async () => {
+    const created = await createOne();
+
+    expect(created.consultReason).toBe(REASON);
+    expect(created.intervention).toBe(INTERVENTION);
+    expect(created.agreements).toBe(AGREEMENTS);
+
+    const raw = await prisma.consultation.findUniqueOrThrow({
+      where: { id: created.id },
+    });
+    expect(raw.consultReason.startsWith('enc:v3:')).toBe(true);
+    expect(raw.intervention.startsWith('enc:v3:')).toBe(true);
+    expect(raw.agreements?.startsWith('enc:v3:')).toBe(true);
+    expect(JSON.stringify(raw)).not.toContain('reservado');
+  }, 30000);
+
+  it('findOne() y findByPatient() devuelven el texto en claro', async () => {
+    const created = await createOne();
+
+    const one = await consultationsService.findOne(created.id, therapistId);
+    const list = (await consultationsService.findByPatient(
+      patientId,
+      therapistId,
+    )) as { id: string; consultReason: string }[];
+
+    expect(one.consultReason).toBe(REASON);
+    expect(list.find((c) => c.id === created.id)?.consultReason).toBe(REASON);
+  }, 30000);
+
+  it('correct() guarda la versión nueva y el snapshot cifrados, y los devuelve en claro', async () => {
+    const original = await createOne();
+
+    const corrected = await consultationsService.correct(
+      original.id,
+      { consultReason: '<p>Motivo corregido</p>' } as never,
+      therapistId,
+    );
+
+    expect(corrected.consultReason).toBe('<p>Motivo corregido</p>');
+    expect(corrected.intervention).toBe(INTERVENTION);
+    expect(corrected.agreements).toBe(AGREEMENTS);
+
+    const rawCorrected = await prisma.consultation.findUniqueOrThrow({
+      where: { id: corrected.id },
+    });
+    expect(rawCorrected.consultReason.startsWith('enc:v3:')).toBe(true);
+    expect(rawCorrected.intervention.startsWith('enc:v3:')).toBe(true);
+    expect(rawCorrected.agreements?.startsWith('enc:v3:')).toBe(true);
+
+    const rawHistory = await prisma.consultationHistory.findMany({
+      where: { consultationId: original.groupId },
+    });
+    const rawSnapshot = rawHistory[0].snapshot as Record<string, unknown>;
+    expect(String(rawSnapshot.consultReason).startsWith('enc:v3:')).toBe(true);
+    expect(JSON.stringify(rawHistory)).not.toContain('reservado');
+
+    const viewed = await consultationsService.findOne(
+      corrected.id,
+      therapistId,
+    );
+    const snapshot = viewed.history[0].snapshot as Record<string, unknown>;
+    expect(snapshot.consultReason).toBe(REASON);
+    expect(snapshot.intervention).toBe(INTERVENTION);
+    expect(snapshot.agreements).toBe(AGREEMENTS);
+  }, 30000);
 });

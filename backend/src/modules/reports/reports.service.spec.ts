@@ -1,5 +1,7 @@
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import { NotFoundException } from '@nestjs/common';
 import { ReportsService } from './reports.service';
+import * as clinicalNotePdf from './clinical-note-pdf.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 
@@ -55,6 +57,7 @@ describe('ReportsService', () => {
     service = new ReportsService(
       prisma as unknown as PrismaService,
       patientsService as unknown as PatientsService,
+      buildTestClinicalCrypto(),
     );
   });
 
@@ -137,6 +140,35 @@ describe('ReportsService', () => {
 
     expect(buffer.subarray(0, 5).toString()).toBe('%PDF-');
     expect(buffer.length).toBeGreaterThan(0);
+  });
+
+  // ADR 0004 (opción B): la ficha guarda los textos cifrados; el PDF los
+  // renderiza en claro.
+  it('descifra los textos clínicos antes de renderizarlos en el PDF', async () => {
+    const crypto = buildTestClinicalCrypto();
+    const render = jest.spyOn(clinicalNotePdf, 'renderClinicalNoteToPdf');
+    const patient = buildPatientWithConsultations();
+    patient.consultations = [
+      {
+        sessionDate: new Date('2026-01-10T12:00:00'),
+        sessionType: 'IN_PERSON',
+        consultReason: crypto.encrypt('<p>Motivo reservado</p>'),
+        intervention: crypto.encrypt('<p>Intervención reservada</p>'),
+        agreements: crypto.encrypt('<p>Acuerdo reservado</p>'),
+        nextSessionDate: null,
+      },
+    ];
+    prisma.patient.findUnique.mockResolvedValue(patient);
+
+    await service.generatePatientReport('patient-1', 'therapist-1');
+
+    const rendered = render.mock.calls.map((call) => call[1]);
+    expect(rendered).toEqual([
+      '<p>Motivo reservado</p>',
+      '<p>Intervención reservada</p>',
+      '<p>Acuerdo reservado</p>',
+    ]);
+    render.mockRestore();
   });
 
   it('consulta solo sesiones ya ocurridas, ordenadas por sessionDate y no por createdAt (issue #288)', async () => {
