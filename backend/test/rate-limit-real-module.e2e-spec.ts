@@ -22,6 +22,7 @@ const ENV_OVERRIDES: Record<string, string> = {
   LOGIN_THROTTLE_LIMIT: String(LIMIT),
   EMAIL_CHANGE_CONFIRM_THROTTLE_LIMIT: String(LIMIT),
   PAYMENT_CONFIRM_THROTTLE_LIMIT: String(LIMIT),
+  MFA_SETUP_THROTTLE_LIMIT: String(LIMIT),
 };
 
 describe('Rate limiting con el AppModule real, sin override (e2e)', () => {
@@ -77,6 +78,18 @@ describe('Rate limiting con el AppModule real, sin override (e2e)', () => {
       email: `rate-limit.real.${Date.now()}@umbral.cl`,
       password: 'WrongPass123!',
     });
+  });
+
+  // mfa/enable y mfa/disable validan un TOTP de 6 dígitos: con un token de
+  // sesión robado, sin límite se podía adivinar el código y apagar el MFA.
+  // El guard de throttling corre antes que la autenticación, así que los
+  // primeros intentos responden 401 y recién el siguiente al cupo, 429.
+  it('AuthModule: POST /auth/mfa/enable responde 429 al superar MFA_SETUP_THROTTLE_LIMIT', async () => {
+    await expectLimitEnforced('/api/v1/auth/mfa/enable', { token: '123456' });
+  });
+
+  it('AuthModule: POST /auth/mfa/disable responde 429 al superar MFA_SETUP_THROTTLE_LIMIT', async () => {
+    await expectLimitEnforced('/api/v1/auth/mfa/disable', { token: '123456' });
   });
 
   it('ProfileModule: POST /email-change/confirm responde 429 al superar EMAIL_CHANGE_CONFIRM_THROTTLE_LIMIT', async () => {

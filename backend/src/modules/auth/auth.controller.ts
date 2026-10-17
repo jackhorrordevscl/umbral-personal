@@ -365,8 +365,26 @@ export class AuthController {
   // ip/user-agent propio (solo el genérico que deja AuditInterceptor con
   // action CREATE) -- se pasan acá para que AuthService registre
   // MFA_ENABLED/MFA_DISABLED con el dispositivo real, visible después en
-  // Seguridad.
-  @UseGuards(JwtAuthGuard)
+  // Seguridad. enable y disable validan un TOTP de 6 dígitos, igual que
+  // mfa/setup/confirm: con un token de sesión robado, sin límite de intentos
+  // se podía adivinar el código, apagar el MFA y enrolar otro dispositivo.
+  // Comparten el throttler 'mfa-setup' (cupo propio por ruta). ThrottlerGuard
+  // va antes que JwtAuthGuard para que también cuenten los intentos sin sesión.
+  @UseGuards(ThrottlerGuard, JwtAuthGuard)
+  @SkipThrottle({
+    login: true,
+    'mfa-verify': true,
+    signup: true,
+    'password-change': true,
+    'verify-email': true,
+    'password-reset': true,
+    'mfa-recover': true,
+    'resend-verification': true,
+    'public-availability': true,
+    'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
+  })
   @Post('mfa/enable')
   enableMfa(
     @CurrentUser() user: RequestUser,
@@ -381,7 +399,21 @@ export class AuthController {
     );
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(ThrottlerGuard, JwtAuthGuard)
+  @SkipThrottle({
+    login: true,
+    'mfa-verify': true,
+    signup: true,
+    'password-change': true,
+    'verify-email': true,
+    'password-reset': true,
+    'mfa-recover': true,
+    'resend-verification': true,
+    'public-availability': true,
+    'public-booking': true,
+    'payment-confirm': true,
+    'payment-return': true,
+  })
   @Post('mfa/disable')
   disableMfa(
     @CurrentUser() user: RequestUser,
@@ -434,8 +466,8 @@ export class AuthController {
   // explícita). Solo requiere sesión (JwtAuthGuard) -- AuthService.
   // createInvitation es quien rechaza a cualquier email que no sea
   // INVITE_CREATOR_EMAIL. Sin ThrottlerGuard a propósito, mismo criterio que
-  // mfa/generate, mfa/enable y mfa/disable: son rutas autenticadas de uso
-  // esporádico, no superficie de fuerza bruta como login/mfa-verify/signup.
+  // mfa/generate: son rutas autenticadas de uso esporádico que no validan un
+  // código adivinable, no superficie de fuerza bruta como login/mfa-verify.
   @UseGuards(JwtAuthGuard)
   @Post('invitations')
   createInvitation(@CurrentUser() user: RequestUser) {
