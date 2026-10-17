@@ -310,6 +310,14 @@ export class DischargesService {
       });
       if (!patient) throw new NotFoundException('Paciente no encontrado');
 
+      // Lock de la fila del informe (tercero en el orden User -> Patient ->
+      // informe). update() escribe el borrador sin los locks de arriba: sin este,
+      // una edición confirmada entre la relectura y el UPDATE condicional de
+      // más abajo (que solo exige status = DRAFT) dejaba el informe emitido con
+      // el texto nuevo y el hash del texto anterior. Con el lock, update() espera
+      // y luego recibe 409, o se confirma antes y la relectura ve su texto.
+      await tx.$queryRaw`SELECT id FROM "TreatmentDischarge" WHERE id = ${id} FOR UPDATE`;
+
       // Releer bajo el lock: el estado pudo cambiar desde la lectura previa.
       const freshRow = await tx.treatmentDischarge.findFirst({
         where: { id, therapistId },

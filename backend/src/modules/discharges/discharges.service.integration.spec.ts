@@ -881,4 +881,73 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
       texts.consultReason,
     ]);
   }, 30000);
+
+  // issue() leía el borrador sin bloquear su fila: una edición que se confirma
+  // entre esa lectura y su UPDATE condicional (que solo exige status = DRAFT)
+  // dejaba el informe ISSUED con el texto nuevo y el hash del viejo. Un "holder"
+  // retiene la fila, issue() queda encolado, el holder edita y confirma: el
+  // hash emitido debe corresponder al texto editado.
+  it('una edición que se confirma mientras issue() espera no deja un hash que no corresponde al texto emitido', async () => {
+    const { dischargeId } = await createClosablePatient('Edición En Emisión');
+    const editedText = 'Motivo editado durante la emisión';
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let markLocked!: () => void;
+    const locked = new Promise<void>((resolve) => {
+      markLocked = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "TreatmentDischarge" WHERE id = ${dischargeId} FOR UPDATE`;
+        markLocked();
+        await gate;
+        await tx.treatmentDischarge.update({
+          where: { id: dischargeId },
+          data: { consultReason: editedText },
+        });
+      },
+      { timeout: 30000, maxWait: 10000 },
+    );
+    await locked;
+
+    const issuing = dischargesService.issue(dischargeId, therapistId);
+    const issued = issuing.then(
+      (value) => ({ ok: true as const, value }),
+      (reason: unknown) => ({ ok: false as const, reason }),
+    );
+
+    // issue() queda esperando el lock de la fila retenida por el holder.
+    const deadline = Date.now() + 10000;
+    for (;;) {
+      const rows = await prisma.$queryRaw<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock'`;
+      if ((rows[0]?.n ?? 0) >= 1) break;
+      if (Date.now() > deadline) {
+        release();
+        await holder;
+        throw new Error('issue() no quedó esperando el lock a tiempo');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    release();
+    await holder;
+
+    const result = await issued;
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.consultReason).toBe(editedText);
+      expect(result.value.contentHash).toBe(
+        computeDischargeHash(dischargeHashInputFromRow(result.value)),
+      );
+    }
+    const verification = await dischargesService.verify(
+      dischargeId,
+      therapistId,
+    );
+    expect(verification.valid).toBe(true);
+  }, 30000);
 });

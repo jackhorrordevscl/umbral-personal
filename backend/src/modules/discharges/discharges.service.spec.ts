@@ -366,7 +366,7 @@ describe('DischargesService', () => {
       const issued = await service.issue('dis-1', 'therapist-1');
 
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-      expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);
       expect(
         String(firstCallArg<string[]>(prisma.$queryRaw).join(' ')),
       ).toContain('FOR UPDATE');
@@ -382,21 +382,30 @@ describe('DischargesService', () => {
       expect(issued.status).toBe('ISSUED');
     });
 
-    it('toma los locks en el orden User y luego Patient, antes de leer el estado del paciente', async () => {
+    it('toma los locks en el orden User, Patient e informe, antes de leer el estado del paciente y del informe', async () => {
       await service.issue('dis-1', 'therapist-1');
 
       const sqls = (prisma.$queryRaw.mock.calls as unknown[][]).map((c) =>
         (c[0] as string[]).join('?'),
       );
-      expect(sqls).toHaveLength(2);
+      expect(sqls).toHaveLength(3);
       expect(sqls[0]).toContain('"User"');
       expect(sqls[0]).toContain('FOR UPDATE');
       expect(sqls[1]).toContain('"Patient"');
       expect(sqls[1]).toContain('FOR UPDATE');
-      const [userLock, patientLock] = prisma.$queryRaw.mock.invocationCallOrder;
+      expect(sqls[2]).toContain('"TreatmentDischarge"');
+      expect(sqls[2]).toContain('FOR UPDATE');
+      const [userLock, patientLock, dischargeLock] =
+        prisma.$queryRaw.mock.invocationCallOrder;
       expect(userLock).toBeLessThan(patientLock);
+      expect(patientLock).toBeLessThan(dischargeLock);
       expect(patientLock).toBeLessThan(
         prisma.patient.findFirst.mock.invocationCallOrder[0],
+      );
+      // La primera lectura del informe es findOwned, fuera de la transacción;
+      // la relectura bajo lock es la última.
+      expect(dischargeLock).toBeLessThan(
+        prisma.treatmentDischarge.findFirst.mock.invocationCallOrder.at(-1)!,
       );
     });
 
