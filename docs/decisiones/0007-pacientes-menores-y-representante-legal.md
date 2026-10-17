@@ -131,7 +131,8 @@ por la fecha de nacimiento si corresponde enviar los datos del representante.
 La identidad del paciente **no depende del email del tutor** (un tutor con dos
 hijos colisionaría): se resuelve por el RUT del paciente dentro del terapeuta y
 se verifica además el RUT de un representante ya registrado. Cualquier fallo de
-identidad devuelve el mismo 409 uniforme del flujo adulto y los logs no llevan
+identidad recibe la misma respuesta uniforme del flujo adulto (ADR 0008: se
+contesta como una reserva nueva, sin crear nada) y los logs no llevan
 RUT ni email. El representante de un paciente nuevo se crea con `isPayer`,
 `receivesCommunications`, `canAccessReports` y `canConsent` en verdadero y
 custodia `UNKNOWN`. No se captura consentimiento en el formulario público: el

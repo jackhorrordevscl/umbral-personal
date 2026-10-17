@@ -187,10 +187,11 @@ export default function PublicBookingForm({
       onSuccess(confirmation);
     } catch (err) {
       // spec.md "Stale cached slot is rejected at write time" + design.md
-      // "Identity resolution gotchas": el 409 es uniforme y nunca revela si
-      // fue por slot ocupado o identidad ambigua -- acá se delega en
-      // onSlotTaken (el padre refresca la disponibilidad real) en vez de
-      // mostrar un mensaje de error genérico.
+      // "Identity resolution gotchas": el 409 que llega acá es de horario
+      // ocupado (o del DV del representante, que el formulario ya valida); una
+      // colisión de identidad responde 201 como una reserva nueva (ADR 0008)
+      // -- se delega en onSlotTaken (el padre refresca la disponibilidad real)
+      // en vez de mostrar un mensaje de error genérico.
       if (axios.isAxiosError(err) && err.response?.status === 409) {
         onSlotTaken();
         return;

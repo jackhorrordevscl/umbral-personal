@@ -10,6 +10,7 @@ import { PatientsModule } from '../patients/patients.module';
 import { ConsultationsModule } from '../consultations/consultations.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { MailModule } from '../mail/mail.module';
 
 // sdd/patient-self-scheduling PR 3 (design.md "Technical Approach"):
 // importa AvailabilityModule + PatientsModule + ConsultationsModule -- sin
@@ -36,6 +37,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     ConsultationsModule,
     PaymentsModule,
     NotificationsModule,
+    MailModule,
   ],
   controllers: [PublicSchedulingController, PublicTherapistProfileController],
   providers: [

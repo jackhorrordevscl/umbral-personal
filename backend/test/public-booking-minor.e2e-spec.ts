@@ -5,6 +5,7 @@ import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { uniqueTestRut } from './support/unique-rut';
+import { computeRutCheckDigit } from '../src/common/utils/rut.util';
 import {
   chileDayKeyFromInstant,
   chileWallTimeToInstant,
@@ -70,6 +71,27 @@ describe('Public booking for a minor (e2e)', () => {
     request(app.getHttpServer())
       .post(`/api/v1/public/therapists/${therapistId}/availability/book`)
       .send(body);
+
+  // Issue #502: a collision with a stored patient answers like a new booking
+  // (same shape, invented ids) but creates nothing, so an anonymous caller
+  // cannot tell whether the person is registered with the therapist.
+  const expectUniformCollisionResponse = async (body: {
+    id: string;
+    groupId: string;
+    sessionDate: string;
+  }) => {
+    expect(Object.keys(body).sort()).toEqual(['groupId', 'id', 'sessionDate']);
+    expect(body.groupId).toBe(body.id);
+    expect(JSON.stringify(body)).not.toMatch(/alta|tratamiento/i);
+    const consultation = await prisma.consultation.findUnique({
+      where: { id: body.id },
+    });
+    expect(consultation).toBeNull();
+    const slot = await prisma.bookedSlot.findFirst({
+      where: { therapistId, slotStart: thirdSlot },
+    });
+    expect(slot).toBeNull();
+  };
 
   beforeAll(async () => {
     process.env.PUBLIC_SCHEDULING_ENABLED = 'true';
@@ -202,23 +224,19 @@ describe('Public booking for a minor (e2e)', () => {
     expect(guardians[0].fullName).toBe('Representante Legal E2E');
   });
 
-  it('the same minor with a different guardian RUT gets the uniform 409 and nothing is booked', async () => {
+  it('the same minor with a different guardian RUT gets the uniform response and nothing is booked', async () => {
     const response = await book({
       slotStart: thirdSlot.toISOString(),
       patient: minorPatient,
       guardian: { ...guardian, rut: uniqueTestRut() },
-    }).expect(409);
+    }).expect(201);
 
-    expect(JSON.stringify(response.body)).toContain(
-      'No fue posible procesar la reserva.',
+    await expectUniformCollisionResponse(
+      response.body as { id: string; groupId: string; sessionDate: string },
     );
-    const slot = await prisma.bookedSlot.findFirst({
-      where: { therapistId, slotStart: thirdSlot },
-    });
-    expect(slot).toBeNull();
   });
 
-  it('a minor whose treatment is closed gets the uniform 409 and nothing is booked, then books again once reopened', async () => {
+  it('a minor whose treatment is closed gets the uniform response and nothing is booked, then books again once reopened', async () => {
     await prisma.patient.update({
       where: { id: minorPatientId },
       data: { treatmentStatus: 'DISCHARGED' },
@@ -229,16 +247,11 @@ describe('Public booking for a minor (e2e)', () => {
         slotStart: thirdSlot.toISOString(),
         patient: minorPatient,
         guardian,
-      }).expect(409);
+      }).expect(201);
 
-      expect(JSON.stringify(response.body)).toContain(
-        'No fue posible procesar la reserva.',
+      await expectUniformCollisionResponse(
+        response.body as { id: string; groupId: string; sessionDate: string },
       );
-      expect(JSON.stringify(response.body)).not.toMatch(/alta|tratamiento/i);
-      const slot = await prisma.bookedSlot.findFirst({
-        where: { therapistId, slotStart: thirdSlot },
-      });
-      expect(slot).toBeNull();
     } finally {
       await prisma.patient.update({
         where: { id: minorPatientId },
@@ -247,7 +260,7 @@ describe('Public booking for a minor (e2e)', () => {
     }
   });
 
-  it('an adult whose treatment is closed gets the uniform 409 and is not booked', async () => {
+  it('an adult whose treatment is closed gets the uniform response and is not booked', async () => {
     const adultRut = uniqueTestRut();
     const adultEmail = `cerrado.${runId}@ejemplo.cl`;
     await prisma.patient.create({
@@ -269,15 +282,11 @@ describe('Public booking for a minor (e2e)', () => {
         birthDate: birthDateYearsAgo(30),
         email: adultEmail,
       },
-    }).expect(409);
+    }).expect(201);
 
-    expect(JSON.stringify(response.body)).toContain(
-      'No fue posible procesar la reserva.',
+    await expectUniformCollisionResponse(
+      response.body as { id: string; groupId: string; sessionDate: string },
     );
-    const slot = await prisma.bookedSlot.findFirst({
-      where: { therapistId, slotStart: thirdSlot },
-    });
-    expect(slot).toBeNull();
   });
 
   it('a minor without a guardian is rejected with 400', async () => {
@@ -300,7 +309,7 @@ describe('Public booking for a minor (e2e)', () => {
     }).expect(400);
   });
 
-  it('a new minor with an email already used by an active patient gets the uniform 409 and is not created', async () => {
+  it('a new minor with an email already used by an active patient gets the uniform response and is not created', async () => {
     const takenEmail = `ocupado.${runId}@ejemplo.cl`;
     await prisma.patient.create({
       data: {
@@ -321,22 +330,18 @@ describe('Public booking for a minor (e2e)', () => {
         email: takenEmail.toUpperCase(),
       },
       guardian: { ...guardian, rut: uniqueTestRut() },
-    }).expect(409);
+    }).expect(201);
 
-    expect(JSON.stringify(response.body)).toContain(
-      'No fue posible procesar la reserva.',
+    await expectUniformCollisionResponse(
+      response.body as { id: string; groupId: string; sessionDate: string },
     );
     const created = await prisma.patient.findFirst({
       where: { therapistId, rut: newMinorRut },
     });
     expect(created).toBeNull();
-    const slot = await prisma.bookedSlot.findFirst({
-      where: { therapistId, slotStart: thirdSlot },
-    });
-    expect(slot).toBeNull();
   });
 
-  it('an adult booking whose email and RUT match a stored minor gets the uniform 409', async () => {
+  it('an adult booking whose email and RUT match a stored minor gets the uniform response', async () => {
     const storedMinorRut = uniqueTestRut();
     const storedMinorEmail = `menor.guardado.${runId}@ejemplo.cl`;
     await prisma.patient.create({
@@ -357,15 +362,54 @@ describe('Public booking for a minor (e2e)', () => {
         birthDate: birthDateYearsAgo(30),
         email: storedMinorEmail,
       },
-    }).expect(409);
+    }).expect(201);
 
-    expect(JSON.stringify(response.body)).toContain(
-      'No fue posible procesar la reserva.',
+    await expectUniformCollisionResponse(
+      response.body as { id: string; groupId: string; sessionDate: string },
     );
-    const slot = await prisma.bookedSlot.findFirst({
-      where: { therapistId, slotStart: thirdSlot },
+  });
+
+  // Probe found by the independent verifier of PR #503: an invalid check digit
+  // must not turn "registered email" into a different answer than "unknown
+  // email" (201 vs 409 would be the membership oracle again).
+  it('an invalid check digit answers the same for a registered and an unknown email', async () => {
+    const registeredEmail = `dv.registrado.${runId}@ejemplo.cl`;
+    await prisma.patient.create({
+      data: {
+        fullName: 'Paciente Registrado DV',
+        rut: uniqueTestRut(),
+        birthDate: new Date(birthDateYearsAgo(30)),
+        email: registeredEmail,
+        therapistId,
+      },
     });
-    expect(slot).toBeNull();
+    const rutBody = uniqueTestRut().split('-')[0];
+    const invalidDvRut = `${rutBody}-${computeRutCheckDigit(rutBody) === '0' ? '1' : '0'}`;
+    const attempt = (email: string) =>
+      book({
+        slotStart: thirdSlot.toISOString(),
+        patient: {
+          fullName: 'Probe DV',
+          rut: invalidDvRut,
+          birthDate: birthDateYearsAgo(30),
+          email,
+        },
+      });
+
+    const registered = await attempt(registeredEmail).expect(201);
+    const unknown = await attempt(`dv.desconocido.${runId}@ejemplo.cl`).expect(
+      201,
+    );
+
+    for (const response of [registered, unknown]) {
+      await expectUniformCollisionResponse(
+        response.body as { id: string; groupId: string; sessionDate: string },
+      );
+    }
+    const created = await prisma.patient.findFirst({
+      where: { therapistId, fullName: 'Probe DV' },
+    });
+    expect(created).toBeNull();
   });
 
   it('an adult without email is rejected with 400', async () => {

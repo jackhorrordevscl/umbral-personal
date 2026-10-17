@@ -8,6 +8,7 @@ import {
 import { Patient, Prisma } from '@prisma/client';
 import { PatientsService, computeMinorStatus } from './patients.service';
 import { MINOR_GUARDIAN_ENFORCEMENT_DATE } from './patients.constants';
+import { PublicBookingRejectedException } from './public-booking-rejected.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
@@ -1713,7 +1714,7 @@ describe('PatientsService', () => {
       expect(result).toEqual({ patient: existing, isNew: false });
     });
 
-    it('paciente nuevo con DV inválido -> 409 uniforme y no crea la ficha (issue #289)', async () => {
+    it('paciente nuevo con DV inválido -> rechazo uniforme y no crea la ficha (issues #289, #502)', async () => {
       prisma.patient.findMany.mockResolvedValue([]);
 
       const attempt = service.resolveForPublicBooking('therapist-1', {
@@ -1857,7 +1858,7 @@ describe('PatientsService', () => {
           rut: '11111111-1',
           deletedAt: null,
         },
-        select: { id: true },
+        select: { id: true, email: true },
       });
       expect(prisma.patient.create).not.toHaveBeenCalled();
     });
@@ -1912,6 +1913,138 @@ describe('PatientsService', () => {
         service.resolveForPublicBooking('therapist-1', dto as never),
       ).rejects.toThrow(ConflictException);
       expect(prisma.patient.create).not.toHaveBeenCalled();
+    });
+
+    // Issue #502: cada rechazo por colisión con una ficha existente lanza la
+    // excepción propia (el caller la convierte en una respuesta de éxito
+    // indistinguible), con el email guardado al que avisar. Los rechazos que
+    // dependen solo del request siguen siendo un 409 común.
+    describe('rechazos por ficha existente (issue #502)', () => {
+      it('email existente con RUT distinto -> avisa al email guardado', async () => {
+        prisma.patient.findMany.mockResolvedValue([
+          buildPatient({ email: 'Paciente@Ejemplo.cl', rut: '22222222-2' }),
+        ]);
+
+        await expect(
+          service.resolveForPublicBooking('therapist-1', dto as never),
+        ).rejects.toMatchObject({
+          constructor: PublicBookingRejectedException,
+          notifyEmail: 'Paciente@Ejemplo.cl',
+        });
+      });
+
+      it('tratamiento cerrado -> avisa al email guardado', async () => {
+        prisma.patient.findMany.mockResolvedValue([
+          buildPatient({
+            email: 'paciente@ejemplo.cl',
+            treatmentStatus: 'DISCHARGED',
+          }),
+        ]);
+
+        await expect(
+          service.resolveForPublicBooking('therapist-1', dto as never),
+        ).rejects.toMatchObject({
+          constructor: PublicBookingRejectedException,
+          notifyEmail: 'paciente@ejemplo.cl',
+        });
+      });
+
+      it('email ambiguo -> avisa al email enviado, ya normalizado', async () => {
+        prisma.patient.findMany.mockResolvedValue([
+          buildPatient({ id: 'p1' }),
+          buildPatient({ id: 'p2' }),
+        ]);
+
+        await expect(
+          service.resolveForPublicBooking('therapist-1', {
+            ...dto,
+            email: ' Paciente@Ejemplo.cl ',
+          } as never),
+        ).rejects.toMatchObject({
+          constructor: PublicBookingRejectedException,
+          notifyEmail: 'paciente@ejemplo.cl',
+        });
+      });
+
+      it('RUT ya registrado con otro email -> avisa al email de la ficha encontrada', async () => {
+        prisma.patient.findMany.mockResolvedValue([]);
+        prisma.patient.findFirst.mockResolvedValue({
+          id: 'own-patient',
+          email: 'otro@ejemplo.cl',
+        });
+
+        await expect(
+          service.resolveForPublicBooking('therapist-1', dto as never),
+        ).rejects.toMatchObject({
+          constructor: PublicBookingRejectedException,
+          notifyEmail: 'otro@ejemplo.cl',
+        });
+      });
+
+      it('RUT ya registrado en una ficha sin email -> nadie a quien avisar', async () => {
+        prisma.patient.findMany.mockResolvedValue([]);
+        prisma.patient.findFirst.mockResolvedValue({
+          id: 'own-patient',
+          email: null,
+        });
+
+        await expect(
+          service.resolveForPublicBooking('therapist-1', dto as never),
+        ).rejects.toMatchObject({
+          constructor: PublicBookingRejectedException,
+          notifyEmail: null,
+        });
+      });
+
+      it('carrera de RUT (P2002 en el create) -> excepción propia, sin email', async () => {
+        prisma.patient.findMany.mockResolvedValue([]);
+        prisma.patient.findFirst.mockResolvedValue(null);
+        prisma.patient.create.mockRejectedValue(
+          new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+            code: 'P2002',
+            clientVersion: 'test',
+          }),
+        );
+
+        await expect(
+          service.resolveForPublicBooking('therapist-1', dto as never),
+        ).rejects.toMatchObject({
+          constructor: PublicBookingRejectedException,
+          notifyEmail: null,
+        });
+      });
+
+      // El verificador independiente del PR #503 halló este cruce: si el DV
+      // inválido siguiera siendo un 409 común, enviar un email con un RUT de
+      // DV inválido devolvería 201 falso para un paciente registrado y 409
+      // para uno que no lo está. Ambos deben rechazarse de la misma forma.
+      it('RUT con DV inválido y email NO registrado -> misma excepción que con el email registrado', async () => {
+        prisma.patient.findMany.mockResolvedValue([]);
+
+        await expect(
+          service.resolveForPublicBooking('therapist-1', {
+            ...dto,
+            rut: '11.111.111-9',
+          } as never),
+        ).rejects.toMatchObject({
+          constructor: PublicBookingRejectedException,
+          notifyEmail: null,
+        });
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+      });
+
+      it('RUT con DV inválido y email registrado (RUT guardado distinto) -> la misma excepción', async () => {
+        prisma.patient.findMany.mockResolvedValue([
+          buildPatient({ email: 'paciente@ejemplo.cl', rut: '22222222-2' }),
+        ]);
+
+        await expect(
+          service.resolveForPublicBooking('therapist-1', {
+            ...dto,
+            rut: '11.111.111-9',
+          } as never),
+        ).rejects.toBeInstanceOf(PublicBookingRejectedException);
+      });
     });
 
     it('nunca loguea el email en texto plano al rechazar un match ambiguo', async () => {
@@ -2127,7 +2260,7 @@ describe('PatientsService', () => {
 
       // Mirrors the adult flow (#289): the patient RUT check digit is only
       // required when creating a new patient.
-      it('menor nuevo con DV inválido -> 409 uniforme, sin crear', async () => {
+      it('menor nuevo con DV inválido -> rechazo uniforme, sin crear (issue #502)', async () => {
         prisma.patient.findFirst.mockResolvedValue(null);
 
         await expect(
@@ -2284,6 +2417,68 @@ describe('PatientsService', () => {
         );
 
         expect(result).toEqual({ patient: existing, isNew: false });
+      });
+
+      it('menor nuevo con RUT de DV inválido -> la misma excepción que una colisión, sin crear (issue #502)', async () => {
+        prisma.patient.findFirst.mockResolvedValue(null);
+
+        await expect(
+          service.resolveForPublicBooking(
+            'therapist-1',
+            { ...minorDto, rut: '11.111.111-2' } as never,
+            undefined,
+            undefined,
+            guardian as never,
+          ),
+        ).rejects.toMatchObject({
+          constructor: PublicBookingRejectedException,
+          notifyEmail: null,
+        });
+        expect(prisma.patient.create).not.toHaveBeenCalled();
+        expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
+      });
+
+      it('menor existente sin representante coincidente -> excepción propia con el email de la ficha (issue #502)', async () => {
+        prisma.patient.findFirst.mockResolvedValue(
+          buildPatient({
+            id: 'minor-1',
+            rut: '11111111-1',
+            email: 'menor@ejemplo.cl',
+            birthDate: new Date(minorDto.birthDate),
+          }),
+        );
+        prisma.legalGuardian.findFirst.mockResolvedValue(null);
+
+        await expect(
+          service.resolveForPublicBooking(
+            'therapist-1',
+            minorDto as never,
+            undefined,
+            undefined,
+            guardian as never,
+          ),
+        ).rejects.toMatchObject({
+          constructor: PublicBookingRejectedException,
+          notifyEmail: 'menor@ejemplo.cl',
+        });
+      });
+
+      it('menor nuevo con un email ya registrado -> excepción propia con ese email (issue #502)', async () => {
+        prisma.patient.findFirst.mockResolvedValue(null);
+        prisma.patient.findMany.mockResolvedValue([{ id: 'other-patient' }]);
+
+        await expect(
+          service.resolveForPublicBooking(
+            'therapist-1',
+            { ...minorDto, email: ' Madre.Hijo@Ejemplo.cl ' } as never,
+            undefined,
+            undefined,
+            guardian as never,
+          ),
+        ).rejects.toMatchObject({
+          constructor: PublicBookingRejectedException,
+          notifyEmail: 'madre.hijo@ejemplo.cl',
+        });
       });
 
       it('RUT del representante con DV inválido -> 409 uniforme, sin buscar ni crear', async () => {

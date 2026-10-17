@@ -9,6 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { NotificationType, PaymentAccountStatus } from '@prisma/client';
 import { ThrottlerException } from '@nestjs/throttler';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   AvailabilityService,
@@ -17,6 +18,8 @@ import {
 import { PatientsService } from '../patients/patients.service';
 import { ConsultationsService } from '../consultations/consultations.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { MailService } from '../mail/mail.service';
+import { PublicBookingRejectedException } from '../patients/public-booking-rejected.exception';
 import { DEFAULT_SESSION_MINUTES } from '../calendar-integration/calendar-integration.constants';
 import { PublicAvailabilityQueryDto } from './dto/public-availability-query.dto';
 import { BookPublicSlotDto } from './dto/book-public-slot.dto';
@@ -64,6 +67,7 @@ export class PublicSchedulingService {
     private readonly consultationsService: ConsultationsService,
     private readonly notificationsService: NotificationsService,
     private readonly therapistResolver: PublicTherapistResolverService,
+    private readonly mailService: MailService,
   ) {
     this.enabled =
       this.config.get<string>('PUBLIC_SCHEDULING_ENABLED') === 'true';
@@ -195,8 +199,8 @@ export class PublicSchedulingService {
     // Issue #299: paciente (si es nuevo) + consulta en UNA transacción -- si el
     // slot ya no está libre (409) no queda un paciente huérfano. La
     // notificación y los efectos post-reserva corren recién tras el commit.
-    const { patient, isNew, consultation } = await this.prisma.$transaction(
-      async (tx) => {
+    const booked = await this.prisma
+      .$transaction(async (tx) => {
         // issue #336: lock del terapeuta ANTES de resolveForPublicBooking --
         // si éste inserta un Patient toma KEY SHARE sobre la fila del User, y
         // escalar luego a FOR UPDATE podría deadlockear con otra reserva.
@@ -218,8 +222,17 @@ export class PublicSchedulingService {
           tx,
         );
         return { ...resolved, consultation: created };
-      },
-    );
+      })
+      .catch((err: unknown) => {
+        // Issue #502: la colisión con una ficha existente se contesta como
+        // una reserva nueva. La transacción ya hizo rollback: no quedó nada.
+        if (err instanceof PublicBookingRejectedException) return err;
+        throw err;
+      });
+    if (booked instanceof PublicBookingRejectedException) {
+      return this.uniformRejectionResponse(booked, slotStart);
+    }
+    const { patient, isNew, consultation } = booked;
 
     this.consultationsService.afterPublicBookingCommit(
       consultation.id,
@@ -266,6 +279,38 @@ export class PublicSchedulingService {
       therapistId,
       patient.defaultSessionAmount,
     );
+    return { ...confirmation, checkout };
+  }
+
+  // Issue #502: este endpoint es anónimo, así que contestar 409 solo cuando el
+  // RUT o el email ya pertenecen a un paciente del terapeuta le entregaba a
+  // cualquiera si una persona se atiende con él (dato de salud, Ley 21.719).
+  // La colisión responde con la misma forma que una reserva nueva (ids
+  // inventados, mismo hint de checkout que un paciente autocreado) sin crear
+  // consulta, slot ni notificación, y avisa por correo a la dirección de la
+  // ficha: es la señal para el titular y la vía de corrección si quien
+  // reservó era el propio paciente con un dato mal escrito. Queda un canal de
+  // tiempo (la reserva real escribe más) que el throttler por IP acota.
+  private uniformRejectionResponse(
+    rejection: PublicBookingRejectedException,
+    slotStart: Date,
+  ) {
+    if (rejection.notifyEmail) {
+      void this.mailService
+        .sendPublicBookingAttemptNoticeEmail(rejection.notifyEmail)
+        .catch((err: unknown) => {
+          this.logger.error(
+            `Fallo no bloqueante al avisar de una reserva pública no completada: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+    }
+
+    const id = randomUUID();
+    const confirmation = { id, groupId: id, sessionDate: slotStart };
+    if (!this.checkoutInlineEnabled) {
+      return confirmation;
+    }
+    const checkout: CheckoutHint = { status: 'NOT_APPLICABLE' };
     return { ...confirmation, checkout };
   }
 
