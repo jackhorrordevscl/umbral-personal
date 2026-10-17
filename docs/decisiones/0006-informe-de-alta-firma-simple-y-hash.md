@@ -94,7 +94,9 @@ afirma ni se niega (`pdf.intact = null`).
 ### 6. Cierre del tratamiento
 
 Emitir un informe es lo que cierra el tratamiento. En una sola transacción y con
-bloqueo `FOR UPDATE` (orden de locks `User` y luego `Patient`):
+bloqueo `FOR UPDATE` (orden de locks `User`, luego `Patient` y por último la fila
+del informe; este último evita que una edición concurrente del borrador deje un
+hash que no corresponde al texto emitido):
 
 - se fija `Patient.treatmentStatus` (`DISCHARGED`, `REFERRED` o `DROPPED_OUT`);
 - se cancelan las consultas futuras del paciente, se liberan sus reservas
