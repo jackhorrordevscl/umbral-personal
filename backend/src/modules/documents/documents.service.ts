@@ -137,22 +137,37 @@ export class DocumentsService {
       });
     // El asentimiento de un menor se registra junto con su documento: o
     // quedan ambos o ninguno. Para un adulto solo se guarda el documento.
-    const doc =
-      type === DocumentType.INFORMED_ASSENT && minorAgeBand
-        ? await this.prisma.$transaction(async (tx) => {
-            const created = await createDocument(tx);
-            await tx.patientAssent.create({
-              data: {
-                patientId,
-                ageBand: minorAgeBand,
-                action: AssentAction.GRANTED,
-                documentId: created.id,
-                recordedById: userId,
-              },
-            });
-            return created;
-          })
-        : await createDocument(this.prisma);
+    let doc: Awaited<ReturnType<typeof createDocument>>;
+    try {
+      doc =
+        type === DocumentType.INFORMED_ASSENT && minorAgeBand
+          ? await this.prisma.$transaction(async (tx) => {
+              const created = await createDocument(tx);
+              await tx.patientAssent.create({
+                data: {
+                  patientId,
+                  ageBand: minorAgeBand,
+                  action: AssentAction.GRANTED,
+                  documentId: created.id,
+                  recordedById: userId,
+                },
+              });
+              return created;
+            })
+          : await createDocument(this.prisma);
+    } catch (err) {
+      // Sin fila en la BD el objeto cifrado queda inalcanzable (no se lista,
+      // anula ni borra ante una solicitud de eliminación): se descarta, igual
+      // que en storeGeneratedDocument.
+      try {
+        await deletePatientDocumentObject(storagePath);
+      } catch (cleanupErr) {
+        this.logger.error(
+          `No se pudo borrar el objeto huérfano de B2 tras fallar el insert: storagePath=${storagePath}: ${cleanupErr instanceof Error ? cleanupErr.message : cleanupErr}`,
+        );
+      }
+      throw err;
+    }
     this.logger.log(
       `Documento subido: id=${doc.id} patientId=${patientId} userId=${userId}`,
     );
