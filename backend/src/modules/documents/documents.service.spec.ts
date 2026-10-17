@@ -223,11 +223,8 @@ describe('DocumentsService', () => {
         ),
       ).rejects.toThrow('db down');
 
-      const writtenPath = mockWritePatientDocumentBuffer.mock
-        .calls[0][0] as string;
-      expect(mockDeletePatientDocumentObject).toHaveBeenCalledWith(
-        writtenPath,
-      );
+      const writtenPath = mockWritePatientDocumentBuffer.mock.calls[0][0];
+      expect(mockDeletePatientDocumentObject).toHaveBeenCalledWith(writtenPath);
       expect(patientsService.recordConsent).not.toHaveBeenCalled();
     });
 
