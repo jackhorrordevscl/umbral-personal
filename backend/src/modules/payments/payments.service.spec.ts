@@ -103,6 +103,7 @@ describe('PaymentsService', () => {
   let prisma: {
     consultation: { findFirst: jest.Mock };
     patient: { findUnique: jest.Mock };
+    bookedSlot: { findFirst: jest.Mock };
     payment: {
       findUnique: jest.Mock;
       findFirst: jest.Mock;
@@ -148,6 +149,7 @@ describe('PaymentsService', () => {
     prisma = {
       consultation: { findFirst: jest.fn() },
       patient: { findUnique: jest.fn() },
+      bookedSlot: { findFirst: jest.fn() },
       payment: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
@@ -1533,41 +1535,73 @@ describe('PaymentsService', () => {
   // "Checkout URL Exposure to the Booking Response", tasks.md 4.4 "leaks no
   // patient data").
   describe('findCheckoutForBooking', () => {
+    beforeEach(() => {
+      prisma.bookedSlot.findFirst.mockResolvedValue({ id: 'slot-1' });
+    });
+
     it('retorna paymentUrl/amount cuando el Payment ya tiene una orden emitida', async () => {
-      prisma.payment.findUnique.mockResolvedValue({
+      prisma.payment.findFirst.mockResolvedValue({
         paymentUrl: 'https://flow.cl/pay/order-token',
         amount: 30000,
       });
 
-      const result = await service.findCheckoutForBooking('group-1');
+      const result = await service.findCheckoutForBooking(
+        'group-1',
+        'therapist-1',
+      );
 
       expect(result).toEqual({
         paymentUrl: 'https://flow.cl/pay/order-token',
         amount: 30000,
       });
-      expect(prisma.payment.findUnique).toHaveBeenCalledWith({
-        where: { groupId: 'group-1' },
+      expect(prisma.payment.findFirst).toHaveBeenCalledWith({
+        where: { groupId: 'group-1', therapistId: 'therapist-1' },
         select: { paymentUrl: true, amount: true },
       });
     });
 
     it('retorna { paymentUrl: null } sin amount cuando no existe ningún Payment para el groupId', async () => {
-      prisma.payment.findUnique.mockResolvedValue(null);
+      prisma.payment.findFirst.mockResolvedValue(null);
 
-      const result = await service.findCheckoutForBooking('group-sin-cargo');
+      const result = await service.findCheckoutForBooking(
+        'group-sin-cargo',
+        'therapist-1',
+      );
 
       expect(result).toEqual({ paymentUrl: null });
     });
 
     it('retorna { paymentUrl: null } cuando el cargo existe pero aún no se emitió una orden (sin gateway context, o Flow todavía no respondió)', async () => {
-      prisma.payment.findUnique.mockResolvedValue({
+      prisma.payment.findFirst.mockResolvedValue({
         paymentUrl: null,
         amount: 30000,
       });
 
-      const result = await service.findCheckoutForBooking('group-1');
+      const result = await service.findCheckoutForBooking(
+        'group-1',
+        'therapist-1',
+      );
 
       expect(result).toEqual({ paymentUrl: null });
+    });
+
+    // Issue #496: el groupId de otro terapeuta, o uno que no es de una
+    // reserva pública, responde igual que "sin orden todavía" y ni siquiera
+    // lee el cargo.
+    it('retorna { paymentUrl: null } sin leer el cargo cuando el groupId no es una reserva pública de ese terapeuta', async () => {
+      prisma.bookedSlot.findFirst.mockResolvedValue(null);
+
+      const result = await service.findCheckoutForBooking(
+        'group-ajeno',
+        'therapist-1',
+      );
+
+      expect(result).toEqual({ paymentUrl: null });
+      expect(prisma.bookedSlot.findFirst).toHaveBeenCalledWith({
+        where: { groupId: 'group-ajeno', therapistId: 'therapist-1' },
+        select: { id: true },
+      });
+      expect(prisma.payment.findFirst).not.toHaveBeenCalled();
     });
   });
 

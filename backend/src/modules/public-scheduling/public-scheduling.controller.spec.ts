@@ -14,11 +14,19 @@ const THROTTLER_SKIP = 'THROTTLER:SKIP';
 // Availability Read Endpoint"/"Public Booking Write Endpoint").
 describe('PublicSchedulingController', () => {
   let controller: PublicSchedulingController;
-  let service: { getAvailability: jest.Mock; book: jest.Mock };
+  let service: {
+    getAvailability: jest.Mock;
+    book: jest.Mock;
+    resolveCheckoutTherapistId: jest.Mock;
+  };
   let paymentsService: { findCheckoutForBooking: jest.Mock };
 
   beforeEach(() => {
-    service = { getAvailability: jest.fn(), book: jest.fn() };
+    service = {
+      getAvailability: jest.fn(),
+      book: jest.fn(),
+      resolveCheckoutTherapistId: jest.fn(),
+    };
     paymentsService = { findCheckoutForBooking: jest.fn() };
     controller = new PublicSchedulingController(
       service as unknown as PublicSchedulingService,
@@ -67,19 +75,35 @@ describe('PublicSchedulingController', () => {
   // PaymentsService.findCheckoutForBooking (PR 4.1) sin transformar la
   // respuesta, así que el "no leaks nada más que URL/amount" ya probado en
   // payments.service.spec.ts se preserva intacto hasta el borde HTTP.
-  it('GET .../book/:groupId/checkout delega en PaymentsService.findCheckoutForBooking con el :groupId de la ruta', async () => {
+  // Issue #496: el :therapistId de la ruta ya no se ignora -- se resuelve (con
+  // el gate del flag) y PaymentsService comprueba que la reserva sea suya.
+  it('GET .../book/:groupId/checkout delega en PaymentsService.findCheckoutForBooking con el :groupId y el terapeuta resuelto de la ruta', async () => {
     const checkout = {
       paymentUrl: 'https://flow.cl/pay/order-token',
       amount: 30000,
     };
+    service.resolveCheckoutTherapistId.mockResolvedValue('therapist-uuid');
     paymentsService.findCheckoutForBooking.mockResolvedValue(checkout);
 
-    const result = await controller.getCheckout('group-1');
+    const result = await controller.getCheckout('ana-perez', 'group-1');
 
     expect(result).toBe(checkout);
+    expect(service.resolveCheckoutTherapistId).toHaveBeenCalledWith(
+      'ana-perez',
+    );
     expect(paymentsService.findCheckoutForBooking).toHaveBeenCalledWith(
       'group-1',
+      'therapist-uuid',
     );
+  });
+
+  it('GET .../book/:groupId/checkout con un terapeuta desconocido responde { paymentUrl: null } sin consultar pagos', async () => {
+    service.resolveCheckoutTherapistId.mockResolvedValue(null);
+
+    const result = await controller.getCheckout('nadie', 'group-1');
+
+    expect(result).toEqual({ paymentUrl: null });
+    expect(paymentsService.findCheckoutForBooking).not.toHaveBeenCalled();
   });
 
   // Bug reportado en pruebas manuales: ThrottlerModule es @Global() en esta

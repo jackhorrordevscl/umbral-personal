@@ -101,7 +101,15 @@ export class PublicSchedulingController {
   @UseGuards(PublicScheduleThrottlerGuard)
   @SkipThrottle({ ...FOREIGN_THROTTLER_NAMES, 'public-booking': true })
   @Get('book/:groupId/checkout')
-  getCheckout(@Param('groupId') groupId: string) {
-    return this.paymentsService.findCheckoutForBooking(groupId);
+  async getCheckout(
+    @Param('therapistId') therapistId: string,
+    @Param('groupId') groupId: string,
+  ) {
+    const resolvedId =
+      await this.publicSchedulingService.resolveCheckoutTherapistId(
+        therapistId,
+      );
+    if (!resolvedId) return { paymentUrl: null };
+    return this.paymentsService.findCheckoutForBooking(groupId, resolvedId);
   }
 }
