@@ -8,18 +8,21 @@ import { isUuid } from '../../common/utils/slug.util';
 // seguir funcionando). Este resolver es el único punto que traduce la
 // referencia a id, para que todos los endpoints públicos se comporten igual.
 //
-// Un UUID se devuelve sin consultar la base: cada endpoint ya valida la
-// existencia del terapeuta como antes, así el comportamiento con UUID
-// (incluido el de un id desconocido) queda idéntico al previo al slug.
+// Issue #496: el UUID recibe los mismos filtros que el slug (terapeuta activo
+// y con rol PROFESSIONAL); antes se devolvía sin consultar la base y un UUID
+// de un usuario borrado o de otro rol seguía operando. Un UUID desconocido se
+// comporta como un slug desconocido.
 @Injectable()
 export class PublicTherapistResolverService {
   constructor(private readonly prisma: PrismaService) {}
 
   async resolveId(ref: string): Promise<string | null> {
-    if (isUuid(ref)) return ref;
-
     const therapist = await this.prisma.user.findFirst({
-      where: { slug: ref, deletedAt: null, role: Role.PROFESSIONAL },
+      where: {
+        ...(isUuid(ref) ? { id: ref } : { slug: ref }),
+        deletedAt: null,
+        role: Role.PROFESSIONAL,
+      },
       select: { id: true },
     });
     return therapist?.id ?? null;

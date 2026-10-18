@@ -14,9 +14,22 @@ describe('PublicTherapistResolverService', () => {
     );
   });
 
-  it('devuelve el UUID tal cual, sin consultar la base', async () => {
+  // Issue #496: el UUID recibe los mismos filtros que el slug (terapeuta
+  // activo y con rol PROFESSIONAL).
+  it('resuelve un UUID de un terapeuta activo con los mismos filtros que el slug', async () => {
+    prisma.user.findFirst.mockResolvedValue({ id: uuid });
+
     await expect(service.resolveId(uuid)).resolves.toBe(uuid);
-    expect(prisma.user.findFirst).not.toHaveBeenCalled();
+    expect(prisma.user.findFirst).toHaveBeenCalledWith({
+      where: { id: uuid, deletedAt: null, role: Role.PROFESSIONAL },
+      select: { id: true },
+    });
+  });
+
+  it('devuelve null si el UUID es de un usuario borrado o sin rol PROFESSIONAL', async () => {
+    prisma.user.findFirst.mockResolvedValue(null);
+
+    await expect(service.resolveId(uuid)).resolves.toBeNull();
   });
 
   it('resuelve un slug al id del terapeuta activo', async () => {

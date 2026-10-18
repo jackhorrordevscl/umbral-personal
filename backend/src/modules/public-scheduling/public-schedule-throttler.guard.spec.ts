@@ -14,6 +14,7 @@ import {
   PUBLIC_BOOKING_IP_BUCKET,
   PublicScheduleThrottlerGuard,
 } from './public-schedule-throttler.guard';
+import { PublicTherapistResolverService } from './public-therapist-resolver.service';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.2, design.md Decision 7 "Rate
 // limiting"): mismo criterio de testeo que getLoginTracker
@@ -200,7 +201,14 @@ describe('PublicScheduleThrottlerGuard (límites extra, issue #299)', () => {
     };
   }
 
-  function buildGuard(env: Record<string, string>, storage: ThrottlerStorage) {
+  // Por defecto actúa como identidad (la referencia ya es el id).
+  function buildGuard(
+    env: Record<string, string>,
+    storage: ThrottlerStorage,
+    resolver: { resolveId: jest.Mock } = {
+      resolveId: jest.fn((ref: string) => Promise.resolve<string | null>(ref)),
+    },
+  ) {
     const config = {
       get: (key: string) => env[key],
     } as unknown as ConfigService;
@@ -209,6 +217,7 @@ describe('PublicScheduleThrottlerGuard (límites extra, issue #299)', () => {
       storage,
       new Reflector(),
       config,
+      resolver as unknown as PublicTherapistResolverService,
     );
   }
 
@@ -317,6 +326,59 @@ describe('PublicScheduleThrottlerGuard (límites extra, issue #299)', () => {
     );
     expect(new Set(keys).size).toBe(1);
     expect(keys[0]).toBe(`${PUBLIC_BOOKING_IP_BUCKET}:203.0.113.9:therapist-1`);
+  });
+
+  // Issue #496: slug y UUID del mismo terapeuta no duplican el límite por IP.
+  it('slug y UUID del mismo terapeuta comparten el bucket ip:therapistId', async () => {
+    const uuid = '35a86f8b-0a4e-4f43-9b9e-0c1d2e3f4a5b';
+    const resolver = {
+      resolveId: jest.fn((ref: string) =>
+        Promise.resolve<string | null>(ref === 'ana-perez' ? uuid : ref),
+      ),
+    };
+    const storage = buildStorage();
+    const guard = buildGuard(
+      { PUBLIC_BOOKING_IP_THROTTLE_LIMIT: '1' },
+      storage,
+      resolver,
+    );
+
+    await expect(
+      guard.canActivate(buildContext('POST', 'ana-perez')),
+    ).resolves.toBe(true);
+    await expect(guard.canActivate(buildContext('POST', uuid))).rejects.toThrow(
+      ThrottlerException,
+    );
+
+    const keys = (storage.increment.mock.calls as Array<[string]>).map(
+      (c) => c[0],
+    );
+    expect(keys).toEqual([
+      `${PUBLIC_BOOKING_IP_BUCKET}:10.0.0.5:${uuid}`,
+      `${PUBLIC_BOOKING_IP_BUCKET}:10.0.0.5:${uuid}`,
+    ]);
+  });
+
+  it('si el resolver falla o no conoce la referencia, usa la referencia cruda', async () => {
+    const resolver = {
+      resolveId: jest
+        .fn()
+        .mockRejectedValueOnce(new Error('db caída'))
+        .mockResolvedValueOnce(null),
+    };
+    const storage = buildStorage();
+    const guard = buildGuard({}, storage, resolver);
+
+    await guard.canActivate(buildContext('POST', 'desconocido'));
+    await guard.canActivate(buildContext('POST', 'otro'));
+
+    const keys = (storage.increment.mock.calls as Array<[string]>).map(
+      (c) => c[0],
+    );
+    expect(keys).toEqual([
+      `${PUBLIC_BOOKING_IP_BUCKET}:10.0.0.5:desconocido`,
+      `${PUBLIC_BOOKING_IP_BUCKET}:10.0.0.5:otro`,
+    ]);
   });
 
   it('no cuenta las lecturas (GET) contra los límites extra', async () => {
