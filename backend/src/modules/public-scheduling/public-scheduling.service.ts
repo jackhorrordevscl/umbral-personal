@@ -7,7 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { NotificationType, PaymentAccountStatus } from '@prisma/client';
+import { NotificationType, PaymentAccountStatus, Prisma } from '@prisma/client';
 import { ThrottlerException } from '@nestjs/throttler';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -113,6 +113,24 @@ export class PublicSchedulingService {
     return this.therapistResolver.resolveId(therapistRef);
   }
 
+  private async assertWithinDailyLimit(
+    client: Pick<Prisma.TransactionClient, 'bookedSlot'>,
+    therapistId: string,
+  ): Promise<void> {
+    const recentBookings = await client.bookedSlot.count({
+      where: {
+        therapistId,
+        createdAt: { gte: new Date(Date.now() - this.dailyBookingWindowMs) },
+      },
+    });
+    if (recentBookings >= this.dailyBookingLimit) {
+      this.logger.warn(
+        `Tope diario de reservas públicas excedido (therapistId=${therapistId})`,
+      );
+      throw new ThrottlerException();
+    }
+  }
+
   async getAvailability(
     therapistRef: string,
     query: PublicAvailabilityQueryDto,
@@ -163,18 +181,10 @@ export class PublicSchedulingService {
     // no crean nada tras la transacción atómica y no consumen el tope. Se
     // rechaza antes de calcular disponibilidad o escribir, sin crear nada ni
     // notificar.
-    const recentBookings = await this.prisma.bookedSlot.count({
-      where: {
-        therapistId,
-        createdAt: { gte: new Date(Date.now() - this.dailyBookingWindowMs) },
-      },
-    });
-    if (recentBookings >= this.dailyBookingLimit) {
-      this.logger.warn(
-        `Tope diario de reservas públicas excedido (therapistId=${therapistId})`,
-      );
-      throw new ThrottlerException();
-    }
+    // Este chequeo previo es solo un atajo barato (evita calcular
+    // disponibilidad); no es atómico, así que se repite dentro de la
+    // transacción con el lock del terapeuta tomado (issue #496).
+    await this.assertWithinDailyLimit(this.prisma, therapistId);
 
     const slotStart = new Date(dto.slotStart);
     const slotEnd = new Date(
@@ -217,6 +227,11 @@ export class PublicSchedulingService {
         // escalar luego a FOR UPDATE podría deadlockear con otra reserva.
         // Orden de locks: User -> Patient.
         await this.consultationsService.lockTherapistSchedule(tx, therapistId);
+        // Issue #496: con el lock tomado, las reservas concurrentes del mismo
+        // terapeuta se serializan y cada una ve las confirmadas por las
+        // anteriores; sin esto el conteo previo permitía pasar el tope. Un 429
+        // acá hace rollback sin haber escrito nada.
+        await this.assertWithinDailyLimit(tx, therapistId);
         const resolved = await this.patientsService.resolveForPublicBooking(
           therapistId,
           dto.patient,
