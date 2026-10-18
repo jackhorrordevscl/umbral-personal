@@ -13,6 +13,7 @@ import type {
 } from '@nestjs/throttler';
 import { createHash } from 'crypto';
 import { getClientIp } from '../../common/utils/client-ip.util';
+import { PublicTherapistResolverService } from './public-therapist-resolver.service';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.2, design.md Decision 7 "Rate
 // limiting"): el getTracker de buildAuthThrottlerOptions (AuthModule) es
@@ -32,13 +33,12 @@ import { getClientIp } from '../../common/utils/client-ip.util';
 // trim+lowercase, así que el mismo email con distinto casing cae en el mismo
 // bucket de throttling.
 //
-// El :therapistId de la ruta puede ser el slug o el UUID del terapeuta, y acá
-// se usa tal cual: resolverlo a id exigiría una consulta a la base dentro del
-// guard, en cada request público. Consecuencia conocida: la misma persona que
-// alterne entre slug y UUID usa dos buckets de throttling distintos. No abre un
-// bypass del tope duro: el tope diario de reservas se cuenta en base de datos
-// por id (PublicSchedulingService.book), sin importar la forma de la
-// referencia.
+// El :therapistId de la ruta puede ser el slug o el UUID del terapeuta. Issue
+// #496: el guard lo resuelve a id (PublicTherapistResolverService, una consulta
+// por request, memoizada en el request) para que slug y UUID del mismo
+// terapeuta compartan bucket; si el resolver falla o no conoce la referencia,
+// se usa la referencia cruda (el comportamiento anterior). La función pura
+// recibe `params.therapistId` ya canónico.
 //
 // Issue #301: la IP es la del cliente real (getClientIp), no req.ip en crudo:
 // detrás del proxy req.ip es la del proxy y todos los visitantes compartirían
@@ -143,6 +143,7 @@ export class PublicScheduleThrottlerGuard extends ThrottlerGuard {
     @InjectThrottlerStorage() storageService: ThrottlerStorage,
     reflector: Reflector,
     config: ConfigService,
+    private readonly therapistResolver: PublicTherapistResolverService,
   ) {
     super(options, storageService, reflector);
     this.extraLimits = buildPublicBookingExtraLimits(config);
@@ -152,12 +153,38 @@ export class PublicScheduleThrottlerGuard extends ThrottlerGuard {
     );
   }
 
-  protected getTracker(req: Record<string, any>): Promise<string> {
-    return Promise.resolve(
-      getPublicScheduleTracker(
-        req as Parameters<typeof getPublicScheduleTracker>[0],
-        this.trustedProxyHops,
-      ),
+  // Issue #496: id canónico del terapeuta de la ruta, memoizado por request
+  // (getTracker y canActivate lo necesitan los dos).
+  private readonly canonicalTherapistKeys = new WeakMap<object, string>();
+
+  private async canonicalTherapistKey(req: {
+    params?: Record<string, string | string[] | undefined>;
+  }): Promise<string> {
+    const cached = this.canonicalTherapistKeys.get(req);
+    if (cached !== undefined) return cached;
+
+    const rawTherapistId = req.params?.['therapistId'];
+    const ref = Array.isArray(rawTherapistId)
+      ? rawTherapistId[0]
+      : (rawTherapistId ?? 'unknown');
+    let key = ref;
+    try {
+      key = (await this.therapistResolver.resolveId(ref)) ?? ref;
+    } catch (err: unknown) {
+      this.logger.warn(
+        `No se pudo resolver el terapeuta para el throttling; se usa la referencia cruda: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    this.canonicalTherapistKeys.set(req, key);
+    return key;
+  }
+
+  protected async getTracker(req: Record<string, any>): Promise<string> {
+    const typedReq = req as Parameters<typeof getPublicScheduleTracker>[0];
+    const therapistId = await this.canonicalTherapistKey(typedReq);
+    return getPublicScheduleTracker(
+      { ...typedReq, params: { ...typedReq.params, therapistId } },
+      this.trustedProxyHops,
     );
   }
 
@@ -177,10 +204,7 @@ export class PublicScheduleThrottlerGuard extends ThrottlerGuard {
     );
     if (req.method !== 'POST') return true;
 
-    const rawTherapistId = req.params?.['therapistId'];
-    const therapistId = Array.isArray(rawTherapistId)
-      ? rawTherapistId[0]
-      : (rawTherapistId ?? 'unknown');
+    const therapistId = await this.canonicalTherapistKey(req);
     const { ipTherapistLimit, ipTherapistTtlMs } = this.extraLimits;
 
     const ipRecord = await this.storageService.increment(
