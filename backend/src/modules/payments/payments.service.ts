@@ -1091,12 +1091,15 @@ export class PaymentsService {
       // Issue #494: compare-and-set. Solo se guarda la orden si el cargo sigue
       // vigente y con el token que el llamador leyó; si no, otra reemisión,
       // una cancelación o un pago ya cambió la fila y esta orden quedaría viva
-      // en la pasarela sin que nada la rastree.
+      // en la pasarela sin que nada la rastree. También exige el monto con el
+      // que se emitió: con dos PATCH de monto simultáneos, la orden que gana el
+      // token podría ser la del monto viejo.
       const saved = await this.prisma.payment.updateMany({
         where: {
           id: paymentId,
           status: { in: [...CANCELLABLE_STATUSES] },
           gatewayToken: expectedToken,
+          amount,
         },
         data: {
           gatewayToken: order.token,

@@ -313,6 +313,7 @@ describe('PaymentsService', () => {
           id: 'payment-1',
           status: { in: ['PENDING', 'LATE'] },
           gatewayToken: null,
+          amount: 30000,
         },
         data: expect.objectContaining({
           gatewayToken: 'order-token',
@@ -1067,6 +1068,28 @@ describe('PaymentsService', () => {
       expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
     });
 
+    // Issue #494: con dos PATCH de monto simultáneos, la orden que gana el
+    // token puede ser la del monto viejo. El compare-and-set también exige que
+    // la fila conserve el monto con el que se emitió la orden.
+    it('guarda la orden solo si la fila conserva el monto con el que se emitió', async () => {
+      arrangeWithPreviousOrder();
+
+      await service.updateAmount('group-1', 45000);
+
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: 'payment-1',
+            gatewayToken: 'old-token',
+            amount: 45000,
+          }) as unknown,
+          data: expect.objectContaining({
+            gatewayToken: 'order-token',
+          }) as unknown,
+        }),
+      );
+    });
+
     it('si anular la orden anterior falla, lo loguea y igual reemite', async () => {
       arrangeWithPreviousOrder();
       gatewayAdapter.voidOrder.mockRejectedValue(
@@ -1295,6 +1318,7 @@ describe('PaymentsService', () => {
           id: 'payment-1',
           status: { in: ['PENDING', 'LATE'] },
           gatewayToken: null,
+          amount: 30000,
         },
         data: expect.objectContaining({
           paymentUrl: 'https://flow.cl/pay/order-token',
@@ -1412,6 +1436,7 @@ describe('PaymentsService', () => {
           id: 'payment-1',
           status: { in: ['PENDING', 'LATE'] },
           gatewayToken: null,
+          amount: 30000,
         },
         data: expect.objectContaining({
           paymentUrl: 'https://flow.cl/pay/order-token',
