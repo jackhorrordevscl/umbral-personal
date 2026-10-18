@@ -156,7 +156,7 @@ describe('PaymentsService', () => {
         findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn().mockResolvedValue(undefined),
-        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUniqueOrThrow: jest.fn(),
       },
     };
@@ -308,13 +308,43 @@ describe('PaymentsService', () => {
           externalId: 'group-1',
         }) as unknown,
       );
-      expect(prisma.payment.update).toHaveBeenCalledWith({
-        where: { id: 'payment-1' },
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'payment-1',
+          status: { in: ['PENDING', 'LATE'] },
+          gatewayToken: null,
+        },
         data: expect.objectContaining({
           gatewayToken: 'order-token',
           paymentUrl: 'https://flow.cl/pay/order-token',
         }) as unknown,
       });
+    });
+
+    // Issue #494: compare-and-set al guardar la orden. Si la fila cambió
+    // mientras se emitía (otra reemisión, cancelación o pago), la orden recién
+    // creada se anula y no se envía ningún link.
+    it('si el cargo cambió mientras se emitía la orden, anula la orden nueva y no envía el link', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      prisma.payment.findUnique.mockResolvedValue(null);
+      prisma.payment.create.mockResolvedValue(buildPayment());
+      prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+
+      await service.ensureCharge('group-1');
+
+      expect(gatewayAdapter.voidOrder).toHaveBeenCalledWith(
+        buildContext().credentials,
+        'order-token',
+      );
+      expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+      expect(prisma.payment.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { linkDelivery: 'FAILED' },
+        }),
+      );
     });
 
     // Hallazgo del judgment-day transversal (#502): un alta o un soft-delete
@@ -990,8 +1020,8 @@ describe('PaymentsService', () => {
 
       await service.updateAmount('group-1', 45000);
 
-      expect(prisma.payment.update).toHaveBeenCalledWith({
-        where: { id: 'payment-1' },
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment-1', gatewayToken: 'old-token' },
         data: { paymentUrl: null, gatewayToken: null },
       });
       expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
@@ -1003,10 +1033,38 @@ describe('PaymentsService', () => {
 
       await service.updateAmount('group-1', 45000);
 
-      expect(prisma.payment.update).not.toHaveBeenCalledWith({
-        where: { id: 'payment-1' },
+      expect(prisma.payment.updateMany).not.toHaveBeenCalledWith({
+        where: { id: 'payment-1', gatewayToken: 'old-token' },
         data: { paymentUrl: null, gatewayToken: null },
       });
+    });
+
+    // Issue #494: dos PATCH de monto simultáneos anulan la misma orden y
+    // emiten una cada uno; solo la que encuentra el token que leyó se guarda.
+    // La perdedora anula su propia orden, no pisa el token de la ganadora y
+    // responde 409.
+    it('si otra reemisión ganó la carrera, anula la orden propia, no limpia el token de la ganadora y responde 409', async () => {
+      arrangeWithPreviousOrder();
+      prisma.payment.updateMany.mockImplementation(
+        (args: { data: { status?: string; amount?: number } }) =>
+          Promise.resolve({
+            count: 'gatewayToken' in args.data ? 0 : 1,
+          }),
+      );
+
+      await expect(service.updateAmount('group-1', 45000)).rejects.toThrow(
+        'El cobro cambió mientras se procesaba',
+      );
+
+      expect(gatewayAdapter.voidOrder).toHaveBeenCalledWith(
+        expect.anything(),
+        'order-token',
+      );
+      expect(prisma.payment.updateMany).not.toHaveBeenCalledWith({
+        where: { id: 'payment-1', gatewayToken: 'old-token' },
+        data: { paymentUrl: null, gatewayToken: null },
+      });
+      expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
     });
 
     it('si anular la orden anterior falla, lo loguea y igual reemite', async () => {
@@ -1140,6 +1198,7 @@ describe('PaymentsService', () => {
             where: {
               id: 'payment-1',
               status: { in: ['PENDING', 'LATE'] },
+              amount: 30000,
             },
             data: expect.objectContaining({
               status: 'PAID',
@@ -1231,8 +1290,12 @@ describe('PaymentsService', () => {
           payerEmail: 'paciente@example.com',
         }) as unknown,
       );
-      expect(prisma.payment.update).toHaveBeenCalledWith({
-        where: { id: 'payment-1' },
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'payment-1',
+          status: { in: ['PENDING', 'LATE'] },
+          gatewayToken: null,
+        },
         data: expect.objectContaining({
           paymentUrl: 'https://flow.cl/pay/order-token',
           lastError: null,
@@ -1344,8 +1407,12 @@ describe('PaymentsService', () => {
           payerEmail: 'apoderada@example.com',
         }) as unknown,
       );
-      expect(prisma.payment.update).toHaveBeenCalledWith({
-        where: { id: 'payment-1' },
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'payment-1',
+          status: { in: ['PENDING', 'LATE'] },
+          gatewayToken: null,
+        },
         data: expect.objectContaining({
           paymentUrl: 'https://flow.cl/pay/order-token',
           lastError: null,
@@ -1375,8 +1442,8 @@ describe('PaymentsService', () => {
         'old-token',
       );
       expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
-      expect(prisma.payment.update).toHaveBeenCalledWith({
-        where: { id: 'payment-1' },
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment-1', gatewayToken: 'old-token' },
         data: { paymentUrl: null, gatewayToken: null },
       });
     });
@@ -2173,6 +2240,47 @@ describe('PaymentsService', () => {
           userId: 'therapist-1',
           type: 'PAYMENT_ANOMALY',
         }) as unknown,
+      );
+      errorSpy.mockRestore();
+    });
+
+    // Issue #494: el monto viaja en el propio UPDATE. Un PATCH de monto entre
+    // la lectura y la escritura hace que el UPDATE no encuentre la fila; se
+    // relee y se informa la anomalía en vez de dejar PAID con otro monto.
+    it('compara el monto en el propio UPDATE y, si cambió entre la lectura y la escritura, informa la anomalía', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        buildPayment({ status: 'PENDING', gatewayToken: 'flow-token' }),
+      );
+      prisma.payment.findUnique
+        .mockResolvedValueOnce(buildPayment({ amount: 30000 }))
+        .mockResolvedValueOnce(buildPayment({ amount: 45000 }));
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.getOrderStatus.mockResolvedValue({
+        status: 'PAID',
+        amount: 30000,
+      });
+      prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await service.confirm('flow-token');
+
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'payment-1',
+          status: { in: ['PENDING', 'LATE'] },
+          amount: 30000,
+        },
+        data: expect.objectContaining({ status: 'PAID' }) as unknown,
+      });
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/localAmount=45000.*gatewayAmount=30000/),
+      );
+      expect(notificationsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'PAYMENT_ANOMALY' }) as unknown,
       );
       errorSpy.mockRestore();
     });
