@@ -72,6 +72,18 @@ interface IssueOrderRequest {
   groupId: string;
   // null = menor sin representante con email: no se emite la orden.
   payerEmail: string | null;
+  // Token que el llamador leyó de la fila (null si nunca tuvo orden). La orden
+  // nueva solo se guarda si la fila sigue igual (ver issueOrder).
+  expectedToken: string | null;
+}
+
+// Issue #494: otra operación (una reemisión concurrente, una cancelación o un
+// pago) cambió el cargo mientras se emitía la orden; la orden recién creada ya
+// se anuló en la pasarela y no hay nada más que hacer con ella.
+class OrderSupersededException extends ConflictException {
+  constructor() {
+    super('El cobro cambió mientras se procesaba. Intenta de nuevo.');
+  }
 }
 
 const MINOR_WITHOUT_GUARDIAN_EMAIL_ERROR =
@@ -230,17 +242,25 @@ export class PaymentsService {
       return;
     }
 
-    const order = await this.issueOrder({
-      paymentId: created.id,
-      context,
-      amount,
-      groupId,
-      payerEmail: await this.resolvePayerEmail(
-        consultation.patient,
-        consultation.therapistId,
-        consultation.therapist.email,
-      ),
-    });
+    let order: { paymentUrl: string } | null;
+    try {
+      order = await this.issueOrder({
+        paymentId: created.id,
+        context,
+        amount,
+        groupId,
+        payerEmail: await this.resolvePayerEmail(
+          consultation.patient,
+          consultation.therapistId,
+          consultation.therapist.email,
+        ),
+        expectedToken: null,
+      });
+    } catch (err) {
+      // Una cancelación o reemisión ganó la carrera: su orden es la vigente.
+      if (err instanceof OrderSupersededException) return;
+      throw err;
+    }
 
     // Si el cargo se canceló mientras se emitía la orden, el link recién
     // creado no debe llegar al paciente ni quedar vivo en la pasarela.
@@ -444,14 +464,17 @@ export class PaymentsService {
         amount,
         groupId,
         payerEmail,
+        expectedToken: payment.gatewayToken,
       });
       if (!order && payment.gatewayToken) {
         // La reemisión falló: la orden anterior ya fue anulada (o su
         // anulación falló y quedó logueada), así que el link/token guardado
         // no es confiable. Se limpian para que la UI ofrezca reintentar el
-        // cobro en vez de mostrar un link con el monto viejo.
-        await this.prisma.payment.update({
-          where: { id: payment.id },
+        // cobro en vez de mostrar un link con el monto viejo. Solo si el
+        // token sigue siendo el que se leyó: una reemisión concurrente que
+        // ganó guardó el suyo y no se pisa.
+        await this.prisma.payment.updateMany({
+          where: { id: payment.id, gatewayToken: payment.gatewayToken },
           data: { paymentUrl: null, gatewayToken: null },
         });
       }
@@ -504,6 +527,7 @@ export class PaymentsService {
       amount: payment.amount,
       groupId,
       payerEmail,
+      expectedToken: payment.gatewayToken,
     });
     if (patient) {
       await this.deliverPaymentLink(payment.id, patient, order, payment.amount);
@@ -771,7 +795,7 @@ export class PaymentsService {
   // loguea fuerte en vez de tragarse en silencio.
   private async voidGatewayOrder(
     context: GatewayContext,
-    payment: Payment,
+    payment: Pick<Payment, 'id' | 'groupId' | 'gatewayToken'>,
   ): Promise<void> {
     if (!payment.gatewayToken) return;
     try {
@@ -1013,7 +1037,8 @@ export class PaymentsService {
   private async issueOrder(
     request: IssueOrderRequest,
   ): Promise<{ paymentUrl: string } | null> {
-    const { paymentId, context, amount, groupId, payerEmail } = request;
+    const { paymentId, context, amount, groupId, payerEmail, expectedToken } =
+      request;
     const backendUrl =
       this.config.get<string>('BACKEND_PUBLIC_URL') ?? DEFAULT_BACKEND_URL;
 
@@ -1063,8 +1088,16 @@ export class PaymentsService {
           returnUrl: `${backendUrl}${PAYMENT_RETURN_REDIRECT_PATH}`,
           confirmUrl: `${backendUrl}${PAYMENT_CONFIRM_PATH}`,
         });
-      await this.prisma.payment.update({
-        where: { id: paymentId },
+      // Issue #494: compare-and-set. Solo se guarda la orden si el cargo sigue
+      // vigente y con el token que el llamador leyó; si no, otra reemisión,
+      // una cancelación o un pago ya cambió la fila y esta orden quedaría viva
+      // en la pasarela sin que nada la rastree.
+      const saved = await this.prisma.payment.updateMany({
+        where: {
+          id: paymentId,
+          status: { in: [...CANCELLABLE_STATUSES] },
+          gatewayToken: expectedToken,
+        },
         data: {
           gatewayToken: order.token,
           paymentUrl: order.paymentUrl,
@@ -1072,11 +1105,20 @@ export class PaymentsService {
           lastError: null,
         },
       });
+      if (saved.count === 0) {
+        await this.voidGatewayOrder(context, {
+          id: paymentId,
+          groupId,
+          gatewayToken: order.token,
+        });
+        throw new OrderSupersededException();
+      }
       // T8.3: the caller (ensureCharge -> deliverPaymentLink) needs the
       // just-issued paymentUrl for the email -- it's returned here instead
       // of forcing a re-fetch of the Payment already updated above.
       return { paymentUrl: order.paymentUrl };
     } catch (err) {
+      if (err instanceof OrderSupersededException) throw err;
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(
         `Fallo al crear la orden de pago (paymentId=${paymentId}, groupId=${groupId}): ${message}`,
@@ -1148,29 +1190,52 @@ export class PaymentsService {
     gatewayPaymentId: string | undefined,
     gatewayAmount?: number,
   ): Promise<void> {
-    if (gatewayAmount !== undefined) {
-      const payment = await this.prisma.payment.findUnique({
-        where: { id: paymentId },
-      });
-      if (payment && payment.amount !== gatewayAmount) {
-        await this.reportPaymentAnomaly(
-          payment,
-          'El monto cobrado en la pasarela no coincide con el del cobro; no se marca como pagado',
-          'Monto de pago distinto al del cobro',
-          'La pasarela registró un pago con un monto distinto al del cobro. El cobro no se marcó como pagado; revisa tu cuenta de la pasarela.',
-          `, localAmount=${payment.amount}, gatewayAmount=${gatewayAmount}`,
-        );
-        return;
-      }
+    if (
+      gatewayAmount !== undefined &&
+      (await this.reportAmountMismatch(paymentId, gatewayAmount))
+    ) {
+      return;
     }
 
-    await this.prisma.payment.updateMany({
-      where: { id: paymentId, status: { in: [...CANCELLABLE_STATUSES] } },
+    // Issue #494: con el monto de la pasarela, la comparación viaja en el
+    // propio UPDATE; un PATCH de monto entre la lectura de arriba y esta
+    // escritura ya no deja la fila PAID con un monto que no coincide.
+    const result = await this.prisma.payment.updateMany({
+      where: {
+        id: paymentId,
+        status: { in: [...CANCELLABLE_STATUSES] },
+        ...(gatewayAmount !== undefined ? { amount: gatewayAmount } : {}),
+      },
       data: {
         status: 'PAID',
         paidAt: new Date(),
         gatewayPaymentId,
       },
     });
+    if (result.count === 0 && gatewayAmount !== undefined) {
+      await this.reportAmountMismatch(paymentId, gatewayAmount);
+    }
+  }
+
+  // true si el monto del cargo difiere del que cobró la pasarela: lo registra
+  // como anomalía y el llamador no lo marca como pagado.
+  private async reportAmountMismatch(
+    paymentId: string,
+    gatewayAmount: number,
+  ): Promise<boolean> {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: paymentId },
+    });
+    if (!payment || payment.amount === gatewayAmount) {
+      return false;
+    }
+    await this.reportPaymentAnomaly(
+      payment,
+      'El monto cobrado en la pasarela no coincide con el del cobro; no se marca como pagado',
+      'Monto de pago distinto al del cobro',
+      'La pasarela registró un pago con un monto distinto al del cobro. El cobro no se marcó como pagado; revisa tu cuenta de la pasarela.',
+      `, localAmount=${payment.amount}, gatewayAmount=${gatewayAmount}`,
+    );
+    return true;
   }
 }
