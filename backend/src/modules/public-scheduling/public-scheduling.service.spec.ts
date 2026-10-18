@@ -34,7 +34,9 @@ describe('PublicSchedulingService', () => {
     bookedSlot: { count: jest.Mock };
     $transaction: jest.Mock;
   };
-  const tx = { __tx: true };
+  const tx: { __tx: boolean; bookedSlot?: { count: jest.Mock } } = {
+    __tx: true,
+  };
   let availabilityService: { computeSlots: jest.Mock };
   let patientsService: { resolveForPublicBooking: jest.Mock };
   let consultationsService: {
@@ -84,6 +86,9 @@ describe('PublicSchedulingService', () => {
       // sentinela; si el callback lanza, la promesa se rechaza (rollback).
       $transaction: jest.fn((cb: (t: unknown) => Promise<unknown>) => cb(tx)),
     };
+    // Issue #496: el tope también se cuenta dentro de la transacción; el tx
+    // comparte el mock de conteo con prisma para poder simular el orden.
+    tx.bookedSlot = prisma.bookedSlot;
     availabilityService = { computeSlots: jest.fn() };
     patientsService = { resolveForPublicBooking: jest.fn() };
     consultationsService = {
@@ -741,7 +746,34 @@ describe('PublicSchedulingService', () => {
       await expect(service.book('therapist-1', dto)).resolves.toMatchObject({
         id: 'consultation-1',
       });
-      expect(prisma.bookedSlot.count).toHaveBeenCalledTimes(2);
+      // 1.er intento: solo el conteo previo (409 antes de la transacción);
+      // 2.º: conteo previo + conteo dentro de la transacción.
+      expect(prisma.bookedSlot.count).toHaveBeenCalledTimes(3);
+    });
+
+    it('issue #496: una reserva concurrente que llena el tope tras el conteo previo se rechaza dentro de la transacción', async () => {
+      service = buildService(true, false, { PUBLIC_BOOKING_DAILY_LIMIT: '3' });
+      setUpFreeSlot();
+      // El conteo previo (fuera del lock) ve 2; cuando esta reserva obtiene el
+      // lock del terapeuta, otra ya confirmó la tercera.
+      prisma.bookedSlot.count.mockResolvedValueOnce(2).mockResolvedValueOnce(3);
+
+      await expect(service.book('therapist-1', dto)).rejects.toThrow(
+        ThrottlerException,
+      );
+      await Promise.resolve();
+
+      expect(consultationsService.lockTherapistSchedule).toHaveBeenCalledTimes(
+        1,
+      );
+      expect(patientsService.resolveForPublicBooking).not.toHaveBeenCalled();
+      expect(
+        consultationsService.createFromPublicBooking,
+      ).not.toHaveBeenCalled();
+      expect(notificationsService.create).not.toHaveBeenCalled();
+      expect(
+        consultationsService.afterPublicBookingCommit,
+      ).not.toHaveBeenCalled();
     });
 
     it('cuenta solo las reservas del terapeuta pedido, en la ventana de 24h', async () => {
