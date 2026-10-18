@@ -30,6 +30,7 @@ import { SharedFilesModule } from './shared-files/shared-files.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { ClientIpMiddleware } from './common/middleware/client-ip.middleware';
+import { NoStoreMiddleware } from './common/middleware/no-store.middleware';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { HealthController } from './health/health.controller';
@@ -89,10 +90,11 @@ import { HealthController } from './health/health.controller';
 })
 export class AppModule implements NestModule {
   // Issue #301: deja la IP real del cliente en req.clientIp antes de guards e
-  // interceptores (auditoría, sesiones, historial de MFA).
+  // interceptores (auditoría, sesiones, historial de MFA). NoStoreMiddleware
+  // marca toda respuesta como no almacenable (#502).
   configure(consumer: MiddlewareConsumer) {
     consumer
-      .apply(ClientIpMiddleware)
+      .apply(ClientIpMiddleware, NoStoreMiddleware)
       .forRoutes({ path: '{*path}', method: RequestMethod.ALL });
   }
 }
