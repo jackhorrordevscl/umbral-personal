@@ -574,11 +574,24 @@ export class PaymentsService {
   // whatever PENDING/LATE/PAID the charge is in, the same paymentUrl (once
   // issued) is returned identically -- payment truth lives exclusively in
   // urlConfirmation/payment/getStatus (design.md Decision 2), never here.
+  //
+  // Issue #496: el endpoint es anónimo y el groupId es lo único que lo
+  // protege, así que además se exige que la reserva pública (BookedSlot, solo
+  // la crea createFromPublicBooking) y el cargo pertenezcan al terapeuta de la
+  // ruta. Cualquier otro caso responde igual que "sin orden todavía".
   async findCheckoutForBooking(
     groupId: string,
+    therapistId: string,
   ): Promise<{ paymentUrl: string; amount: number } | { paymentUrl: null }> {
-    const payment = await this.prisma.payment.findUnique({
-      where: { groupId },
+    const bookedSlot = await this.prisma.bookedSlot.findFirst({
+      where: { groupId, therapistId },
+      select: { id: true },
+    });
+    if (!bookedSlot) {
+      return { paymentUrl: null };
+    }
+    const payment = await this.prisma.payment.findFirst({
+      where: { groupId, therapistId },
       select: { paymentUrl: true, amount: true },
     });
     if (!payment?.paymentUrl) {

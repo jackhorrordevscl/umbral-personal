@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
@@ -201,5 +202,16 @@ describe('Public booking checkout (e2e)', () => {
       'amount',
       'paymentUrl',
     ]);
+  });
+
+  // Issue #496: el groupId solo vale bajo el terapeuta dueño de la reserva.
+  it('con el :therapistId de otro terapeuta, el mismo groupId responde { paymentUrl: null } aunque el cargo tenga orden emitida', async () => {
+    const response = await request(app.getHttpServer())
+      .get(
+        `/api/v1/public/therapists/${randomUUID()}/availability/book/${groupId}/checkout`,
+      )
+      .expect(200);
+
+    expect(response.body).toEqual({ paymentUrl: null });
   });
 });

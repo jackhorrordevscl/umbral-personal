@@ -102,6 +102,17 @@ export class PublicSchedulingService {
     }
   }
 
+  // Issue #496: el checkout público respeta el mismo flag que la lectura y la
+  // reserva, y resuelve el terapeuta de la ruta (slug o UUID) para que
+  // PaymentsService compruebe que la reserva le pertenece. Un terapeuta
+  // desconocido devuelve null: el llamador responde como "sin orden todavía".
+  async resolveCheckoutTherapistId(
+    therapistRef: string,
+  ): Promise<string | null> {
+    this.assertEnabled();
+    return this.therapistResolver.resolveId(therapistRef);
+  }
+
   async getAvailability(
     therapistRef: string,
     query: PublicAvailabilityQueryDto,
@@ -275,10 +286,22 @@ export class PublicSchedulingService {
       return confirmation;
     }
 
-    const checkout = await this.resolveCheckoutHint(
-      therapistId,
-      patient.defaultSessionAmount,
-    );
+    // Issue #496: la reserva ya está confirmada y sus efectos lanzados; un
+    // fallo de esta lectura no puede convertirse en un 500 (el reintento del
+    // mismo horario daría 409 y el cliente lo trataría como horario ocupado).
+    // El hint es solo una ayuda para el polling: ante un fallo, sin polling.
+    let checkout: CheckoutHint;
+    try {
+      checkout = await this.resolveCheckoutHint(
+        therapistId,
+        patient.defaultSessionAmount,
+      );
+    } catch (err: unknown) {
+      this.logger.error(
+        `Fallo no bloqueante al resolver el hint de checkout (therapistId=${therapistId}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+      checkout = { status: 'NOT_APPLICABLE' };
+    }
     return { ...confirmation, checkout };
   }
 

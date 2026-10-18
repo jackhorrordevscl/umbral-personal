@@ -924,6 +924,62 @@ describe('PublicSchedulingService', () => {
 
       expect(result).toMatchObject({ checkout: { status: 'PENDING' } });
     });
+
+    // Issue #496: la reserva ya está confirmada cuando se resuelve el hint; si
+    // la lectura falla no puede salir un 500 (el reintento daría 409).
+    it('con el flag prendido, si la lectura de PaymentAccount falla: la reserva igual responde, con NOT_APPLICABLE', async () => {
+      service = buildService(true, true);
+      setUpSuccessfulBooking({
+        id: 'patient-1',
+        rut: '11111111-1',
+        defaultSessionAmount: 30000,
+      });
+      prisma.paymentAccount.findUnique.mockRejectedValue(
+        new Error('conexión perdida'),
+      );
+
+      const result = await service.book('therapist-1', {
+        slotStart: '2026-09-05T13:00:00.000Z',
+        patient: patientDto,
+      } as never);
+
+      expect(result).toMatchObject({
+        id: 'consultation-1',
+        groupId: 'consultation-1',
+        checkout: { status: 'NOT_APPLICABLE' },
+      });
+      expect(consultationsService.afterPublicBookingCommit).toHaveBeenCalled();
+    });
+  });
+
+  // Issue #496: el checkout público respeta el flag y resuelve al terapeuta de
+  // la ruta antes de que PaymentsService compruebe la pertenencia.
+  describe('resolveCheckoutTherapistId', () => {
+    it('lanza 503 si el flag está deshabilitado', async () => {
+      service = buildService(false);
+
+      await expect(
+        service.resolveCheckoutTherapistId('therapist-1'),
+      ).rejects.toThrow(ServiceUnavailableException);
+      expect(resolver.resolveId).not.toHaveBeenCalled();
+    });
+
+    it('resuelve el slug o UUID al id del terapeuta', async () => {
+      resolver.resolveId.mockResolvedValue('uuid-1');
+
+      await expect(
+        service.resolveCheckoutTherapistId('ana-perez'),
+      ).resolves.toBe('uuid-1');
+      expect(resolver.resolveId).toHaveBeenCalledWith('ana-perez');
+    });
+
+    it('devuelve null para un terapeuta desconocido', async () => {
+      resolver.resolveId.mockResolvedValue(null);
+
+      await expect(
+        service.resolveCheckoutTherapistId('nadie'),
+      ).resolves.toBeNull();
+    });
   });
 
   // issue #139: paciente nuevo autocreado vía autoagenda nunca tiene
