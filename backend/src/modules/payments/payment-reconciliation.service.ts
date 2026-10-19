@@ -133,7 +133,15 @@ export class PaymentReconciliationService {
 
     // A minor's notice goes to the legal guardian, never to the minor.
     const recipient = resolvePatientRecipient(patient);
-    if (recipient.email) {
+    // Issue #494: un cargo que nunca tuvo enlace (monto bajo el mínimo de la
+    // pasarela, orden no emitida o enlace descartado) no le pidió nada al
+    // paciente, así que no se le avisa que "venció sin pago". El aviso al
+    // terapeuta se mantiene: el cargo quedó sin cobrar.
+    if (!payment.paymentUrl) {
+      this.logger.warn(
+        `Cobro vencido sin enlace de pago: correo al paciente omitido (paymentId=${payment.id})`,
+      );
+    } else if (recipient.email) {
       if (recipient.kind === 'GUARDIAN') {
         await this.mailService.sendLatePaymentEmail(
           recipient.email,

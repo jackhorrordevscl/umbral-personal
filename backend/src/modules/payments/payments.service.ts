@@ -190,8 +190,12 @@ export class PaymentsService {
     // precedence is implemented as a later update via updateAmount(), never
     // as a parameter of this method (same criterion as the snapshot: once
     // applied, the override is never overwritten here either).
+    //
+    // Issue #494: un monto 0 significa "sin cobro" y se trata igual que no
+    // tener monto. Crearlo dejaba un cargo sin enlace (0 queda bajo el mínimo
+    // de la pasarela) que el barrido terminaba marcando como vencido.
     const amount = consultation.patient.defaultSessionAmount;
-    if (amount === null || amount === undefined) return;
+    if (!amount) return;
 
     let created: Payment;
     try {

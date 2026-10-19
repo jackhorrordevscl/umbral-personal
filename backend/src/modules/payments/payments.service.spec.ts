@@ -211,6 +211,13 @@ describe('PaymentsService', () => {
         () => undefined,
         { defaultSessionAmount: null },
       ],
+      // Issue #494: 0 significa "sin cobro", igual que no tener monto; antes
+      // creaba un cargo sin enlace que el barrido luego marcaba como vencido.
+      [
+        'defaultSessionAmount es 0',
+        () => undefined,
+        { defaultSessionAmount: 0 },
+      ],
     ])('no crea cargo cuando %s', async (_label, arrange, patientOverrides) => {
       prisma.consultation.findFirst.mockResolvedValue(
         buildConsultation({}, patientOverrides as never),
