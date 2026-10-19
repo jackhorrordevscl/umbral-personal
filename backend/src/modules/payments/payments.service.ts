@@ -804,6 +804,17 @@ export class PaymentsService {
         .voidOrder(context.credentials, payment.gatewayToken);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (
+        err instanceof PaymentGatewayError &&
+        err.kind === 'indeterminate' &&
+        (await this.settleIndeterminateVoid(
+          context,
+          payment.id,
+          payment.gatewayToken,
+        ))
+      ) {
+        return;
+      }
       // issue #434: Flow responde 1701 tanto para una orden ya pagada como
       // para una ya rechazada, así que el código solo no basta. Si el estado
       // confirma que la orden ya estaba rechazada no hay nada que anular y no
@@ -871,6 +882,35 @@ export class PaymentsService {
     throw new ConflictException(
       'El cobro ya fue pagado en la pasarela de pago, por lo que no se puede cambiar el monto.',
     );
+  }
+
+  // Issue #494: la anulación venció por timeout, así que Flow pudo aplicarla o
+  // no, y el enlace viejo ya salió por correo. Se consulta el estado antes de
+  // repetir: rechazada = ya anulada, pendiente = se repite una sola vez, pagada
+  // o sin poder consultar = false, para que el llamador conserve el ERROR.
+  private async settleIndeterminateVoid(
+    context: GatewayContext,
+    paymentId: string,
+    token: string,
+  ): Promise<boolean> {
+    try {
+      const gateway = this.gatewayRegistry.get(context.provider);
+      const { status } = await gateway.getOrderStatus(
+        context.credentials,
+        token,
+      );
+      if (status === 'REJECTED') {
+        this.logger.warn(
+          `La anulación venció por timeout pero la orden ya está rechazada en la pasarela (paymentId=${paymentId})`,
+        );
+        return true;
+      }
+      if (status === 'PAID') return false;
+      await gateway.voidOrder(context.credentials, token);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // issue #434: false ante cualquier duda (incluida una falla al consultar),

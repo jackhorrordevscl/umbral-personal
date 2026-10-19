@@ -1237,6 +1237,63 @@ describe('PaymentsService', () => {
           expect.stringContaining('payment-1') as unknown,
         );
       });
+
+      // Issue #494: una anulación que venció por timeout pudo no aplicarse, y el
+      // enlace viejo ya salió por correo. Se consulta el estado antes de repetir.
+      describe('anulación indeterminada (timeout)', () => {
+        const indeterminate = () =>
+          new PaymentGatewayError(
+            'indeterminate',
+            'Flow no respondió a tiempo (POST /payment/cancel)',
+          );
+
+        it('si la orden sigue pendiente, repite la anulación una vez y no loguea ERROR', async () => {
+          gatewayAdapter.voidOrder
+            .mockRejectedValueOnce(indeterminate())
+            .mockResolvedValueOnce(undefined);
+          gatewayAdapter.getOrderStatus
+            .mockResolvedValueOnce({ status: 'PENDING' })
+            .mockResolvedValueOnce({ status: 'PENDING' });
+
+          await service.updateAmount('group-1', 45000);
+
+          expect(gatewayAdapter.voidOrder).toHaveBeenCalledTimes(2);
+          expect(errorSpy).not.toHaveBeenCalled();
+          expect(gatewayAdapter.createOrder).toHaveBeenCalled();
+        });
+
+        it('si la orden ya quedó rechazada, no repite la anulación ni loguea ERROR', async () => {
+          gatewayAdapter.voidOrder.mockRejectedValueOnce(indeterminate());
+          gatewayAdapter.getOrderStatus
+            .mockResolvedValueOnce({ status: 'PENDING' })
+            .mockResolvedValueOnce({ status: 'REJECTED' });
+
+          await service.updateAmount('group-1', 45000);
+
+          expect(gatewayAdapter.voidOrder).toHaveBeenCalledTimes(1);
+          expect(errorSpy).not.toHaveBeenCalled();
+          expect(warnSpy).toHaveBeenCalledWith(
+            expect.stringContaining('payment-1') as unknown,
+          );
+        });
+
+        it('si la repetición también falla, loguea ERROR y reemite', async () => {
+          gatewayAdapter.voidOrder
+            .mockRejectedValueOnce(indeterminate())
+            .mockRejectedValueOnce(indeterminate());
+          gatewayAdapter.getOrderStatus
+            .mockResolvedValueOnce({ status: 'PENDING' })
+            .mockResolvedValueOnce({ status: 'PENDING' });
+
+          await service.updateAmount('group-1', 45000);
+
+          expect(gatewayAdapter.voidOrder).toHaveBeenCalledTimes(2);
+          expect(errorSpy).toHaveBeenCalledWith(
+            expect.stringContaining('payment-1') as unknown,
+          );
+          expect(gatewayAdapter.createOrder).toHaveBeenCalled();
+        });
+      });
     });
 
     // Hallazgo del judgment-day de payments: si el paciente ya pagó la orden
