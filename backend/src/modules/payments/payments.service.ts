@@ -1015,7 +1015,7 @@ export class PaymentsService {
     title: string,
     body: string,
     detail = '',
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.logger.error(
       `${logMessage} (paymentId=${payment.id}, groupId=${payment.groupId}${detail})`,
     );
@@ -1027,11 +1027,13 @@ export class PaymentsService {
         body,
         metadata: { paymentId: payment.id, groupId: payment.groupId },
       });
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(
         `Fallo al notificar la anomalía de cobro (paymentId=${payment.id}, groupId=${payment.groupId}): ${message}`,
       );
+      return false;
     }
   }
 
@@ -1264,6 +1266,12 @@ export class PaymentsService {
 
   // true si el monto del cargo difiere del que cobró la pasarela: lo registra
   // como anomalía y el llamador no lo marca como pagado.
+  //
+  // Issue #494: la fila queda sin tocar, así que el barrido la consulta de
+  // nuevo en cada tick y la pasarela sigue reportándola pagada. El informe se
+  // reclama con un UPDATE atómico sobre lastError (los dos montos, sin
+  // migración nueva): solo quien lo gana loguea y notifica; si cambia alguno
+  // de los montos, el texto cambia y se informa de nuevo.
   private async reportAmountMismatch(
     paymentId: string,
     gatewayAmount: number,
@@ -1274,13 +1282,32 @@ export class PaymentsService {
     if (!payment || payment.amount === gatewayAmount) {
       return false;
     }
-    await this.reportPaymentAnomaly(
+    const marker = `La pasarela cobró $${gatewayAmount.toLocaleString('es-CL')} y el cobro es de $${payment.amount.toLocaleString('es-CL')}; no se marcó como pagado.`;
+    const claimed = await this.prisma.payment.updateMany({
+      where: {
+        id: payment.id,
+        OR: [{ lastError: null }, { lastError: { not: marker } }],
+      },
+      data: { lastError: marker },
+    });
+    if (claimed.count === 0) return true;
+    const notified = await this.reportPaymentAnomaly(
       payment,
       'El monto cobrado en la pasarela no coincide con el del cobro; no se marca como pagado',
       'Monto de pago distinto al del cobro',
       'La pasarela registró un pago con un monto distinto al del cobro. El cobro no se marcó como pagado; revisa tu cuenta de la pasarela.',
       `, localAmount=${payment.amount}, gatewayAmount=${gatewayAmount}`,
     );
+    if (!notified) {
+      // Sin aviso entregado, el reclamo se libera para que el próximo barrido
+      // vuelva a informar en vez de perder la alerta.
+      await this.prisma.payment
+        .updateMany({
+          where: { id: payment.id, lastError: marker },
+          data: { lastError: null },
+        })
+        .catch(() => undefined);
+    }
     return true;
   }
 }

@@ -2366,7 +2366,11 @@ describe('PaymentsService', () => {
 
       await service.confirm('flow-token');
 
-      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+      expect(prisma.payment.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'PAID' }) as unknown,
+        }) as unknown,
+      );
       expect(errorSpy).toHaveBeenCalledWith(
         expect.stringMatching(
           /groupId=group-1.*localAmount=30000.*gatewayAmount=20000/,
@@ -2379,6 +2383,89 @@ describe('PaymentsService', () => {
         }) as unknown,
       );
       errorSpy.mockRestore();
+    });
+
+    // Issue #494: el barrido de 30 min vuelve a consultar un cobro cuyo monto no
+    // coincide (la fila queda sin tocar) y repetía la anomalía en cada tick. El
+    // primer informe reclama la fila con un UPDATE atómico sobre lastError; los
+    // siguientes, con los mismos montos, no vuelven a loguear ni a notificar.
+    describe('anomalía de monto repetida (issue #494)', () => {
+      const arrangeMismatch = () => {
+        prisma.payment.findFirst.mockResolvedValue(
+          buildPayment({ status: 'PENDING', gatewayToken: 'flow-token' }),
+        );
+        prisma.payment.findUnique.mockResolvedValue(buildPayment());
+        paymentAccountService.resolveGatewayContext.mockResolvedValue(
+          buildContext(),
+        );
+        gatewayAdapter.getOrderStatus.mockResolvedValue({
+          status: 'PAID',
+          amount: 20000,
+        });
+      };
+      let errorSpy: jest.SpyInstance;
+
+      beforeEach(() => {
+        errorSpy = jest
+          .spyOn(Logger.prototype, 'error')
+          .mockImplementation(() => undefined);
+      });
+
+      afterEach(() => {
+        errorSpy.mockRestore();
+      });
+
+      it('el primer informe reclama la fila guardando ambos montos en lastError y notifica', async () => {
+        arrangeMismatch();
+
+        await service.confirm('flow-token');
+
+        expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: 'payment-1',
+            OR: [
+              { lastError: null },
+              { lastError: { not: expect.any(String) as unknown } },
+            ],
+          },
+          data: {
+            lastError: expect.stringMatching(/20.000.*30.000/) as unknown,
+          },
+        });
+        expect(notificationsService.create).toHaveBeenCalledTimes(1);
+      });
+
+      // Sin esto, un fallo transitorio al notificar dejaría el reclamo puesto y
+      // el aviso se perdería para siempre (a lo sumo una vez).
+      it('si la notificación falla, libera el reclamo para que el próximo barrido vuelva a informar', async () => {
+        arrangeMismatch();
+        notificationsService.create.mockRejectedValue(new Error('db caída'));
+
+        await service.confirm('flow-token');
+
+        expect(prisma.payment.updateMany).toHaveBeenLastCalledWith({
+          where: {
+            id: 'payment-1',
+            lastError: expect.stringMatching(/20.000.*30.000/) as unknown,
+          },
+          data: { lastError: null },
+        });
+      });
+
+      it('si la fila ya fue reclamada con los mismos montos, no vuelve a loguear ni a notificar y sigue sin marcar PAID', async () => {
+        arrangeMismatch();
+        prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+
+        await service.confirm('flow-token');
+
+        expect(errorSpy).not.toHaveBeenCalled();
+        expect(notificationsService.create).not.toHaveBeenCalled();
+        expect(prisma.payment.updateMany).not.toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ status: 'PAID' }) as unknown,
+          }) as unknown,
+        );
+      });
     });
 
     // Issue #494: el monto viaja en el propio UPDATE. Un PATCH de monto entre
@@ -2398,7 +2485,9 @@ describe('PaymentsService', () => {
         status: 'PAID',
         amount: 30000,
       });
-      prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+      prisma.payment.updateMany
+        .mockResolvedValueOnce({ count: 0 })
+        .mockResolvedValueOnce({ count: 1 });
       const errorSpy = jest
         .spyOn(Logger.prototype, 'error')
         .mockImplementation(() => undefined);
