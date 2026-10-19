@@ -1131,7 +1131,7 @@ describe('PaymentsService', () => {
       await service.updateAmount('group-1', 45000);
 
       expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('old-token') as unknown,
+        expect.stringContaining('payment-1') as unknown,
       );
       expect(gatewayAdapter.createOrder).toHaveBeenCalled();
       errorSpy.mockRestore();
@@ -1178,9 +1178,35 @@ describe('PaymentsService', () => {
         );
         expect(errorSpy).not.toHaveBeenCalled();
         expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('old-token') as unknown,
+          expect.stringContaining('payment-1') as unknown,
         );
         expect(gatewayAdapter.createOrder).toHaveBeenCalled();
+      });
+
+      // Issue #494: el token de Flow es la credencial del enlace de pago y la
+      // clave de return-status; no debe llegar a ningún log.
+      it('ningún log de la anulación contiene el token de la orden', async () => {
+        gatewayAdapter.getOrderStatus
+          .mockResolvedValueOnce({ status: 'PENDING' })
+          .mockRejectedValueOnce(
+            new PaymentGatewayError('transient', 'Error de red hacia Flow'),
+          );
+        await service.updateAmount('group-1', 45000);
+        const errorMessages = errorSpy.mock.calls.map(([m]) => String(m));
+        expect(errorMessages.length).toBeGreaterThan(0);
+
+        arrangeWithPreviousOrder();
+        gatewayAdapter.voidOrder.mockRejectedValue(flow1701());
+        gatewayAdapter.getOrderStatus
+          .mockResolvedValueOnce({ status: 'PENDING' })
+          .mockResolvedValueOnce({ status: 'REJECTED' });
+        await service.updateAmount('group-1', 45000);
+        const warnMessages = warnSpy.mock.calls.map(([m]) => String(m));
+        expect(warnMessages.length).toBeGreaterThan(0);
+
+        for (const message of [...errorMessages, ...warnMessages]) {
+          expect(message).not.toContain('old-token');
+        }
       });
 
       it('si no se puede consultar el estado de la orden al anular sigue logueando ERROR', async () => {
@@ -1193,7 +1219,7 @@ describe('PaymentsService', () => {
         await service.updateAmount('group-1', 45000);
 
         expect(errorSpy).toHaveBeenCalledWith(
-          expect.stringContaining('old-token') as unknown,
+          expect.stringContaining('payment-1') as unknown,
         );
         expect(gatewayAdapter.createOrder).toHaveBeenCalled();
       });
@@ -1208,7 +1234,7 @@ describe('PaymentsService', () => {
         // Solo la verificación previa al cambio de monto; ninguna tras anular.
         expect(gatewayAdapter.getOrderStatus).toHaveBeenCalledTimes(1);
         expect(errorSpy).toHaveBeenCalledWith(
-          expect.stringContaining('old-token') as unknown,
+          expect.stringContaining('payment-1') as unknown,
         );
       });
     });
