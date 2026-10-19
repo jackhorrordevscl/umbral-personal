@@ -47,6 +47,7 @@ import {
   formatCalendarDate,
   formatChileShortDate,
   formatChileShortDateTime,
+  todayInChile,
 } from "../../utils/datetime";
 
 type ModalTab = "detail" | "edit" | "history";
@@ -70,6 +71,10 @@ const NON_VOIDABLE_DOC_TYPES = ["DISCHARGE_REPORT"];
 
 const VOID_REASON_MIN = 5;
 const VOID_REASON_MAX = 500;
+
+// El backend guarda birthDate como medianoche UTC; <input type="date"> espera
+// YYYY-MM-DD, que es el prefijo del ISO (sin pasar por la zona horaria local).
+const toDateInputValue = (iso?: string) => (iso ? iso.slice(0, 10) : "");
 
 function formatFieldValue(key: string, val: unknown): string {
   if (val === null || val === undefined || val === "") return "—";
@@ -109,6 +114,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
 
   const [editForm, setEditForm] = useState<Partial<Patient>>({
     fullName: patient.fullName,
+    birthDate: toDateInputValue(patient.birthDate),
     phone: patient.phone,
     email: patient.email,
     occupation: patient.occupation,
@@ -155,6 +161,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
     if (modalTab === "edit") return;
     setEditForm({
       fullName: selected.fullName,
+      birthDate: toDateInputValue(selected.birthDate),
       phone: selected.phone,
       email: selected.email,
       occupation: selected.occupation,
@@ -615,6 +622,16 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                     className="input-field"
                     value={editForm.fullName ?? ""}
                     onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
+                  />
+                </FormField>
+                <FormField id="edit-birthDate" label="Fecha de nacimiento">
+                  <input
+                    id="edit-birthDate"
+                    type="date"
+                    className="input-field"
+                    max={todayInChile()}
+                    value={editForm.birthDate ?? ""}
+                    onChange={(e) => setEditForm({ ...editForm, birthDate: e.target.value })}
                   />
                 </FormField>
                 <FormField id="edit-phone" label="Teléfono">

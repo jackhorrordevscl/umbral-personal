@@ -716,7 +716,7 @@ export default function PatientsPage() {
       {patientToDelete && (
         <ConfirmDialog
           title="Eliminar paciente"
-          message={`¿Eliminar a "${patientToDelete.fullName}"? Esta acción no se puede deshacer.`}
+          message={`¿Eliminar a "${patientToDelete.fullName}"? Se liberarán sus horarios reservados, se cancelarán sus cobros pendientes y se quitarán sus eventos de Google Calendar. Esta acción no se puede deshacer.`}
           onConfirm={handleConfirmDelete}
           onCancel={() => setPatientToDelete(null)}
         />
