@@ -10,13 +10,20 @@ import { PaymentProvider } from '@prisma/client';
 export type PaymentGatewayFailureKind =
   | 'transient'
   | 'rejected'
-  | 'credentials';
+  | 'credentials'
+  | 'indeterminate'
+  | 'invalid_response';
 
 // Same pattern as GoogleCalendarError (google-calendar.client.ts):
 // 'transient' -- network/5xx/rate-limit, retryable by the reconciler;
 // 'rejected' -- the gateway rejected the operation (order rejected, unknown
 // token), not retryable without intervention; 'credentials' -- the
-// account isn't connected or the credential is invalid.
+// account isn't connected or the credential is invalid;
+// 'indeterminate' -- a state-changing call timed out or was aborted after it
+// was sent, so the gateway may or may not have applied it: confirm the order
+// state before repeating the call; 'invalid_response' -- the gateway answered
+// successfully with a body that cannot be parsed, a protocol fault that
+// retrying will not fix.
 export class PaymentGatewayError extends Error {
   constructor(
     public readonly kind: PaymentGatewayFailureKind,

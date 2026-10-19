@@ -240,10 +240,33 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     }
   }
 
-  private networkError(err: unknown): PaymentGatewayError {
+  // A POST that timed out after being sent has an unknown outcome: Flow may
+  // have created or voided the order. GETs are read-only, so a timeout there
+  // stays an ordinary retryable transient failure.
+  private requestFailure(
+    method: 'GET' | 'POST',
+    path: string,
+    err: unknown,
+  ): PaymentGatewayError {
+    // Read by shape, not instanceof: AbortSignal.timeout rejects with a
+    // DOMException, which is not always an Error across realms.
+    const { name, message } = (err ?? {}) as {
+      name?: string;
+      message?: string;
+    };
+    const detail = message ?? String(err);
+    if (
+      method === 'POST' &&
+      (name === 'TimeoutError' || name === 'AbortError')
+    ) {
+      return new PaymentGatewayError(
+        'indeterminate',
+        `Flow no respondió a tiempo (${method} ${path}); la operación pudo haberse procesado: ${detail}`,
+      );
+    }
     return new PaymentGatewayError(
       'transient',
-      `Error de red hacia Flow: ${err instanceof Error ? err.message : String(err)}`,
+      `Error de red hacia Flow: ${detail}`,
     );
   }
 
@@ -277,14 +300,22 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
         });
       }
     } catch (err) {
-      throw this.networkError(err);
+      throw this.requestFailure(method, path, err);
     }
 
     if (response.ok) {
       try {
         return (await response.json()) as T;
       } catch (err) {
-        throw this.networkError(err);
+        // A SyntaxError is a deterministic protocol fault (e.g. an HTML page
+        // from a proxy), not a network failure: retrying will not fix it.
+        if (err instanceof SyntaxError) {
+          throw new PaymentGatewayError(
+            'invalid_response',
+            `Flow devolvió ${response.status} (${method} ${path}) con un cuerpo que no es JSON válido: ${err.message}`,
+          );
+        }
+        throw this.requestFailure(method, path, err);
       }
     }
 
@@ -294,7 +325,7 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     try {
       rawBody = await response.text();
     } catch (err) {
-      throw this.networkError(err);
+      throw this.requestFailure(method, path, err);
     }
     const body = maskEmailsInText(rawBody);
     // 400/404 are expected rejections (e.g. the credential-validation probe
