@@ -104,6 +104,240 @@ describe('FlowPaymentGatewayClient', () => {
     });
   });
 
+  describe('timeout de las llamadas a Flow', () => {
+    it('toda petición lleva un AbortSignal para no colgarse si Flow no responde', async () => {
+      mockFetchOnce({ ok: true, status: 200 }, { status: 1 });
+      mockFetchOnce({ ok: true, status: 200 }, { token: 't', url: 'u' });
+      mockFetchOnce({ ok: true, status: 200 }, {});
+
+      await client.getOrderStatus(credentials, 'tok');
+      await client.createOrder(credentials, {
+        amount: 50000,
+        currency: 'CLP',
+        subject: 'Sesión clínica',
+        externalId: 'group-1',
+        payerEmail: 'paciente@example.com',
+        returnUrl: 'https://umbral.cl/payments',
+        confirmUrl: 'https://umbral.cl/payments/confirm',
+      });
+      await client.voidOrder(credentials, 'tok');
+
+      const calls = (globalThis.fetch as jest.Mock).mock.calls as [
+        string,
+        RequestInit,
+      ][];
+      expect(calls).toHaveLength(3);
+      for (const [, init] of calls) {
+        expect(init.signal).toBeInstanceOf(AbortSignal);
+      }
+    });
+
+    it('un timeout al esperar la respuesta se clasifica como transient', async () => {
+      (globalThis.fetch as jest.Mock).mockRejectedValueOnce(
+        new DOMException(
+          'The operation was aborted due to timeout',
+          'TimeoutError',
+        ),
+      );
+
+      await expect(
+        client.getOrderStatus(credentials, 'tok'),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it('un timeout al leer el cuerpo de una respuesta exitosa se clasifica como transient', async () => {
+      (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: jest
+          .fn()
+          .mockRejectedValue(
+            new DOMException('The operation was aborted', 'TimeoutError'),
+          ),
+      });
+
+      await expect(
+        client.getOrderStatus(credentials, 'tok'),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<PaymentGatewayError>);
+    });
+  });
+
+  describe('clasificación de fallos con resultado incierto', () => {
+    const orderInput = {
+      amount: 50000,
+      currency: 'CLP',
+      subject: 'Sesión clínica',
+      externalId: 'group-1',
+      payerEmail: 'paciente@example.com',
+      returnUrl: 'https://umbral.cl/payments',
+      confirmUrl: 'https://umbral.cl/payments/confirm',
+    };
+
+    it('un 200 con cuerpo que no es JSON en un POST es indeterminate: la orden pudo crearse sin que llegue su token', async () => {
+      (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: jest
+          .fn()
+          .mockRejectedValue(new SyntaxError('Unexpected token < in JSON')),
+      });
+
+      await expect(
+        client.createOrder(credentials, orderInput),
+      ).rejects.toMatchObject({
+        kind: 'indeterminate',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it('un 200 con cuerpo que no es JSON en un GET es invalid_response, no transient', async () => {
+      (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: jest
+          .fn()
+          .mockRejectedValue(new SyntaxError('Unexpected token < in JSON')),
+      });
+
+      await expect(
+        client.getOrderStatus(credentials, 'tok'),
+      ).rejects.toMatchObject({
+        kind: 'invalid_response',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it('un timeout en un POST (createOrder) es indeterminate: Flow pudo haber creado la orden', async () => {
+      (globalThis.fetch as jest.Mock)
+        .mockRejectedValueOnce(
+          new DOMException('The operation timed out', 'TimeoutError'),
+        )
+        .mockRejectedValueOnce(
+          new DOMException('The operation timed out', 'TimeoutError'),
+        );
+
+      await expect(
+        client.createOrder(credentials, orderInput),
+      ).rejects.toMatchObject({
+        kind: 'indeterminate',
+      } as Partial<PaymentGatewayError>);
+      await expect(client.createOrder(credentials, orderInput)).rejects.toThrow(
+        'pudo haberse procesado',
+      );
+    });
+
+    it('un timeout en un POST (voidOrder) es indeterminate', async () => {
+      (globalThis.fetch as jest.Mock).mockRejectedValueOnce(
+        new DOMException('The operation was aborted', 'AbortError'),
+      );
+
+      await expect(client.voidOrder(credentials, 'tok')).rejects.toMatchObject({
+        kind: 'indeterminate',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it('un timeout al leer el cuerpo de un POST exitoso es indeterminate: la orden pudo crearse sin que llegue su token', async () => {
+      (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: jest
+          .fn()
+          .mockRejectedValue(
+            new DOMException('The operation timed out', 'TimeoutError'),
+          ),
+      });
+
+      await expect(
+        client.createOrder(credentials, orderInput),
+      ).rejects.toMatchObject({
+        kind: 'indeterminate',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it('un error de red que no es timeout en un POST sigue siendo transient', async () => {
+      (globalThis.fetch as jest.Mock).mockRejectedValueOnce(
+        new Error('ECONNREFUSED'),
+      );
+
+      await expect(
+        client.createOrder(credentials, orderInput),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it.each([
+      [401, 'credentials'],
+      [403, 'credentials'],
+      [400, 'rejected'],
+      [404, 'rejected'],
+    ])(
+      'si el cuerpo de un %i en un POST expira, se clasifica por el status (%s), no como indeterminate',
+      async (status, kind) => {
+        (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
+          ok: false,
+          status,
+          text: jest
+            .fn()
+            .mockRejectedValue(
+              new DOMException('The operation timed out', 'TimeoutError'),
+            ),
+        });
+
+        await expect(
+          client.createOrder(credentials, orderInput),
+        ).rejects.toMatchObject({ kind } as Partial<PaymentGatewayError>);
+      },
+    );
+
+    it('si el cuerpo de un 500 en un POST expira, el resultado sigue siendo indeterminate', async () => {
+      (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: jest
+          .fn()
+          .mockRejectedValue(
+            new DOMException('The operation timed out', 'TimeoutError'),
+          ),
+      });
+
+      await expect(
+        client.createOrder(credentials, orderInput),
+      ).rejects.toMatchObject({
+        kind: 'indeterminate',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it('el timeout de cada petición es de 10 segundos', async () => {
+      const timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
+      mockFetchOnce({ ok: true, status: 200 }, { status: 1 });
+
+      await client.getOrderStatus(credentials, 'tok');
+
+      expect(timeoutSpy).toHaveBeenCalledWith(10_000);
+    });
+
+    it('un timeout al leer el cuerpo de un error de Flow en un GET es transient', async () => {
+      (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: jest
+          .fn()
+          .mockRejectedValue(
+            new DOMException('The operation timed out', 'TimeoutError'),
+          ),
+      });
+
+      await expect(
+        client.getOrderStatus(credentials, 'tok'),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<PaymentGatewayError>);
+    });
+  });
+
   describe('createOrder', () => {
     it('firma la petición con las credenciales recibidas y construye la paymentUrl a partir de url + token', async () => {
       mockFetchOnce(

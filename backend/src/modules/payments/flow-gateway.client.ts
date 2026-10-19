@@ -54,6 +54,14 @@ const VALIDATION_PROBE_TOKEN = 'umbral-credential-validation-probe';
 // the minimum varies per account.
 const FLOW_MINIMUM_AMOUNT_CLP = 350;
 
+// Upper bound for a single Flow request, response body included. Flow answers
+// in well under a second normally; 10 s leaves room for a slow link without
+// letting a stalled connection hold a request handler or the sweep.
+const REQUEST_TIMEOUT_MS = 10_000;
+
+// Statuses request() maps to a definitive 'credentials' or 'rejected' error.
+const DEFINITIVE_REJECTION_STATUSES = [400, 401, 403, 404];
+
 interface FlowPaymentCreateResponse {
   flowOrder: number;
   url: string;
@@ -235,6 +243,36 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     }
   }
 
+  // A POST that timed out after being sent has an unknown outcome: Flow may
+  // have created or voided the order. GETs are read-only, so a timeout there
+  // stays an ordinary retryable transient failure.
+  private requestFailure(
+    method: 'GET' | 'POST',
+    path: string,
+    err: unknown,
+  ): PaymentGatewayError {
+    // Read by shape, not instanceof: AbortSignal.timeout rejects with a
+    // DOMException, which is not always an Error across realms.
+    const { name, message } = (err ?? {}) as {
+      name?: string;
+      message?: string;
+    };
+    const detail = message ?? String(err);
+    if (
+      method === 'POST' &&
+      (name === 'TimeoutError' || name === 'AbortError')
+    ) {
+      return new PaymentGatewayError(
+        'indeterminate',
+        `Flow no respondió a tiempo (${method} ${path}); la operación pudo haberse procesado: ${detail}`,
+      );
+    }
+    return new PaymentGatewayError(
+      'transient',
+      `Error de red hacia Flow: ${detail}`,
+    );
+  }
+
   private async request<T>(
     method: 'GET' | 'POST',
     path: string,
@@ -243,32 +281,64 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     const baseUrl =
       this.config.get<string>('FLOW_API_BASE_URL') ?? DEFAULT_API_BASE_URL;
 
+    // The signal bounds the whole exchange, body included: without it a Flow
+    // that accepts the connection and never answers would hang confirm,
+    // return-status and the 30-minute sweep indefinitely.
+    const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+
     let response: Response;
     try {
       if (method === 'GET') {
         const query = new URLSearchParams(params).toString();
-        response = await fetch(`${baseUrl}${path}?${query}`, { method });
+        response = await fetch(`${baseUrl}${path}?${query}`, {
+          method,
+          signal,
+        });
       } else {
         response = await fetch(`${baseUrl}${path}`, {
           method,
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams(params).toString(),
+          signal,
         });
       }
     } catch (err) {
-      throw new PaymentGatewayError(
-        'transient',
-        `Error de red hacia Flow: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      throw this.requestFailure(method, path, err);
     }
 
     if (response.ok) {
-      return (await response.json()) as T;
+      try {
+        return (await response.json()) as T;
+      } catch (err) {
+        // A SyntaxError is a deterministic protocol fault (e.g. an HTML page
+        // from a proxy), not a network failure: retrying will not fix it. On
+        // a POST the call was still accepted, so the order may exist even
+        // though its token never arrived: that outcome is unknown.
+        if (err instanceof SyntaxError) {
+          throw new PaymentGatewayError(
+            method === 'POST' ? 'indeterminate' : 'invalid_response',
+            `Flow devolvió ${response.status} (${method} ${path}) con un cuerpo que no es JSON válido${method === 'POST' ? '; la operación pudo haberse procesado' : ''}: ${err.message}`,
+          );
+        }
+        throw this.requestFailure(method, path, err);
+      }
     }
 
     // Flow puede ecoar el payload rechazado (incluye el email del paciente);
     // se enmascara una vez y se usa tanto en el log como en el error (#197).
-    const body = maskEmailsInText(await response.text());
+    let rawBody: string;
+    try {
+      rawBody = await response.text();
+    } catch (err) {
+      // The status already says whether Flow applied the call: 400/401/403/404
+      // are definitive rejections, so keep that classification and only lose
+      // the body text. Any other status stays an unclear failure.
+      if (!DEFINITIVE_REJECTION_STATUSES.includes(response.status)) {
+        throw this.requestFailure(method, path, err);
+      }
+      rawBody = '';
+    }
+    const body = maskEmailsInText(rawBody);
     // 400/404 are expected rejections (e.g. the credential-validation probe
     // answers code 1700 on every successful check), so they log at warn;
     // credential and server failures stay at error.
