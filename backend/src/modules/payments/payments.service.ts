@@ -402,7 +402,13 @@ export class PaymentsService {
     // amount can't be charged, instead of a silently failed order later.
     const owner = await this.prisma.payment.findUnique({
       where: { groupId },
-      select: { id: true, therapistId: true, status: true, gatewayToken: true },
+      select: {
+        id: true,
+        therapistId: true,
+        status: true,
+        gatewayToken: true,
+        amount: true,
+      },
     });
     const gatewayContext = owner
       ? await this.paymentAccountService.resolveGatewayContext(
@@ -426,9 +432,16 @@ export class PaymentsService {
       }
     }
 
+    // Issue #494: sin cuenta conectada no hay credenciales para anular la orden
+    // viva, pero su enlace sigue cobrando el monto anterior y resendPaymentLink
+    // lo reenviaría con el monto nuevo en el cuerpo. Se descarta el enlace en el
+    // mismo UPDATE; el gatewayToken se conserva para que un pago tardío siga
+    // siendo rastreable y retryCharge anule esa orden al reconectar.
+    const discardStaleLink =
+      !gatewayContext && !!owner && owner.amount !== amount;
     const result = await this.prisma.payment.updateMany({
       where: { groupId, status: { in: [...CANCELLABLE_STATUSES] } },
-      data: { amount },
+      data: discardStaleLink ? { amount, paymentUrl: null } : { amount },
     });
     if (result.count === 0) {
       throw new NotFoundException(
@@ -521,6 +534,16 @@ export class PaymentsService {
       patient,
       payment.therapistId,
     );
+    // Issue #494: un token sin paymentUrl es la orden que updateAmount dejó
+    // viva con la cuenta desconectada. Se anula antes de emitir la nueva, igual
+    // que en updateAmount, para que su enlace deje de ser pagable.
+    if (payment.gatewayToken) {
+      await this.assertCurrentOrderNotPaid(context, {
+        id: payment.id,
+        gatewayToken: payment.gatewayToken,
+      });
+      await this.voidGatewayOrder(context, payment);
+    }
     const order = await this.issueOrder({
       paymentId: payment.id,
       context,

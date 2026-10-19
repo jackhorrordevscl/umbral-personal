@@ -969,6 +969,49 @@ describe('PaymentsService', () => {
       expect(prisma.patient.findUnique).not.toHaveBeenCalled();
       expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
     });
+
+    // Issue #494: sin cuenta conectada no se puede anular la orden viva, pero
+    // el enlace viejo no debe seguir ofrecido ni reenviable con el monto nuevo.
+    // El token se conserva para que un pago tardío siga siendo rastreable.
+    describe('sin cuenta conectada y con un enlace emitido', () => {
+      function arrangeDisconnected(previousAmount: number) {
+        prisma.payment.findUnique.mockResolvedValue({
+          id: 'payment-1',
+          therapistId: 'therapist-1',
+          status: 'PENDING',
+          gatewayToken: 'old-token',
+          amount: previousAmount,
+        });
+        prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+        prisma.payment.findUniqueOrThrow.mockResolvedValue(
+          buildPayment({ amount: 45000, gatewayToken: 'old-token' }),
+        );
+        paymentAccountService.resolveGatewayContext.mockResolvedValue(null);
+      }
+
+      it('si el monto cambia, limpia paymentUrl en el mismo UPDATE y conserva el gatewayToken', async () => {
+        arrangeDisconnected(30000);
+
+        await service.updateAmount('group-1', 45000);
+
+        expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+          where: { groupId: 'group-1', status: { in: ['PENDING', 'LATE'] } },
+          data: { amount: 45000, paymentUrl: null },
+        });
+        expect(gatewayAdapter.voidOrder).not.toHaveBeenCalled();
+      });
+
+      it('si el monto no cambia, no toca el enlace vigente', async () => {
+        arrangeDisconnected(45000);
+
+        await service.updateAmount('group-1', 45000);
+
+        expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+          where: { groupId: 'group-1', status: { in: ['PENDING', 'LATE'] } },
+          data: { amount: 45000 },
+        });
+      });
+    });
   });
 
   // issue #284: updateAmount() reemitía la orden sin anular la anterior ni
@@ -1452,6 +1495,43 @@ describe('PaymentsService', () => {
         expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
       },
     );
+
+    // Issue #494: tras un cambio de monto con la cuenta desconectada queda un
+    // token cuya orden sigue viva en la pasarela con el monto viejo. Al
+    // reconectar, el reintento la anula antes de emitir la nueva.
+    describe('con un token de una orden anterior (cuenta reconectada)', () => {
+      it('anula la orden anterior antes de emitir la nueva', async () => {
+        arrangeRetry({ gatewayToken: 'old-token', paymentUrl: null });
+        gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PENDING' });
+        const context = buildContext();
+        paymentAccountService.resolveGatewayContext.mockResolvedValue(context);
+
+        await service.retryCharge('group-1');
+
+        expect(gatewayAdapter.voidOrder).toHaveBeenCalledWith(
+          context.credentials,
+          'old-token',
+        );
+        expect(
+          gatewayAdapter.voidOrder.mock.invocationCallOrder[0],
+        ).toBeLessThan(gatewayAdapter.createOrder.mock.invocationCallOrder[0]);
+      });
+
+      it('si la orden anterior ya fue pagada, responde 409 y no emite otra', async () => {
+        arrangeRetry({ gatewayToken: 'old-token', paymentUrl: null });
+        gatewayAdapter.getOrderStatus.mockResolvedValue({
+          status: 'PAID',
+          gatewayPaymentId: 'flow-1',
+          amount: 30000,
+        });
+
+        await expect(service.retryCharge('group-1')).rejects.toThrow(
+          ConflictException,
+        );
+        expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+        expect(gatewayAdapter.voidOrder).not.toHaveBeenCalled();
+      });
+    });
 
     it('rechaza un cargo que ya tiene paymentUrl', async () => {
       arrangeRetry({ paymentUrl: 'https://flow.cl/pay/existing' });
