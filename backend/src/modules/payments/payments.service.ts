@@ -815,15 +815,17 @@ export class PaymentsService {
         (await this.isOrderRejected(context, payment.gatewayToken))
       ) {
         this.logger.warn(
-          `La orden ya estaba rechazada en la pasarela, no hay nada que anular (paymentId=${payment.id}, groupId=${payment.groupId}, token=${payment.gatewayToken}): ${message}`,
+          `La orden ya estaba rechazada en la pasarela, no hay nada que anular (paymentId=${payment.id}, groupId=${payment.groupId}): ${message}`,
         );
         return;
       }
       // issue #111: this IS the operator-visibility gap -- log loudly
       // instead of swallowing silently. Callers never roll back their own
-      // local write for this.
+      // local write for this. Issue #494: el token no se registra; es la
+      // credencial del enlace de pago, y paymentId/groupId bastan para ubicar
+      // la orden.
       this.logger.error(
-        `Fallo al anular la orden en la pasarela de pago (paymentId=${payment.id}, groupId=${payment.groupId}, token=${payment.gatewayToken}): ${message}`,
+        `Fallo al anular la orden en la pasarela de pago (paymentId=${payment.id}, groupId=${payment.groupId}): ${message}`,
       );
     }
   }
