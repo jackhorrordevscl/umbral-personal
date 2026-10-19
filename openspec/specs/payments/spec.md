@@ -52,7 +52,7 @@ The system MUST create a pending charge automatically after a consultation is cr
 
 ### Requirement: Charge Amount Resolution and Snapshot
 
-The system MUST source a charge's amount from `Patient.defaultSessionAmount` and MUST snapshot that amount at creation, independent of later edits to `Patient.defaultSessionAmount`. The therapist MUST be able to change the amount of a `PENDING` or `LATE` charge afterwards (integer CLP between 0 and 100,000,000); doing so MUST void the previous gateway order, issue a new order and resend the link, and MUST be rejected for a paid or cancelled charge. An amount below the gateway minimum (350 CLP for Flow) MUST NOT produce a gateway order: at creation the charge is kept with an explanatory error, and an amount update below the minimum MUST be rejected with `400`, provided the therapist has a `CONNECTED` Flow account with v2 credentials (without one there is no gateway context and the amount is saved without that check).
+The system MUST source a charge's amount from `Patient.defaultSessionAmount` and MUST snapshot that amount at creation, independent of later edits to `Patient.defaultSessionAmount`. The therapist MUST be able to change the amount of a `PENDING` or `LATE` charge afterwards (integer CLP between 0 and 100,000,000); doing so MUST void the previous gateway order, issue a new order and resend the link, and MUST be rejected for a paid or cancelled charge. A `defaultSessionAmount` of `0` means "no charge" and MUST be treated like an unset amount: no `Payment` record is created. An amount below the gateway minimum (350 CLP for Flow) MUST NOT produce a gateway order: at creation the charge is kept with an explanatory error, and an amount update below the minimum MUST be rejected with `400`, provided the therapist has a `CONNECTED` Flow account with v2 credentials (without one there is no gateway context and the amount is saved without that check).
 
 #### Scenario: Snapshot is independent of later edits to the default amount
 
@@ -212,7 +212,7 @@ When a patient is soft-deleted, or a treatment closure (discharge) cancels the p
 
 ### Requirement: One-Shot Late-Payment Notification
 
-On the pending-to-late transition, the system MUST send one late-payment email to the patient (or the guardian of a minor) when a recipient email exists, and MUST create exactly one in-app notification of a `PAYMENT_LATE` type for the therapist, and MUST NOT repeat either on later checks. This is a single alert, not a recurring reminder cadence.
+On the pending-to-late transition, the system MUST send one late-payment email to the patient (or the guardian of a minor) when a recipient email exists and the charge has a payment link, and MUST create exactly one in-app notification of a `PAYMENT_LATE` type for the therapist, and MUST NOT repeat either on later checks. A charge that never had a payment link (amount below the gateway minimum, order not issued, or link discarded) still transitions to `LATE` and notifies the therapist, but MUST NOT email the patient: they were never asked to pay. This is a single alert, not a recurring reminder cadence.
 
 #### Scenario: Late transition fires exactly one alert of each kind, once
 

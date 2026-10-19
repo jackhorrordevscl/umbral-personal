@@ -107,7 +107,7 @@ pestañas: **Detalle**, **Editar** e **Historial**.
 
 ### Crear una ficha
 
-Campos obligatorios: **nombre completo, RUT, fecha de nacimiento**. Todo lo demás es opcional al crear (ocupación, dirección, teléfono, email, contacto de emergencia con su teléfono, psiquiatra y médico tratante, **monto de sesión por defecto en CLP**), y se puede completar después. Si dejas vacío el monto de sesión ("Sin cobro automático"), esa ficha no genera cobros (ver sección 5).
+Campos obligatorios: **nombre completo, RUT, fecha de nacimiento**. Todo lo demás es opcional al crear (ocupación, dirección, teléfono, email, contacto de emergencia con su teléfono, psiquiatra y médico tratante, **monto de sesión por defecto en CLP**), y se puede completar después. Si dejas vacío el monto de sesión ("Sin cobro automático") o lo dejas en 0, esa ficha no genera cobros (ver sección 5).
 
 El RUT se normaliza automáticamente en el servidor (saca puntos, pasa a mayúsculas): no hace falta que lo escribas con un formato exacto, pero sí tiene que ser un RUT válido.
 
@@ -481,7 +481,10 @@ Estos tipos de notificación llegan hoy:
   contrario esa primera sesión queda sin generar cargo.
 - **Cobro vencido**: cuando un cobro pasa su fecha límite sin pago, te llega un
   aviso con el nombre del paciente (y se le envía un correo al paciente, o a su
-  representante si es menor, cuando hay email).
+  representante si es menor, cuando hay email y el cobro tenía un enlace de
+  pago). Si el cobro nunca llegó a tener enlace, por ejemplo porque el monto
+  está bajo el mínimo de la pasarela, el aviso te llega igual a ti, pero no se
+  le escribe al paciente: nunca se le pidió pagar.
 - **Anomalía en un cobro**: si la pasarela informa algo que Umbral no puede
   representar (por ejemplo, un pago recibido en un cobro que estaba anulado, o
   un pago con un monto distinto al del cobro), te llega un aviso para que

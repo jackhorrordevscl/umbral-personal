@@ -34,7 +34,7 @@ function buildPayment(overrides: Partial<Record<string, unknown>> = {}) {
     status: 'PENDING',
     dueDate: new Date('2026-09-10T15:00:00.000Z'),
     gatewayToken: null,
-    paymentUrl: null,
+    paymentUrl: 'https://flow.cl/pay/order-token',
     ...overrides,
   };
 }
@@ -221,6 +221,62 @@ describe('PaymentReconciliationService', () => {
       expect(mailService.sendLatePaymentEmail).not.toHaveBeenCalled();
       expect(notificationsService.create).toHaveBeenCalledTimes(1);
     });
+
+    // Issue #494: un cargo que nunca tuvo enlace (monto bajo el mínimo de la
+    // pasarela, orden no emitida o enlace descartado) no le pidió nada al
+    // paciente: decirle que "venció sin pago" sería falso. El terapeuta sí
+    // debe enterarse, porque el cargo quedó sin cobrar.
+    it.each([
+      ['paciente adulto', { email: 'paciente@example.com', guardians: [] }],
+      [
+        'representante de un menor',
+        {
+          email: 'menor@example.com',
+          guardians: [
+            {
+              fullName: 'Ana Soto',
+              email: 'apoderada@example.com',
+              isPayer: true,
+              receivesCommunications: true,
+            },
+          ],
+        },
+      ],
+    ])(
+      'un cargo sin enlace (%s) pasa a LATE y avisa al terapeuta, pero no envía correo de vencido',
+      async (_label, recipient) => {
+        pass1Candidates = [
+          buildPayment({ id: 'payment-no-link', paymentUrl: null }),
+        ];
+        prisma.payment.updateMany.mockImplementation(
+          (args: { where: { status?: string } }) =>
+            Promise.resolve({ count: args.where.status === 'PENDING' ? 1 : 0 }),
+        );
+        prisma.patient.findUnique.mockResolvedValue({
+          fullName: 'Juan Soto',
+          birthDate:
+            recipient.guardians.length > 0
+              ? MINOR_BIRTH_DATE
+              : new Date('1990-01-01'),
+          ...recipient,
+        });
+
+        await service.sweep();
+
+        expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+          where: { id: 'payment-no-link', status: 'PENDING' },
+          data: { status: 'LATE', lateNotifiedAt: expect.any(Date) as unknown },
+        });
+        expect(mailService.sendLatePaymentEmail).not.toHaveBeenCalled();
+        expect(notificationsService.create).toHaveBeenCalledTimes(1);
+        expect(notificationsService.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'therapist-1',
+            type: 'PAYMENT_LATE',
+          }) as unknown,
+        );
+      },
+    );
 
     describe('paciente menor de edad', () => {
       const duePayment = () =>
