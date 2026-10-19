@@ -24,10 +24,14 @@ export type PaymentGatewayFailureKind =
 // state before repeating the call; 'invalid_response' -- the gateway answered
 // successfully with a body that cannot be parsed, a protocol fault that
 // retrying will not fix.
+// `gatewayCode` is the numeric error code the gateway put in its response
+// body, when it sent one: the HTTP status alone does not say why a call was
+// rejected.
 export class PaymentGatewayError extends Error {
   constructor(
     public readonly kind: PaymentGatewayFailureKind,
     message: string,
+    public readonly gatewayCode?: number,
   ) {
     super(message);
     this.name = 'PaymentGatewayError';

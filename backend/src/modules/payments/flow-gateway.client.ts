@@ -49,6 +49,12 @@ const DEFAULT_API_BASE_URL = 'https://sandbox.flow.cl/api';
 // valid, token (as expected) not found" -- never a real order.
 const VALIDATION_PROBE_TOKEN = 'umbral-credential-validation-probe';
 
+// Source: Flow's real production answer to that probe (checked 2026-09-25,
+// HTTP 400 with code 1700 "Token not found"): the signature authenticated and
+// only the token was missing. Flow's own documentation was not available to
+// confirm the full code list.
+const VALIDATION_PROBE_NOT_FOUND_CODE = 1700;
+
 // Source: Flow's real production error on /payment/create, code 1901
 // "The minimum amount is 350 CLP". Not yet confirmed in Flow's docs whether
 // the minimum varies per account.
@@ -87,11 +93,16 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
 
   // design.md Decision 1: the sentinel-token getStatus probe. Reuses
   // getOrderStatus's own request()/error-taxonomy mapping instead of
-  // duplicating it -- a 'rejected' (400/404, token not found) means the
-  // signature authenticated fine, which IS the valid-credentials signal;
-  // 'credentials' (401/403) and 'transient' (5xx/network) propagate
+  // duplicating it -- a 'rejected' carrying Flow's "token not found" code
+  // means the signature authenticated fine, which IS the valid-credentials
+  // signal; 'credentials' (401/403) and 'transient' (5xx/network) propagate
   // unchanged so the caller (PaymentAccountService, Phase 2) persists
   // nothing on either.
+  //
+  // Issue #494: a bare 400/404 is not enough. A malformed signature, a wrong
+  // FLOW_API_BASE_URL or a proxy answering 404 would otherwise be saved as a
+  // CONNECTED account. Only the exact "token not found" code confirms it; any
+  // other rejection is reported as unconfirmed credentials.
   async validateCredentials(
     credentials: GatewayCredentials,
   ): Promise<CredentialValidation> {
@@ -99,7 +110,14 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
       await this.getOrderStatus(credentials, VALIDATION_PROBE_TOKEN);
     } catch (err) {
       if (err instanceof PaymentGatewayError && err.kind === 'rejected') {
-        return { keyFingerprint: this.fingerprint(credentials) };
+        if (err.gatewayCode === VALIDATION_PROBE_NOT_FOUND_CODE) {
+          return { keyFingerprint: this.fingerprint(credentials) };
+        }
+        throw new PaymentGatewayError(
+          'credentials',
+          `Flow no confirmó las credenciales: se esperaba el código ${VALIDATION_PROBE_NOT_FOUND_CODE} (token no encontrado) y se obtuvo ${err.gatewayCode ?? 'ninguno'}. ${err.message}`,
+          err.gatewayCode,
+        );
       }
       throw err;
     }
@@ -243,6 +261,24 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     }
   }
 
+  // Flow's error bodies look like {"code":1700,"message":"..."}. The type of
+  // `code` is not documented anywhere we can check, so a numeric string counts
+  // too. Anything else (an HTML page from a proxy, an empty body) carries no
+  // code.
+  private parseGatewayCode(rawBody: string): number | undefined {
+    try {
+      const parsed = JSON.parse(rawBody) as { code?: unknown } | null;
+      const code = parsed?.code;
+      if (typeof code === 'number' && Number.isInteger(code)) return code;
+      if (typeof code === 'string' && /^\d+$/.test(code.trim())) {
+        return Number(code.trim());
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   // A POST that timed out after being sent has an unknown outcome: Flow may
   // have created or voided the order. GETs are read-only, so a timeout there
   // stays an ordinary retryable transient failure.
@@ -351,16 +387,19 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
       this.logger.error(logLine);
     }
 
+    const gatewayCode = this.parseGatewayCode(rawBody);
     if (response.status === 401 || response.status === 403) {
       throw new PaymentGatewayError(
         'credentials',
         `Flow devolvió ${response.status} (${method} ${path}) -- apiKey/firma inválida: ${body}`,
+        gatewayCode,
       );
     }
     if (response.status === 400 || response.status === 404) {
       throw new PaymentGatewayError(
         'rejected',
         `Flow devolvió ${response.status} (${method} ${path}): ${body}`,
+        gatewayCode,
       );
     }
 
