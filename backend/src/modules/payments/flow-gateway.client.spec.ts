@@ -104,6 +104,68 @@ describe('FlowPaymentGatewayClient', () => {
     });
   });
 
+  describe('timeout de las llamadas a Flow', () => {
+    it('toda petición lleva un AbortSignal para no colgarse si Flow no responde', async () => {
+      mockFetchOnce({ ok: true, status: 200 }, { status: 1 });
+      mockFetchOnce({ ok: true, status: 200 }, { token: 't', url: 'u' });
+      mockFetchOnce({ ok: true, status: 200 }, {});
+
+      await client.getOrderStatus(credentials, 'tok');
+      await client.createOrder(credentials, {
+        amount: 50000,
+        currency: 'CLP',
+        subject: 'Sesión clínica',
+        externalId: 'group-1',
+        payerEmail: 'paciente@example.com',
+        returnUrl: 'https://umbral.cl/payments',
+        confirmUrl: 'https://umbral.cl/payments/confirm',
+      });
+      await client.voidOrder(credentials, 'tok');
+
+      const calls = (globalThis.fetch as jest.Mock).mock.calls as [
+        string,
+        RequestInit,
+      ][];
+      expect(calls).toHaveLength(3);
+      for (const [, init] of calls) {
+        expect(init.signal).toBeInstanceOf(AbortSignal);
+      }
+    });
+
+    it('un timeout al esperar la respuesta se clasifica como transient', async () => {
+      (globalThis.fetch as jest.Mock).mockRejectedValueOnce(
+        new DOMException(
+          'The operation was aborted due to timeout',
+          'TimeoutError',
+        ),
+      );
+
+      await expect(
+        client.getOrderStatus(credentials, 'tok'),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it('un timeout al leer el cuerpo de una respuesta exitosa se clasifica como transient', async () => {
+      (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: jest
+          .fn()
+          .mockRejectedValue(
+            new DOMException('The operation was aborted', 'TimeoutError'),
+          ),
+      });
+
+      await expect(
+        client.getOrderStatus(credentials, 'tok'),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<PaymentGatewayError>);
+    });
+  });
+
   describe('createOrder', () => {
     it('firma la petición con las credenciales recibidas y construye la paymentUrl a partir de url + token', async () => {
       mockFetchOnce(

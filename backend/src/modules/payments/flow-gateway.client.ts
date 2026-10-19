@@ -54,6 +54,11 @@ const VALIDATION_PROBE_TOKEN = 'umbral-credential-validation-probe';
 // the minimum varies per account.
 const FLOW_MINIMUM_AMOUNT_CLP = 350;
 
+// Upper bound for a single Flow request, response body included. Flow answers
+// in well under a second normally; 10 s leaves room for a slow link without
+// letting a stalled connection hold a request handler or the sweep.
+const REQUEST_TIMEOUT_MS = 10_000;
+
 interface FlowPaymentCreateResponse {
   flowOrder: number;
   url: string;
@@ -235,6 +240,13 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     }
   }
 
+  private networkError(err: unknown): PaymentGatewayError {
+    return new PaymentGatewayError(
+      'transient',
+      `Error de red hacia Flow: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   private async request<T>(
     method: 'GET' | 'POST',
     path: string,
@@ -243,32 +255,48 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     const baseUrl =
       this.config.get<string>('FLOW_API_BASE_URL') ?? DEFAULT_API_BASE_URL;
 
+    // The signal bounds the whole exchange, body included: without it a Flow
+    // that accepts the connection and never answers would hang confirm,
+    // return-status and the 30-minute sweep indefinitely.
+    const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+
     let response: Response;
     try {
       if (method === 'GET') {
         const query = new URLSearchParams(params).toString();
-        response = await fetch(`${baseUrl}${path}?${query}`, { method });
+        response = await fetch(`${baseUrl}${path}?${query}`, {
+          method,
+          signal,
+        });
       } else {
         response = await fetch(`${baseUrl}${path}`, {
           method,
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams(params).toString(),
+          signal,
         });
       }
     } catch (err) {
-      throw new PaymentGatewayError(
-        'transient',
-        `Error de red hacia Flow: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      throw this.networkError(err);
     }
 
     if (response.ok) {
-      return (await response.json()) as T;
+      try {
+        return (await response.json()) as T;
+      } catch (err) {
+        throw this.networkError(err);
+      }
     }
 
     // Flow puede ecoar el payload rechazado (incluye el email del paciente);
     // se enmascara una vez y se usa tanto en el log como en el error (#197).
-    const body = maskEmailsInText(await response.text());
+    let rawBody: string;
+    try {
+      rawBody = await response.text();
+    } catch (err) {
+      throw this.networkError(err);
+    }
+    const body = maskEmailsInText(rawBody);
     // 400/404 are expected rejections (e.g. the credential-validation probe
     // answers code 1700 on every successful check), so they log at warn;
     // credential and server failures stay at error.
