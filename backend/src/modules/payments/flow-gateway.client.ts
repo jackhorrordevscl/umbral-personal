@@ -311,11 +311,13 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
         return (await response.json()) as T;
       } catch (err) {
         // A SyntaxError is a deterministic protocol fault (e.g. an HTML page
-        // from a proxy), not a network failure: retrying will not fix it.
+        // from a proxy), not a network failure: retrying will not fix it. On
+        // a POST the call was still accepted, so the order may exist even
+        // though its token never arrived: that outcome is unknown.
         if (err instanceof SyntaxError) {
           throw new PaymentGatewayError(
-            'invalid_response',
-            `Flow devolvió ${response.status} (${method} ${path}) con un cuerpo que no es JSON válido: ${err.message}`,
+            method === 'POST' ? 'indeterminate' : 'invalid_response',
+            `Flow devolvió ${response.status} (${method} ${path}) con un cuerpo que no es JSON válido${method === 'POST' ? '; la operación pudo haberse procesado' : ''}: ${err.message}`,
           );
         }
         throw this.requestFailure(method, path, err);

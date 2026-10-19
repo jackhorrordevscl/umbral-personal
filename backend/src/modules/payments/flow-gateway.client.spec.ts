@@ -177,7 +177,23 @@ describe('FlowPaymentGatewayClient', () => {
       confirmUrl: 'https://umbral.cl/payments/confirm',
     };
 
-    it('un 200 con cuerpo que no es JSON es invalid_response, no transient', async () => {
+    it('un 200 con cuerpo que no es JSON en un POST es indeterminate: la orden pudo crearse sin que llegue su token', async () => {
+      (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: jest
+          .fn()
+          .mockRejectedValue(new SyntaxError('Unexpected token < in JSON')),
+      });
+
+      await expect(
+        client.createOrder(credentials, orderInput),
+      ).rejects.toMatchObject({
+        kind: 'indeterminate',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it('un 200 con cuerpo que no es JSON en un GET es invalid_response, no transient', async () => {
       (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -194,9 +210,13 @@ describe('FlowPaymentGatewayClient', () => {
     });
 
     it('un timeout en un POST (createOrder) es indeterminate: Flow pudo haber creado la orden', async () => {
-      (globalThis.fetch as jest.Mock).mockRejectedValue(
-        new DOMException('The operation timed out', 'TimeoutError'),
-      );
+      (globalThis.fetch as jest.Mock)
+        .mockRejectedValueOnce(
+          new DOMException('The operation timed out', 'TimeoutError'),
+        )
+        .mockRejectedValueOnce(
+          new DOMException('The operation timed out', 'TimeoutError'),
+        );
 
       await expect(
         client.createOrder(credentials, orderInput),
