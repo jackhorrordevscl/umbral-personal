@@ -59,6 +59,9 @@ const FLOW_MINIMUM_AMOUNT_CLP = 350;
 // letting a stalled connection hold a request handler or the sweep.
 const REQUEST_TIMEOUT_MS = 10_000;
 
+// Statuses request() maps to a definitive 'credentials' or 'rejected' error.
+const DEFINITIVE_REJECTION_STATUSES = [400, 401, 403, 404];
+
 interface FlowPaymentCreateResponse {
   flowOrder: number;
   url: string;
@@ -325,7 +328,13 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     try {
       rawBody = await response.text();
     } catch (err) {
-      throw this.requestFailure(method, path, err);
+      // The status already says whether Flow applied the call: 400/401/403/404
+      // are definitive rejections, so keep that classification and only lose
+      // the body text. Any other status stays an unclear failure.
+      if (!DEFINITIVE_REJECTION_STATUSES.includes(response.status)) {
+        throw this.requestFailure(method, path, err);
+      }
+      rawBody = '';
     }
     const body = maskEmailsInText(rawBody);
     // 400/404 are expected rejections (e.g. the credential-validation probe

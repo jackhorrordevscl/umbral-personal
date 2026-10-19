@@ -248,6 +248,57 @@ describe('FlowPaymentGatewayClient', () => {
       } as Partial<PaymentGatewayError>);
     });
 
+    it.each([
+      [401, 'credentials'],
+      [403, 'credentials'],
+      [400, 'rejected'],
+      [404, 'rejected'],
+    ])(
+      'si el cuerpo de un %i en un POST expira, se clasifica por el status (%s), no como indeterminate',
+      async (status, kind) => {
+        (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
+          ok: false,
+          status,
+          text: jest
+            .fn()
+            .mockRejectedValue(
+              new DOMException('The operation timed out', 'TimeoutError'),
+            ),
+        });
+
+        await expect(
+          client.createOrder(credentials, orderInput),
+        ).rejects.toMatchObject({ kind } as Partial<PaymentGatewayError>);
+      },
+    );
+
+    it('si el cuerpo de un 500 en un POST expira, el resultado sigue siendo indeterminate', async () => {
+      (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: jest
+          .fn()
+          .mockRejectedValue(
+            new DOMException('The operation timed out', 'TimeoutError'),
+          ),
+      });
+
+      await expect(
+        client.createOrder(credentials, orderInput),
+      ).rejects.toMatchObject({
+        kind: 'indeterminate',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it('el timeout de cada petición es de 10 segundos', async () => {
+      const timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
+      mockFetchOnce({ ok: true, status: 200 }, { status: 1 });
+
+      await client.getOrderStatus(credentials, 'tok');
+
+      expect(timeoutSpy).toHaveBeenCalledWith(10_000);
+    });
+
     it('un timeout al leer el cuerpo de un error de Flow en un GET es transient', async () => {
       (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
         ok: false,
