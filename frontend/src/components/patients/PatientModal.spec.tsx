@@ -18,6 +18,7 @@ const patient = {
   id: 'patient-1',
   fullName: 'Paciente Prueba',
   rut: '11111111-1',
+  birthDate: '1990-03-15T00:00:00.000Z',
   consents: { TREATMENT: true, TELEMEDICINE: false },
 } as unknown as Patient
 
@@ -214,6 +215,29 @@ describe('PatientModal — formularios (#295)', () => {
     await user.click(screen.getByRole('button', { name: 'Editar' }))
 
     expect(screen.getByLabelText('Teléfono')).toHaveValue('999')
+  })
+
+  // Un usuario detectó que una fecha de nacimiento mal cargada no se podía
+  // corregir: el backend la acepta en PATCH, pero la pestaña no la ofrecía.
+  it('permite corregir la fecha de nacimiento y la envía en el PATCH', async () => {
+    mockedApi.patch.mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+    renderModal()
+
+    await user.click(await screen.findByRole('button', { name: 'Editar' }))
+    const birthDate = screen.getByLabelText(/fecha de nacimiento/i)
+    expect(birthDate).toHaveValue('1990-03-15')
+
+    await user.clear(birthDate)
+    await user.type(birthDate, '1991-04-20')
+    await user.type(screen.getByLabelText(/motivo de la modificación/i), 'Fecha de nacimiento mal ingresada')
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+
+    await waitFor(() => expect(mockedApi.patch).toHaveBeenCalled())
+    expect(mockedApi.patch).toHaveBeenCalledWith(
+      '/patients/patient-1',
+      expect.objectContaining({ birthDate: '1991-04-20' }),
+    )
   })
 })
 
