@@ -1015,7 +1015,7 @@ export class PaymentsService {
     title: string,
     body: string,
     detail = '',
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.logger.error(
       `${logMessage} (paymentId=${payment.id}, groupId=${payment.groupId}${detail})`,
     );
@@ -1027,11 +1027,13 @@ export class PaymentsService {
         body,
         metadata: { paymentId: payment.id, groupId: payment.groupId },
       });
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(
         `Fallo al notificar la anomalía de cobro (paymentId=${payment.id}, groupId=${payment.groupId}): ${message}`,
       );
+      return false;
     }
   }
 
@@ -1289,13 +1291,23 @@ export class PaymentsService {
       data: { lastError: marker },
     });
     if (claimed.count === 0) return true;
-    await this.reportPaymentAnomaly(
+    const notified = await this.reportPaymentAnomaly(
       payment,
       'El monto cobrado en la pasarela no coincide con el del cobro; no se marca como pagado',
       'Monto de pago distinto al del cobro',
       'La pasarela registró un pago con un monto distinto al del cobro. El cobro no se marcó como pagado; revisa tu cuenta de la pasarela.',
       `, localAmount=${payment.amount}, gatewayAmount=${gatewayAmount}`,
     );
+    if (!notified) {
+      // Sin aviso entregado, el reclamo se libera para que el próximo barrido
+      // vuelva a informar en vez de perder la alerta.
+      await this.prisma.payment
+        .updateMany({
+          where: { id: payment.id, lastError: marker },
+          data: { lastError: null },
+        })
+        .catch(() => undefined);
+    }
     return true;
   }
 }
