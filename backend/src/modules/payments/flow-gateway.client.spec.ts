@@ -508,7 +508,7 @@ describe('FlowPaymentGatewayClient', () => {
   // validateCredentials attaches to each bucket.
   describe('validateCredentials (probe taxonomy)', () => {
     it('sondea con el token sentinela documentado, firmado con las credenciales recibidas', async () => {
-      mockFetchOnce({ ok: false, status: 404 });
+      mockFetchOnce({ ok: false, status: 404 }, { code: 1700 });
 
       await client.validateCredentials(credentials);
 
@@ -547,8 +547,14 @@ describe('FlowPaymentGatewayClient', () => {
       } as Partial<PaymentGatewayError>);
     });
 
-    it('400 (token sentinela no encontrado) se interpreta como credenciales VÁLIDAS -- design.md Decision 1', async () => {
-      mockFetchOnce({ ok: false, status: 400 });
+    // Issue #494: solo el código 1700 ("token no encontrado", el que devolvió
+    // Flow de producción en una verificación exitosa) confirma que la firma
+    // autenticó. Un 400/404 sin ese código no prueba nada sobre las claves.
+    it('400 con código 1700 (token sentinela no encontrado) se interpreta como credenciales VÁLIDAS -- design.md Decision 1', async () => {
+      mockFetchOnce(
+        { ok: false, status: 400 },
+        { code: 1700, message: 'Token not found' },
+      );
 
       const result = await client.validateCredentials(credentials);
 
@@ -556,12 +562,63 @@ describe('FlowPaymentGatewayClient', () => {
       expect(result.keyFingerprint.length).toBeGreaterThan(0);
     });
 
-    it('404 (token sentinela no encontrado) se interpreta como credenciales VÁLIDAS -- design.md Decision 1', async () => {
-      mockFetchOnce({ ok: false, status: 404 });
+    it('404 con código 1700 (token sentinela no encontrado) se interpreta como credenciales VÁLIDAS -- design.md Decision 1', async () => {
+      mockFetchOnce(
+        { ok: false, status: 404 },
+        { code: 1700, message: 'Token not found' },
+      );
 
       const result = await client.validateCredentials(credentials);
 
       expect(result.keyFingerprint).toEqual(expect.any(String));
+    });
+
+    // No hay documentación oficial a mano que fije el tipo del campo: el 1700
+    // como cadena numérica también es "token no encontrado".
+    it('400 con el código 1700 como cadena numérica también confirma las credenciales', async () => {
+      mockFetchOnce(
+        { ok: false, status: 400 },
+        { code: '1700', message: 'Token not found' },
+      );
+
+      const result = await client.validateCredentials(credentials);
+
+      expect(result.keyFingerprint).toEqual(expect.any(String));
+    });
+
+    it.each([
+      ['400 con otro código de error', 400, { code: 1234, message: 'x' }],
+      ['400 con un código no numérico', 400, { code: 'abc', message: 'x' }],
+      ['400 con cuerpo vacío', 400, {}],
+      ['404 con otro código de error', 404, { code: 1234, message: 'x' }],
+      ['404 con cuerpo vacío', 404, {}],
+    ])(
+      '%s NO confirma las credenciales: se rechaza como credentials',
+      async (_label, status, body) => {
+        mockFetchOnce({ ok: false, status }, body);
+
+        await expect(
+          client.validateCredentials(credentials),
+        ).rejects.toMatchObject({
+          kind: 'credentials',
+        } as Partial<PaymentGatewayError>);
+      },
+    );
+
+    // Una FLOW_API_BASE_URL equivocada o un proxy que responde 404 con HTML no
+    // es Flow: antes quedaba como "credenciales válidas".
+    it('404 con un cuerpo que no es JSON (URL equivocada o proxy) NO confirma las credenciales', async () => {
+      (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: jest.fn().mockResolvedValue('<html>Not Found</html>'),
+      });
+
+      await expect(
+        client.validateCredentials(credentials),
+      ).rejects.toMatchObject({
+        kind: 'credentials',
+      } as Partial<PaymentGatewayError>);
     });
 
     it('5xx se propaga como transient -- no debe interpretarse como válida ni inválida', async () => {
@@ -587,10 +644,10 @@ describe('FlowPaymentGatewayClient', () => {
     });
 
     it('el fingerprint depende de las credenciales, no es un valor fijo', async () => {
-      mockFetchOnce({ ok: false, status: 400 });
+      mockFetchOnce({ ok: false, status: 400 }, { code: 1700 });
       const first = await client.validateCredentials(credentials);
 
-      mockFetchOnce({ ok: false, status: 400 });
+      mockFetchOnce({ ok: false, status: 400 }, { code: 1700 });
       const second = await client.validateCredentials(
         new GatewayCredentials('other-api-key', 'other-secret-key'),
       );
