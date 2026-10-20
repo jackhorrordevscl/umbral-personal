@@ -122,8 +122,12 @@ services:
         sync: false
       # Pagos (Flow) y autoagenda pública. Las credenciales de Flow van
       # cifradas por cuenta en la DB, no en env. BACKEND_PUBLIC_URL es la URL
-      # pública del backend (confirmUrl de Flow).
+      # pública del backend (confirmUrl de Flow). FLOW_API_BASE_URL es la API
+      # de Flow (producción: https://www.flow.cl/api); es obligatoria al
+      # arrancar en producción salvo con PAYMENTS_ENABLED=false.
       - key: PAYMENTS_ENABLED
+        sync: false
+      - key: FLOW_API_BASE_URL
         sync: false
       - key: PUBLIC_SCHEDULING_ENABLED
         sync: false

@@ -103,7 +103,14 @@ function validateMainTsEnvVars(config: Record<string, unknown>): void {
     }
   }
 
-  for (const varName of ['FRONTEND_URL', 'LAN_DEV_URL'] as const) {
+  // Issue #494: la lee FlowPaymentGatewayClient en cada request; una URL rota
+  // fallaría recién al primer cobro. En producción además es obligatoria (ver
+  // validateProductionRequiredVars).
+  for (const varName of [
+    'FRONTEND_URL',
+    'LAN_DEV_URL',
+    'FLOW_API_BASE_URL',
+  ] as const) {
     const value = config[varName];
     if (
       value !== undefined &&
@@ -304,6 +311,22 @@ function validateProductionRequiredVars(config: Record<string, unknown>): void {
     throw new Error(
       `FRONTEND_URL inválida: en producción es obligatoria y debe ser una URL con esquema http:// o https:// (valor recibido: "${describeValue(frontendUrl)}").`,
     );
+  }
+
+  // Issue #494: sin esta variable FlowPaymentGatewayClient usa el sandbox de
+  // Flow, y producción cobraría contra un entorno de prueba sin ningún aviso.
+  // Con los pagos deshabilitados el cliente no se usa, así que no se exige.
+  if (config.PAYMENTS_ENABLED !== 'false') {
+    const flowApiBaseUrl = config.FLOW_API_BASE_URL;
+    if (
+      !isNonEmptyString(flowApiBaseUrl) ||
+      !flowApiBaseUrl.startsWith('https://') ||
+      !isValidUrl(flowApiBaseUrl)
+    ) {
+      throw new Error(
+        `FLOW_API_BASE_URL inválida: en producción es obligatoria (sin ella se usaría el sandbox de Flow) y debe ser una URL con esquema https:// (valor recibido: "${describeValue(flowApiBaseUrl)}").`,
+      );
+    }
   }
 
   for (const varName of PRODUCTION_REQUIRED_STRING_VARS) {

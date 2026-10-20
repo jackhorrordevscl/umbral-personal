@@ -103,6 +103,7 @@ const b2Vars = (prefix: string) => ({
 const productionRequiredVars: Record<string, string> = {
   CLINICAL_TEXT_ENCRYPTION_KEY: validClinicalKey,
   FRONTEND_URL: 'https://umbral.example.com',
+  FLOW_API_BASE_URL: 'https://www.flow.cl/api',
   DATABASE_URL: 'postgresql://usuario:clave@db.example.com:5432/umbral',
   RESEND_API_KEY: 'resend-api-key-de-prueba',
   RESEND_WEBHOOK_SECRET: 'webhook-secret-de-prueba',
@@ -692,6 +693,7 @@ describe('validateEnv', () => {
       Object.keys(productionRequiredVars).filter(
         (name) =>
           name !== 'FRONTEND_URL' &&
+          name !== 'FLOW_API_BASE_URL' &&
           name !== 'CLINICAL_TEXT_ENCRYPTION_KEY' &&
           !name.endsWith('_ENDPOINT'),
       ),
@@ -735,6 +737,52 @@ describe('validateEnv', () => {
       const config = { NODE_ENV: 'test' };
 
       expect(validateEnv(config)).toBe(config);
+    });
+
+    // Issue #494: sin FLOW_API_BASE_URL el cliente de Flow cae al sandbox, y
+    // en producción eso cobra contra un entorno de prueba sin avisar.
+    describe('FLOW_API_BASE_URL (issue #494)', () => {
+      it.each(['', '   ', 'no-es-una-url', 'ftp://flow.example.com'])(
+        'rechaza un FLOW_API_BASE_URL %j en producción',
+        (value) => {
+          expect(() =>
+            validateEnv({ ...validProduction, FLOW_API_BASE_URL: value }),
+          ).toThrow(/FLOW_API_BASE_URL inválida/);
+        },
+      );
+
+      it('rechaza un FLOW_API_BASE_URL con http:// en producción', () => {
+        expect(() =>
+          validateEnv({
+            ...validProduction,
+            FLOW_API_BASE_URL: 'http://www.flow.cl/api',
+          }),
+        ).toThrow(/FLOW_API_BASE_URL inválida/);
+      });
+
+      it('no la exige en producción con PAYMENTS_ENABLED="false"', () => {
+        const config = {
+          ...without('FLOW_API_BASE_URL'),
+          PAYMENTS_ENABLED: 'false',
+        };
+
+        expect(validateEnv(config)).toBe(config);
+      });
+
+      it('rechaza un FLOW_API_BASE_URL que no es una URL en cualquier entorno', () => {
+        expect(() =>
+          validateEnv({ NODE_ENV: 'test', FLOW_API_BASE_URL: 'no-es-una-url' }),
+        ).toThrow(/FLOW_API_BASE_URL inválida/);
+      });
+
+      it('permite http:// fuera de producción (Flow falso de los e2e)', () => {
+        const config = {
+          NODE_ENV: 'test',
+          FLOW_API_BASE_URL: 'http://127.0.0.1:4010',
+        };
+
+        expect(validateEnv(config)).toBe(config);
+      });
     });
   });
 
