@@ -55,10 +55,16 @@ export interface BusyInterval {
 }
 
 // design.md Decision 1: el `fields` mask que se manda a Google -- Google
-// nunca devuelve summary/description/attendees/location con esta máscara,
-// así que ningún contenido clínico ni personal entra al proceso.
+// nunca devuelve summary/description/location con esta máscara, así que ningún
+// contenido clínico ni personal entra al proceso. De `attendees` solo se piden
+// `self` y `responseStatus` (sin emails ni nombres): lo justo para saber si el
+// propio terapeuta rechazó la invitación (issue #497; el freebusy anterior
+// excluía esos eventos y events.list los devuelve como `confirmed`). De
+// `extendedProperties` solo `private` (donde Umbral marca sus eventos con
+// umbralGroupId), no `shared`; la API no permite filtrar una clave concreta
+// dentro de ese mapa.
 const BUSY_EVENT_FIELDS =
-  'items(start,end,status,transparency,extendedProperties),nextPageToken';
+  'items(start,end,status,transparency,attendees(self,responseStatus),extendedProperties/private),nextPageToken';
 
 // Shape mínimo que este cliente lee de cada item de events.list -- nunca el
 // evento completo de Google (design.md Decision 1: privacidad por
@@ -68,6 +74,7 @@ interface GoogleCalendarListEventItem {
   transparency?: string;
   start?: { date?: string; dateTime?: string };
   end?: { date?: string; dateTime?: string };
+  attendees?: { self?: boolean; responseStatus?: string }[];
   extendedProperties?: { private?: Record<string, string> };
 }
 
@@ -220,6 +227,14 @@ export class GoogleCalendarClient {
     if (item.transparency === 'transparent') return null;
     if (!item.start?.dateTime || !item.end?.dateTime) return null;
     if (item.extendedProperties?.private?.umbralGroupId) return null;
+    // issue #497: una invitación que el propio terapeuta rechazó no lo ocupa.
+    if (
+      item.attendees?.some(
+        (attendee) => attendee.self && attendee.responseStatus === 'declined',
+      )
+    ) {
+      return null;
+    }
 
     return {
       startsAt: new Date(item.start.dateTime),
@@ -325,16 +340,21 @@ export class GoogleCalendarClient {
       return (await response.json()) as T;
     }
 
+    // issue #497: el mensaje termina en logs y en lastError/busySyncError, así
+    // que no lleva la URL completa (calendarId, que suele ser el email del
+    // terapeuta, id del evento y fechas de la query), solo la forma de la ruta.
+    const target = `${method} ${this.describeUrl(url)}`;
+
     if (response.status === 401) {
       throw new GoogleCalendarError(
         'invalid_grant',
-        `Google Calendar devolvió 401 (${method} ${url}).`,
+        `Google Calendar devolvió 401 (${target}).`,
       );
     }
     if (response.status === 404 || response.status === 410) {
       throw new GoogleCalendarError(
         'gone',
-        `Google Calendar devolvió ${response.status} (${method} ${url}).`,
+        `Google Calendar devolvió ${response.status} (${target}).`,
       );
     }
 
@@ -351,11 +371,20 @@ export class GoogleCalendarClient {
     // (design.md "Failure classification"): el próximo reconcile tick
     // reintenta, nunca se reintenta inline.
     this.logger.error(
-      `Google Calendar devolvió ${response.status} (${method} ${url}).`,
+      `Google Calendar devolvió ${response.status} (${target}).`,
     );
     throw new GoogleCalendarError(
       'transient',
-      `Google Calendar devolvió ${response.status} (${method} ${url}).`,
+      `Google Calendar devolvió ${response.status} (${target}).`,
     );
+  }
+
+  // /calendars/<id>/events[/<id>] -> /calendars/:calendarId/events[/:eventId],
+  // sin query string.
+  private describeUrl(url: string): string {
+    const path = url.slice(CALENDAR_API_BASE.length).split('?')[0];
+    return path
+      .replace(/^\/calendars\/[^/]+/, '/calendars/:calendarId')
+      .replace(/\/events\/[^/]+/, '/events/:eventId');
   }
 }
