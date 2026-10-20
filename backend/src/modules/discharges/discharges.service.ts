@@ -19,6 +19,8 @@ import { DischargeCancellationNotifier } from './discharge-cancellation-notifier
 import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
 import {
   decryptDischargeRow,
+  decryptDischargeRowLenient,
+  type DischargeTextField,
   encryptDischargeTexts,
 } from './util/discharge-text.util';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
@@ -113,6 +115,24 @@ export class DischargesService {
   // la API trabajan siempre sobre el texto en claro.
   private decryptRow<T extends object>(row: T): T {
     return decryptDischargeRow(row, this.clinicalCrypto);
+  }
+
+  // Solo para lecturas que no calculan hashes ni reescriben texto (listado y
+  // verify): un campo ilegible no tumba la respuesta. Se registra qué campos
+  // fallaron, nunca su contenido, y `unreadableFields` solo aparece si hay alguno.
+  private decryptRowLenient<T extends { id: string }>(
+    row: T,
+  ): {
+    row: T;
+    unreadableFields: DischargeTextField[];
+  } {
+    const result = decryptDischargeRowLenient(row, this.clinicalCrypto);
+    if (result.unreadableFields.length > 0) {
+      this.logger.error(
+        `No se pudo descifrar el informe (dischargeId=${row.id}): campos ${result.unreadableFields.join(', ')}`,
+      );
+    }
+    return result;
   }
 
   // POST /patients/:patientId/discharges
@@ -1175,16 +1195,24 @@ export class DischargesService {
   }
 
   // GET /patients/:patientId/discharges (todas las versiones)
+  //
+  // Un texto ilegible no tumba el listado: esa fila sale con el campo en null y
+  // `unreadableFields` con su nombre; las demás salen intactas.
   async findByPatient(
     patientId: string,
     therapistId: string,
-  ): Promise<TreatmentDischarge[]> {
+  ): Promise<
+    (TreatmentDischarge & { unreadableFields?: DischargeTextField[] })[]
+  > {
     await this.patientsService.assertAccess(patientId, therapistId);
     const rows = await this.prisma.treatmentDischarge.findMany({
       where: { patientId, therapistId },
       orderBy: [{ createdAt: 'asc' }, { version: 'asc' }],
     });
-    return rows.map((row) => this.decryptRow(row));
+    return rows.map((found) => {
+      const { row, unreadableFields } = this.decryptRowLenient(found);
+      return unreadableFields.length > 0 ? { ...row, unreadableFields } : row;
+    });
   }
 
   // GET /patients/:patientId/discharges/cancellation-preview: consultas futuras
@@ -1220,8 +1248,9 @@ export class DischargesService {
       include: { correctedBy: { select: { id: true } } },
     });
     if (!found) throw new NotFoundException('Informe no encontrado');
-    // El hash se calculó al emitir sobre el texto en claro.
-    const row = this.decryptRow(found);
+    // Los metadatos de acá abajo no están cifrados; los textos se descifran solo
+    // en la rama GENERATED, que es la única que los necesita para el hash.
+    const row = found;
     if (row.status !== 'ISSUED' || !row.issuedAt) {
       throw new ConflictException(
         'El informe aún no está emitido: no hay hash que verificar.',
@@ -1248,10 +1277,19 @@ export class DischargesService {
       return { ...base, valid: pdf.intact === true, pdf };
     }
 
-    const recomputed = computeDischargeHash(dischargeHashInputFromRow(row));
+    // El hash se calculó al emitir sobre el texto en claro. Con un texto que no
+    // se puede descifrar no hay forma de recalcularlo: el informe no es
+    // verificable, y eso se responde como inválido en vez de como un 500.
+    const { row: readable, unreadableFields } = this.decryptRowLenient(row);
+    const valid =
+      unreadableFields.length === 0 &&
+      hashesMatch(
+        computeDischargeHash(dischargeHashInputFromRow(readable)),
+        row.contentHash,
+      );
     return {
       ...base,
-      valid: hashesMatch(recomputed, row.contentHash),
+      valid,
       pdf: await this.checkPdfIntegrity(row, therapistId),
     };
   }

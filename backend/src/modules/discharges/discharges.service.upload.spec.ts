@@ -9,6 +9,7 @@ import { Prisma, TreatmentDischarge } from '@prisma/client';
 import { createHash } from 'crypto';
 import { DischargesService } from './discharges.service';
 import { DischargeCancellationNotifier } from './discharge-cancellation-notifier.service';
+import { encryptDischargeTexts } from './util/discharge-text.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { AuditService } from '../audit/audit.service';
@@ -537,6 +538,29 @@ describe('DischargesService T3b (PDF propio)', () => {
         source: 'UPLOADED',
         providedByTherapist: true,
         contentHash: PDF_SHA,
+        pdf: { present: true, intact: true },
+      });
+    });
+
+    it('no descifra los textos: un campo ilegible no impide verificar el archivo', async () => {
+      const good = encryptDischargeTexts(
+        { consultReason: 'Motivo' },
+        buildTestClinicalCrypto(),
+      ).consultReason;
+      prisma.treatmentDischarge.findFirst.mockResolvedValue({
+        ...uploadedRow({ consultReason: `${good.slice(0, -4)}AAAA` }),
+        correctedBy: null,
+      });
+      documentsService.getDecryptedFile.mockResolvedValue({
+        doc: {},
+        buffer: PDF_BYTES,
+      });
+
+      const res = await service.verify('dis-1', 'therapist-1');
+
+      expect(res).toMatchObject({
+        valid: true,
+        source: 'UPLOADED',
         pdf: { present: true, intact: true },
       });
     });

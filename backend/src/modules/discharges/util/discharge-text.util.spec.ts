@@ -1,6 +1,7 @@
 import { buildTestClinicalCrypto } from '../../../common/crypto/clinical-text-crypto.testing';
 import {
   decryptDischargeRow,
+  decryptDischargeRowLenient,
   DISCHARGE_TEXT_FIELDS,
   encryptDischargeTexts,
 } from './discharge-text.util';
@@ -85,5 +86,52 @@ describe('discharge-text util', () => {
     };
 
     expect(decryptDischargeRow(row, crypto)).toEqual(row);
+  });
+
+  describe('decryptDischargeRowLenient', () => {
+    const tampered = (value: string) => `${value.slice(0, -4)}AAAA`;
+
+    it('descifra todo y no informa campos ilegibles cuando la fila está sana', () => {
+      const row = { id: 'd1', ...encryptDischargeTexts(allTexts, crypto) };
+
+      expect(decryptDischargeRowLenient(row, crypto)).toEqual({
+        row: { id: 'd1', ...allTexts },
+        unreadableFields: [],
+      });
+    });
+
+    it('deja en null solo el campo alterado, informa su nombre y descifra el resto', () => {
+      const encrypted = encryptDischargeTexts(allTexts, crypto);
+      const row = {
+        id: 'd1',
+        ...encrypted,
+        diagnosis: tampered(encrypted.diagnosis),
+      };
+
+      const result = decryptDischargeRowLenient(row, crypto);
+
+      expect(result.unreadableFields).toEqual(['diagnosis']);
+      expect(result.row).toEqual({ id: 'd1', ...allTexts, diagnosis: null });
+    });
+
+    it('trata como ilegible un valor enc:v3 con una clave ausente del llavero', () => {
+      const row = { consultReason: 'enc:v3:99:AAAAAAAAAAAAAAAAAAAAAAAA' };
+
+      const result = decryptDischargeRowLenient(row, crypto);
+
+      expect(result.unreadableFields).toEqual(['consultReason']);
+      expect(result.row.consultReason).toBeNull();
+    });
+
+    it('decryptDischargeRow estricto sigue lanzando ante un campo alterado', () => {
+      const encrypted = encryptDischargeTexts(allTexts, crypto);
+
+      expect(() =>
+        decryptDischargeRow(
+          { ...encrypted, diagnosis: tampered(encrypted.diagnosis) },
+          crypto,
+        ),
+      ).toThrow();
+    });
   });
 });
