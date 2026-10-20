@@ -12,7 +12,7 @@ export const EMPTY_CONSENTS: ConsentStatus = {
   TELEMEDICINE: false,
 };
 
-// Bloque Menores (M5): quién otorga el consentimiento, tramo etario y estado
+// Bloque NNA (M5): quién otorga el consentimiento, tramo etario y estado
 // de regularización del representante legal. Los calcula el backend.
 export type ConsentGrantor = "PATIENT" | "GUARDIAN";
 export type AgeBand = "ADULT" | "UNDER_14" | "AGE_14_17";
@@ -108,7 +108,7 @@ export interface Patient {
   ageBand: AgeBand;
   guardianCount: number;
   minorStatus: MinorStatus;
-  // Fecha (YYYY-MM-DD) desde la que el consentimiento de un menor debe venir
+  // Fecha (YYYY-MM-DD) desde la que el consentimiento de un NNA debe venir
   // de un representante; el backend la expone para mostrar el plazo.
   guardianEnforcementDate?: string;
   guardians?: LegalGuardian[];

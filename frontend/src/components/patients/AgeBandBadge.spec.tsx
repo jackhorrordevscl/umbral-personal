@@ -3,9 +3,9 @@ import { render, screen } from '@testing-library/react'
 import AgeBandBadge from './AgeBandBadge'
 
 describe('AgeBandBadge', () => {
-  it('muestra el tramo de un menor de 14', () => {
+  it('muestra el tramo de un NNA de menos de 14 años', () => {
     render(<AgeBandBadge ageBand="UNDER_14" />)
-    expect(screen.getByText('Menor de 14 años')).toBeInTheDocument()
+    expect(screen.getByText('Menos de 14 años')).toBeInTheDocument()
   })
 
   it('muestra el tramo de 14 a 17', () => {

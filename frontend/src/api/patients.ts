@@ -103,7 +103,7 @@ export function recordPatientConsent(
   purpose: ConsentPurpose,
   action: 'GRANT' | 'REVOKE',
   evidence: string,
-  // Bloque Menores: solo para el GRANT de un menor (GUARDIAN + guardianId).
+  // Bloque NNA: solo para el GRANT de un NNA (GUARDIAN + guardianId).
   // Un adulto nunca debe enviarlos.
   grantor?: { grantedBy: ConsentGrantor; guardianId?: string },
 ) {
@@ -141,7 +141,7 @@ export function bulkDeclarePatientConsent(
     .then((r) => r.data);
 }
 
-// Bloque Menores (M5): representantes legales (máximo 2 por paciente).
+// Bloque NNA (M5): representantes legales (máximo 2 por paciente).
 export interface GuardianPayload {
   fullName: string;
   rut: string;
@@ -179,7 +179,7 @@ export function deleteGuardian(patientId: string, guardianId: string) {
   return api.delete(`/patients/${patientId}/guardians/${guardianId}`);
 }
 
-// Ledger append-only de asentimiento del menor (sin PATCH ni DELETE).
+// Ledger append-only de asentimiento del NNA (sin PATCH ni DELETE).
 export interface AssentPayload {
   action: AssentAction;
   note?: string;
