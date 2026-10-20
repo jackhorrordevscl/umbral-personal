@@ -412,14 +412,20 @@ export class DischargesService {
       const row = this.decryptRow(
         await tx.treatmentDischarge.findUniqueOrThrow({ where: { id } }),
       );
-      const cancelledGroupIds = await this.applyClosureInTransaction(
+      const priorEpisode = await this.isPriorEpisodeCorrection(
         tx,
         row,
         patient.treatmentStatus,
       );
-      return { row, cancelledGroupIds };
+      const cancelledGroupIds = await this.applyClosureInTransaction(
+        tx,
+        row,
+        patient.treatmentStatus,
+        priorEpisode,
+      );
+      return { row, cancelledGroupIds, priorEpisode };
     });
-    const { row: issued, cancelledGroupIds } = result;
+    const { row: issued, cancelledGroupIds, priorEpisode } = result;
 
     // Auditoría explícita tras el commit. Fail-open, igual que el interceptor
     // global: la emisión ya es definitiva y un fallo del log no debe revertirla
@@ -433,7 +439,10 @@ export class DischargesService {
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
     });
-    await this.auditClosure(issued, cancelledGroupIds, therapistId, ctx);
+    // Corregir un episodio anterior no cierra al paciente: no hay cierre que auditar.
+    if (!priorEpisode) {
+      await this.auditClosure(issued, cancelledGroupIds, therapistId, ctx);
+    }
 
     await this.runPostCommitEffects(therapistId, cancelledGroupIds, issued.id);
 
@@ -723,16 +732,23 @@ export class DischargesService {
             documentId: stored.id,
           },
         });
-        const cancelledGroupIds = await this.applyClosureInTransaction(
+        const priorEpisode = await this.isPriorEpisodeCorrection(
           tx,
           row,
           patient.treatmentStatus,
         );
+        const cancelledGroupIds = await this.applyClosureInTransaction(
+          tx,
+          row,
+          patient.treatmentStatus,
+          priorEpisode,
+        );
         return {
           row: this.decryptRow(row),
           cancelledGroupIds,
-          // Con el paciente reabierto la corrección es solo un registro.
-          closureApplied: patient.treatmentStatus !== 'ACTIVE',
+          // Con el paciente reabierto, o con un cierre posterior que ya fijó su
+          // estado, la corrección es solo un registro.
+          closureApplied: patient.treatmentStatus !== 'ACTIVE' && !priorEpisode,
         };
       });
     } catch (err) {
@@ -1006,13 +1022,42 @@ export class DischargesService {
     });
   }
 
+  // Una corrección de un informe cuyo cierre ya no es el último del paciente
+  // (cerró, se reabrió con una consulta nueva y cerró otra vez) es solo un
+  // registro: el estado vigente lo fijó el cierre posterior. Los grupos se
+  // ordenan por la emisión de su versión raíz (groupId es el id de la v1).
+  private async isPriorEpisodeCorrection(
+    tx: Prisma.TransactionClient,
+    discharge: TreatmentDischarge,
+    currentStatus: string,
+  ): Promise<boolean> {
+    if (discharge.correctsId === null || currentStatus === 'ACTIVE') {
+      return false;
+    }
+    const root = await tx.treatmentDischarge.findUnique({
+      where: { id: discharge.groupId },
+      select: { issuedAt: true },
+    });
+    if (!root?.issuedAt) return false;
+    const later = await tx.treatmentDischarge.count({
+      where: {
+        patientId: discharge.patientId,
+        status: 'ISSUED',
+        groupId: { not: discharge.groupId },
+        issuedAt: { gt: root.issuedAt },
+      },
+    });
+    return later > 0;
+  }
+
   private async applyClosureInTransaction(
     tx: Prisma.TransactionClient,
     discharge: TreatmentDischarge,
     currentStatus: string,
+    priorEpisode = false,
   ): Promise<string[]> {
     const isCorrection = discharge.correctsId !== null;
-    if (isCorrection && currentStatus === 'ACTIVE') return [];
+    if (isCorrection && (currentStatus === 'ACTIVE' || priorEpisode)) return [];
     if (!isCorrection || currentStatus !== discharge.closureReason) {
       await tx.patient.update({
         where: { id: discharge.patientId },
