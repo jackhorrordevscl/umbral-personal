@@ -337,9 +337,80 @@ describe('GoogleCalendarClient', () => {
       expect(url).toContain(
         new URLSearchParams({
           fields:
-            'items(start,end,status,transparency,extendedProperties),nextPageToken',
+            'items(start,end,status,transparency,attendees(self,responseStatus),extendedProperties/private),nextPageToken',
         }).toString(),
       );
+    });
+
+    // issue #497: la máscara solo pide self/responseStatus de los asistentes
+    // (nunca email ni nombre) y solo extendedProperties.private.
+    it('la máscara no pide summary, description, location ni datos de asistentes', async () => {
+      mockFetchListOnce({ items: [] });
+
+      await client.listBusyIntervals(
+        buildOAuth2Client(),
+        CALENDAR_ID,
+        WINDOW_START,
+        WINDOW_END,
+      );
+
+      const [url] = (globalThis.fetch as jest.Mock).mock.calls[0] as [string];
+      const fields = new URL(url).searchParams.get('fields') ?? '';
+      expect(fields).not.toMatch(/summary|description|location|email/);
+      expect(fields).toContain('attendees(self,responseStatus)');
+    });
+
+    it('descarta una invitación que el propio terapeuta rechazó (attendees.self + declined)', async () => {
+      mockFetchListOnce({
+        items: [
+          {
+            start: { dateTime: '2026-02-10T10:00:00-03:00' },
+            end: { dateTime: '2026-02-10T11:00:00-03:00' },
+            attendees: [
+              { self: true, responseStatus: 'declined' },
+              { responseStatus: 'accepted' },
+            ],
+          },
+        ],
+      });
+
+      const result = await client.listBusyIntervals(
+        buildOAuth2Client(),
+        CALENDAR_ID,
+        WINDOW_START,
+        WINDOW_END,
+      );
+
+      expect(result).toEqual([]);
+    });
+
+    it('mantiene el bloqueo si quien rechazó es otro asistente o el terapeuta aceptó/tentativo', async () => {
+      mockFetchListOnce({
+        items: [
+          {
+            start: { dateTime: '2026-02-10T10:00:00-03:00' },
+            end: { dateTime: '2026-02-10T11:00:00-03:00' },
+            attendees: [
+              { self: true, responseStatus: 'accepted' },
+              { responseStatus: 'declined' },
+            ],
+          },
+          {
+            start: { dateTime: '2026-02-11T10:00:00-03:00' },
+            end: { dateTime: '2026-02-11T11:00:00-03:00' },
+            attendees: [{ self: true, responseStatus: 'tentative' }],
+          },
+        ],
+      });
+
+      const result = await client.listBusyIntervals(
+        buildOAuth2Client(),
+        CALENDAR_ID,
+        WINDOW_START,
+        WINDOW_END,
+      );
+
+      expect(result).toHaveLength(2);
     });
 
     it('descarta eventos cancelados (status=cancelled)', async () => {
