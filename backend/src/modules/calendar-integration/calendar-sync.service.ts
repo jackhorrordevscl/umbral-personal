@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
@@ -345,7 +346,14 @@ export class CalendarSyncService {
             correctedBy: null,
             deletedAt: null,
           },
-          select: { groupId: true, sessionDate: true },
+          select: {
+            id: true,
+            groupId: true,
+            therapistId: true,
+            sessionDate: true,
+            durationMinutes: true,
+            patient: { select: { id: true, fullName: true } },
+          },
         });
         const byGroupId = new Map(consultations.map((c) => [c.groupId, c]));
 
@@ -353,10 +361,20 @@ export class CalendarSyncService {
           const consultation = byGroupId.get(link.groupId);
           if (!consultation) continue; // ya cubierto por deleteForRemovedConsultations
 
-          if (
+          // issue #497: además de la fecha, se compara la huella del cuerpo
+          // (duración, id de la consulta vigente, iniciales). Un link sin
+          // huella (anterior a la columna) compara solo la fecha: parchearlo
+          // todo de golpe al desplegar saturaría la cuota de Google, y su
+          // próximo push ya guarda la huella.
+          const dateDrifted =
             consultation.sessionDate.getTime() !==
-            link.lastSessionDate.getTime()
-          ) {
+            link.lastSessionDate.getTime();
+          const bodyDrifted =
+            !dateDrifted &&
+            typeof link.lastBodyHash === 'string' &&
+            link.lastBodyHash !== this.hashEventBody(consultation);
+
+          if (dateDrifted || bodyDrifted) {
             await this.syncGroup(link.groupId).catch((err: unknown) => {
               this.logger.error(
                 `Reconcile: fallo al reparar drift groupId=${link.groupId}: ${err instanceof Error ? err.message : String(err)}`,
@@ -458,6 +476,7 @@ export class CalendarSyncService {
           where: { id: existingLink.id },
           data: {
             lastSessionDate: consultation.sessionDate,
+            lastBodyHash: this.hashEventBody(consultation),
             syncStatus: 'SYNCED',
             lastError: null,
           },
@@ -482,6 +501,7 @@ export class CalendarSyncService {
             groupId: consultation.groupId,
             googleEventId: created.id,
             lastSessionDate: consultation.sessionDate,
+            lastBodyHash: this.hashEventBody(consultation),
             syncStatus: 'SYNCED',
           },
         });
@@ -677,6 +697,18 @@ export class CalendarSyncService {
       end: { dateTime: end.toISOString(), timeZone: CALENDAR_TIME_ZONE },
       extendedProperties: { private: { umbralGroupId: consultation.groupId } },
     };
+  }
+
+  // issue #497: huella de lo que se envía a Google (título, descripción,
+  // inicio y fin). Se guarda en el link tras cada push y el reconciler la
+  // compara con la del cuerpo actual. No lleva ningún dato que el cuerpo del
+  // evento no lleve ya.
+  private hashEventBody(consultation: SyncableConsultation): string {
+    const { summary, description, start, end } =
+      this.buildEventBody(consultation);
+    return createHash('sha256')
+      .update(JSON.stringify([summary, description, start, end]))
+      .digest('hex');
   }
 
   // sdd/public-booking-payment-calendar PR 2: pública por el mismo motivo
