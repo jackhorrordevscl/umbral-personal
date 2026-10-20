@@ -99,3 +99,31 @@ describe('DocumentsController.upload', () => {
     );
   });
 });
+
+describe('DocumentsController.download', () => {
+  it('manda filename ASCII y filename* UTF-8 para un nombre con tildes', async () => {
+    const service = {
+      getDecryptedFile: jest.fn().mockResolvedValue({
+        doc: { patientId: 'p-1', fileName: 'Informe sesión.pdf' },
+        buffer: Buffer.from('contenido'),
+      }),
+    };
+    const controller = new DocumentsController(
+      service as unknown as DocumentsService,
+    );
+    const res = { set: jest.fn(), end: jest.fn() };
+
+    await controller.download(
+      'd-1',
+      { id: 'user-1' } as RequestUser,
+      {} as never,
+      res as never,
+    );
+
+    expect(res.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        'Content-Disposition': `attachment; filename="Informe sesi_n.pdf"; filename*=UTF-8''Informe%20sesi%C3%B3n.pdf`,
+      }),
+    );
+  });
+});

@@ -306,6 +306,30 @@ describe('Documents encryption at rest (e2e)', () => {
       expect(Buffer.from(res.body).toString('utf-8')).toBe(PLAINTEXT_MARKER);
     });
 
+    it('conserva las tildes del nombre al subir y las declara en filename* al descargar', async () => {
+      const upload = await request(app.getHttpServer())
+        .post('/api/v1/documents/upload')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .field('patientId', patientId)
+        .field('type', 'OTHER')
+        .attach('file', Buffer.from(PLAINTEXT_MARKER), {
+          filename: 'Informe sesión.pdf',
+          contentType: 'application/pdf',
+        })
+        .expect(201);
+      const body = upload.body as Record<string, unknown>;
+      expect(body.fileName).toBe('Informe sesión.pdf');
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/documents/${body.id as string}/download`)
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .expect(200);
+
+      expect(res.headers['content-disposition']).toBe(
+        `attachment; filename="Informe sesi_n.pdf"; filename*=UTF-8''Informe%20sesi%C3%B3n.pdf`,
+      );
+    });
+
     it('un terapeuta sin relación con el paciente recibe 404', () => {
       return request(app.getHttpServer())
         .get(`/api/v1/documents/${documentId}/download`)
