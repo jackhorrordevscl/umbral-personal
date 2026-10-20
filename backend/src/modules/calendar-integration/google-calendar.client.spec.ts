@@ -560,6 +560,57 @@ describe('GoogleCalendarClient', () => {
       } as Partial<GoogleCalendarError>);
     });
 
+    async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
+      try {
+        await promise;
+      } catch (err) {
+        return err as Error;
+      }
+      throw new Error('la promesa debía rechazar');
+    }
+
+    // issue #497: el mensaje del error acaba en logs y en lastError, así que no
+    // puede llevar el calendarId (email del terapeuta), el id del evento ni las
+    // fechas de la query.
+    it.each([401, 404, 500])(
+      'el mensaje del error %i no incluye calendarId, eventId ni la query',
+      async (status) => {
+        mockFetchOnce({ ok: false, status });
+
+        const error = await rejectionOf(
+          client.listBusyIntervals(
+            buildOAuth2Client(),
+            'terapeuta@example.com',
+            WINDOW_START,
+            WINDOW_END,
+          ),
+        );
+
+        expect(error.message).toContain(
+          `${status} (GET /calendars/:calendarId/events)`,
+        );
+        expect(error.message).not.toContain('terapeuta');
+        expect(error.message).not.toContain('timeMin');
+      },
+    );
+
+    it('el mensaje de un error sobre un evento no incluye su id', async () => {
+      mockFetchOnce({ ok: false, status: 404 });
+
+      const error = await rejectionOf(
+        client.deleteEvent(
+          buildOAuth2Client(),
+          'terapeuta@example.com',
+          'evento-123',
+        ),
+      );
+
+      expect(error.message).toContain(
+        '(DELETE /calendars/:calendarId/events/:eventId)',
+      );
+      expect(error.message).not.toContain('evento-123');
+    });
+
     it('clasifica un 403 (quota) durante events.list como transient', async () => {
       const oauth2Client = buildOAuth2Client();
       mockFetchOnce({ ok: false, status: 403 });

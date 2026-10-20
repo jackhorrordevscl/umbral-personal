@@ -306,16 +306,21 @@ export class GoogleCalendarClient {
       return (await response.json()) as T;
     }
 
+    // issue #497: el mensaje termina en logs y en lastError/busySyncError, así
+    // que no lleva la URL completa (calendarId, que suele ser el email del
+    // terapeuta, id del evento y fechas de la query), solo la forma de la ruta.
+    const target = `${method} ${this.describeUrl(url)}`;
+
     if (response.status === 401) {
       throw new GoogleCalendarError(
         'invalid_grant',
-        `Google Calendar devolvió 401 (${method} ${url}).`,
+        `Google Calendar devolvió 401 (${target}).`,
       );
     }
     if (response.status === 404 || response.status === 410) {
       throw new GoogleCalendarError(
         'gone',
-        `Google Calendar devolvió ${response.status} (${method} ${url}).`,
+        `Google Calendar devolvió ${response.status} (${target}).`,
       );
     }
 
@@ -323,11 +328,20 @@ export class GoogleCalendarClient {
     // (design.md "Failure classification"): el próximo reconcile tick
     // reintenta, nunca se reintenta inline.
     this.logger.error(
-      `Google Calendar devolvió ${response.status} (${method} ${url}).`,
+      `Google Calendar devolvió ${response.status} (${target}).`,
     );
     throw new GoogleCalendarError(
       'transient',
-      `Google Calendar devolvió ${response.status} (${method} ${url}).`,
+      `Google Calendar devolvió ${response.status} (${target}).`,
     );
+  }
+
+  // /calendars/<id>/events[/<id>] -> /calendars/:calendarId/events[/:eventId],
+  // sin query string.
+  private describeUrl(url: string): string {
+    const path = url.slice(CALENDAR_API_BASE.length).split('?')[0];
+    return path
+      .replace(/^\/calendars\/[^/]+/, '/calendars/:calendarId')
+      .replace(/\/events\/[^/]+/, '/events/:eventId');
   }
 }
