@@ -102,6 +102,9 @@ describe('CalendarOauthService', () => {
     const therapistId = 'therapist-1';
     const nonce = 'a-fixed-nonce-value';
     const nonceHash = createHash('sha256').update(nonce).digest('hex');
+    // issue #497: secreto de la cookie del navegador; el state lleva su hash.
+    const bindingToken = 'secreto-de-la-cookie-del-navegador';
+    const bind = createHash('sha256').update(bindingToken).digest('hex');
 
     function buildService(updateManyResult?: { count: number }) {
       const jwt = buildJwt();
@@ -127,23 +130,24 @@ describe('CalendarOauthService', () => {
         sub: therapistId,
         purpose: OAUTH_STATE_PURPOSE,
         nonce,
+        bind,
       });
 
-      await expect(service.verifyAndConsumeState(forgedState)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(
+        service.verifyAndConsumeState(forgedState, bindingToken),
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it('rechaza un state expirado', async () => {
       const { service, jwt } = buildService();
       const expiredState = jwt.sign(
-        { sub: therapistId, purpose: OAUTH_STATE_PURPOSE, nonce },
+        { sub: therapistId, purpose: OAUTH_STATE_PURPOSE, nonce, bind },
         { expiresIn: '-1s' },
       );
 
-      await expect(service.verifyAndConsumeState(expiredState)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(
+        service.verifyAndConsumeState(expiredState, bindingToken),
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it('rechaza un state con purpose incorrecto', async () => {
@@ -152,11 +156,61 @@ describe('CalendarOauthService', () => {
         sub: therapistId,
         purpose: 'password-reset',
         nonce,
+        bind,
       });
 
       await expect(
-        service.verifyAndConsumeState(wrongPurposeState),
+        service.verifyAndConsumeState(wrongPurposeState, bindingToken),
       ).rejects.toThrow(UnauthorizedException);
+    });
+
+    // issue #497: el state solo vale en el navegador que inició el flujo.
+    describe('atado al navegador (cookie)', () => {
+      function signState(payload: Record<string, unknown>, jwt: JwtService) {
+        return jwt.sign({
+          sub: therapistId,
+          purpose: OAUTH_STATE_PURPOSE,
+          nonce,
+          ...payload,
+        });
+      }
+
+      it.each([
+        ['sin cookie', undefined],
+        ['con cookie vacía', ''],
+        ['con una cookie de otro navegador', 'secreto-de-otro-navegador'],
+      ])(
+        'rechaza el callback %s y no consume el nonce',
+        async (_label, cookie) => {
+          const { service, jwt, connectionMock } = buildService({ count: 1 });
+          const state = signState({ bind }, jwt);
+
+          await expect(
+            service.verifyAndConsumeState(state, cookie),
+          ).rejects.toThrow(UnauthorizedException);
+          expect(connectionMock.updateMany).not.toHaveBeenCalled();
+        },
+      );
+
+      it('rechaza un state sin huella de navegador (emitido antes del cambio)', async () => {
+        const { service, jwt, connectionMock } = buildService({ count: 1 });
+        const state = signState({}, jwt);
+
+        await expect(
+          service.verifyAndConsumeState(state, bindingToken),
+        ).rejects.toThrow(UnauthorizedException);
+        expect(connectionMock.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('rechaza si la huella del state no es un string', async () => {
+        const { service, jwt, connectionMock } = buildService({ count: 1 });
+        const state = signState({ bind: 123 }, jwt);
+
+        await expect(
+          service.verifyAndConsumeState(state, bindingToken),
+        ).rejects.toThrow(UnauthorizedException);
+        expect(connectionMock.updateMany).not.toHaveBeenCalled();
+      });
     });
 
     it('rechaza un nonce ya consumido (replay)', async () => {
@@ -165,11 +219,12 @@ describe('CalendarOauthService', () => {
         sub: therapistId,
         purpose: OAUTH_STATE_PURPOSE,
         nonce,
+        bind,
       });
 
-      await expect(service.verifyAndConsumeState(state)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(
+        service.verifyAndConsumeState(state, bindingToken),
+      ).rejects.toThrow(UnauthorizedException);
       const callArg = connectionMock.updateMany.mock.calls[0][0] as {
         where: { therapistId: string; stateNonceHash: string };
       };
@@ -183,9 +238,10 @@ describe('CalendarOauthService', () => {
         sub: therapistId,
         purpose: OAUTH_STATE_PURPOSE,
         nonce,
+        bind,
       });
 
-      const result = await service.verifyAndConsumeState(state);
+      const result = await service.verifyAndConsumeState(state, bindingToken);
 
       expect(result).toEqual({ therapistId });
       const callArg = connectionMock.updateMany.mock.calls[0][0] as {
@@ -203,6 +259,60 @@ describe('CalendarOauthService', () => {
         stateNonceHash: null,
         stateExpiresAt: null,
       });
+    });
+  });
+
+  describe('buildAuthorizationUrl', () => {
+    function buildService() {
+      const { prisma } = buildPrismaMock();
+      return new CalendarOauthService(
+        prisma,
+        buildJwt(),
+        buildConfig(),
+        buildTokenCrypto(),
+        buildAuditServiceMock().auditService,
+      );
+    }
+
+    // issue #497: el secreto de la cookie nunca viaja en el state ni en la URL;
+    // el state solo lleva su hash.
+    it('devuelve un bindingToken aleatorio cuyo hash va en el state y que no aparece en la URL', async () => {
+      const service = buildService();
+
+      const first = await service.buildAuthorizationUrl('therapist-1');
+      const second = await service.buildAuthorizationUrl('therapist-1');
+
+      expect(first.bindingToken).toMatch(/^[0-9a-f]{64}$/);
+      expect(first.bindingToken).not.toBe(second.bindingToken);
+      expect(first.url).not.toContain(first.bindingToken);
+
+      const state = new URL(first.url).searchParams.get('state') as string;
+      const payload = buildJwt().verify<{ bind: string }>(state);
+      expect(payload.bind).toBe(
+        createHash('sha256').update(first.bindingToken).digest('hex'),
+      );
+      expect(state).not.toContain(first.bindingToken);
+    });
+
+    it('el state emitido es aceptado con su cookie y rechazado sin ella', async () => {
+      const { prisma } = buildPrismaMock();
+      const service = new CalendarOauthService(
+        prisma,
+        buildJwt(),
+        buildConfig(),
+        buildTokenCrypto(),
+        buildAuditServiceMock().auditService,
+      );
+      const { url, bindingToken } =
+        await service.buildAuthorizationUrl('therapist-1');
+      const state = new URL(url).searchParams.get('state') as string;
+
+      await expect(
+        service.verifyAndConsumeState(state, undefined),
+      ).rejects.toThrow(UnauthorizedException);
+      await expect(
+        service.verifyAndConsumeState(state, bindingToken),
+      ).resolves.toEqual({ therapistId: 'therapist-1' });
     });
   });
 

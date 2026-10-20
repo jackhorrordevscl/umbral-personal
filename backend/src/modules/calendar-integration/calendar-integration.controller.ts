@@ -4,12 +4,18 @@ import {
   Logger,
   Post,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { CalendarOauthService } from './calendar-oauth.service';
+import {
+  clearCalendarOauthCookie,
+  extractCalendarOauthCookie,
+  setCalendarOauthCookie,
+} from './calendar-oauth-cookie';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import {
   CurrentUser,
@@ -52,8 +58,16 @@ export class CalendarIntegrationController {
 
   @UseGuards(JwtAuthGuard)
   @Post('authorize')
-  authorize(@CurrentUser() user: RequestUser) {
-    return this.oauthService.buildAuthorizationUrl(user.id);
+  async authorize(
+    @CurrentUser() user: RequestUser,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ url: string }> {
+    const { url, bindingToken } = await this.oauthService.buildAuthorizationUrl(
+      user.id,
+    );
+    // issue #497: ata el state a este navegador (ver calendar-oauth-cookie.ts).
+    setCalendarOauthCookie(res, bindingToken);
+    return { url };
   }
 
   // Sin JwtAuthGuard a propósito (design.md): Google redirige el navegador
@@ -64,17 +78,23 @@ export class CalendarIntegrationController {
   async callback(
     @Query('code') code: string | undefined,
     @Query('state') state: string | undefined,
+    @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
     const frontendUrl =
       this.config.get<string>('FRONTEND_URL') ?? DEFAULT_FRONTEND_URL;
+    const bindingToken = extractCalendarOauthCookie(req);
+    // La cookie es de un solo uso: se descarta pase lo que pase.
+    clearCalendarOauthCookie(res);
 
     try {
       if (!code || !state) {
         throw new Error('code/state ausente en el callback');
       }
-      const { therapistId } =
-        await this.oauthService.verifyAndConsumeState(state);
+      const { therapistId } = await this.oauthService.verifyAndConsumeState(
+        state,
+        bindingToken,
+      );
       await this.oauthService.exchangeCodeAndPersist(therapistId, code);
       res.redirect(`${frontendUrl}${CALENDAR_RETURN_PATH}?calendar=connected`);
     } catch (err) {
