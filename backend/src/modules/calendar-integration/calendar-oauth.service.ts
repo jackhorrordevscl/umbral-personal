@@ -322,15 +322,11 @@ export class CalendarOauthService {
     // permiso de calendario y Google igual devuelve un refresh_token. Conectar
     // así dejaría la conexión CONNECTED con todas las llamadas en 403
     // (clasificadas transient) y la UI mostrando una integración sana. Se
-    // rechaza antes de persistir y se revoca el token recién emitido.
+    // rechaza antes de persistir. No se revoca el token recién emitido: el
+    // único scope que se pide es el de calendario, así que sin él el token no
+    // da acceso a nada, y revocarlo puede invalidar el grant completo de un
+    // terapeuta que ya tenía una conexión vigente y solo reintentó el flujo.
     if (!this.hasCalendarScope(tokens.scope)) {
-      await this.buildOAuth2Client()
-        .revokeToken(tokens.refresh_token)
-        .catch((err: unknown) => {
-          this.logger.error(
-            `Fallo al revocar el token sin permiso de calendario: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        });
       throw new UnauthorizedException(
         'Google no concedió el permiso de calendario: vuelve a conectar y deja marcado el acceso a tu calendario.',
       );

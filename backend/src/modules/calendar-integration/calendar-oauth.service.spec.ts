@@ -302,7 +302,7 @@ describe('CalendarOauthService', () => {
         return { service, connectionMock, logMock };
       }
 
-      it('rechaza, no persiste ni audita y revoca el token si falta el permiso de calendario', async () => {
+      it('rechaza, no persiste ni audita y NO revoca el token si falta el permiso de calendario', async () => {
         const { service, connectionMock, logMock } = buildService();
         const revokeToken = jest.fn().mockResolvedValue(undefined);
         stubOAuth2Client(service, {
@@ -321,18 +321,17 @@ describe('CalendarOauthService', () => {
 
         expect(connectionMock.update).not.toHaveBeenCalled();
         expect(logMock).not.toHaveBeenCalled();
-        expect(revokeToken).toHaveBeenCalledWith(
-          '1//sin-permiso-de-calendario',
-        );
+        // Revocar el token nuevo puede invalidar el grant completo y romper la
+        // conexión vigente de un terapeuta que solo reintentó el flujo.
+        expect(revokeToken).not.toHaveBeenCalled();
       });
 
-      it('rechaza igual aunque la revocación del token falle', async () => {
+      it('rechaza una respuesta de Google sin scope', async () => {
         const { service, connectionMock } = buildService();
         stubOAuth2Client(service, {
           getToken: jest.fn().mockResolvedValue({
             tokens: { refresh_token: '1//token', scope: undefined },
           }),
-          revokeToken: jest.fn().mockRejectedValue(new Error('google caído')),
         });
 
         await expect(
@@ -542,10 +541,14 @@ describe('CalendarOauthService', () => {
     // issue #497: con una clave rotada o un dato corrupto el descifrado lanza;
     // el terapeuta igual debe poder desconectarse y el token cifrado borrarse.
     it('desconecta y borra el token aunque no se pueda descifrar', async () => {
-      const { service, connectionMock, logMock } = buildService();
+      const { service, connectionMock, tokenCrypto, logMock } = buildService();
       connectionMock.findUnique.mockResolvedValue({
         status: 'CONNECTED',
         refreshTokenEncrypted: Buffer.from('basura-que-no-es-un-ciphertext'),
+      });
+      // Explícito: no depender de que el mock de cifrado falle por sí solo.
+      jest.spyOn(tokenCrypto, 'decrypt').mockImplementation(() => {
+        throw new Error('clave rotada o dato corrupto');
       });
       connectionMock.update.mockResolvedValue({ status: 'DISCONNECTED' });
       const revokeToken = jest.fn();
