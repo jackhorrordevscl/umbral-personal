@@ -6,7 +6,10 @@ import { CalendarOauthService } from './calendar-oauth.service';
 import { GoogleTokenCryptoService } from './google-token-crypto.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { OAUTH_STATE_PURPOSE } from './calendar-integration.constants';
+import {
+  GOOGLE_CALENDAR_SCOPE,
+  OAUTH_STATE_PURPOSE,
+} from './calendar-integration.constants';
 
 function buildAuditServiceMock(): {
   auditService: AuditService;
@@ -282,6 +285,103 @@ describe('CalendarOauthService', () => {
       expect(logMock).not.toHaveBeenCalled();
     });
 
+    // issue #497: consentimiento granular -- el usuario desmarca el permiso de
+    // calendario pero Google igual entrega un refresh_token.
+    describe('scope concedido', () => {
+      function buildService() {
+        const { prisma, connectionMock } = buildPrismaMock();
+        connectionMock.update.mockResolvedValue({});
+        const { auditService, logMock } = buildAuditServiceMock();
+        const service = new CalendarOauthService(
+          prisma,
+          buildJwt(),
+          buildConfig(),
+          buildTokenCrypto(),
+          auditService,
+        );
+        return { service, connectionMock, logMock };
+      }
+
+      it('rechaza, no persiste ni audita y NO revoca el token si falta el permiso de calendario', async () => {
+        const { service, connectionMock, logMock } = buildService();
+        const revokeToken = jest.fn().mockResolvedValue(undefined);
+        stubOAuth2Client(service, {
+          getToken: jest.fn().mockResolvedValue({
+            tokens: {
+              refresh_token: '1//sin-permiso-de-calendario',
+              scope: 'openid email',
+            },
+          }),
+          revokeToken,
+        });
+
+        await expect(
+          service.exchangeCodeAndPersist('therapist-1', 'auth-code'),
+        ).rejects.toThrow(UnauthorizedException);
+
+        expect(connectionMock.update).not.toHaveBeenCalled();
+        expect(logMock).not.toHaveBeenCalled();
+        // Revocar el token nuevo puede invalidar el grant completo y romper la
+        // conexión vigente de un terapeuta que solo reintentó el flujo.
+        expect(revokeToken).not.toHaveBeenCalled();
+      });
+
+      it('rechaza una respuesta de Google sin scope', async () => {
+        const { service, connectionMock } = buildService();
+        stubOAuth2Client(service, {
+          getToken: jest.fn().mockResolvedValue({
+            tokens: { refresh_token: '1//token', scope: undefined },
+          }),
+        });
+
+        await expect(
+          service.exchangeCodeAndPersist('therapist-1', 'auth-code'),
+        ).rejects.toThrow(UnauthorizedException);
+        expect(connectionMock.update).not.toHaveBeenCalled();
+      });
+
+      it('no confunde un scope que solo contiene el nombre como prefijo', async () => {
+        const { service, connectionMock } = buildService();
+        stubOAuth2Client(service, {
+          getToken: jest.fn().mockResolvedValue({
+            tokens: {
+              refresh_token: '1//token',
+              scope: `${GOOGLE_CALENDAR_SCOPE}.readonly`,
+            },
+          }),
+          revokeToken: jest.fn().mockResolvedValue(undefined),
+        });
+
+        await expect(
+          service.exchangeCodeAndPersist('therapist-1', 'auth-code'),
+        ).rejects.toThrow(UnauthorizedException);
+        expect(connectionMock.update).not.toHaveBeenCalled();
+      });
+
+      it('conecta cuando el scope concedido incluye calendar.events junto a otros', async () => {
+        const { service, connectionMock } = buildService();
+        stubOAuth2Client(service, {
+          getToken: jest.fn().mockResolvedValue({
+            tokens: {
+              refresh_token: '1//token',
+              scope: `openid ${GOOGLE_CALENDAR_SCOPE}`,
+            },
+          }),
+        });
+
+        await service.exchangeCodeAndPersist('therapist-1', 'auth-code');
+
+        expect(connectionMock.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              status: 'CONNECTED',
+              scope: `openid ${GOOGLE_CALENDAR_SCOPE}`,
+            }) as unknown,
+          }),
+        );
+      });
+    });
+
     it('propaga el error de Google al intercambiar el código (getToken rechaza)', async () => {
       const { prisma } = buildPrismaMock();
       const tokenCrypto = buildTokenCrypto();
@@ -433,6 +533,37 @@ describe('CalendarOauthService', () => {
       // (y la auditoría) deben ocurrir igual aunque Google rechace.
       expect(result).toEqual({ status: 'DISCONNECTED' });
       expect(connectionMock.update).toHaveBeenCalledTimes(1);
+      expect(logMock).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'CALENDAR_DISCONNECTED' }),
+      );
+    });
+
+    // issue #497: con una clave rotada o un dato corrupto el descifrado lanza;
+    // el terapeuta igual debe poder desconectarse y el token cifrado borrarse.
+    it('desconecta y borra el token aunque no se pueda descifrar', async () => {
+      const { service, connectionMock, tokenCrypto, logMock } = buildService();
+      connectionMock.findUnique.mockResolvedValue({
+        status: 'CONNECTED',
+        refreshTokenEncrypted: Buffer.from('basura-que-no-es-un-ciphertext'),
+      });
+      // Explícito: no depender de que el mock de cifrado falle por sí solo.
+      jest.spyOn(tokenCrypto, 'decrypt').mockImplementation(() => {
+        throw new Error('clave rotada o dato corrupto');
+      });
+      connectionMock.update.mockResolvedValue({ status: 'DISCONNECTED' });
+      const revokeToken = jest.fn();
+      stubOAuth2Client(service, { revokeToken });
+
+      await expect(service.disconnect(therapistId)).resolves.toEqual({
+        status: 'DISCONNECTED',
+      });
+
+      expect(revokeToken).not.toHaveBeenCalled();
+      const callArg = connectionMock.update.mock.calls[0][0] as {
+        data: { status: string; refreshTokenEncrypted: null };
+      };
+      expect(callArg.data.status).toBe('DISCONNECTED');
+      expect(callArg.data.refreshTokenEncrypted).toBeNull();
       expect(logMock).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'CALENDAR_DISCONNECTED' }),
       );

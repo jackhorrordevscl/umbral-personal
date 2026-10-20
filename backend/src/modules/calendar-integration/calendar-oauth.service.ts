@@ -222,10 +222,10 @@ export class CalendarOauthService {
     }
 
     if (connection.refreshTokenEncrypted) {
-      const refreshToken = this.tokenCrypto
-        .decrypt(connection.refreshTokenEncrypted as Buffer)
-        .toString('utf-8');
       try {
+        const refreshToken = this.tokenCrypto
+          .decrypt(connection.refreshTokenEncrypted as Buffer)
+          .toString('utf-8');
         await this.buildOAuth2Client().revokeToken(refreshToken);
       } catch (err) {
         // La revocación en Google es best-effort: el token local se borra
@@ -233,6 +233,10 @@ export class CalendarOauthService {
         // endpoint, then delete the stored token") -- si Google ya lo
         // invalidó por su cuenta, revoke devuelve error pero el objetivo
         // (que Umbral deje de tener un token utilizable) se cumple igual.
+        // issue #497: el descifrado va dentro del try. Con una clave rotada o
+        // un dato corrupto no se puede revocar, pero tampoco debe impedirse
+        // la desconexión: si no, el terapeuta queda sin salida y el token
+        // cifrado sigue guardado.
         this.logger.error(
           `Fallo al revocar el token en Google para therapistId=${therapistId}: ${err instanceof Error ? err.message : err}`,
         );
@@ -314,6 +318,25 @@ export class CalendarOauthService {
       );
     }
 
+    // issue #497: con consentimiento granular el usuario puede desmarcar el
+    // permiso de calendario y Google igual devuelve un refresh_token. Conectar
+    // así dejaría la conexión CONNECTED con todas las llamadas en 403
+    // (clasificadas transient) y la UI mostrando una integración sana. Se
+    // rechaza antes de persistir. No se revoca el token recién emitido: el
+    // único scope que se pide es el de calendario, así que sin él el token no
+    // da acceso a nada, y revocarlo puede invalidar el grant completo de un
+    // terapeuta que ya tenía una conexión vigente y solo reintentó el flujo.
+    if (!this.hasCalendarScope(tokens.scope)) {
+      throw new UnauthorizedException(
+        'Google no concedió el permiso de calendario: vuelve a conectar y deja marcado el acceso a tu calendario.',
+      );
+    }
+
     return { refreshToken: tokens.refresh_token, scope: tokens.scope };
+  }
+
+  // `scope` llega como lista separada por espacios (RFC 6749 §3.3).
+  private hasCalendarScope(scope: string | undefined): boolean {
+    return (scope ?? '').split(/\s+/).includes(GOOGLE_CALENDAR_SCOPE);
   }
 }
