@@ -7,7 +7,11 @@ import { OAuth2Client } from 'google-auth-library';
 // llamada, y habla con las tres rutas de Calendar necesarias vía fetch
 // nativo -- google-auth-library, no googleapis (evita traer toda la
 // superficie de la API de Google solo para insert/patch/delete).
-export type GoogleCalendarFailureKind = 'invalid_grant' | 'gone' | 'transient';
+export type GoogleCalendarFailureKind =
+  | 'invalid_grant'
+  | 'gone'
+  | 'conflict'
+  | 'transient';
 
 // design.md "Failure classification": invalid_grant/401 en el refresh ->
 // CalendarSyncService desconecta y notifica; gone (404/410) -> el link se
@@ -30,6 +34,10 @@ export interface GoogleCalendarEventBody {
   start: { dateTime: string; timeZone: string };
   end: { dateTime: string; timeZone: string };
   extendedProperties: { private: Record<string, string> };
+  // issue #497: `id` lo elige el cliente en el insert; `status: 'confirmed'`
+  // en el patch resucita un evento que el terapeuta borró (queda cancelled).
+  id?: string;
+  status?: 'confirmed';
 }
 
 interface GoogleCalendarEventResponse {
@@ -97,13 +105,29 @@ export class GoogleCalendarClient {
     oauth2Client: OAuth2Client,
     calendarId: string,
     event: GoogleCalendarEventBody,
+    eventId: string,
   ): Promise<GoogleCalendarEventResponse> {
-    return this.request<GoogleCalendarEventResponse>(
-      oauth2Client,
-      'POST',
-      this.eventsUrl(calendarId),
-      event,
-    );
+    try {
+      return await this.request<GoogleCalendarEventResponse>(
+        oauth2Client,
+        'POST',
+        this.eventsUrl(calendarId),
+        { ...event, id: eventId },
+      );
+    } catch (err) {
+      // issue #497: 409 = ese id ya existe, o porque un intento anterior sí
+      // llegó a Google aunque su respuesta se perdió, o porque el evento fue
+      // borrado (Google lo conserva cancelado y no deja reusar el id). En
+      // ambos casos el estado deseado es "el evento existe y está
+      // confirmado": se parchea con status confirmed en vez de duplicarlo.
+      if (err instanceof GoogleCalendarError && err.kind === 'conflict') {
+        return this.patchEvent(oauth2Client, calendarId, eventId, {
+          ...event,
+          status: 'confirmed',
+        });
+      }
+      throw err;
+    }
   }
 
   async patchEvent(
@@ -301,6 +325,13 @@ export class GoogleCalendarClient {
       throw new GoogleCalendarError(
         'gone',
         `Google Calendar devolvió ${response.status} (${method} ${url}).`,
+      );
+    }
+
+    if (response.status === 409) {
+      throw new GoogleCalendarError(
+        'conflict',
+        `Google Calendar devolvió 409 (${method} ${url}).`,
       );
     }
 
