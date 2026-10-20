@@ -912,6 +912,7 @@ model CalendarEventLink {
   groupId         String
   googleEventId   String
   lastSessionDate DateTime
+  lastBodyHash    String?
   syncStatus      CalendarSyncStatus       @default(SYNCED)
   lastError       String?
   lastSyncedAt    DateTime                 @updatedAt

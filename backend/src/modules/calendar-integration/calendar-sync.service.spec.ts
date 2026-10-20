@@ -640,6 +640,156 @@ describe('CalendarSyncService', () => {
     });
   });
 
+  // issue #497: el drift solo comparaba sessionDate; un cambio de duración,
+  // del id de la consulta vigente o de las iniciales del paciente sin mover la
+  // fecha no llegaba nunca al evento de Google.
+  describe('reconcile — drift del cuerpo del evento (issue #497)', () => {
+    const SAME_DATE = new Date('2026-03-10T12:00:00.000Z');
+
+    // Huella que el servicio guarda al crear el evento de `consultation`.
+    async function storedHashFor(
+      consultation: ReturnType<typeof buildConsultation>,
+    ): Promise<string> {
+      const connection = buildConnection();
+      prisma.consultation.findFirst.mockResolvedValue(consultation);
+      prisma.googleCalendarConnection.findUnique.mockResolvedValue(connection);
+      prisma.calendarEventLink.findUnique.mockResolvedValue(null);
+      googleCalendarClient.insertEvent.mockResolvedValue({ id: 'event-1' });
+      prisma.calendarEventLink.create.mockResolvedValue({});
+
+      await service.syncGroup('group-1');
+
+      const [{ data }] = prisma.calendarEventLink.create.mock.calls[0] as [
+        { data: { lastBodyHash: string } },
+      ];
+      prisma.calendarEventLink.create.mockClear();
+      googleCalendarClient.insertEvent.mockClear();
+      return data.lastBodyHash;
+    }
+
+    // Corre un tick con un link SYNCED y la consulta vigente dada; devuelve
+    // cuántas veces se parchó el evento.
+    async function patchesAfterReconcile(
+      lastBodyHash: string | null,
+      current: ReturnType<typeof buildConsultation>,
+    ): Promise<number> {
+      const connection = buildConnection();
+      const link = {
+        id: 'link-1',
+        connectionId: 'connection-1',
+        groupId: 'group-1',
+        googleEventId: 'google-event-1',
+        lastSessionDate: SAME_DATE,
+        lastBodyHash,
+        syncStatus: 'SYNCED',
+      };
+      prisma.googleCalendarConnection.findMany.mockResolvedValue([connection]);
+      prisma.calendarEventLink.findMany
+        .mockResolvedValueOnce([]) // repairFailedLinks
+        .mockResolvedValueOnce([link]) // deleteForRemovedConsultations
+        .mockResolvedValueOnce([link]) // repairDriftedLinks
+        .mockResolvedValue([]); // backfill
+      prisma.consultation.findMany
+        .mockResolvedValueOnce([
+          { groupId: 'group-1', deletedAt: null, patient: { deletedAt: null } },
+        ])
+        .mockResolvedValueOnce([current])
+        .mockResolvedValue([]);
+      prisma.consultation.findFirst.mockResolvedValue(current);
+      prisma.googleCalendarConnection.findUnique.mockResolvedValue(connection);
+      prisma.calendarEventLink.findUnique.mockResolvedValue(link);
+      googleCalendarClient.patchEvent.mockResolvedValue({ id: 'event-1' });
+
+      await service.reconcile();
+
+      return googleCalendarClient.patchEvent.mock.calls.length;
+    }
+
+    it('guarda la huella del cuerpo al crear el evento', async () => {
+      const hash = await storedHashFor(buildConsultation());
+
+      expect(hash).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('guarda la huella nueva al parchar el evento', async () => {
+      const consultation = buildConsultation();
+      prisma.consultation.findFirst.mockResolvedValue(consultation);
+      prisma.googleCalendarConnection.findUnique.mockResolvedValue(
+        buildConnection(),
+      );
+      prisma.calendarEventLink.findUnique.mockResolvedValue({
+        id: 'link-1',
+        googleEventId: 'google-event-1',
+        lastBodyHash: 'huella-vieja',
+      });
+      googleCalendarClient.patchEvent.mockResolvedValue({ id: 'event-1' });
+
+      await service.syncGroup('group-1');
+
+      const [{ data }] = prisma.calendarEventLink.update.mock.calls[0] as [
+        { data: { lastBodyHash: string } },
+      ];
+      expect(data.lastBodyHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(data.lastBodyHash).not.toBe('huella-vieja');
+    });
+
+    it('parcha el evento si cambió la duración sin cambiar la fecha', async () => {
+      const hash = await storedHashFor(buildConsultation());
+
+      const patches = await patchesAfterReconcile(
+        hash,
+        buildConsultation({ durationMinutes: 90 }),
+      );
+
+      expect(patches).toBe(1);
+    });
+
+    it('parcha el evento si cambió el id de la consulta vigente (corrección)', async () => {
+      const hash = await storedHashFor(buildConsultation());
+
+      const patches = await patchesAfterReconcile(
+        hash,
+        buildConsultation({ id: 'consultation-2' }),
+      );
+
+      expect(patches).toBe(1);
+    });
+
+    it('parcha el evento si cambiaron las iniciales del paciente', async () => {
+      const hash = await storedHashFor(buildConsultation());
+
+      const patches = await patchesAfterReconcile(
+        hash,
+        buildConsultation({
+          patient: {
+            id: 'patient-1',
+            fullName: 'Ana Rojas Soto',
+            deletedAt: null,
+          },
+        }),
+      );
+
+      expect(patches).toBe(1);
+    });
+
+    it('no parcha si el cuerpo y la fecha no cambiaron', async () => {
+      const hash = await storedHashFor(buildConsultation());
+
+      const patches = await patchesAfterReconcile(hash, buildConsultation());
+
+      expect(patches).toBe(0);
+    });
+
+    it('un link sin huella (anterior a la columna) compara solo la fecha y no se parcha', async () => {
+      const patches = await patchesAfterReconcile(
+        null,
+        buildConsultation({ durationMinutes: 90 }),
+      );
+
+      expect(patches).toBe(0);
+    });
+  });
+
   // issue #286 (parte 2): antes cada método leía solo los primeros
   // RECONCILE_BATCH_LIMIT y el resto nunca se alcanzaba. Los mocks de Prisma no
   // validan el filtro real; acá se verifica el protocolo de paginación
