@@ -125,8 +125,16 @@ export class CalendarSyncService {
         where: { status: 'CONNECTED' },
       });
 
+      // issue #497: cada conexión va aislada. Un error que escape de
+      // reconcileConnection (p. ej. una query de Prisma o handleInvalidGrant)
+      // cortaba el ciclo para todas las demás, y la misma conexión volvía a
+      // bloquearlas en cada tick. Mismo criterio que CalendarBusyService.
       for (const connection of connections) {
-        await this.reconcileConnection(connection);
+        await this.reconcileConnection(connection).catch((err: unknown) => {
+          this.logger.error(
+            `Reconcile: fallo inesperado en therapistId=${connection.therapistId}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
       }
     } finally {
       this.reconciling = false;

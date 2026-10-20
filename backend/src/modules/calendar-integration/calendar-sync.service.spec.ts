@@ -829,6 +829,52 @@ describe('CalendarSyncService', () => {
     });
   });
 
+  describe('reconcile — aislamiento por conexión (issue #497)', () => {
+    type Reconcilable = { reconcileConnection: (c: unknown) => Promise<void> };
+
+    it('un error en una conexión se loguea y no corta el ciclo de las demás', async () => {
+      prisma.googleCalendarConnection.findMany.mockResolvedValue([
+        buildConnection({ id: 'connection-1', therapistId: 'therapist-1' }),
+        buildConnection({ id: 'connection-2', therapistId: 'therapist-2' }),
+        buildConnection({ id: 'connection-3', therapistId: 'therapist-3' }),
+      ]);
+      const reconcileConnection = jest
+        .spyOn(service as unknown as Reconcilable, 'reconcileConnection')
+        .mockRejectedValueOnce(new Error('prisma caído para esta conexión'))
+        .mockResolvedValue(undefined);
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await expect(service.reconcile()).resolves.toBeUndefined();
+
+      expect(reconcileConnection).toHaveBeenCalledTimes(3);
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('therapistId=therapist-1'),
+      );
+      errorSpy.mockRestore();
+    });
+
+    it('libera el guard de reentrada tras un error aislado en una conexión', async () => {
+      prisma.googleCalendarConnection.findMany.mockResolvedValue([
+        buildConnection(),
+      ]);
+      jest
+        .spyOn(service as unknown as Reconcilable, 'reconcileConnection')
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValue(undefined);
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      await service.reconcile();
+      await service.reconcile();
+
+      expect(prisma.googleCalendarConnection.findMany).toHaveBeenCalledTimes(2);
+      errorSpy.mockRestore();
+    });
+  });
+
   describe('reconcile — guard de reentrada (issue #286)', () => {
     it('omite un tick que llega mientras el anterior sigue en curso y permite el siguiente al terminar', async () => {
       let release!: () => void;
