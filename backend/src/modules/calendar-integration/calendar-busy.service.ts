@@ -120,27 +120,42 @@ export class CalendarBusyService {
         timeMax,
       );
 
-      await this.prisma.$transaction([
-        this.prisma.calendarBusyBlock.deleteMany({
+      // issue #497: la lectura a Google tardó; mientras tanto el terapeuta pudo
+      // desconectarse (o reconectar otra cuenta). El claim va primero y
+      // condiciona a "sigue CONNECTED con el mismo token": toma el lock de la
+      // fila, así una desconexión concurrente espera y luego borra los bloques
+      // que escribimos, y si ya desconectó no escribimos nada (si no, se
+      // deshacería la garantía de borrado de #283 hasta reconectar).
+      const written = await this.prisma.$transaction(async (tx) => {
+        const claim = await tx.googleCalendarConnection.updateMany({
+          where: {
+            id: connection.id,
+            status: 'CONNECTED',
+            refreshTokenEncrypted: connection.refreshTokenEncrypted,
+          },
+          data: { busySyncedAt: now, busySyncError: null },
+        });
+        if (claim.count === 0) return false;
+
+        await tx.calendarBusyBlock.deleteMany({
           where: { therapistId: connection.therapistId },
-        }),
-        this.prisma.calendarBusyBlock.createMany({
+        });
+        await tx.calendarBusyBlock.createMany({
           data: intervals.map((interval) => ({
             therapistId: connection.therapistId,
             startsAt: interval.startsAt,
             endsAt: interval.endsAt,
           })),
-        }),
-        this.prisma.googleCalendarConnection.update({
-          where: { id: connection.id },
-          data: { busySyncedAt: now, busySyncError: null },
-        }),
-      ]);
+        });
+        return true;
+      });
 
-      this.availabilityService.invalidate(connection.therapistId);
+      if (written) {
+        this.availabilityService.invalidate(connection.therapistId);
+      }
     } catch (err) {
       if (err instanceof GoogleCalendarError && err.kind === 'invalid_grant') {
-        await this.calendarSyncService.handleInvalidGrant(connection.id);
+        await this.calendarSyncService.handleInvalidGrant(connection);
         return;
       }
 

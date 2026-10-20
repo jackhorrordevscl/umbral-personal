@@ -18,6 +18,7 @@ import {
 } from './google-calendar.client';
 import { NotificationsService } from '../notifications/notifications.service';
 import { patientLabel } from './patient-code.util';
+import { deterministicEventId } from './google-event-id.util';
 import {
   BACKFILL_WINDOW_DAYS,
   CALENDAR_TIME_ZONE,
@@ -464,10 +465,15 @@ export class CalendarSyncService {
         return;
       }
 
+      // issue #497: id determinista por (conexión, grupo). Si un intento
+      // anterior creó el evento pero perdió la respuesta, este insert recibe
+      // 409 y el cliente lo parchea: el link se crea sobre el MISMO evento en
+      // vez de dejar un duplicado sin vínculo en el calendario.
       const created = await this.googleCalendarClient.insertEvent(
         oauth2Client,
         connection.calendarId,
         eventBody,
+        deterministicEventId(connection.id, consultation.groupId),
       );
       try {
         await this.prisma.calendarEventLink.create({
@@ -481,23 +487,16 @@ export class CalendarSyncService {
         });
       } catch (linkErr) {
         // issue #285: el guard de reentrada de reconcile() es por proceso, así
-        // que el intent, el cron u otra instancia pueden insertar a la vez el
-        // evento del mismo grupo. @@unique([connectionId, groupId]) deja un
-        // solo link ganador; la perdedora borra el evento que acaba de
-        // insertar para no dejar un huérfano duplicado en Google. El link
-        // ganador ya refleja el grupo, y el próximo tick repara cualquier
-        // drift de fecha.
+        // que el intent, el cron u otra instancia pueden sincronizar a la vez
+        // el mismo grupo. @@unique([connectionId, groupId]) deja un solo link
+        // ganador. Desde #497 todas usan el mismo id de evento, así que en
+        // Google hay UN evento (la perdedora recibió 409 y lo parcheó): no se
+        // borra nada, porque borrarlo eliminaría el evento del link ganador.
+        // El próximo tick repara cualquier drift de fecha.
         if (
           linkErr instanceof Prisma.PrismaClientKnownRequestError &&
           linkErr.code === 'P2002'
         ) {
-          await this.googleCalendarClient
-            .deleteEvent(oauth2Client, connection.calendarId, created.id)
-            .catch((delErr: unknown) => {
-              this.logger.error(
-                `No se pudo eliminar el evento duplicado de Google (groupId=${consultation.groupId}): ${delErr instanceof Error ? delErr.message : String(delErr)}`,
-              );
-            });
           return;
         }
         throw linkErr;
@@ -506,7 +505,7 @@ export class CalendarSyncService {
       if (!(err instanceof GoogleCalendarError)) throw err;
 
       if (err.kind === 'invalid_grant') {
-        await this.handleInvalidGrant(connection.id);
+        await this.handleInvalidGrant(connection);
         return;
       }
 
@@ -562,7 +561,7 @@ export class CalendarSyncService {
       if (!(err instanceof GoogleCalendarError)) throw err;
 
       if (err.kind === 'invalid_grant') {
-        await this.handleInvalidGrant(connection.id);
+        await this.handleInvalidGrant(connection);
         return;
       }
       if (err.kind === 'transient') {
@@ -592,9 +591,20 @@ export class CalendarSyncService {
   // `private`) para que CalendarBusyService reuse la MISMA clasificación de
   // invalid_grant en vez de duplicarla -- decisión mecánica, evita que los
   // dos jobs (push sync y refresh de overlay) diverjan en cómo desconectan.
-  async handleInvalidGrant(connectionId: string): Promise<void> {
+  //
+  // issue #497: el claim también compara el refresh token con el que falló. Un
+  // job que arrancó con el token viejo no puede desconectar (ni borrar el
+  // token nuevo de) una conexión que el terapeuta reconectó mientras tanto.
+  async handleInvalidGrant(
+    failed: Pick<GoogleCalendarConnection, 'id' | 'refreshTokenEncrypted'>,
+  ): Promise<void> {
+    const connectionId = failed.id;
     const result = await this.prisma.googleCalendarConnection.updateMany({
-      where: { id: connectionId, status: 'CONNECTED' },
+      where: {
+        id: connectionId,
+        status: 'CONNECTED',
+        refreshTokenEncrypted: failed.refreshTokenEncrypted,
+      },
       data: {
         status: 'DISCONNECTED',
         disconnectReason: 'INVALID_GRANT',

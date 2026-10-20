@@ -46,6 +46,7 @@ function mockFetchListOnce(body: {
 describe('GoogleCalendarClient', () => {
   let client: GoogleCalendarClient;
   const CALENDAR_ID = 'primary';
+  const EVENT_ID = '0123456789abcdef0123456789abcdef';
   const EVENT_BODY = {
     summary: 'Sesión — JM-4K7QX2',
     description: 'https://umbral.cl/consultations/1',
@@ -72,6 +73,7 @@ describe('GoogleCalendarClient', () => {
         oauth2Client,
         CALENDAR_ID,
         EVENT_BODY,
+        EVENT_ID,
       );
 
       expect(result).toEqual({ id: 'google-event-1' });
@@ -86,12 +88,88 @@ describe('GoogleCalendarClient', () => {
       );
     });
 
+    // issue #497: el id lo elige el cliente para que un reintento sea
+    // idempotente en Google.
+    it('manda el id elegido por el cliente en el cuerpo del POST', async () => {
+      mockFetchOnce({ ok: true, status: 200 });
+
+      await client.insertEvent(
+        buildOAuth2Client(),
+        CALENDAR_ID,
+        EVENT_BODY,
+        EVENT_ID,
+      );
+
+      const [, init] = (globalThis.fetch as jest.Mock).mock.calls[0] as [
+        string,
+        { body: string },
+      ];
+      expect(JSON.parse(init.body)).toEqual({ ...EVENT_BODY, id: EVENT_ID });
+    });
+
+    it('un 409 (el id ya existe) parchea el evento con status confirmed y devuelve su id', async () => {
+      mockFetchOnce({ ok: false, status: 409 });
+      mockFetchOnce({
+        ok: true,
+        status: 200,
+        json: jest.fn().mockResolvedValue({ id: EVENT_ID }),
+      });
+
+      const result = await client.insertEvent(
+        buildOAuth2Client(),
+        CALENDAR_ID,
+        EVENT_BODY,
+        EVENT_ID,
+      );
+
+      expect(result).toEqual({ id: EVENT_ID });
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      const [patchUrl, patchInit] = (globalThis.fetch as jest.Mock).mock
+        .calls[1] as [string, { method: string; body: string }];
+      expect(patchUrl).toContain(`/calendars/primary/events/${EVENT_ID}`);
+      expect(patchInit.method).toBe('PATCH');
+      expect(JSON.parse(patchInit.body)).toEqual({
+        ...EVENT_BODY,
+        status: 'confirmed',
+      });
+    });
+
+    it('un 409 en un patch o delete sigue siendo transient (solo el insert lo interpreta)', async () => {
+      mockFetchOnce({ ok: false, status: 409 });
+      await expect(
+        client.patchEvent(buildOAuth2Client(), CALENDAR_ID, 'event-1', {}),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<GoogleCalendarError>);
+
+      mockFetchOnce({ ok: false, status: 409 });
+      await expect(
+        client.deleteEvent(buildOAuth2Client(), CALENDAR_ID, 'event-1'),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<GoogleCalendarError>);
+    });
+
+    it('si el patch tras el 409 falla, propaga ese error clasificado', async () => {
+      mockFetchOnce({ ok: false, status: 409 });
+      mockFetchOnce({ ok: false, status: 404 });
+
+      await expect(
+        client.insertEvent(
+          buildOAuth2Client(),
+          CALENDAR_ID,
+          EVENT_BODY,
+          EVENT_ID,
+        ),
+      ).rejects.toMatchObject({ kind: 'gone' } as Partial<GoogleCalendarError>);
+    });
+
     it('clasifica un 401 como invalid_grant', async () => {
       const oauth2Client = buildOAuth2Client();
       mockFetchOnce({ ok: false, status: 401 });
 
       await expect(
-        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY),
+        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY, EVENT_ID),
       ).rejects.toMatchObject({
         kind: 'invalid_grant',
       } as Partial<GoogleCalendarError>);
@@ -103,7 +181,7 @@ describe('GoogleCalendarClient', () => {
       } as unknown as OAuth2Client;
 
       await expect(
-        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY),
+        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY, EVENT_ID),
       ).rejects.toMatchObject({
         kind: 'invalid_grant',
       } as Partial<GoogleCalendarError>);
@@ -120,7 +198,7 @@ describe('GoogleCalendarClient', () => {
       } as unknown as OAuth2Client;
 
       await expect(
-        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY),
+        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY, EVENT_ID),
       ).rejects.toMatchObject({
         kind: 'invalid_grant',
       } as Partial<GoogleCalendarError>);
@@ -136,7 +214,7 @@ describe('GoogleCalendarClient', () => {
       } as unknown as OAuth2Client;
 
       await expect(
-        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY),
+        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY, EVENT_ID),
       ).rejects.toMatchObject({
         kind: 'transient',
       } as Partial<GoogleCalendarError>);
@@ -153,7 +231,7 @@ describe('GoogleCalendarClient', () => {
       } as unknown as OAuth2Client;
 
       await expect(
-        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY),
+        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY, EVENT_ID),
       ).rejects.toMatchObject({
         kind: 'transient',
       } as Partial<GoogleCalendarError>);
@@ -165,7 +243,7 @@ describe('GoogleCalendarClient', () => {
       mockFetchOnce({ ok: false, status: 403 });
 
       await expect(
-        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY),
+        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY, EVENT_ID),
       ).rejects.toMatchObject({
         kind: 'transient',
       } as Partial<GoogleCalendarError>);
@@ -176,7 +254,7 @@ describe('GoogleCalendarClient', () => {
       mockFetchOnce({ ok: false, status: 500 });
 
       await expect(
-        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY),
+        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY, EVENT_ID),
       ).rejects.toMatchObject({
         kind: 'transient',
       } as Partial<GoogleCalendarError>);
@@ -189,7 +267,7 @@ describe('GoogleCalendarClient', () => {
       );
 
       await expect(
-        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY),
+        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY, EVENT_ID),
       ).rejects.toMatchObject({
         kind: 'transient',
       } as Partial<GoogleCalendarError>);
@@ -554,7 +632,7 @@ describe('GoogleCalendarClient', () => {
       const oauth2Client = buildOAuth2Client();
       mockFetchOnce({ ok: true, status: 200 });
 
-      await client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY);
+      await client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY, EVENT_ID);
 
       const calls = (globalThis.fetch as jest.Mock).mock.calls as [
         string,

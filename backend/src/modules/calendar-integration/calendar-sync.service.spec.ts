@@ -10,6 +10,7 @@ import {
 } from './google-calendar.client';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditService } from '../audit/audit.service';
+import { deterministicEventId } from './google-event-id.util';
 import {
   MAX_RECONCILE_PAGES,
   RECONCILE_BATCH_LIMIT,
@@ -321,16 +322,18 @@ describe('CalendarSyncService', () => {
       );
     });
 
-    // issue #285: dos ejecuciones concurrentes insertan el evento; la perdedora
-    // falla el create del link con P2002 y debe borrar su evento huérfano.
-    it('P2002 al crear el link borra el evento recién insertado y no propaga el error', async () => {
+    // issue #285 + #497: dos ejecuciones concurrentes sincronizan el mismo
+    // grupo con el MISMO id de evento (la perdedora recibe 409 y parchea), así
+    // que hay un solo evento en Google. La perdedora falla el create del link
+    // con P2002 y NO debe borrar ese evento: es el del link ganador.
+    it('P2002 al crear el link no propaga el error y no borra el evento compartido', async () => {
       prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
       prisma.googleCalendarConnection.findUnique.mockResolvedValue(
         buildConnection(),
       );
       prisma.calendarEventLink.findUnique.mockResolvedValue(null);
       googleCalendarClient.insertEvent.mockResolvedValue({
-        id: 'google-event-dup',
+        id: 'google-event-shared',
       });
       prisma.calendarEventLink.create.mockRejectedValue(
         new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
@@ -338,41 +341,53 @@ describe('CalendarSyncService', () => {
           clientVersion: 'test',
         }),
       );
-      googleCalendarClient.deleteEvent.mockResolvedValue(undefined);
 
       await expect(service.syncGroup('group-1')).resolves.toBeUndefined();
 
-      expect(googleCalendarClient.deleteEvent).toHaveBeenCalledWith(
-        expect.anything(),
-        'primary',
-        'google-event-dup',
-      );
+      expect(googleCalendarClient.deleteEvent).not.toHaveBeenCalled();
     });
 
-    it('P2002 al crear el link: si el borrado del evento duplicado falla, se loguea y no se propaga', async () => {
+    // issue #497: el id es función de (conexión, grupo); un reintento tras
+    // perder la respuesta de Google llega al mismo evento en vez de duplicarlo.
+    it('inserta con un id de evento determinista por (conexión, grupo) y válido para Google', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
+      prisma.googleCalendarConnection.findUnique.mockResolvedValue(
+        buildConnection(),
+      );
+      prisma.calendarEventLink.findUnique.mockResolvedValue(null);
+      googleCalendarClient.insertEvent.mockResolvedValue({ id: 'ignored' });
+
+      await service.syncGroup('group-1');
+      await service.syncGroup('group-1');
+
+      const ids = googleCalendarClient.insertEvent.mock.calls.map(
+        (call) => (call as unknown[])[3],
+      );
+      expect(ids).toHaveLength(2);
+      expect(ids[0]).toBe(ids[1]);
+      expect(ids[0]).toMatch(/^[0-9a-v]{5,1024}$/);
+      expect(ids[0]).toBe(deterministicEventId('connection-1', 'group-1'));
+      expect(ids[0]).not.toBe(deterministicEventId('connection-1', 'group-2'));
+      expect(ids[0]).not.toBe(deterministicEventId('connection-2', 'group-1'));
+    });
+
+    it('crea el link con el id que devolvió Google, no con uno propio', async () => {
       prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
       prisma.googleCalendarConnection.findUnique.mockResolvedValue(
         buildConnection(),
       );
       prisma.calendarEventLink.findUnique.mockResolvedValue(null);
       googleCalendarClient.insertEvent.mockResolvedValue({
-        id: 'google-event-dup',
+        id: 'google-event-from-google',
       });
-      prisma.calendarEventLink.create.mockRejectedValue(
-        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
-          code: 'P2002',
-          clientVersion: 'test',
-        }),
-      );
-      googleCalendarClient.deleteEvent.mockRejectedValue(new Error('boom'));
-      const errorSpy = jest
-        .spyOn(Logger.prototype, 'error')
-        .mockImplementation(() => undefined);
 
-      await expect(service.syncGroup('group-1')).resolves.toBeUndefined();
+      await service.syncGroup('group-1');
 
-      expect(errorSpy).toHaveBeenCalled();
-      errorSpy.mockRestore();
+      expect(prisma.calendarEventLink.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          googleEventId: 'google-event-from-google',
+        }) as unknown,
+      });
     });
 
     it('un error de create del link que NO es P2002 no borra el evento y se propaga', async () => {
@@ -522,7 +537,13 @@ describe('CalendarSyncService', () => {
 
       expect(prisma.googleCalendarConnection.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'connection-1', status: 'CONNECTED' },
+          // issue #497: solo desconecta si el token que falló sigue siendo el
+          // guardado; una reconexión en el medio no se pisa.
+          where: {
+            id: 'connection-1',
+            status: 'CONNECTED',
+            refreshTokenEncrypted: Buffer.from('encrypted-refresh-token'),
+          },
           data: expect.objectContaining({
             status: 'DISCONNECTED',
             refreshTokenEncrypted: null,
