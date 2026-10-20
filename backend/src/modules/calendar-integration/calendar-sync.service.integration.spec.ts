@@ -6,7 +6,11 @@ import { GoogleTokenCryptoService } from './google-token-crypto.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditService } from '../audit/audit.service';
 import { CalendarSyncService } from './calendar-sync.service';
-import type { GoogleCalendarClient } from './google-calendar.client';
+import {
+  GoogleCalendarError,
+  type GoogleCalendarClient,
+} from './google-calendar.client';
+import { deterministicEventId } from './google-event-id.util';
 import { BACKFILL_WINDOW_DAYS } from './calendar-integration.constants';
 
 /**
@@ -233,9 +237,8 @@ describe('CalendarSyncService (integration, real Prisma)', () => {
   });
 
   describe('ejecuciones concurrentes sobre el mismo grupo (issue #285)', () => {
-    it('dos syncGroup simultáneos dejan un solo link y borran el evento duplicado de Google', async () => {
+    it('dos syncGroup simultáneos dejan un solo link y un solo evento en Google (sin borrar nada)', async () => {
       const groupId = randomUUID();
-      let n = 0;
       let arrived = 0;
       let releaseBoth!: () => void;
       const bothArrived = new Promise<void>((resolve) => {
@@ -246,14 +249,23 @@ describe('CalendarSyncService (integration, real Prisma)', () => {
       // suyo, reproduciendo la carrera real. Una demora fija dependía del
       // ritmo del runner: si la segunda arrancaba tarde ya veía el link. El
       // tope solo evita colgar el test si la segunda nunca llega.
-      googleCalendarClient.insertEvent.mockImplementation(async () => {
-        if (++arrived >= 2) releaseBoth();
-        await Promise.race([
-          bothArrived,
-          new Promise((resolve) => setTimeout(resolve, 3000)),
-        ]);
-        return { id: `google-event-race-${++n}` };
-      });
+      // issue #497: ambas usan el mismo id; Google responde con ese id a la
+      // que llega segunda (409 -> patch), así que hay un solo evento.
+      googleCalendarClient.insertEvent.mockImplementation(
+        async (
+          _client: unknown,
+          _calendarId: string,
+          _body: unknown,
+          eventId: string,
+        ) => {
+          if (++arrived >= 2) releaseBoth();
+          await Promise.race([
+            bothArrived,
+            new Promise((resolve) => setTimeout(resolve, 3000)),
+          ]);
+          return { id: eventId };
+        },
+      );
       googleCalendarClient.deleteEvent.mockResolvedValue(undefined);
       await createConsultation(
         groupId,
@@ -271,11 +283,54 @@ describe('CalendarSyncService (integration, real Prisma)', () => {
         where: { connectionId, groupId },
       });
       expect(links).toHaveLength(1);
-      expect(googleCalendarClient.deleteEvent).toHaveBeenCalledTimes(1);
-      const deletedEventId = (
-        googleCalendarClient.deleteEvent.mock.calls[0] as unknown[]
-      )[2];
-      expect(deletedEventId).not.toBe(links[0].googleEventId);
+      expect(links[0].googleEventId).toBe(
+        deterministicEventId(connectionId, groupId),
+      );
+      // El evento es el del link ganador: borrarlo lo eliminaría de Google.
+      expect(googleCalendarClient.deleteEvent).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('respuesta de Google perdida en el insert (issue #497)', () => {
+    it('el reintento reutiliza el mismo id de evento y termina con un solo link', async () => {
+      const groupId = randomUUID();
+      // Primer intento: Google creó el evento pero la respuesta se perdió
+      // (timeout). Segundo intento: Google responde 409 al id repetido y el
+      // cliente lo parchea, devolviendo ese mismo id.
+      googleCalendarClient.insertEvent
+        .mockRejectedValueOnce(new GoogleCalendarError('transient', 'timeout'))
+        .mockImplementationOnce(
+          (
+            _client: unknown,
+            _calendarId: string,
+            _body: unknown,
+            eventId: string,
+          ) => Promise.resolve({ id: eventId }),
+        );
+      await createConsultation(
+        groupId,
+        new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+        { id: groupId },
+      );
+
+      await service.syncGroup(groupId);
+      expect(
+        await prisma.calendarEventLink.count({
+          where: { connectionId, groupId },
+        }),
+      ).toBe(0);
+      await service.syncGroup(groupId);
+
+      const ids = googleCalendarClient.insertEvent.mock.calls.map(
+        (call) => (call as unknown[])[3],
+      );
+      expect(ids).toHaveLength(2);
+      expect(ids[0]).toBe(ids[1]);
+      const links = await prisma.calendarEventLink.findMany({
+        where: { connectionId, groupId },
+      });
+      expect(links).toHaveLength(1);
+      expect(links[0].googleEventId).toBe(ids[0]);
     });
   });
 

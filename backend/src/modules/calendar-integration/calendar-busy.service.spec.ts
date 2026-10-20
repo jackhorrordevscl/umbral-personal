@@ -22,13 +22,18 @@ function buildConnection(overrides: Partial<Record<string, unknown>> = {}) {
     therapistId: 'therapist-1',
     status: 'CONNECTED',
     calendarId: 'primary',
+    refreshTokenEncrypted: Buffer.from('encrypted-refresh-token'),
     ...overrides,
   };
 }
 
 describe('CalendarBusyService', () => {
   let prisma: {
-    googleCalendarConnection: { findMany: jest.Mock; update: jest.Mock };
+    googleCalendarConnection: {
+      findMany: jest.Mock;
+      update: jest.Mock;
+      updateMany: jest.Mock;
+    };
     calendarBusyBlock: { deleteMany: jest.Mock; createMany: jest.Mock };
     $transaction: jest.Mock;
   };
@@ -55,14 +60,14 @@ describe('CalendarBusyService', () => {
       googleCalendarConnection: {
         findMany: jest.fn().mockResolvedValue([buildConnection()]),
         update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       calendarBusyBlock: {
         deleteMany: jest.fn(),
         createMany: jest.fn(),
       },
-      $transaction: jest.fn((ops: unknown[]) =>
-        Promise.all(ops as Promise<unknown>[]),
-      ),
+      // Forma interactiva: el callback recibe un tx con los mismos mocks.
+      $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     googleCalendarClient = {
       listBusyIntervals: jest.fn().mockResolvedValue([]),
@@ -103,14 +108,50 @@ describe('CalendarBusyService', () => {
         },
       ],
     });
-    expect(prisma.googleCalendarConnection.update).toHaveBeenCalledWith({
-      where: { id: 'connection-1' },
+    expect(prisma.googleCalendarConnection.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'connection-1',
+        status: 'CONNECTED',
+        refreshTokenEncrypted: Buffer.from('encrypted-refresh-token'),
+      },
       data: {
         busySyncedAt: expect.any(Date) as unknown as Date,
         busySyncError: null,
       },
     });
     expect(availabilityService.invalidate).toHaveBeenCalledWith('therapist-1');
+  });
+
+  // issue #497: la lectura a Google tardó y el terapeuta se desconectó (o
+  // reconectó otra cuenta) en el medio: el claim no encuentra la conexión
+  // CONNECTED con el mismo token y no se escribe nada.
+  it('si la conexión ya no está CONNECTED con el mismo token, no escribe bloques ni invalida el cache', async () => {
+    googleCalendarClient.listBusyIntervals.mockResolvedValue([
+      {
+        startsAt: new Date('2026-06-01T13:00:00.000Z'),
+        endsAt: new Date('2026-06-01T14:00:00.000Z'),
+      },
+    ]);
+    prisma.googleCalendarConnection.updateMany.mockResolvedValue({ count: 0 });
+    const service = buildService();
+
+    await expect(service.refresh()).resolves.toBeUndefined();
+
+    expect(prisma.calendarBusyBlock.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.calendarBusyBlock.createMany).not.toHaveBeenCalled();
+    expect(availabilityService.invalidate).not.toHaveBeenCalled();
+  });
+
+  it('el claim de la conexión va antes de borrar y recrear los bloques', async () => {
+    const service = buildService();
+
+    await service.refresh();
+
+    expect(
+      prisma.googleCalendarConnection.updateMany.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      prisma.calendarBusyBlock.deleteMany.mock.invocationCallOrder[0],
+    );
   });
 
   it('no consulta conexiones ni llama a Google cuando el flag está apagado', async () => {
@@ -132,7 +173,10 @@ describe('CalendarBusyService', () => {
     await expect(service.refresh()).resolves.toBeUndefined();
 
     expect(calendarSyncService.handleInvalidGrant).toHaveBeenCalledWith(
-      'connection-1',
+      expect.objectContaining({
+        id: 'connection-1',
+        refreshTokenEncrypted: Buffer.from('encrypted-refresh-token'),
+      }),
     );
     expect(prisma.calendarBusyBlock.deleteMany).not.toHaveBeenCalled();
     expect(availabilityService.invalidate).not.toHaveBeenCalled();
@@ -171,7 +215,7 @@ describe('CalendarBusyService', () => {
     await service.refresh();
 
     expect(calendarSyncService.handleInvalidGrant).toHaveBeenCalledWith(
-      'connection-1',
+      expect.objectContaining({ id: 'connection-1' }),
     );
     expect(availabilityService.invalidate).toHaveBeenCalledWith('therapist-2');
     expect(availabilityService.invalidate).not.toHaveBeenCalledWith(
