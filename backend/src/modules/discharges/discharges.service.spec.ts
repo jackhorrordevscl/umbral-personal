@@ -1,4 +1,5 @@
 import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
+import { encryptDischargeTexts } from './util/discharge-text.util';
 import {
   BadRequestException,
   ConflictException,
@@ -1113,6 +1114,34 @@ describe('DischargesService', () => {
       expect(result).not.toHaveProperty('consultReason');
     });
 
+    it('responde valid=false, sin lanzar, si un texto cifrado está alterado, y lo registra sin contenido', async () => {
+      const good = encryptDischargeTexts(
+        { consultReason: 'Motivo reservado' },
+        buildTestClinicalCrypto(),
+      ).consultReason;
+      prisma.treatmentDischarge.findFirst.mockResolvedValue(
+        issuedRow({ consultReason: `${good.slice(0, -4)}AAAA` }),
+      );
+      const errorLog = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      const result = await service.verify('dis-1', 'therapist-1');
+
+      expect(result.valid).toBe(false);
+      expect(result.dischargeId).toBe('dis-1');
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining('dischargeId=dis-1'),
+      );
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining('consultReason'),
+      );
+      expect(errorLog).not.toHaveBeenCalledWith(
+        expect.stringContaining('Motivo reservado'),
+      );
+      errorLog.mockRestore();
+    });
+
     it('detecta una alteración directa en la base', async () => {
       const row = issuedRow();
       prisma.treatmentDischarge.findFirst.mockResolvedValue({
@@ -1219,6 +1248,44 @@ describe('DischargesService', () => {
       ).toEqual({
         patientId: 'patient-1',
         therapistId: 'therapist-1',
+      });
+    });
+
+    describe('con un texto cifrado ilegible', () => {
+      const good = encryptDischargeTexts(
+        { diagnosis: 'Diagnóstico reservado' },
+        buildTestClinicalCrypto(),
+      ).diagnosis;
+      const tampered = `${good.slice(0, -4)}AAAA`;
+
+      it('devuelve todas las filas, con el campo en null y unreadableFields solo en la afectada', async () => {
+        prisma.treatmentDischarge.findMany.mockResolvedValue([
+          buildRow({ id: 'dis-1', diagnosis: good }),
+          buildRow({ id: 'dis-2', diagnosis: tampered }),
+        ]);
+        const errorLog = jest
+          .spyOn(Logger.prototype, 'error')
+          .mockImplementation(() => undefined);
+
+        const rows = await service.findByPatient('patient-1', 'therapist-1');
+
+        expect(rows).toHaveLength(2);
+        expect(rows[0].diagnosis).toBe('Diagnóstico reservado');
+        expect(rows[0]).not.toHaveProperty('unreadableFields');
+        expect(rows[1].diagnosis).toBeNull();
+        expect(rows[1]).toMatchObject({ unreadableFields: ['diagnosis'] });
+        expect(errorLog).toHaveBeenCalledWith(
+          expect.stringContaining('dischargeId=dis-2'),
+        );
+        errorLog.mockRestore();
+      });
+
+      it('findOne sigue siendo estricto: no entrega una fila a medias', async () => {
+        prisma.treatmentDischarge.findFirst.mockResolvedValue(
+          buildRow({ diagnosis: tampered }),
+        );
+
+        await expect(service.findOne('dis-1', 'therapist-1')).rejects.toThrow();
       });
     });
   });

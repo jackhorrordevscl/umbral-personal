@@ -882,6 +882,53 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
     ]);
   }, 30000);
 
+  // Un texto cifrado alterado en la base no tumba el listado ni verify().
+  it('un texto cifrado alterado deja el listado legible y verify() en valid=false', async () => {
+    const patient = await createConsentedPatient('Texto Ilegible');
+    const draft = await dischargesService.createDraft(
+      patient.id,
+      { closureReason: 'DISCHARGED' } as never,
+      therapistId,
+    );
+    await dischargesService.update(
+      draft.id,
+      {
+        consultReason: 'Motivo reservado',
+        diagnosis: 'Diagnóstico reservado',
+        evolutionSummary: 'Evolución reservada',
+        statusAtDischarge: 'Estado reservado',
+        recommendations: 'Recomendaciones reservadas',
+      } as never,
+      therapistId,
+    );
+    await dischargesService.issue(draft.id, therapistId);
+    const stored = await prisma.treatmentDischarge.findUniqueOrThrow({
+      where: { id: draft.id },
+      select: { diagnosis: true },
+    });
+    await prisma.treatmentDischarge.update({
+      where: { id: draft.id },
+      data: { diagnosis: `${stored.diagnosis!.slice(0, -4)}AAAA` },
+    });
+
+    const listed = await dischargesService.findByPatient(
+      patient.id,
+      therapistId,
+    );
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({
+      diagnosis: null,
+      consultReason: 'Motivo reservado',
+      unreadableFields: ['diagnosis'],
+    });
+    await expect(
+      dischargesService.verify(draft.id, therapistId),
+    ).resolves.toMatchObject({ valid: false, dischargeId: draft.id });
+    await expect(
+      dischargesService.findOne(draft.id, therapistId),
+    ).rejects.toThrow();
+  }, 30000);
+
   // Cerrar (A), reabrir con una consulta nueva y cerrar otra vez (B): emitir la
   // corrección de A no debe pisar el estado que fijó B ni auditar un cierre.
   it('emitir la corrección de un episodio anterior no pisa el estado del cierre posterior', async () => {

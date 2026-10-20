@@ -28,6 +28,30 @@ export function encryptDischargeTexts<T extends object>(
   return out as T;
 }
 
+// Lectura tolerante, solo para respuestas que no calculan hashes ni reescriben
+// el texto: un campo que no se puede descifrar (valor alterado o clave ausente
+// del llavero) queda en null y se informa su nombre, sin tumbar el resto de la
+// fila. Nunca la uses para emitir o corregir: ahí un texto a medias sería un
+// hash que no corresponde al contenido.
+export function decryptDischargeRowLenient<T extends object>(
+  row: T,
+  crypto: ClinicalTextCryptoService,
+): { row: T; unreadableFields: DischargeTextField[] } {
+  const out = { ...row } as Record<string, unknown>;
+  const unreadableFields: DischargeTextField[] = [];
+  for (const field of DISCHARGE_TEXT_FIELDS) {
+    const value = out[field];
+    if (typeof value !== 'string') continue;
+    try {
+      out[field] = crypto.decrypt(value);
+    } catch {
+      out[field] = null;
+      unreadableFields.push(field);
+    }
+  }
+  return { row: out as T, unreadableFields };
+}
+
 export function decryptDischargeRow<T extends object>(
   row: T,
   crypto: ClinicalTextCryptoService,
