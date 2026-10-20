@@ -236,10 +236,22 @@ describe('CalendarSyncService (integration, real Prisma)', () => {
     it('dos syncGroup simultáneos dejan un solo link y borran el evento duplicado de Google', async () => {
       const groupId = randomUUID();
       let n = 0;
-      // La demora hace que ambas ejecuciones lean 'sin link' antes de que
-      // cualquiera cree el suyo, reproduciendo la carrera real.
+      let arrived = 0;
+      let releaseBoth!: () => void;
+      const bothArrived = new Promise<void>((resolve) => {
+        releaseBoth = resolve;
+      });
+      // Barrera: ninguna ejecución termina su insert hasta que ambas llegaron
+      // a él, así las dos leyeron 'sin link' antes de que cualquiera cree el
+      // suyo, reproduciendo la carrera real. Una demora fija dependía del
+      // ritmo del runner: si la segunda arrancaba tarde ya veía el link. El
+      // tope solo evita colgar el test si la segunda nunca llega.
       googleCalendarClient.insertEvent.mockImplementation(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        if (++arrived >= 2) releaseBoth();
+        await Promise.race([
+          bothArrived,
+          new Promise((resolve) => setTimeout(resolve, 3000)),
+        ]);
         return { id: `google-event-race-${++n}` };
       });
       googleCalendarClient.deleteEvent.mockResolvedValue(undefined);
