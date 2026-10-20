@@ -358,7 +358,7 @@ describe('MailService: escape de HTML en templates (issue #300)', () => {
   });
 });
 
-describe('MailService: destinatario representante legal (menores)', () => {
+describe('MailService: destinatario representante legal (NNA)', () => {
   beforeEach(() => {
     sendMock.mockReset();
     sendMock.mockResolvedValue({ data: { id: 'email-1' }, error: null });

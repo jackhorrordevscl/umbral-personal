@@ -427,10 +427,10 @@ describe('PatientsService', () => {
     });
   });
 
-  // M2a: edad, tramo y estado de regularización de menores. El estado se deriva
+  // M2a: edad, tramo y estado de regularización de NNA. El estado se deriva
   // del último evento por (paciente, finalidad) y de los representantes con
   // canConsent; los listados lo calculan en una sola consulta por página.
-  describe('campos de menor de edad', () => {
+  describe('campos de NNA', () => {
     const yearsAgo = (years: number) => {
       const date = new Date();
       date.setUTCFullYear(date.getUTCFullYear() - years);
@@ -456,7 +456,7 @@ describe('PatientsService', () => {
         ).toBe('NOT_MINOR');
       });
 
-      it('MISSING_GUARDIAN para un menor sin representante con canConsent', () => {
+      it('MISSING_GUARDIAN para un NNA sin representante con canConsent', () => {
         expect(computeMinorStatus(minor, 0, [])).toBe('MISSING_GUARDIAN');
       });
 
@@ -499,7 +499,7 @@ describe('PatientsService', () => {
     });
 
     describe('findOne', () => {
-      it('para un menor expone isMinor, ageBand, guardians, minorStatus y la fecha de vigencia', async () => {
+      it('para un NNA expone isMinor, ageBand, guardians, minorStatus y la fecha de vigencia', async () => {
         const guardian = { id: 'g-1', canConsent: true };
         prisma.patient.findFirst.mockResolvedValue({
           ...buildPatient({ birthDate: yearsAgo(10) }),
@@ -1229,7 +1229,7 @@ describe('PatientsService', () => {
   });
 
   // M2b: escritura estricta del consentimiento según la edad del paciente.
-  describe('recordConsent (menores y representantes)', () => {
+  describe('recordConsent (NNA y representantes)', () => {
     const consentDto = (extra: Record<string, unknown> = {}) =>
       ({
         purpose: 'TREATMENT',
@@ -1284,7 +1284,7 @@ describe('PatientsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('menor: rechaza un GRANT sin representante con 400', async () => {
+    it('NNA: rechaza un GRANT sin representante con 400', async () => {
       prisma.patient.findFirst.mockResolvedValue(minor());
 
       await expect(
@@ -1293,7 +1293,7 @@ describe('PatientsService', () => {
       expect(prisma.patientConsent.create).not.toHaveBeenCalled();
     });
 
-    it('menor: rechaza un GRANT con grantedBy GUARDIAN pero sin guardianId', async () => {
+    it('NNA: rechaza un GRANT con grantedBy GUARDIAN pero sin guardianId', async () => {
       prisma.patient.findFirst.mockResolvedValue(minor());
 
       await expect(
@@ -1305,7 +1305,7 @@ describe('PatientsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('menor: rechaza un representante de otro paciente (404 de la consulta acotada)', async () => {
+    it('NNA: rechaza un representante de otro paciente (404 de la consulta acotada)', async () => {
       prisma.patient.findFirst.mockResolvedValue(minor());
       prisma.legalGuardian.findFirst.mockResolvedValue(null);
 
@@ -1324,7 +1324,7 @@ describe('PatientsService', () => {
       expect(prisma.patientConsent.create).not.toHaveBeenCalled();
     });
 
-    it('menor: rechaza un representante con canConsent false', async () => {
+    it('NNA: rechaza un representante con canConsent false', async () => {
       prisma.patient.findFirst.mockResolvedValue(minor());
       prisma.legalGuardian.findFirst.mockResolvedValue({ canConsent: false });
 
@@ -1337,7 +1337,7 @@ describe('PatientsService', () => {
       ).rejects.toThrow(/habilitado/);
     });
 
-    it('menor: acepta un GRANT de un representante habilitado y persiste grantedBy/guardianId', async () => {
+    it('NNA: acepta un GRANT de un representante habilitado y persiste grantedBy/guardianId', async () => {
       prisma.patient.findFirst.mockResolvedValue(minor());
       prisma.legalGuardian.findFirst.mockResolvedValue({ canConsent: true });
 
@@ -1355,7 +1355,7 @@ describe('PatientsService', () => {
       });
     });
 
-    it('menor: si el representante se elimina antes del INSERT (FK P2003) responde 400, no 500', async () => {
+    it('NNA: si el representante se elimina antes del INSERT (FK P2003) responde 400, no 500', async () => {
       prisma.patient.findFirst.mockResolvedValue(minor());
       prisma.legalGuardian.findFirst.mockResolvedValue({ canConsent: true });
       prisma.patientConsent.create.mockRejectedValue(
@@ -1387,7 +1387,7 @@ describe('PatientsService', () => {
       ).rejects.toThrow('db down');
     });
 
-    it('menor: un REVOKE se acepta sin representante', async () => {
+    it('NNA: un REVOKE se acepta sin representante', async () => {
       prisma.patient.findFirst.mockResolvedValue(minor());
 
       await service.recordConsent(
@@ -1405,7 +1405,7 @@ describe('PatientsService', () => {
       });
     });
 
-    it('menor: un REVOKE con representante exige que sea del paciente', async () => {
+    it('NNA: un REVOKE con representante exige que sea del paciente', async () => {
       prisma.patient.findFirst.mockResolvedValue(minor());
       prisma.legalGuardian.findFirst.mockResolvedValue(null);
 
@@ -1422,7 +1422,7 @@ describe('PatientsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('bulkDeclareConsent omite a los menores con la razón y sigue con los adultos', async () => {
+    it('bulkDeclareConsent omite a los NNA con la razón y sigue con los adultos', async () => {
       prisma.patient.findFirst
         .mockResolvedValueOnce(minor())
         .mockResolvedValueOnce(buildPatient({ id: 'patient-2' }));
@@ -1507,7 +1507,7 @@ describe('PatientsService', () => {
       ).resolves.toBeUndefined();
     });
 
-    it('menor antes de la fecha: el consentimiento legado del paciente sigue valiendo', async () => {
+    it('NNA antes de la fecha: el consentimiento legado del paciente sigue valiendo', async () => {
       jest.useFakeTimers().setSystemTime(BEFORE);
       withBirth('2015-01-01');
       prisma.patientConsent.findMany.mockResolvedValue([
@@ -1519,7 +1519,7 @@ describe('PatientsService', () => {
       ).resolves.toBeUndefined();
     });
 
-    it('menor antes de la fecha: sin consentimiento da 403 genérico', async () => {
+    it('NNA antes de la fecha: sin consentimiento da 403 genérico', async () => {
       jest.useFakeTimers().setSystemTime(BEFORE);
       withBirth('2015-01-01');
 
@@ -1528,7 +1528,7 @@ describe('PatientsService', () => {
       ).rejects.toThrow(new ForbiddenException(MESSAGE));
     });
 
-    it('menor desde la fecha: un consentimiento legado da 403 específico', async () => {
+    it('NNA desde la fecha: un consentimiento legado da 403 específico', async () => {
       jest.useFakeTimers().setSystemTime(AFTER);
       withBirth('2015-01-01');
       prisma.patientConsent.findMany.mockResolvedValue([
@@ -1537,10 +1537,10 @@ describe('PatientsService', () => {
 
       await expect(
         service.assertTreatmentConsent('patient-1', MESSAGE),
-      ).rejects.toThrow(/menor de edad.*representante legal/);
+      ).rejects.toThrow(/NNA.*representante legal/);
     });
 
-    it('menor desde la fecha: sin consentimiento mantiene el mensaje genérico', async () => {
+    it('NNA desde la fecha: sin consentimiento mantiene el mensaje genérico', async () => {
       jest.useFakeTimers().setSystemTime(AFTER);
       withBirth('2015-01-01');
 
@@ -1549,7 +1549,7 @@ describe('PatientsService', () => {
       ).rejects.toThrow(new ForbiddenException(MESSAGE));
     });
 
-    it('menor desde la fecha: un propósito legado junto a otro del representante da 403 (como LEGACY_CONSENT)', async () => {
+    it('NNA desde la fecha: un propósito legado junto a otro del representante da 403 (como LEGACY_CONSENT)', async () => {
       jest.useFakeTimers().setSystemTime(AFTER);
       withBirth('2015-01-01');
       prisma.legalGuardian.count.mockResolvedValue(1);
@@ -1563,7 +1563,7 @@ describe('PatientsService', () => {
       ).rejects.toThrow(/Registra al representante y un nuevo consentimiento/);
     });
 
-    it('menor desde la fecha: acepta si todos los GRANT vigentes son del representante', async () => {
+    it('NNA desde la fecha: acepta si todos los GRANT vigentes son del representante', async () => {
       jest.useFakeTimers().setSystemTime(AFTER);
       withBirth('2015-01-01');
       prisma.legalGuardian.count.mockResolvedValue(1);
@@ -1580,7 +1580,7 @@ describe('PatientsService', () => {
       });
     });
 
-    it('menor desde la fecha: sin representante con canConsent da 403 aunque el GRANT sea de un representante', async () => {
+    it('NNA desde la fecha: sin representante con canConsent da 403 aunque el GRANT sea de un representante', async () => {
       jest.useFakeTimers().setSystemTime(AFTER);
       withBirth('2015-01-01');
       prisma.legalGuardian.count.mockResolvedValue(0);
@@ -1593,7 +1593,7 @@ describe('PatientsService', () => {
       ).rejects.toThrow(/Registra al representante e indícalo/);
     });
 
-    it('menor antes de la fecha: un GRANT legado pasa sin consultar representantes', async () => {
+    it('NNA antes de la fecha: un GRANT legado pasa sin consultar representantes', async () => {
       jest.useFakeTimers().setSystemTime(BEFORE);
       withBirth('2015-01-01');
       prisma.patientConsent.findMany.mockResolvedValue([
@@ -2118,7 +2118,7 @@ describe('PatientsService', () => {
         expect(prisma.patient.create).not.toHaveBeenCalled();
       });
 
-      it('menor sin representante -> 400', async () => {
+      it('NNA sin representante -> 400', async () => {
         await expect(
           service.resolveForPublicBooking('therapist-1', minorDto as never),
         ).rejects.toBeInstanceOf(BadRequestException);
@@ -2126,7 +2126,7 @@ describe('PatientsService', () => {
         expect(prisma.patient.create).not.toHaveBeenCalled();
       });
 
-      it('menor nuevo: crea la ficha (email null) y un representante pagador en el mismo client', async () => {
+      it('NNA nuevo: crea la ficha (email null) y un representante pagador en el mismo client', async () => {
         prisma.patient.findFirst.mockResolvedValue(null);
         const created = buildPatient({
           id: 'minor-1',
@@ -2180,7 +2180,7 @@ describe('PatientsService', () => {
         });
       });
 
-      it('menor nuevo con email propio: lo guarda normalizado', async () => {
+      it('NNA nuevo con email propio: lo guarda normalizado', async () => {
         prisma.patient.findFirst.mockResolvedValue(null);
         prisma.patient.findMany.mockResolvedValue([]);
         prisma.patient.create.mockResolvedValue(buildPatient({ id: 'm-2' }));
@@ -2205,7 +2205,7 @@ describe('PatientsService', () => {
         ).toBeNull();
       });
 
-      it('menor existente con un representante del mismo RUT: reutiliza la ficha sin escribir', async () => {
+      it('NNA existente con un representante del mismo RUT: reutiliza la ficha sin escribir', async () => {
         const existing = buildPatient({
           id: 'minor-1',
           rut: '11111111-1',
@@ -2232,7 +2232,7 @@ describe('PatientsService', () => {
         expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
       });
 
-      it('menor existente sin un representante con ese RUT -> 409 uniforme, sin escribir', async () => {
+      it('NNA existente sin un representante con ese RUT -> 409 uniforme, sin escribir', async () => {
         prisma.patient.findFirst.mockResolvedValue(
           buildPatient({
             id: 'minor-1',
@@ -2260,7 +2260,7 @@ describe('PatientsService', () => {
 
       // Mirrors the adult flow (#289): the patient RUT check digit is only
       // required when creating a new patient.
-      it('menor nuevo con DV inválido -> rechazo uniforme, sin crear (issue #502)', async () => {
+      it('NNA nuevo con DV inválido -> rechazo uniforme, sin crear (issue #502)', async () => {
         prisma.patient.findFirst.mockResolvedValue(null);
 
         await expect(
@@ -2276,7 +2276,7 @@ describe('PatientsService', () => {
         expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
       });
 
-      it('menor existente con DV inválido guardado y representante coincidente: reutiliza la ficha', async () => {
+      it('NNA existente con DV inválido guardado y representante coincidente: reutiliza la ficha', async () => {
         const existing = buildPatient({
           id: 'minor-1',
           rut: '11111111-2',
@@ -2321,7 +2321,7 @@ describe('PatientsService', () => {
       });
 
       it.each(['DISCHARGED', 'REFERRED', 'DROPPED_OUT'] as const)(
-        'menor existente con tratamiento %s, aunque el representante coincida -> 409 uniforme',
+        'NNA existente con tratamiento %s, aunque el representante coincida -> 409 uniforme',
         async (treatmentStatus) => {
           prisma.patient.findFirst.mockResolvedValue(
             buildPatient({
@@ -2348,7 +2348,7 @@ describe('PatientsService', () => {
         },
       );
 
-      it('representante con el mismo RUT que el menor -> 400, sin tocar la base', async () => {
+      it('representante con el mismo RUT que el NNA -> 400, sin tocar la base', async () => {
         await expect(
           service.resolveForPublicBooking(
             'therapist-1',
@@ -2362,7 +2362,7 @@ describe('PatientsService', () => {
         expect(prisma.patient.create).not.toHaveBeenCalled();
       });
 
-      it('menor nuevo con un email que ya usa otra ficha activa del terapeuta -> 409 uniforme, sin crear', async () => {
+      it('NNA nuevo con un email que ya usa otra ficha activa del terapeuta -> 409 uniforme, sin crear', async () => {
         prisma.patient.findFirst.mockResolvedValue(null);
         prisma.patient.findMany.mockResolvedValue([{ id: 'adult-1' }]);
 
@@ -2388,7 +2388,7 @@ describe('PatientsService', () => {
         expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
       });
 
-      it('adulto cuyo email coincide con una ficha guardada de un menor -> 409 uniforme', async () => {
+      it('adulto cuyo email coincide con una ficha guardada de un NNA -> 409 uniforme', async () => {
         prisma.patient.findMany.mockResolvedValue([
           buildPatient({
             email: 'paciente@ejemplo.cl',
@@ -2419,7 +2419,7 @@ describe('PatientsService', () => {
         expect(result).toEqual({ patient: existing, isNew: false });
       });
 
-      it('menor nuevo con RUT de DV inválido -> la misma excepción que una colisión, sin crear (issue #502)', async () => {
+      it('NNA nuevo con RUT de DV inválido -> la misma excepción que una colisión, sin crear (issue #502)', async () => {
         prisma.patient.findFirst.mockResolvedValue(null);
 
         await expect(
@@ -2438,7 +2438,7 @@ describe('PatientsService', () => {
         expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
       });
 
-      it('menor existente sin representante coincidente -> excepción propia con el email de la ficha (issue #502)', async () => {
+      it('NNA existente sin representante coincidente -> excepción propia con el email de la ficha (issue #502)', async () => {
         prisma.patient.findFirst.mockResolvedValue(
           buildPatient({
             id: 'minor-1',
@@ -2463,7 +2463,7 @@ describe('PatientsService', () => {
         });
       });
 
-      it('menor nuevo con un email ya registrado -> excepción propia con ese email (issue #502)', async () => {
+      it('NNA nuevo con un email ya registrado -> excepción propia con ese email (issue #502)', async () => {
         prisma.patient.findFirst.mockResolvedValue(null);
         prisma.patient.findMany.mockResolvedValue([{ id: 'other-patient' }]);
 
@@ -2495,7 +2495,7 @@ describe('PatientsService', () => {
         expect(prisma.patient.create).not.toHaveBeenCalled();
       });
 
-      it('carrera al crear el menor: P2002 -> 409 uniforme', async () => {
+      it('carrera al crear el NNA: P2002 -> 409 uniforme', async () => {
         prisma.patient.findFirst.mockResolvedValue(null);
         prisma.patient.create.mockRejectedValue(
           new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
@@ -2543,7 +2543,7 @@ describe('PatientsService', () => {
         expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
       });
 
-      it('nunca loguea RUT ni email al rechazar un menor', async () => {
+      it('nunca loguea RUT ni email al rechazar un NNA', async () => {
         prisma.patient.findFirst.mockResolvedValue(
           buildPatient({
             id: 'minor-1',

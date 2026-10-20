@@ -207,7 +207,7 @@ export class ConsultationsService {
         reopenedFrom = locked[0].treatmentStatus;
       }
 
-      // M2b: para un menor de edad exige además (desde la fecha de vigencia)
+      // M2b: para un NNA exige además (desde la fecha de vigencia)
       // que el consentimiento lo haya otorgado su representante.
       await this.patientsService.assertTreatmentConsent(
         dto.patientId,

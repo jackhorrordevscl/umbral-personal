@@ -117,7 +117,7 @@ describe('getPublicScheduleTracker', () => {
 
   // Minor booking: a minor may have no email; the key falls back to the
   // guardian email and then to the patient RUT, always hashed.
-  describe('reserva de menores', () => {
+  describe('reserva de NNA', () => {
     const sha256 = (value: string) =>
       createHash('sha256').update(value).digest('hex');
     const base = { ip: '10.0.0.5', params: { therapistId: 'therapist-1' } };

@@ -124,7 +124,7 @@ describe('ConsultationsService', () => {
       assertAccess: jest
         .fn()
         .mockResolvedValue({ id: 'patient-1', rut: '11111111-1' }),
-      // La política de consentimiento (adulto/menor, fecha de vigencia) vive en
+      // La política de consentimiento (adulto/NNA, fecha de vigencia) vive en
       // PatientsService.assertTreatmentConsent y se prueba allí; acá solo se
       // verifica que las consultas la invoquen dentro de la transacción.
       assertTreatmentConsent: jest.fn().mockResolvedValue(undefined),

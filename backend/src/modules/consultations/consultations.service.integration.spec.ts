@@ -1384,7 +1384,7 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
   }, 15000);
 });
 
-// M2b: política de transición para menores de edad (real Prisma). Antes de
+// M2b: política de transición para NNA (real Prisma). Antes de
 // MINOR_GUARDIAN_ENFORCEMENT_DATE el consentimiento legado del paciente sigue
 // valiendo; desde esa fecha el guardrail exige uno otorgado por el
 // representante. Solo se falsea Date: con timers falsos el pool de Postgres
@@ -1527,7 +1527,7 @@ describe('ConsultationsService consent guardrail for minors (integration, real P
     await prisma.onModuleDestroy();
   }, 30000);
 
-  it('antes de la fecha de vigencia: el consentimiento legado de un menor sigue valiendo', async () => {
+  it('antes de la fecha de vigencia: el consentimiento legado de un NNA sigue valiendo', async () => {
     setToday('2026-11-30T15:00:00Z');
 
     const consultation = await consultationsService.create(
@@ -1538,15 +1538,15 @@ describe('ConsultationsService consent guardrail for minors (integration, real P
     expect(consultation.id).toBeDefined();
   }, 15000);
 
-  it('desde la fecha de vigencia: un consentimiento legado de un menor da 403 específico', async () => {
+  it('desde la fecha de vigencia: un consentimiento legado de un NNA da 403 específico', async () => {
     setToday('2026-12-01T15:00:00Z');
 
     await expect(
       consultationsService.create(dto(legacyMinorId), therapistId),
-    ).rejects.toThrow(/menor de edad.*representante legal/);
+    ).rejects.toThrow(/NNA.*representante legal/);
   }, 15000);
 
-  it('desde la fecha de vigencia: un menor con consentimiento del representante puede crear consultas', async () => {
+  it('desde la fecha de vigencia: un NNA con consentimiento del representante puede crear consultas', async () => {
     setToday('2026-12-05T15:00:00Z');
 
     const consultation = await consultationsService.create(

@@ -242,7 +242,7 @@ describe('DocumentsService', () => {
       ).rejects.toThrow('db down');
     });
 
-    describe('paciente menor de edad (M2b)', () => {
+    describe('paciente NNA (M2b)', () => {
       beforeEach(() => {
         jest.useFakeTimers().setSystemTime(new Date('2026-10-08T15:00:00Z'));
         patientsService.assertAccess.mockResolvedValue({
@@ -338,7 +338,7 @@ describe('DocumentsService', () => {
         expect(patientsService.assertGuardianCanSign).not.toHaveBeenCalled();
       });
 
-      it('INFORMED_ASSENT (menor de 14): guarda el documento y un asentimiento GRANTED en la misma transaccion', async () => {
+      it('INFORMED_ASSENT (NNA con menos de 14 años): guarda el documento y un asentimiento GRANTED en la misma transaccion', async () => {
         await service.uploadDocument(
           'patient-1',
           'therapist-1',
@@ -856,7 +856,7 @@ describe('DocumentsService', () => {
       });
     });
 
-    it('el REVOKE de un consentimiento de menor hereda grantedBy/guardianId del GRANT que revoca (M2b)', async () => {
+    it('el REVOKE de un consentimiento de un NNA hereda grantedBy/guardianId del GRANT que revoca (M2b)', async () => {
       tx.patientConsent.findFirst.mockResolvedValue({
         action: 'GRANT',
         documentId: 'doc-1',
