@@ -669,6 +669,7 @@ describe('DocumentsService', () => {
         findFirst: jest.Mock;
       };
       patientConsent: { findFirst: jest.Mock; create: jest.Mock };
+      $queryRaw: jest.Mock;
     };
     const consentDoc = {
       id: 'doc-1',
@@ -690,6 +691,7 @@ describe('DocumentsService', () => {
           findFirst: jest.fn(),
           create: jest.fn().mockResolvedValue({ id: 'consent-2' }),
         },
+        $queryRaw: jest.fn().mockResolvedValue([{ id: 'patient-1' }]),
       };
       (prisma as unknown as Record<string, unknown>).$transaction = jest.fn(
         (fn: (t: typeof tx) => unknown) => fn(tx),
@@ -786,6 +788,32 @@ describe('DocumentsService', () => {
           voidReason: dto.reason,
         },
       });
+    });
+
+    it('documento de consentimiento: bloquea la fila del paciente antes de marcar la anulación', async () => {
+      await service.voidDocument('doc-1', dto, 'therapist-1');
+      expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+      expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        tx.patientDocument.updateMany.mock.invocationCallOrder[0],
+      );
+      const [strings, ...values] = tx.$queryRaw.mock.calls[0] as [
+        TemplateStringsArray,
+        ...unknown[],
+      ];
+      expect(strings.join('?')).toMatch(
+        /FROM "Patient" WHERE id = \?\s+FOR UPDATE/,
+      );
+      expect(values).toEqual(['patient-1']);
+    });
+
+    it('tipo sin propósito de consentimiento: no bloquea al paciente', async () => {
+      prisma.patientDocument.findUnique.mockResolvedValue({
+        ...consentDoc,
+        type: 'OTHER',
+        voidedAt: null,
+      });
+      await service.voidDocument('doc-1', dto, 'therapist-1');
+      expect(tx.$queryRaw).not.toHaveBeenCalled();
     });
 
     it('tipo sin propósito de consentimiento: no toca el ledger', async () => {
