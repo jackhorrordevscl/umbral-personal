@@ -328,7 +328,9 @@ export class GoogleCalendarClient {
       );
     }
 
-    if (response.status === 409) {
+    // Solo el POST del insert interpreta un 409 (id ya existente); en
+    // patch/delete/list sigue siendo transient, como antes de #497.
+    if (response.status === 409 && method === 'POST') {
       throw new GoogleCalendarError(
         'conflict',
         `Google Calendar devolvió 409 (${method} ${url}).`,

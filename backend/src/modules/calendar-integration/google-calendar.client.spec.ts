@@ -133,6 +133,22 @@ describe('GoogleCalendarClient', () => {
       });
     });
 
+    it('un 409 en un patch o delete sigue siendo transient (solo el insert lo interpreta)', async () => {
+      mockFetchOnce({ ok: false, status: 409 });
+      await expect(
+        client.patchEvent(buildOAuth2Client(), CALENDAR_ID, 'event-1', {}),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<GoogleCalendarError>);
+
+      mockFetchOnce({ ok: false, status: 409 });
+      await expect(
+        client.deleteEvent(buildOAuth2Client(), CALENDAR_ID, 'event-1'),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<GoogleCalendarError>);
+    });
+
     it('si el patch tras el 409 falla, propaga ese error clasificado', async () => {
       mockFetchOnce({ ok: false, status: 409 });
       mockFetchOnce({ ok: false, status: 404 });
