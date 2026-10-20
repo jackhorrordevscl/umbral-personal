@@ -372,6 +372,17 @@ export class DocumentsService {
     }
 
     const voided = await this.prisma.$transaction(async (tx) => {
+      // Lock de la fila del paciente (FOR UPDATE) antes de marcar la anulación:
+      // revokeConsentIfOrphaned decide con un findFirst "¿queda otro documento
+      // vigente?", y en READ COMMITTED dos anulaciones concurrentes de
+      // documentos del mismo propósito se ven mutuamente como vigentes y
+      // ninguna agrega el REVOKE (queda un GRANT sin revocar). Con el lock la
+      // segunda espera, y su findFirst ya ve el voidedAt de la primera. Solo
+      // los tipos con propósito de consentimiento lo necesitan.
+      if (CONSENT_DOCUMENT_PURPOSE[existing.type]) {
+        await tx.$queryRaw`SELECT id FROM "Patient" WHERE id = ${existing.patientId} FOR UPDATE`;
+      }
+
       // Condición en el WHERE: dos anulaciones concurrentes no pueden pasar
       // ambas; la segunda ve count 0 y recibe 409.
       const { count } = await tx.patientDocument.updateMany({
