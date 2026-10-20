@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -22,6 +22,9 @@ interface OAuthStatePayload {
   sub: string;
   purpose: string;
   nonce: string;
+  // issue #497: sha256 del secreto de la cookie del navegador que inició el
+  // flujo (ver calendar-oauth-cookie.ts). El secreto en sí nunca va en el state.
+  bind?: string;
 }
 
 export interface CalendarConnectionStatus {
@@ -95,9 +98,14 @@ export class CalendarOauthService {
     return connection ?? DEFAULT_STATUS;
   }
 
-  async buildAuthorizationUrl(therapistId: string): Promise<{ url: string }> {
+  // `bindingToken` lo debe dejar el controller en la cookie del navegador; el
+  // callback lo exige de vuelta (verifyAndConsumeState).
+  async buildAuthorizationUrl(
+    therapistId: string,
+  ): Promise<{ url: string; bindingToken: string }> {
     this.assertEnabled();
 
+    const bindingToken = randomBytes(32).toString('hex');
     const nonce = randomBytes(16).toString('hex');
     const nonceHash = this.hashNonce(nonce);
     const stateExpiresAt = new Date(Date.now() + STATE_TTL_MS);
@@ -120,7 +128,12 @@ export class CalendarOauthService {
     });
 
     const state = this.jwtService.sign(
-      { sub: therapistId, purpose: OAUTH_STATE_PURPOSE, nonce },
+      {
+        sub: therapistId,
+        purpose: OAUTH_STATE_PURPOSE,
+        nonce,
+        bind: this.hashNonce(bindingToken),
+      },
       { expiresIn: `${Math.floor(STATE_TTL_MS / 1000)}s` },
     );
 
@@ -136,7 +149,7 @@ export class CalendarOauthService {
       state,
     });
 
-    return { url };
+    return { url, bindingToken };
   }
 
   // design.md: firma+exp+purpose ya los valida jwtService.verify (lanza si
@@ -145,7 +158,14 @@ export class CalendarOauthService {
   // "claim" que RemindersService.claimAndDispatch) -- así una segunda
   // llamada concurrente con el mismo `state` (replay) nunca puede ganar la
   // carrera contra la primera.
-  async verifyAndConsumeState(state: string): Promise<{ therapistId: string }> {
+  //
+  // issue #497: además exige que el navegador que vuelve sea el que inició el
+  // flujo (`bindingToken` es el valor de la cookie). Se comprueba ANTES de
+  // consumir el nonce, para que quien solo tenga el state no pueda quemarlo.
+  async verifyAndConsumeState(
+    state: string,
+    bindingToken: string | undefined,
+  ): Promise<{ therapistId: string }> {
     let payload: OAuthStatePayload;
     try {
       payload = this.jwtService.verify<OAuthStatePayload>(state);
@@ -155,6 +175,14 @@ export class CalendarOauthService {
 
     if (payload.purpose !== OAUTH_STATE_PURPOSE) {
       throw new UnauthorizedException('state inválido');
+    }
+
+    if (
+      !bindingToken ||
+      typeof payload.bind !== 'string' ||
+      !this.safeEqualHex(this.hashNonce(bindingToken), payload.bind)
+    ) {
+      throw new UnauthorizedException('state no corresponde a este navegador');
     }
 
     const nonceHash = this.hashNonce(payload.nonce);
@@ -277,6 +305,13 @@ export class CalendarOauthService {
     });
 
     return updated;
+  }
+
+  // Comparación en tiempo constante de dos digests hex (sha256: largo fijo).
+  private safeEqualHex(a: string, b: string): boolean {
+    const left = Buffer.from(a, 'utf8');
+    const right = Buffer.from(b, 'utf8');
+    return left.length === right.length && timingSafeEqual(left, right);
   }
 
   private hashNonce(nonce: string): string {

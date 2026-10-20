@@ -93,6 +93,17 @@ describe('Calendar Integration (e2e)', () => {
     return state;
   }
 
+  // issue #497: el navegador que llamó a /authorize recibe una cookie que el
+  // callback exige; devuelve el par `nombre=valor` listo para el header Cookie.
+  function cookieFrom(authorizeResponse: {
+    headers: Record<string, unknown>;
+  }): string {
+    const cookies = authorizeResponse.headers['set-cookie'] as string[];
+    const cookie = cookies.find((c) => c.startsWith('umbral_calendar_oauth='));
+    if (!cookie) throw new Error('/authorize no dejó la cookie del state');
+    return cookie.split(';')[0];
+  }
+
   // Stub del intercambio de código -> Google (jest.spyOn sobre el método
   // privado que hace la llamada real, mismo criterio que
   // calendar-oauth.service.spec.ts): evita depender de la red real de
@@ -230,6 +241,7 @@ describe('Calendar Integration (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get('/api/v1/calendar-integration/callback')
+        .set('Cookie', cookieFrom(authorize))
         .query({ code: 'codigo-cualquiera', state: corruptedState })
         .expect(302);
 
@@ -257,6 +269,7 @@ describe('Calendar Integration (e2e)', () => {
 
       const first = await request(app.getHttpServer())
         .get('/api/v1/calendar-integration/callback')
+        .set('Cookie', cookieFrom(authorize))
         .query({ code: 'codigo-de-google', state })
         .expect(302);
       // design.md "Decision: OAuth return path is a module constant pointing
@@ -278,6 +291,7 @@ describe('Calendar Integration (e2e)', () => {
       // nada (el nonce ya fue limpiado por el primer uso).
       const replay = await request(app.getHttpServer())
         .get('/api/v1/calendar-integration/callback')
+        .set('Cookie', cookieFrom(authorize))
         .query({ code: 'otro-codigo', state })
         .expect(302);
       expect(replay.headers.location).toContain('calendar=error');
@@ -291,6 +305,87 @@ describe('Calendar Integration (e2e)', () => {
           .decrypt(afterReplay!.refreshTokenEncrypted as Buffer)
           .toString('utf-8'),
       ).toBe(fakeRefreshToken);
+    });
+  });
+
+  // issue #497: el state solo se puede completar desde el navegador que llamó
+  // a /authorize (la cookie con el secreto cuyo hash va en el state).
+  describe('GET /callback — state atado al navegador (cookie)', () => {
+    it('POST /authorize deja la cookie HttpOnly SameSite=Lax y el secreto no aparece en la URL', async () => {
+      const authorize = await request(app.getHttpServer())
+        .post('/api/v1/calendar-integration/authorize')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .expect(201);
+
+      const setCookie = (
+        authorize.headers['set-cookie'] as unknown as string[]
+      ).find((c) => c.startsWith('umbral_calendar_oauth='))!;
+      expect(setCookie).toContain('HttpOnly');
+      expect(setCookie).toContain('SameSite=Lax');
+      const secret = cookieFrom(authorize).split('=')[1];
+      expect((authorize.body as { url: string }).url).not.toContain(secret);
+    });
+
+    it('sin la cookie el callback no conecta ni consume el state, que sigue sirviendo en el navegador correcto', async () => {
+      const authorize = await request(app.getHttpServer())
+        .post('/api/v1/calendar-integration/authorize')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .expect(201);
+      const state = extractStateFromAuthorizeUrl(
+        (authorize.body as { url: string }).url,
+      );
+      stubExchange('1//token-del-atacante');
+      const before = await prisma.googleCalendarConnection.findUnique({
+        where: { therapistId: therapistAId },
+      });
+
+      const withoutCookie = await request(app.getHttpServer())
+        .get('/api/v1/calendar-integration/callback')
+        .query({ code: 'codigo-del-atacante', state })
+        .expect(302);
+      expect(withoutCookie.headers.location).toContain('calendar=error');
+
+      const afterAttack = await prisma.googleCalendarConnection.findUnique({
+        where: { therapistId: therapistAId },
+      });
+      // La conexión quedó tal cual y el nonce no se quemó.
+      expect(afterAttack?.status).toBe(before?.status);
+      expect(afterAttack?.refreshTokenEncrypted).toEqual(
+        before?.refreshTokenEncrypted,
+      );
+      expect(afterAttack?.stateNonceHash).not.toBeNull();
+
+      const legit = await request(app.getHttpServer())
+        .get('/api/v1/calendar-integration/callback')
+        .set('Cookie', cookieFrom(authorize))
+        .query({ code: 'codigo-legitimo', state })
+        .expect(302);
+      expect(legit.headers.location).toContain('calendar=connected');
+    });
+
+    it('la cookie de otro flujo (otro /authorize) tampoco sirve para este state', async () => {
+      const first = await request(app.getHttpServer())
+        .post('/api/v1/calendar-integration/authorize')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .expect(201);
+      const second = await request(app.getHttpServer())
+        .post('/api/v1/calendar-integration/authorize')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .expect(201);
+      stubExchange('1//token');
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/calendar-integration/callback')
+        .set('Cookie', cookieFrom(second))
+        .query({
+          code: 'codigo',
+          state: extractStateFromAuthorizeUrl(
+            (first.body as { url: string }).url,
+          ),
+        })
+        .expect(302);
+
+      expect(res.headers.location).toContain('calendar=error');
     });
   });
 
