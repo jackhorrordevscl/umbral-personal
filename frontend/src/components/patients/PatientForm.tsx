@@ -187,7 +187,7 @@ export default function PatientForm({
             role="note"
             className="md:col-span-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700"
           >
-            El paciente es menor de edad. El representante legal se agrega desde su ficha,
+            El paciente es NNA. El representante legal se agrega desde su ficha,
             después de guardarla. Hasta entonces no se registrará el consentimiento ni se
             subirán consentimientos adjuntos.
           </p>

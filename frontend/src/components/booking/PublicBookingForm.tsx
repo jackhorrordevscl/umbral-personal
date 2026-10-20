@@ -71,11 +71,11 @@ const publicBookingFormSchema = z
     if (!values.birthDate) {
       fail(['birthDate'], 'La fecha de nacimiento es obligatoria');
     } else if (values.isMinor && !isMinorOnChileDay(values.birthDate)) {
-      fail(['birthDate'], 'El paciente debe ser menor de 18 años para reservar por un menor.');
+      fail(['birthDate'], 'El paciente debe tener menos de 18 años para reservar por un NNA.');
     } else if (!values.isMinor && isMinorOnChileDay(values.birthDate)) {
       fail(
         ['birthDate'],
-        'Si el paciente es menor de 18 años, marca la opción «Reservo para un menor de edad».',
+        'Si el paciente tiene menos de 18 años, marca la opción «Reservo para un NNA».',
       );
     }
 
@@ -212,7 +212,7 @@ export default function PublicBookingForm({
           className="h-4 w-4 accent-sage-600"
           {...register('isMinor')}
         />
-        Reservo para un menor de edad
+        Reservo para un NNA
       </label>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FormField
@@ -335,7 +335,7 @@ export default function PublicBookingForm({
 
       <p data-testid="booking-privacy-note" className="text-xs text-slate-500">
         <strong className="font-semibold text-slate-600">Privacidad.</strong> Usamos los datos que
-        ingresas (los tuyos o, si reservas por un menor, los del paciente y los de su representante
+        ingresas (los tuyos o, si reservas por un NNA, los del paciente y los de su representante
         legal: nombre, RUT, fecha de nacimiento y correo) solo para gestionar la reserva y la
         atención. Los recibe tu terapeuta. Más información en nuestra{' '}
         <a

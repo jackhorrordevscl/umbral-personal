@@ -419,7 +419,7 @@ describe('Patient guardians (e2e)', () => {
       expect(body).not.toHaveProperty('guardianEnforcementDate');
     });
 
-    it('un menor sin representante es MISSING_GUARDIAN y trae la fecha de vigencia', async () => {
+    it('un NNA sin representante es MISSING_GUARDIAN y trae la fecha de vigencia', async () => {
       const id = await createPatient(tokenA, yearsAgoDate(10));
 
       const body = await getPatient(tokenA, id);
@@ -434,7 +434,7 @@ describe('Patient guardians (e2e)', () => {
       );
     });
 
-    it('un representante sin canConsent no regulariza al menor', async () => {
+    it('un representante sin canConsent no regulariza al NNA', async () => {
       const id = await createPatient(tokenA, yearsAgoDate(16));
       await postGuardian(
         tokenA,

@@ -241,7 +241,7 @@ describe('PatientModal — formularios (#295)', () => {
   })
 })
 
-// Bloque Menores (M5)
+// Bloque NNA (M5)
 const guardian: LegalGuardian = {
   id: 'guardian-1',
   patientId: 'patient-1',
@@ -291,7 +291,7 @@ function fileInput(container: HTMLElement) {
   return container.ownerDocument.querySelector('input[type="file"]') as HTMLInputElement
 }
 
-describe('PatientModal — pacientes menores (bloque Menores, M5)', () => {
+describe('PatientModal — pacientes NNA (bloque NNA, M5)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -300,10 +300,10 @@ describe('PatientModal — pacientes menores (bloque Menores, M5)', () => {
     mockMinorApi([])
     renderMinorModal()
 
-    expect(screen.getByText('Menor de 14 años')).toBeInTheDocument()
+    expect(screen.getByText('Menos de 14 años')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent(/01-12-2026/)
     expect(await screen.findByText('Sin representantes registrados.')).toBeInTheDocument()
-    expect(screen.getByText('Asentimiento del menor')).toBeInTheDocument()
+    expect(screen.getByText('Asentimiento del NNA')).toBeInTheDocument()
   })
 
   it('un adulto no ve alerta, representantes ni asentimiento', () => {
@@ -312,7 +312,7 @@ describe('PatientModal — pacientes menores (bloque Menores, M5)', () => {
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByText('Representantes legales')).not.toBeInTheDocument()
-    expect(screen.queryByText('Asentimiento del menor')).not.toBeInTheDocument()
+    expect(screen.queryByText('Asentimiento del NNA')).not.toBeInTheDocument()
   })
 
   it('sin representante con canConsent bloquea la subida de un consentimiento', async () => {
@@ -323,7 +323,7 @@ describe('PatientModal — pacientes menores (bloque Menores, M5)', () => {
     expect(screen.getByRole('button', { name: /subir/i })).toBeDisabled()
   })
 
-  it('sube el consentimiento de un menor con el guardianId del representante', async () => {
+  it('sube el consentimiento de un NNA con el guardianId del representante', async () => {
     const user = userEvent.setup()
     mockMinorApi([guardian])
     mockedApi.post.mockResolvedValue({ data: {} })
@@ -340,7 +340,7 @@ describe('PatientModal — pacientes menores (bloque Menores, M5)', () => {
     expect(form.get('guardianId')).toBe('guardian-1')
   })
 
-  it('el asentimiento informado de un menor se sube sin representante', async () => {
+  it('el asentimiento informado de un NNA se sube sin representante', async () => {
     const user = userEvent.setup()
     mockMinorApi([])
     mockedApi.post.mockResolvedValue({ data: {} })

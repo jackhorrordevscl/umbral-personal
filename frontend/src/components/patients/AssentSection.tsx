@@ -14,7 +14,7 @@ import { formatChileShortDateTime } from "../../utils/datetime";
 export const ASSENT_NOTE_MAX = 500;
 
 const BAND_HINTS: Partial<Record<AgeBand, string>> = {
-  UNDER_14: "Menor de 14 años: debe constar que fue informado y oído.",
+  UNDER_14: "Menos de 14 años: debe constar que fue informado y oído.",
   AGE_14_17: "De 14 a 17 años: debe constar su asentimiento expreso.",
 };
 
@@ -23,7 +23,7 @@ interface AssentSectionProps {
   ageBand?: AgeBand;
 }
 
-// Bloque Menores (M5): registro append-only del asentimiento del menor. Un
+// Bloque NNA (M5): registro append-only del asentimiento del NNA. Un
 // rechazo avisa al terapeuta, pero no bloquea nada (política del producto).
 export default function AssentSection({
   patientId,
@@ -61,7 +61,7 @@ export default function AssentSection({
   return (
     <div className="mt-4 pt-4 border-t border-slate-100">
       <p className="font-medium text-slate-700 text-sm mb-1">
-        Asentimiento del menor
+        Asentimiento del NNA
       </p>
       {ageBand && BAND_HINTS[ageBand] && (
         <p className="text-xs text-slate-500 mb-3">{BAND_HINTS[ageBand]}</p>

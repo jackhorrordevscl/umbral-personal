@@ -648,7 +648,7 @@ enum ConsentGrantor {
   GUARDIAN
 }
 
-// Representante legal de un paciente menor de edad (opcional para adultos).
+// Representante legal de un paciente NNA (opcional para adultos).
 // Sin borrado físico en cascada: igual que el resto de los datos clínicos, la
 // ficha solo se da de baja con deletedAt, y PatientConsent.guardianId lo
 // referencia como evidencia de quién consintió (onDelete Restrict).

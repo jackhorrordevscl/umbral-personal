@@ -20,7 +20,7 @@ export class UploadDocumentDto {
   consultationGroupId?: string;
 
   // M2b: representante legal que firma un documento de consentimiento de un
-  // paciente menor de edad. El servidor decide si hace falta según la edad.
+  // paciente NNA. El servidor decide si hace falta según la edad.
   @IsOptional()
   @IsUUID('4')
   guardianId?: string;

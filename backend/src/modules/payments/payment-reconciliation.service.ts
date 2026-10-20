@@ -177,7 +177,7 @@ export class PaymentReconciliationService {
       }
     } else if (recipient.kind === 'GUARDIAN') {
       this.logger.warn(
-        `Paciente menor sin representante con email: aviso de cobro vencido no enviado (paymentId=${payment.id})`,
+        `Paciente NNA sin representante con email: aviso de cobro vencido no enviado (paymentId=${payment.id})`,
       );
     }
 

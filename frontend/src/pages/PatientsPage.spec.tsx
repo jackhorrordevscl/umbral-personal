@@ -308,30 +308,30 @@ describe('PatientsPage', () => {
     })
   })
 
-  describe('Pacientes menores (bloque Menores, M5)', () => {
-    it('marca en la lista a los menores sin representante o con consentimiento legado', async () => {
+  describe('Pacientes NNA (bloque NNA, M5)', () => {
+    it('marca en la lista a los NNA sin representante o con consentimiento legado', async () => {
       mockedApi.get.mockResolvedValueOnce(
         patientsPage([
-          buildPatient({ id: 'm1', fullName: 'Menor Sin Representante', minorStatus: 'MISSING_GUARDIAN' }),
-          buildPatient({ id: 'm2', fullName: 'Menor Legado', minorStatus: 'LEGACY_CONSENT' }),
-          buildPatient({ id: 'm3', fullName: 'Menor Al Día', minorStatus: 'OK' }),
+          buildPatient({ id: 'm1', fullName: 'NNA Sin Representante', minorStatus: 'MISSING_GUARDIAN' }),
+          buildPatient({ id: 'm2', fullName: 'NNA Legado', minorStatus: 'LEGACY_CONSENT' }),
+          buildPatient({ id: 'm3', fullName: 'NNA Al Día', minorStatus: 'OK' }),
         ]),
       )
 
       renderPatientsPage()
-      await screen.findAllByText('Menor Sin Representante')
+      await screen.findAllByText('NNA Sin Representante')
 
-      expect(screen.getAllByText('Menor sin representante').length).toBeGreaterThan(0)
-      expect(screen.getAllByText('Menor: consentimiento por regularizar').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('NNA sin representante').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('NNA: consentimiento por regularizar').length).toBeGreaterThan(0)
     })
 
-    it('un adulto no muestra la marca de menor', async () => {
+    it('un adulto no muestra la marca de NNA', async () => {
       mockedApi.get.mockResolvedValueOnce(patientsPage([buildPatient()]))
 
       renderPatientsPage()
       await screen.findAllByText('Paciente Existente')
 
-      expect(screen.queryByText('Menor sin representante')).not.toBeInTheDocument()
+      expect(screen.queryByText('NNA sin representante')).not.toBeInTheDocument()
     })
   })
 

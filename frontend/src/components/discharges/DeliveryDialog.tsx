@@ -27,7 +27,7 @@ interface DeliveryDialogProps {
 
 const CHANNELS = Object.keys(DELIVERY_CHANNEL_LABELS) as DischargeDeliveryChannel[];
 
-// Registro de una entrega del informe de alta. A un menor no se le entrega
+// Registro de una entrega del informe de alta. A un NNA no se le entrega
 // directamente (el servidor rechaza PATIENT): se ofrece su representante con
 // acceso a informes. Un tercero requiere una autorización ya subida a la ficha.
 export default function DeliveryDialog({

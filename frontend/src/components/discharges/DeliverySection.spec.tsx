@@ -99,7 +99,7 @@ describe('DeliverySection (T4c)', () => {
     })
   })
 
-  it('con un paciente menor no se ofrece "Paciente" y solo se listan representantes con acceso a informes', async () => {
+  it('con un paciente NNA no se ofrece "Paciente" y solo se listan representantes con acceso a informes', async () => {
     const user = userEvent.setup()
     setup({ isMinor: true })
     const dialog = await openDialog(user)

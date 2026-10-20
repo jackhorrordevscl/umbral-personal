@@ -196,7 +196,7 @@ async function fillMinor(
   user: ReturnType<typeof userEvent.setup>,
   overrides: { guardianRut?: string; guardianEmail?: string; patientEmail?: string; phone?: string } = {},
 ) {
-  await user.click(screen.getByLabelText('Reservo para un menor de edad'))
+  await user.click(screen.getByLabelText('Reservo para un NNA'))
   await user.type(screen.getByLabelText(/nombre completo del paciente/i), 'Tomás Pérez')
   await user.type(screen.getByLabelText(/rut del paciente/i), '12345678-5')
   await user.type(screen.getByLabelText(/fecha de nacimiento del paciente/i), MINOR_BIRTH_DATE)
@@ -217,7 +217,7 @@ async function fillMinor(
   }
 }
 
-describe('PublicBookingForm — reserva por un menor de edad', () => {
+describe('PublicBookingForm — reserva por un NNA', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockedApi.post.mockResolvedValue({
@@ -228,7 +228,7 @@ describe('PublicBookingForm — reserva por un menor de edad', () => {
   it('el interruptor está apagado por defecto y muestra el bloque del representante al activarlo', async () => {
     renderForm()
     const user = userEvent.setup()
-    const toggle = screen.getByLabelText('Reservo para un menor de edad')
+    const toggle = screen.getByLabelText('Reservo para un NNA')
     expect(toggle).not.toBeChecked()
     expect(screen.queryByRole('group', { name: 'Datos del representante legal' })).not.toBeInTheDocument()
 
@@ -287,12 +287,12 @@ describe('PublicBookingForm — reserva por un menor de edad', () => {
     )
   })
 
-  it('el payload de un adulto no incluye guardian aunque se haya abierto y cerrado el modo menor', async () => {
+  it('el payload de un adulto no incluye guardian aunque se haya abierto y cerrado el modo NNA', async () => {
     renderForm()
     const user = userEvent.setup()
-    await user.click(screen.getByLabelText('Reservo para un menor de edad'))
+    await user.click(screen.getByLabelText('Reservo para un NNA'))
     await user.type(screen.getByLabelText(/nombre completo del representante/i), 'Alguien')
-    await user.click(screen.getByLabelText('Reservo para un menor de edad'))
+    await user.click(screen.getByLabelText('Reservo para un NNA'))
 
     await fillAndSubmit('adulto@example.com')
 
@@ -336,20 +336,20 @@ describe('PublicBookingForm — reserva por un menor de edad', () => {
     expect(mockedApi.post).not.toHaveBeenCalled()
   })
 
-  it('en modo menor, una fecha de nacimiento de 18 años o más muestra un error', async () => {
+  it('en modo NNA, una fecha de nacimiento de 18 años o más muestra un error', async () => {
     renderForm()
     const user = userEvent.setup()
-    await user.click(screen.getByLabelText('Reservo para un menor de edad'))
+    await user.click(screen.getByLabelText('Reservo para un NNA'))
     await user.type(screen.getByLabelText(/fecha de nacimiento del paciente/i), birthDateYearsAgo(18))
     await user.click(screen.getByRole('button', { name: 'Confirmar reserva' }))
 
     expect(
-      await screen.findByText('El paciente debe ser menor de 18 años para reservar por un menor.'),
+      await screen.findByText('El paciente debe tener menos de 18 años para reservar por un NNA.'),
     ).toBeInTheDocument()
     expect(mockedApi.post).not.toHaveBeenCalled()
   })
 
-  it('en modo adulto, una fecha de nacimiento de menor de 18 años pide marcar la opción', async () => {
+  it('en modo adulto, una fecha de nacimiento de menos de 18 años pide marcar la opción', async () => {
     renderForm()
     const user = userEvent.setup()
     await user.type(screen.getByLabelText(/nombre completo/i), 'Tomás Pérez')
@@ -360,7 +360,7 @@ describe('PublicBookingForm — reserva por un menor de edad', () => {
 
     expect(
       await screen.findByText(
-        'Si el paciente es menor de 18 años, marca la opción «Reservo para un menor de edad».',
+        'Si el paciente tiene menos de 18 años, marca la opción «Reservo para un NNA».',
       ),
     ).toBeInTheDocument()
     expect(mockedApi.post).not.toHaveBeenCalled()
