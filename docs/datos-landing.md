@@ -10,7 +10,7 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 
 - **Nombre:** Umbral (en el repositorio y en la documentación técnica también aparece como "Umbral - RCE", sigla de registro clínico electrónico).
 - **Descripción corta:** sistema de fichas clínicas para profesionales de salud mental que atienden por su cuenta, con agenda, cobro en línea y recordatorios, diseñado para alinearse con la normativa chilena de datos personales y de salud.
-- **Descripción larga:** cada profesional tiene su propia cuenta y es dueño exclusivo de sus pacientes; no hay roles jerárquicos ni panel administrativo. El sistema reúne ficha clínica, consultas con historial de correcciones, documentos, calendario, agenda pública para que los pacientes reserven, cobro con Flow, recordatorios por email, cierre de tratamiento con informe de alta y registro de representante legal para pacientes menores de edad.
+- **Descripción larga:** cada profesional tiene su propia cuenta y es dueño exclusivo de sus pacientes; no hay roles jerárquicos ni panel administrativo. El sistema reúne ficha clínica, consultas con historial de correcciones, documentos, calendario, agenda pública para que los pacientes reserven, cobro con Flow, recordatorios por email, cierre de tratamiento con informe de alta y registro de representante legal para pacientes niños, niñas y adolescentes (NNA).
 - **Público objetivo:** psicólogas, psicólogos y terapeutas independientes en Chile. El registro es solo por invitación (código de un solo uso).
 - **Estado:** `v1.0.0` etiquetada el 2026-10-16, con condiciones de salida abiertas (ver `docs/evaluacion-v1.md`).
 
@@ -43,12 +43,12 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 - Consentimiento por finalidad (tratamiento y telemedicina) como registro de eventos que no se borra: otorgar o revocar no elimina el historial.
 - Se exige consentimiento vigente antes de registrar datos clínicos de una consulta.
 
-### Pacientes menores de edad
+### Pacientes NNA
 
 - Registro de hasta 2 representantes legales por paciente (nombre, RUT, relación, contacto, custodia y roles: pagador, avisos, informes, consentimiento).
-- El consentimiento de un menor lo otorga un representante. Hasta el 2026-12-01 el sistema aún acepta el consentimiento legado otorgado por el propio menor; desde esa fecha lo exige otorgado por un representante.
+- El consentimiento de un NNA lo otorga un representante. Hasta el 2026-12-01 el sistema aún acepta el consentimiento legado otorgado por el propio NNA; desde esa fecha lo exige otorgado por un representante.
 - Registro del asentimiento del niño, niña o adolescente (informado y oído, otorgado, rechazado o retirado) como ledger que no se borra. Nunca reemplaza el consentimiento del representante.
-- Los cobros de sesión y los avisos de cobro vencido y de cancelación de un menor se dirigen a sus representantes, no al email del menor.
+- Los cobros de sesión y los avisos de cobro vencido y de cancelación de un NNA se dirigen a sus representantes, no a su email.
 
 ### Cierre de tratamiento e informe de alta
 

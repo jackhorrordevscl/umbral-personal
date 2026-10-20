@@ -1,26 +1,26 @@
-# ADR 0007 - Pacientes menores de edad y representante legal
+# ADR 0007 - Pacientes NNA y representante legal
 
 - **Estado:** aceptada
 - **Fecha:** 2026-10-08
-- **Rama:** `feat/menores-representante-legal-esquema` (bloque Menores, tareas M1 a M6)
+- **Rama:** `feat/menores-representante-legal-esquema` (bloque NNA, tareas M1 a M6)
 
 > El ADR 0006 es el del informe de alta (firma simple y hash de integridad).
 
 **Nota de estado (2026-10-16):** las secciones siguientes describen el estado y el razonamiento a la fecha de la decisión (2026-10-08). Cambios posteriores verificables en el código y en el repositorio:
 
-- El informe de alta de la sección 5 ya está implementado (ADR 0006): el módulo `backend/src/modules/discharges/` entrega el informe de un menor solo al representante con `canAccessReports` (`PATIENT` se rechaza con 400), y el aviso de cancelación de consultas al representante existe (ADR 0006, punto 8).
+- El informe de alta de la sección 5 ya está implementado (ADR 0006): el módulo `backend/src/modules/discharges/` entrega el informe de un NNA solo al representante con `canAccessReports` (`PATIENT` se rechaza con 400), y el aviso de cancelación de consultas al representante existe (ADR 0006, punto 8).
 - El issue #376 (nota de privacidad de la agenda pública) está cerrado desde el 2026-10-08; el estado y la ubicación de los textos para revisión legal están en ese issue.
-- La base de producción pasó por un clean total el 2026-10-14 (ver `docs/incident-log.md`). Tras ese clean no queda ningún paciente menor en producción (solo existe la cuenta de administración); el caso del menor real citado en el Contexto es histórico. La constante `MINOR_GUARDIAN_ENFORCEMENT_DATE = '2026-12-01'` y las reglas de transición siguen vigentes en el código.
+- La base de producción pasó por un clean total el 2026-10-14 (ver `docs/incident-log.md`). Tras ese clean no queda ningún paciente NNA en producción (solo existe la cuenta de administración); el caso del NNA real citado en el Contexto es histórico. La constante `MINOR_GUARDIAN_ENFORCEMENT_DATE = '2026-12-01'` y las reglas de transición siguen vigentes en el código.
 
 ## Contexto
 
-Hasta este cambio el sistema no distinguía a un menor de edad: no calculaba la
+Hasta este cambio el sistema no distinguía a un niño, niña o adolescente (NNA): no calculaba la
 edad, no registraba a un representante, no guardaba quién otorgó cada
 consentimiento y todos los avisos al paciente iban a su propio email. El
 documento `INFORMED_ASSENT` se podía subir, pero no tenía efecto en el ledger.
 El caso había quedado diferido (T4 de `odd/tasks/patient-consent-mandatory.md`)
-como hipotético. Dejó de serlo: el usuario confirmó que hay menores reales en
-producción (una consulta de solo lectura arrojó 1 paciente menor de 18 años).
+como hipotético. Dejó de serlo: el usuario confirmó que hay NNA reales en
+producción (una consulta de solo lectura arrojó 1 paciente con menos de 18 años).
 
 ### Marco normativo (fuentes parciales)
 
@@ -35,9 +35,9 @@ Lo que sigue es un resumen de trabajo, no una validación legal.
   de la Ley 20.584 fue derogado por la Ley 21.331 (2021-05-11); el comentario
   de `documents.service.ts` que lo citaba se corrigió.
 - Ley 21.719 (art. 16 quáter de la Ley 19.628): interés superior y autonomía
-  progresiva; menores de 14 requieren consentimiento de los padres o de quien
-  tenga el cuidado personal, y los datos sensibles (incluye salud) de menores
-  de 16 también. Vigencia prevista el 2026-12-01, salvo que se publique la
+  progresiva; quienes tienen menos de 14 años requieren consentimiento de los
+  padres o de quien tenga el cuidado personal, y los datos sensibles (incluye
+  salud) de quienes tienen menos de 16 años también. Vigencia prevista el 2026-12-01, salvo que se publique la
   postergación del Boletín 18.623-07 (ingresó el 2026-09-01; sin aprobación
   verificada al 2026-10-08).
 - Leído el 2026-10-13 (detalle en el ADR 0006): art. 13 de la Ley 20.584
@@ -52,14 +52,14 @@ exigencia legal verificada.
 
 ### 1. Representante legal y asentimiento del paciente
 
-Para un paciente menor de 18 años el tratamiento se apoya en dos registros
+Para un paciente con menos de 18 años el tratamiento se apoya en dos registros
 distintos:
 
 - **Autorización del representante legal.** Modelo `LegalGuardian` (hasta 2 por
   paciente): nombre, RUT, relación (`MOTHER`, `FATHER`, `LEGAL_GUARDIAN`,
   `CURATOR`, `CAREGIVER`, `OTHER`), email, teléfono y las marcas `isPayer`,
   `receivesCommunications`, `canAccessReports`, `canConsent`, además de custodia
-  (`SOLE`, `SHARED`, `UNKNOWN`) y `hasConflict`. El consentimiento de un menor
+  (`SOLE`, `SHARED`, `UNKNOWN`) y `hasConflict`. El consentimiento de un NNA
   se registra en `PatientConsent` con `grantedBy = GUARDIAN` y el `guardianId`
   de quien lo otorga.
 - **Asentimiento del paciente.** Ledger append-only `PatientAssent` con la
@@ -75,7 +75,7 @@ expreso). Una `birthDate` futura se rechaza.
 
 ### 2. Transición suave con fecha límite
 
-Como ya hay un menor con consentimiento otorgado por él mismo (valor por
+Como ya hay un NNA con consentimiento otorgado por él mismo (valor por
 defecto histórico `grantedBy = PATIENT`), endurecer todo de golpe habría
 impedido agendarle consultas. Reglas:
 
@@ -84,33 +84,33 @@ impedido agendarle consultas. Reglas:
   Vive en código, sin variable de entorno, para no tocar `render.yaml`. La fecha
   coincide con la vigencia prevista de la Ley 21.719, pero es una decisión de
   producto independiente.
-- **Escrituras estrictas desde el deploy.** Para un menor de 18 años, un `GRANT`
+- **Escrituras estrictas desde el deploy.** Para un paciente con menos de 18 años, un `GRANT`
   de consentimiento solo se acepta con `grantedBy = GUARDIAN` y un `guardianId`
   de un representante del mismo paciente con `canConsent`. Un `REVOKE` se acepta
   siempre. Para un adulto, indicar un representante da 400.
 - **Lecturas laxas hasta la fecha.** El guardrail de consultas
   (`assertTreatmentConsent`) acepta hasta el 2026-11-30 un consentimiento
   vigente otorgado por el paciente (legado). Desde el 2026-12-01 exige, para un
-  menor, al menos un representante con `canConsent` y que todo consentimiento
+  NNA, al menos un representante con `canConsent` y que todo consentimiento
   vigente haya sido otorgado por un representante.
 - **Alerta `minorStatus`.** Toda respuesta de paciente incluye:
   - `NOT_MINOR`: mayor de 18 años.
-  - `OK`: menor con representante con `canConsent` y sin consentimiento legado.
-  - `MISSING_GUARDIAN`: menor sin ningún representante con `canConsent`.
-  - `LEGACY_CONSENT`: menor con representante, pero con un consentimiento
+  - `OK`: NNA con representante con `canConsent` y sin consentimiento legado.
+  - `MISSING_GUARDIAN`: NNA sin ningún representante con `canConsent`.
+  - `LEGACY_CONSENT`: NNA con representante, pero con un consentimiento
     vigente otorgado por el propio paciente.
 
-  Para los menores se agrega `guardianEnforcementDate`. La ficha muestra un aviso
+  Para los NNA se agrega `guardianEnforcementDate`. La ficha muestra un aviso
   ámbar con el plazo para `MISSING_GUARDIAN` y `LEGACY_CONSENT`.
-- Un menor existente se regulariza cargando al representante y registrando un
+- Un NNA existente se regulariza cargando al representante y registrando un
   nuevo consentimiento otorgado por él.
 
 ### 3. Comunicaciones y pagos van al representante
 
-Para un menor, el link de pago y el aviso de pago atrasado se envían al
+Para un NNA, el link de pago y el aviso de pago atrasado se envían al
 representante con `receivesCommunications` y email (se prefiere el que tiene
 `isPayer`), redactados en torno al paciente y sin datos clínicos. El email del
-propio menor nunca se usa. Sin representante elegible el envío se omite
+propio NNA nunca se usa. Sin representante elegible el envío se omite
 (`linkDelivery = SKIPPED_NO_EMAIL`) y queda un aviso en el log; no se cae al
 email del terapeuta para los avisos.
 
@@ -126,7 +126,7 @@ cancelación al representante queda para el bloque del informe de alta.
 
 ### 4. Agenda pública
 
-La reserva pública admite "reservo en nombre de un menor". El servidor decide
+La reserva pública admite "reservo en nombre de un NNA". El servidor decide
 por la fecha de nacimiento si corresponde enviar los datos del representante.
 La identidad del paciente **no depende del email del tutor** (un tutor con dos
 hijos colisionaría): se resuelve por el RUT del paciente dentro del terapeuta y
@@ -140,7 +140,7 @@ terapeuta lo registra después. El formulario tiene una única nota de privacida
 general (paciente y representante); la revisión legal de su texto sigue en el
 issue #376.
 
-### 5. Informe de alta de un menor
+### 5. Informe de alta de un NNA
 
 Decidido para el bloque del informe de alta (implementado después; ver ADR 0006): en v1 se
 entrega solo al representante con `canAccessReports`, no al adolescente de 14 a
@@ -149,11 +149,11 @@ representante; a un tribunal solo con oficio, registrando el documento.
 
 ## Consecuencias
 
-- La migración es aditiva y sin backfill. Los menores existentes quedan sin
+- La migración es aditiva y sin backfill. Los NNA existentes quedan sin
   representante hasta que el terapeuta lo cargue.
-- Mientras no llegue la fecha límite, un menor con consentimiento legado sigue
+- Mientras no llegue la fecha límite, un NNA con consentimiento legado sigue
   pudiendo agendar; el riesgo se acota con la alerta visible y el plazo.
-- Desde 2026-12-01 un menor sin regularizar no podrá recibir consultas nuevas
+- Desde 2026-12-01 un NNA sin regularizar no podrá recibir consultas nuevas
   (403 con mensaje explícito). Conviene regularizar antes.
 - `hasConflict` y `custody` son datos informativos: el sistema los guarda y
   muestra la etiqueta "Conflicto entre representantes", pero **no bloquea**
@@ -161,7 +161,7 @@ representante; a un tribunal solo con oficio, registrando el documento.
   pedir la autorización queda en el terapeuta (política de producto, no norma
   verificada).
 - `canAccessReports` se persiste y se muestra. Desde el informe de alta (ADR
-  0006) decide a qué representante se puede entregar el informe de un menor.
+  0006) decide a qué representante se puede entregar el informe de un NNA.
 - Un representante que firmó un consentimiento no se puede eliminar (FK
   `RESTRICT`, 409), para no romper el ledger append-only.
 - Condición de carrera menor aceptada: `canConsent` se valida fuera de la
@@ -183,7 +183,7 @@ representante; a un tribunal solo con oficio, registrando el documento.
   del Colegio de Psicólogos. El art. 13 de la Ley 20.584 ya se leyó (ver el ADR
   0006).
 - Aviso de cancelación de consultas al representante (bloque del informe de
-  alta; implementado, ver ADR 0006, punto 8) y alta de menores nuevos con consentimiento diferido hasta cargar al
+  alta; implementado, ver ADR 0006, punto 8) y alta de NNA nuevos con consentimiento diferido hasta cargar al
   representante (ya implementado en la ficha).
 - Deber de denuncia (Código Procesal Penal, art. 175) y secreto profesional: hoy
   solo hay una guía en el manual del terapeuta, sin funcionalidad, y requiere
