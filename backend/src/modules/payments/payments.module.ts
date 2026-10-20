@@ -32,6 +32,15 @@ import { AuthModule, getLoginTracker } from '../auth/auth.module';
  */
 const throttlerLogger = new Logger('PaymentsThrottlerConfig');
 
+// Issue #494: el tracker es la IP, y todos los callbacks de todos los
+// terapeutas salen de pocas IP de Flow: comparten un único cupo. Con 30 por
+// minuto, unos pocos pagos simultáneos dejaban sin confirmar a los demás
+// (429) hasta que el barrido de reconciliación los recogía, 15 minutos
+// después como mínimo. confirm descarta un token desconocido con una sola
+// consulta indexada antes de llamar a Flow, así que un tope más alto sigue
+// acotando la carga. Ajustable sin desplegar con PAYMENT_CONFIRM_THROTTLE_LIMIT.
+const PAYMENT_CONFIRM_DEFAULT_LIMIT = 300;
+
 function parsePositiveInt(
   raw: string | undefined,
   fallback: number,
@@ -53,7 +62,7 @@ export function buildPaymentsThrottlerOptions(
 
   const paymentConfirmLimit = parsePositiveInt(
     config.get<string>('PAYMENT_CONFIRM_THROTTLE_LIMIT'),
-    isTest ? 1000 : 30,
+    isTest ? 1000 : PAYMENT_CONFIRM_DEFAULT_LIMIT,
     'PAYMENT_CONFIRM_THROTTLE_LIMIT',
   );
   const paymentConfirmTtl = parsePositiveInt(
