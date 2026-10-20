@@ -29,6 +29,7 @@ import {
 export class PaymentReconciliationService {
   private readonly logger = new Logger(PaymentReconciliationService.name);
   private readonly enabled: boolean;
+  private sweeping = false;
 
   constructor(
     private prisma: PrismaService,
@@ -67,9 +68,25 @@ export class PaymentReconciliationService {
   async sweep(): Promise<void> {
     if (!this.enabled) return;
 
-    const contextCache = new Map<string, Promise<GatewayContext | null>>();
-    await this.transitionLatePayments();
-    await this.reconcilePendingPayments(contextCache);
+    // Issue #494: guarda de reentrada, mismo patrón que SessionPurgeService y
+    // NotificationsPurgeService. Si el barrido anterior sigue en curso (muchos
+    // candidatos y Flow lento), este se omite en vez de solaparse y duplicar
+    // llamadas a Flow. El fallo no se traga: finally solo libera la guarda.
+    if (this.sweeping) {
+      this.logger.warn(
+        'Barrido de pagos omitido: la corrida anterior sigue en curso.',
+      );
+      return;
+    }
+
+    this.sweeping = true;
+    try {
+      const contextCache = new Map<string, Promise<GatewayContext | null>>();
+      await this.transitionLatePayments();
+      await this.reconcilePendingPayments(contextCache);
+    } finally {
+      this.sweeping = false;
+    }
   }
 
   // T8.4 + design.md "Data Flow": unlike PR 2 (bulk updateMany, no

@@ -186,13 +186,20 @@ The system MUST NOT trust the content of a payment-confirmation webhook (`POST /
 
 ### Requirement: Periodic Reconciliation With the Gateway
 
-A scheduled sweep running every 30 minutes MUST re-query the gateway for `PENDING` and `LATE` charges whose order was issued more than 15 minutes earlier, in bounded batches with limited concurrency, and MUST mark as paid those the gateway reports as paid (applying the same amount check as the webhook), so a lost webhook does not leave a paid charge open. A charge whose owning account is not `CONNECTED` MUST be skipped.
+A scheduled sweep running every 30 minutes MUST re-query the gateway for `PENDING` and `LATE` charges whose order was issued more than 15 minutes earlier, in bounded batches with limited concurrency, and MUST mark as paid those the gateway reports as paid (applying the same amount check as the webhook), so a lost webhook does not leave a paid charge open. A charge whose owning account is not `CONNECTED` MUST be skipped. A sweep triggered while the previous one is still running MUST be skipped instead of overlapping it, and a failed sweep MUST NOT leave later sweeps blocked.
 
 #### Scenario: Lost webhook is recovered by the sweep
 
 - GIVEN a pending charge whose webhook never arrived and which the gateway reports as paid
 - WHEN the sweep runs
 - THEN the charge becomes `PAID`
+
+#### Scenario: A sweep does not overlap the previous one
+
+- GIVEN a sweep that is still waiting on the gateway
+- WHEN the schedule triggers another sweep
+- THEN the new sweep is skipped without querying charges or calling the gateway
+- AND the next sweep after the running one finishes (or fails) runs normally
 
 ### Requirement: Cancellation Preserves Paid Charges and Voids Pending Ones
 
