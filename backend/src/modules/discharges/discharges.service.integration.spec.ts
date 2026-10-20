@@ -882,6 +882,62 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
     ]);
   }, 30000);
 
+  // Cerrar (A), reabrir con una consulta nueva y cerrar otra vez (B): emitir la
+  // corrección de A no debe pisar el estado que fijó B ni auditar un cierre.
+  it('emitir la corrección de un episodio anterior no pisa el estado del cierre posterior', async () => {
+    const { patient, dischargeId: dischargeA } =
+      await createClosablePatient('Episodio Previo');
+    await dischargesService.issue(dischargeA, therapistId);
+    const correctionA = await dischargesService.correct(
+      dischargeA,
+      therapistId,
+    );
+
+    await consultationsService.create(
+      newConsultationDto(patient.id, { reopenPatient: true }),
+      therapistId,
+    );
+    const draftB = await dischargesService.createDraft(
+      patient.id,
+      { closureReason: 'REFERRED', referralDestination: 'Hospital' } as never,
+      therapistId,
+    );
+    await dischargesService.update(
+      draftB.id,
+      {
+        consultReason: 'Motivo B',
+        evolutionSummary: 'Evolución B',
+        statusAtDischarge: 'Estable',
+        recommendations: 'Control',
+      } as never,
+      therapistId,
+    );
+    await dischargesService.issue(draftB.id, therapistId);
+    await expect(
+      prisma.patient.findUniqueOrThrow({
+        where: { id: patient.id },
+        select: { treatmentStatus: true },
+      }),
+    ).resolves.toEqual({ treatmentStatus: 'REFERRED' });
+
+    await dischargesService.issue(correctionA.id, therapistId);
+
+    await expect(
+      prisma.patient.findUniqueOrThrow({
+        where: { id: patient.id },
+        select: { treatmentStatus: true },
+      }),
+    ).resolves.toEqual({ treatmentStatus: 'REFERRED' });
+    const closures = await prisma.auditLog.findMany({
+      where: { action: 'TREATMENT_CLOSED', resourceId: patient.id },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(closures.map((row) => row.detail)).toEqual([
+      expect.stringContaining(`dischargeId=${dischargeA}`),
+      expect.stringContaining(`dischargeId=${draftB.id}`),
+    ]);
+  }, 30000);
+
   // issue() leía el borrador sin bloquear su fila: una edición que se confirma
   // entre esa lectura y su UPDATE condicional (que solo exige status = DRAFT)
   // dejaba el informe ISSUED con el texto nuevo y el hash del viejo. Un "holder"

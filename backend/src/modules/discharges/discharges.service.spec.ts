@@ -66,7 +66,9 @@ describe('DischargesService', () => {
     patient: { findFirst: jest.Mock; update: jest.Mock };
     treatmentDischarge: {
       findFirst: jest.Mock;
+      findUnique: jest.Mock;
       findMany: jest.Mock;
+      count: jest.Mock;
       create: jest.Mock;
       updateMany: jest.Mock;
       findUniqueOrThrow: jest.Mock;
@@ -103,7 +105,11 @@ describe('DischargesService', () => {
       },
       treatmentDischarge: {
         findFirst: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue({
+          issuedAt: new Date('2026-01-10T12:00:00.000Z'),
+        }),
         findMany: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
         create: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUniqueOrThrow: jest.fn(),
@@ -532,6 +538,84 @@ describe('DischargesService', () => {
           data: { treatmentStatus: 'REFERRED' },
         });
       });
+
+      describe('corrección de un episodio anterior (hay un cierre posterior de otro grupo)', () => {
+        beforeEach(() => {
+          mockCorrection('DISCHARGED');
+          prisma.patient.findFirst.mockResolvedValue({
+            id: 'patient-1',
+            treatmentStatus: 'REFERRED',
+          });
+          prisma.treatmentDischarge.count.mockResolvedValue(1);
+          prisma.consultation.findMany.mockResolvedValue([
+            { id: 'c-1', groupId: 'g-1' },
+          ]);
+        });
+
+        it('no pisa el estado vigente ni cancela consultas', async () => {
+          const issued = await service.issue('dis-2', 'therapist-1');
+
+          expect(issued.status).toBe('ISSUED');
+          expect(issued.cancelledConsultations).toBe(0);
+          expect(prisma.patient.update).not.toHaveBeenCalled();
+          expect(prisma.consultation.findMany).not.toHaveBeenCalled();
+          expect(prisma.consultation.updateMany).not.toHaveBeenCalled();
+          expect(prisma.bookedSlot.deleteMany).not.toHaveBeenCalled();
+        });
+
+        it('no audita TREATMENT_CLOSED, pero sí DISCHARGE_ISSUE', async () => {
+          await service.issue('dis-2', 'therapist-1');
+
+          const actions = (
+            auditService.log.mock.calls as { action: string }[][]
+          ).map((c) => c[0].action);
+          expect(actions).toContain('DISCHARGE_ISSUE');
+          expect(actions).not.toContain('TREATMENT_CLOSED');
+        });
+
+        it('busca un cierre emitido de otro grupo posterior a la raíz del grupo corregido', async () => {
+          await service.issue('dis-2', 'therapist-1');
+
+          expect(prisma.treatmentDischarge.findUnique).toHaveBeenCalledWith({
+            where: { id: 'dis-1' },
+            select: { issuedAt: true },
+          });
+          expect(prisma.treatmentDischarge.count).toHaveBeenCalledWith({
+            where: {
+              patientId: 'patient-1',
+              status: 'ISSUED',
+              groupId: { not: 'dis-1' },
+              issuedAt: { gt: new Date('2026-01-10T12:00:00.000Z') },
+            },
+          });
+        });
+      });
+
+      it('sin cierre posterior de otro grupo conserva el comportamiento actual', async () => {
+        mockCorrection('REFERRED');
+        prisma.patient.findFirst.mockResolvedValue({
+          id: 'patient-1',
+          treatmentStatus: 'DISCHARGED',
+        });
+        prisma.treatmentDischarge.count.mockResolvedValue(0);
+
+        await service.issue('dis-2', 'therapist-1');
+
+        expect(prisma.patient.update).toHaveBeenCalledWith({
+          where: { id: 'patient-1' },
+          data: { treatmentStatus: 'REFERRED' },
+        });
+        const actions = (
+          auditService.log.mock.calls as { action: string }[][]
+        ).map((c) => c[0].action);
+        expect(actions).toContain('TREATMENT_CLOSED');
+      });
+    });
+
+    it('un informe nuevo (no corrección) no consulta cierres de otros grupos', async () => {
+      await service.issue('dis-1', 'therapist-1');
+
+      expect(prisma.treatmentDischarge.count).not.toHaveBeenCalled();
     });
 
     it('guarda un hash que verify puede recalcular desde los mismos datos', async () => {

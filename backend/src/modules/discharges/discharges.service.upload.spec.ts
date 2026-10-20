@@ -77,7 +77,9 @@ describe('DischargesService T3b (PDF propio)', () => {
     patient: { findFirst: jest.Mock; update: jest.Mock };
     treatmentDischarge: {
       findFirst: jest.Mock;
+      findUnique: jest.Mock;
       findMany: jest.Mock;
+      count: jest.Mock;
       create: jest.Mock;
     };
     consultation: {
@@ -116,7 +118,11 @@ describe('DischargesService T3b (PDF propio)', () => {
       },
       treatmentDischarge: {
         findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue({
+          issuedAt: new Date('2026-01-10T12:00:00.000Z'),
+        }),
         findMany: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
         create: jest
           .fn()
           .mockImplementation(({ data }: { data: object }) =>
@@ -444,6 +450,33 @@ describe('DischargesService T3b (PDF propio)', () => {
         auditService.log.mock.calls as { action: string }[][]
       ).map((c) => c[0].action);
       expect(actions).not.toContain('TREATMENT_CLOSED');
+    });
+
+    it('con un cierre posterior de otro grupo registra la versión sin tocar el estado vigente ni las consultas', async () => {
+      prisma.patient.findFirst.mockResolvedValue({
+        id: 'patient-1',
+        treatmentStatus: 'REFERRED',
+      });
+      prisma.treatmentDischarge.count.mockResolvedValue(1);
+      prisma.consultation.findMany.mockResolvedValue([
+        { id: 'c-1', groupId: 'g-1' },
+      ]);
+
+      const result = await service.correctUpload(
+        'dis-1',
+        dto({ closureReason: 'DISCHARGED' }),
+        pdfFile(),
+        'therapist-1',
+      );
+
+      expect(result.version).toBe(2);
+      expect(prisma.patient.update).not.toHaveBeenCalled();
+      expect(prisma.consultation.findMany).not.toHaveBeenCalled();
+      expect(documentsService.voidDischargeDocument).toHaveBeenCalled();
+      const actions = (
+        auditService.log.mock.calls as { action: string }[][]
+      ).map((c) => c[0].action);
+      expect(actions).toEqual(['DISCHARGE_ISSUE', 'DISCHARGE_CORRECT']);
     });
 
     it('da 409 si la versión ya fue corregida, sin guardar ni anular nada', async () => {
