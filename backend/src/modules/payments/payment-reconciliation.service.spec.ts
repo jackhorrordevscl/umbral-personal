@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PaymentProvider } from '@prisma/client';
 import { PaymentReconciliationService } from './payment-reconciliation.service';
@@ -401,6 +402,92 @@ describe('PaymentReconciliationService', () => {
 
       expect(gatewayAdapter.getOrderStatus).not.toHaveBeenCalled();
       expect(paymentsService.markPaid).not.toHaveBeenCalled();
+    });
+
+    // Issue #494: cada llamada a Flow tiene timeout de 10 s, pero con muchos
+    // candidatos un barrido lento podía seguir corriendo cuando el cron
+    // disparaba el siguiente, duplicando llamadas a Flow y avisos.
+    describe('guarda de solapamiento', () => {
+      const flushPromises = () =>
+        new Promise<void>((resolve) => setImmediate(resolve));
+
+      function holdFirstSweepAtGateway(): { release: () => void } {
+        pass2Candidates = [
+          buildPayment({
+            id: 'payment-slow',
+            status: 'PENDING',
+            gatewayToken: 'flow-token-slow',
+          }),
+        ];
+        paymentAccountService.resolveGatewayContext.mockResolvedValue(
+          buildContext(),
+        );
+        let release: () => void = () => undefined;
+        gatewayAdapter.getOrderStatus.mockReturnValueOnce(
+          new Promise((resolve) => {
+            release = () => resolve({ status: 'PENDING' });
+          }),
+        );
+        return { release: () => release() };
+      }
+
+      it('omite un barrido que se dispara mientras el anterior sigue en curso', async () => {
+        const warn = jest
+          .spyOn(Logger.prototype, 'warn')
+          .mockImplementation(() => undefined);
+        const { release } = holdFirstSweepAtGateway();
+
+        const first = service.sweep();
+        await flushPromises();
+        const findManyCallsWhileRunning =
+          prisma.payment.findMany.mock.calls.length;
+
+        await service.sweep();
+
+        expect(prisma.payment.findMany).toHaveBeenCalledTimes(
+          findManyCallsWhileRunning,
+        );
+        expect(gatewayAdapter.getOrderStatus).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining('la corrida anterior sigue en curso'),
+        );
+
+        release();
+        await first;
+        warn.mockRestore();
+      });
+
+      it('vuelve a correr normalmente cuando el barrido anterior terminó', async () => {
+        const { release } = holdFirstSweepAtGateway();
+        const first = service.sweep();
+        await flushPromises();
+        release();
+        await first;
+        gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PENDING' });
+
+        await service.sweep();
+
+        expect(gatewayAdapter.getOrderStatus).toHaveBeenCalledTimes(2);
+      });
+
+      it('libera la guarda si el barrido falla, y el fallo se sigue propagando', async () => {
+        prisma.payment.findMany.mockRejectedValueOnce(new Error('db caída'));
+
+        await expect(service.sweep()).rejects.toThrow('db caída');
+
+        pass2Candidates = [];
+        await expect(service.sweep()).resolves.toBeUndefined();
+        expect(prisma.payment.findMany).toHaveBeenCalledTimes(3);
+      });
+
+      it('con PAYMENTS_ENABLED=false no toma la guarda', async () => {
+        service = buildService(false);
+
+        await service.sweep();
+        await service.sweep();
+
+        expect(prisma.payment.findMany).not.toHaveBeenCalled();
+      });
     });
 
     it('pass 2 batchea la consulta de candidatos con take: SWEEP_BATCH_LIMIT', async () => {
