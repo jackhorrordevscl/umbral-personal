@@ -122,6 +122,45 @@ describe('CalendarBusyService', () => {
     expect(availabilityService.invalidate).toHaveBeenCalledWith('therapist-1');
   });
 
+  // issue #497: el cron no tenía guarda de reentrada (CalendarSyncService.
+  // reconcile sí): con Google lento un tick de 30 min se solapaba con el
+  // siguiente y duplicaba las llamadas.
+  describe('guarda de reentrada', () => {
+    it('omite un refresh que llega mientras el anterior sigue en curso y permite el siguiente al terminar', async () => {
+      let release!: () => void;
+      const blocked = new Promise<unknown[]>((resolve) => {
+        release = () => resolve([]);
+      });
+      prisma.googleCalendarConnection.findMany
+        .mockReturnValueOnce(blocked)
+        .mockResolvedValue([]);
+      const service = buildService();
+
+      const first = service.refresh();
+      await service.refresh();
+
+      expect(prisma.googleCalendarConnection.findMany).toHaveBeenCalledTimes(1);
+
+      release();
+      await first;
+      await service.refresh();
+
+      expect(prisma.googleCalendarConnection.findMany).toHaveBeenCalledTimes(2);
+    });
+
+    it('libera la guarda aunque el refresh falle', async () => {
+      prisma.googleCalendarConnection.findMany
+        .mockRejectedValueOnce(new Error('db caída'))
+        .mockResolvedValue([]);
+      const service = buildService();
+
+      await expect(service.refresh()).rejects.toThrow('db caída');
+      await service.refresh();
+
+      expect(prisma.googleCalendarConnection.findMany).toHaveBeenCalledTimes(2);
+    });
+  });
+
   // issue #497: la lectura a Google tardó y el terapeuta se desconectó (o
   // reconectó otra cuenta) en el medio: el claim no encuentra la conexión
   // CONNECTED con el mismo token y no se escribe nada.

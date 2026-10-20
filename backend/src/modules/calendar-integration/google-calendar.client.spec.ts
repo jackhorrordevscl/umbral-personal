@@ -1,4 +1,5 @@
 import { OAuth2Client } from 'google-auth-library';
+import { MAX_BUSY_PAGES } from './calendar-integration.constants';
 import {
   GOOGLE_REQUEST_TIMEOUT_MS,
   GoogleCalendarClient,
@@ -549,6 +550,48 @@ describe('GoogleCalendarClient', () => {
         string,
       ];
       expect(secondUrl).toContain('pageToken=page-2-token');
+    });
+
+    // issue #497: un nextPageToken que nunca termina no puede dejar el refresh
+    // paginando sin límite, y tampoco debe devolver una lista truncada.
+    it('falla como transient al superar MAX_BUSY_PAGES en vez de paginar sin límite ni truncar', async () => {
+      (globalThis.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: jest.fn().mockResolvedValue({
+          items: [],
+          nextPageToken: 'siempre-hay-otra-pagina',
+        }),
+      });
+
+      await expect(
+        client.listBusyIntervals(
+          buildOAuth2Client(),
+          CALENDAR_ID,
+          WINDOW_START,
+          WINDOW_END,
+        ),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<GoogleCalendarError>);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(MAX_BUSY_PAGES);
+    });
+
+    it('acepta exactamente MAX_BUSY_PAGES páginas', async () => {
+      for (let page = 1; page < MAX_BUSY_PAGES; page++) {
+        mockFetchListOnce({ items: [], nextPageToken: `page-${page + 1}` });
+      }
+      mockFetchListOnce({ items: [] });
+
+      await expect(
+        client.listBusyIntervals(
+          buildOAuth2Client(),
+          CALENDAR_ID,
+          WINDOW_START,
+          WINDOW_END,
+        ),
+      ).resolves.toEqual([]);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(MAX_BUSY_PAGES);
     });
 
     it('clasifica un 401 durante events.list como invalid_grant (reusa GoogleCalendarError)', async () => {

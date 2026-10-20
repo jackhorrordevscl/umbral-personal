@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OAuth2Client } from 'google-auth-library';
+import { MAX_BUSY_PAGES } from './calendar-integration.constants';
 
 // design.md "The access token is never persisted": este cliente recibe un
 // OAuth2Client ya cargado con el refresh token de una conexión concreta
@@ -169,8 +170,17 @@ export class GoogleCalendarClient {
   ): Promise<BusyInterval[]> {
     const intervals: BusyInterval[] = [];
     let pageToken: string | undefined;
+    let pages = 0;
 
     do {
+      // issue #497: sin tope, un calendario patológico (o un nextPageToken que
+      // nunca termina) dejaría el refresh paginando sin límite.
+      if (++pages > MAX_BUSY_PAGES) {
+        throw new GoogleCalendarError(
+          'transient',
+          `events.list superó ${MAX_BUSY_PAGES} páginas en la ventana de ocupación.`,
+        );
+      }
       const query: Record<string, string> = {
         timeMin: timeMin.toISOString(),
         timeMax: timeMax.toISOString(),
