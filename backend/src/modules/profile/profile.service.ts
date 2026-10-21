@@ -275,13 +275,45 @@ export class ProfileService {
   async uploadAvatar(id: string, file: Express.Multer.File) {
     assertFileContentMatchesMimetype(file.buffer, file.mimetype);
 
-    await writeAvatarBuffer(id, file.buffer);
+    // Judgment-day #499: no se escribe nada para una cuenta dada de baja, y la
+    // base se actualiza ANTES de B2. El PutObject es atómico (o reemplaza el
+    // objeto o lo deja como estaba), así que si B2 falla basta revertir la
+    // base al valor anterior para que tipo y contenido sigan coincidiendo; al
+    // revés, un fallo de la base dejaría un objeto nuevo con el tipo viejo,
+    // sin forma de restaurar el anterior.
+    const previous = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null },
+      select: { avatarMimeType: true, avatarUpdatedAt: true },
+    });
+    if (!previous) throw new NotFoundException('Usuario no encontrado');
 
     const avatarUpdatedAt = new Date();
-    await this.prisma.user.update({
-      where: { id },
+    const { count } = await this.prisma.user.updateMany({
+      where: { id, deletedAt: null },
       data: { avatarMimeType: file.mimetype, avatarUpdatedAt },
     });
+    if (count === 0) throw new NotFoundException('Usuario no encontrado');
+
+    try {
+      await writeAvatarBuffer(id, file.buffer);
+    } catch (err) {
+      try {
+        // Compare-and-set sobre el timestamp propio: no pisa una subida
+        // concurrente posterior.
+        await this.prisma.user.updateMany({
+          where: { id, avatarUpdatedAt },
+          data: {
+            avatarMimeType: previous.avatarMimeType,
+            avatarUpdatedAt: previous.avatarUpdatedAt,
+          },
+        });
+      } catch (revertErr) {
+        this.logger.error(
+          `No se pudo revertir el avatar tras fallar la escritura en B2: userId=${id} — ${revertErr instanceof Error ? revertErr.message : String(revertErr)}`,
+        );
+      }
+      throw err;
+    }
 
     return { avatarUpdatedAt };
   }
