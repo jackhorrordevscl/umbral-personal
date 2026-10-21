@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -391,7 +392,9 @@ describe('ProfileService', () => {
         .mockResolvedValueOnce(buildUser()) // fetch inicial del usuario
         .mockResolvedValueOnce(null); // uniqueness check: nadie más tiene ese email
       mockArgon2.verify.mockResolvedValue(true as never);
-      prisma.user.update.mockResolvedValue(buildUser());
+      prisma.user.update.mockResolvedValue(
+        buildUser({ pendingEmail: 'new@example.com' }),
+      );
 
       const result = await service.update('user-1', {
         email: 'new@example.com',
@@ -410,10 +413,13 @@ describe('ProfileService', () => {
           boolean
         >,
       });
-      // Regresión (#76 PR A, hallado en CI): el select de arriba corre ANTES
-      // de que requestChange escriba pendingEmail, así que la respuesta debe
-      // reflejarlo explícitamente en vez de devolver el valor stale leído.
+      // Regresión (#76 PR A, hallado en CI): la respuesta debe reflejar el
+      // pendingEmail recién escrito. requestChange corre ANTES del select
+      // final, así que el valor sale de la base y no de una asignación manual.
       expect(result.pendingEmail).toBe('new@example.com');
+      expect(
+        emailChangeService.requestChange.mock.invocationCallOrder[0],
+      ).toBeLessThan(prisma.user.update.mock.invocationCallOrder[0]);
     });
 
     it('lanza 409 si el email solicitado ya está registrado por otra cuenta y no delega nada', async () => {
@@ -438,7 +444,9 @@ describe('ProfileService', () => {
         .mockResolvedValueOnce(buildUser())
         .mockResolvedValueOnce(null);
       mockArgon2.verify.mockResolvedValue(true as never);
-      prisma.user.update.mockResolvedValue(buildUser());
+      prisma.user.update.mockResolvedValue(
+        buildUser({ pendingEmail: 'new@example.com' }),
+      );
 
       const result = await service.update('user-1', {
         email: '  New@Example.COM ',
@@ -484,7 +492,11 @@ describe('ProfileService', () => {
   });
 
   describe('update — password y email juntos', () => {
-    it('audita PASSWORD_CHANGED aunque requestChange falle después de aplicar la nueva password', async () => {
+    // Judgment-day #499: si el correo falla, el request responde 500; la
+    // contraseña no puede haber cambiado ya, o el reintento con la contraseña
+    // vieja daría "Contraseña actual incorrecta" y las sesiones estarían
+    // invalidadas sin que el usuario sepa por qué.
+    it('si requestChange falla, la contraseña no se cambia ni se audita', async () => {
       prisma.user.findFirst
         .mockResolvedValueOnce(buildUser())
         .mockResolvedValueOnce(null);
@@ -503,12 +515,62 @@ describe('ProfileService', () => {
         }),
       ).rejects.toThrow('mail provider down');
 
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(auditService.log).not.toHaveBeenCalled();
+    });
+
+    it('pide el cambio de email antes de aplicar la contraseña y no borra el pendingEmail recién pedido', async () => {
+      prisma.user.findFirst
+        .mockResolvedValueOnce(buildUser())
+        .mockResolvedValueOnce(null);
+      mockArgon2.verify.mockResolvedValue(true as never);
+      mockArgon2.hash.mockResolvedValue('new-hashed-password' as never);
+      prisma.user.update.mockResolvedValue(
+        buildUser({ pendingEmail: 'new@example.com' }),
+      );
+
+      const result = await service.update('user-1', {
+        email: 'new@example.com',
+        password: 'NuevaPassword789!',
+        currentPassword: 'correct-password',
+      });
+
+      expect(
+        emailChangeService.requestChange.mock.invocationCallOrder[0],
+      ).toBeLessThan(prisma.user.update.mock.invocationCallOrder[0]);
+      const [updateArg] = prisma.user.update.mock.calls[0] as [
+        { data: Record<string, unknown> },
+      ];
+      expect(updateArg.data).toMatchObject({
+        passwordHash: 'new-hashed-password',
+      });
+      expect(updateArg.data).not.toHaveProperty('pendingEmail');
+      expect(updateArg.data).not.toHaveProperty('pendingEmailTokenIssuedAt');
+      expect(result.pendingEmail).toBe('new@example.com');
       expect(auditService.log).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: 'user-1',
           action: 'PASSWORD_CHANGED',
         }),
       );
+    });
+
+    it('un dato inválido en el mismo request rechaza antes de abrir el cambio de email o enviar correos', async () => {
+      prisma.user.findFirst
+        .mockResolvedValueOnce(buildUser())
+        .mockResolvedValueOnce(null);
+      mockArgon2.verify.mockResolvedValue(true as never);
+
+      await expect(
+        service.update('user-1', {
+          email: 'new@example.com',
+          rut: '11.111.111-2',
+          currentPassword: 'correct-password',
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(emailChangeService.requestChange).not.toHaveBeenCalled();
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
   });
 
@@ -578,6 +640,34 @@ describe('ProfileService', () => {
           }) as unknown as Record<string, unknown>,
         }),
       );
+    });
+
+    // Judgment-day #499: la contraseña ya cambió (y las sesiones se
+    // invalidaron) cuando se audita; un 500 acá haría reintentar con la
+    // contraseña vieja.
+    it('responde OK aunque la auditoría de PASSWORD_CHANGED falle', async () => {
+      const loggerError = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      prisma.user.findFirst.mockResolvedValue(buildUser());
+      mockArgon2.verify.mockResolvedValue(true as never);
+      mockArgon2.hash.mockResolvedValue('new-hashed-password' as never);
+      prisma.user.update.mockResolvedValue(buildUser());
+      auditService.log.mockRejectedValue(new Error('audit down'));
+
+      await expect(
+        service.update('user-1', {
+          password: 'NuevaPassword789!',
+          currentPassword: 'correct-password',
+        }),
+      ).resolves.toMatchObject({ id: 'user-1' });
+
+      expect(prisma.user.update).toHaveBeenCalled();
+      expect(loggerError).toHaveBeenCalledWith(
+        expect.stringContaining('PASSWORD_CHANGED'),
+        expect.anything(),
+      );
+      loggerError.mockRestore();
     });
 
     it('un update de solo name NO audita PASSWORD_CHANGED ni toca passwordChangedAt/pendingEmail', async () => {
