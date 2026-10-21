@@ -182,6 +182,22 @@ The system MUST treat every Google Calendar sync operation as a non-blocking sid
 - WHEN a therapist creates, corrects, or soft-deletes a consultation
 - THEN the write succeeds and the failure is only logged
 
+### Requirement: Reconciler Cut-Off on Google Outage
+
+The reconciler MUST abandon the rest of the current run after 5 consecutive transient Google failures (rate limit, server errors, network, timeout) with no successful Google response in between, so that an outage does not keep one run busy for hours and make the next runs skip every therapist. Any Google response other than a transient failure (success, 404, 410) MUST reset the count. A cut-off connection MUST NOT have `lastSyncAt` updated, and the next run MUST start from zero with no state carried over. Syncs triggered by consultation writes MUST NOT be cut off.
+
+#### Scenario: Google is down during a reconciler run
+
+- GIVEN the reconciler is repairing many links and Google fails transiently on every call
+- WHEN 5 consecutive calls have failed
+- THEN the reconciler stops calling Google for the rest of that run, logs one warning, and the next run tries again
+
+#### Scenario: An isolated failure does not cut the run
+
+- GIVEN Google fails transiently on some calls but answers successfully between failures
+- WHEN fewer than 5 failures happen in a row
+- THEN the reconciler processes every link
+
 ### Requirement: Known Limitation on Google Account Change
 
 The system MUST NOT claim to detect which Google account is connected: only `calendar.events` is requested, so `googleAccountEmail` is never populated and no automatic purge of event links happens when a therapist reconnects a different Google account. Existing links keep pointing to the previous account's events. A link is discarded, and its event recreated in the new account, only when a later update of that consultation makes Google answer 404 or 410. Consultations that already have a link and do not change are not recreated, and events already created in the previous account remain there untouched.
