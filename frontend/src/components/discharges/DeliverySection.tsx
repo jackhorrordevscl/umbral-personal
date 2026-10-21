@@ -57,6 +57,11 @@ export default function DeliverySection({ dischargeId, patientId, isMinor }: Del
                 {DELIVERY_CHANNEL_LABELS[d.channel]} · {formatChileShortDateTime(d.deliveredAt)}
               </p>
               <p>{d.purpose}</p>
+              {d.authorizationVoidedAt && (
+                <p className="text-amber-700">
+                  Autorización anulada después, el {formatChileShortDateTime(d.authorizationVoidedAt)}
+                </p>
+              )}
             </li>
           ))}
         </ul>

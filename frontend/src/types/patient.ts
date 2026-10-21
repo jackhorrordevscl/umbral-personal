@@ -74,6 +74,8 @@ export interface PatientAssent {
   action: AssentAction;
   note: string | null;
   documentId: string | null;
+  // Fecha de anulación del documento de respaldo; anular no agrega un evento.
+  documentVoidedAt?: string | null;
   recordedAt: string;
   recordedBy?: { id: string; name: string; role: string };
 }

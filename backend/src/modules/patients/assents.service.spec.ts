@@ -56,6 +56,25 @@ describe('AssentsService', () => {
       );
     });
 
+    // Judgment-day #499: anular el documento no escribe un evento nuevo en el
+    // ledger (no es un retiro del NNA); el listado solo indica la anulación.
+    it('indica en documentVoidedAt si el documento que respalda el evento fue anulado', async () => {
+      const voidedAt = new Date('2026-10-01T10:00:00Z');
+      prisma.patientAssent.findMany.mockResolvedValue([
+        { id: 'a1', documentId: 'd1', document: { voidedAt } },
+        { id: 'a2', documentId: 'd2', document: { voidedAt: null } },
+        { id: 'a3', documentId: null, document: null },
+      ]);
+
+      const result = await service.list('patient-1', 'therapist-1');
+
+      expect(result).toEqual([
+        { id: 'a1', documentId: 'd1', documentVoidedAt: voidedAt },
+        { id: 'a2', documentId: 'd2', documentVoidedAt: null },
+        { id: 'a3', documentId: null, documentVoidedAt: null },
+      ]);
+    });
+
     it('propaga el 404 uniforme de assertAccess sin consultar el ledger', async () => {
       patientsService.assertAccess.mockRejectedValue(new NotFoundException());
 
