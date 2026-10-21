@@ -49,7 +49,7 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
   parte de Tailwind se resolvió al migrar a la versión 4), la validación de
   formularios del frontend (0002), el almacenamiento de la sesión en el frontend (0003), el cifrado de
   datos clínicos (0004), el versionado y la rotación de claves (0005), el
-  informe de alta con firma simple y hash (0006) y los pacientes menores y su
+  informe de alta con firma simple y hash (0006) y los pacientes niños, niñas y adolescentes (NNA) y su
   representante legal (0007).
 
 ---
@@ -512,10 +512,10 @@ umbral-personal/
 │   │   │   ├── crypto/           # AES-256-GCM compartido, llaveros versionados y recifrado (issue #382)
 │   │   │   ├── dto/              # DTOs compartidos (paginación)
 │   │   │   ├── validators/       # Validadores de class-validator propios
-│   │   │   └── utils/            # Storage B2, sanitizado de notas, hora de Chile, edad/menores, RUT, slug, máscara de emails, etc.
+│   │   │   └── utils/            # Storage B2, sanitizado de notas, hora de Chile, edad/NNA, RUT, slug, máscara de emails, etc.
 │   │   ├── modules/
 │   │   │   ├── auth/             # Signup, login, JWT, MFA obligatorio, sesiones revocables, recuperación de cuenta
-│   │   │   ├── patients/         # CRUD, consentimientos, representantes legales y asentimiento de menores, historial
+│   │   │   ├── patients/         # CRUD, consentimientos, representantes legales y asentimiento de NNA, historial
 │   │   │   ├── consultations/    # Registro clínico versionado
 │   │   │   ├── discharges/       # Informe de alta: cierre de tratamiento, PDF, hash de integridad y entregas
 │   │   │   ├── documents/        # Documentos adjuntos por paciente
@@ -643,9 +643,9 @@ umbral-personal/
   nuevas ni reservas públicas; agendar una consulta con confirmación
   (`reopenPatient`) lo reabre (ver Informe de alta)
 
-### Pacientes menores y representante legal (ADR 0007)
+### Pacientes NNA y representante legal (ADR 0007)
 - La edad se calcula en el servidor (mayoría de edad a los 18 años, hora de
-  Chile). Cada ficha informa si el paciente es menor y su estado
+  Chile). Cada ficha informa si el paciente es NNA y su estado
   (`minorStatus`), por ejemplo falta de representante o consentimiento
   heredado otorgado por el propio paciente
 - Hasta dos representantes legales por paciente (`LegalGuardian`: nombre, RUT,
@@ -653,21 +653,21 @@ umbral-personal/
   representantes y permisos de consentir, acceder a reportes, recibir
   comunicaciones y pagar), con alta, edición y baja desde la ficha
   (`/patients/:patientId/guardians`)
-- Para un menor, otorgar el consentimiento de tratamiento exige un
+- Para un NNA, otorgar el consentimiento de tratamiento exige un
   representante con permiso de consentir; revocarlo nunca se bloquea. El
   ledger de consentimientos registra quién lo otorgó (`grantedBy`:
   `PATIENT` o `GUARDIAN`). Desde la fecha de vigencia 2026-12-01
-  (`MINOR_GUARDIAN_ENFORCEMENT_DATE`) el consentimiento de un menor debe
+  (`MINOR_GUARDIAN_ENFORCEMENT_DATE`) el consentimiento de un NNA debe
   haberlo otorgado su representante; antes de esa fecha el consentimiento
   heredado se acepta y se marca como `LEGACY_CONSENT`
-- Asentimiento del menor (`PatientAssent`, ledger append-only): el paciente
-  menor de 14 años es informado y escuchado, y de 14 a 17 años se registra su
+- Asentimiento del NNA (`PatientAssent`, ledger append-only): el paciente
+  con menos de 14 años es informado y escuchado, y de 14 a 17 años se registra su
   asentimiento (`GRANTED`, `REFUSED`, `WITHDRAWN` o `INFORMED_AND_HEARD`).
   Nunca reemplaza el consentimiento del representante, y un rechazo no
   bloquea nada: alerta al terapeuta (`/patients/:patientId/assents`)
-- Al subir un documento de consentimiento de un menor se exige indicar el
+- Al subir un documento de consentimiento de un NNA se exige indicar el
   representante que lo firma
-- Auto-agenda pública de menores: la reserva identifica al paciente por su
+- Auto-agenda pública de NNA: la reserva identifica al paciente por su
   RUT y el del representante, que es el contacto de pago y comunicaciones
   (ver Auto-agenda pública)
 
@@ -708,7 +708,7 @@ umbral-personal/
 - Emitir el informe cancela las consultas futuras del paciente (vista previa
   en `GET /patients/:patientId/discharges/cancellation-preview`), borra sus
   eventos de Google Calendar y avisa por email al paciente adulto, o a los
-  representantes que reciben comunicaciones si es menor, sin incluir el
+  representantes que reciben comunicaciones si es NNA, sin incluir el
   motivo del cierre. Se audita como `TREATMENT_CLOSED`, `DISCHARGE_ISSUE` y
   `CONSULTATION_CANCELLED`
 - Registro de entregas (`DischargeDelivery`, solo se agrega): a quién se
@@ -903,12 +903,12 @@ umbral-personal/
   el terapeuta. Sin OTP ni ningún paso de autenticación para el paciente.
   Si el paciente es adulto y su ficha ya existe, pero tiene el tratamiento
   cerrado, la reserva se rechaza con el mismo `409` genérico
-- Reserva de un menor de edad: el formulario pide además los datos de un
+- Reserva de un NNA: el formulario pide además los datos de un
   representante legal (nombre, RUT, relación y email obligatorio, teléfono
-  opcional). El menor se identifica por su RUT dentro del terapeuta y el
-  representante por el suyo, porque un menor puede no tener email propio; la
-  ficha del menor y su representante se crean en la misma transacción que la
-  consulta. Una ficha de menor nunca se reutiliza solo por email
+  opcional). El NNA se identifica por su RUT dentro del terapeuta y el
+  representante por el suyo, porque un NNA puede no tener email propio; la
+  ficha del NNA y su representante se crean en la misma transacción que la
+  consulta. Una ficha de NNA nunca se reutiliza solo por email
 - Concurrencia real garantizada por `BookedSlot` (`(therapistId, slotStart)`
   único) dentro de una transacción: un doble booking simultáneo
   devuelve `409 Conflict` limpio en vez de duplicar la sesión
@@ -1038,7 +1038,7 @@ GET    /api/v1/patients/:patientId/guardians                🔒 (representantes
 POST   /api/v1/patients/:patientId/guardians                🔒
 PATCH  /api/v1/patients/:patientId/guardians/:guardianId    🔒
 DELETE /api/v1/patients/:patientId/guardians/:guardianId    🔒
-GET    /api/v1/patients/:patientId/assents                  🔒 (asentimiento de menores)
+GET    /api/v1/patients/:patientId/assents                  🔒 (asentimiento de NNA)
 POST   /api/v1/patients/:patientId/assents                  🔒
 ```
 
@@ -1329,7 +1329,7 @@ SELECT relname, n_live_tup FROM pg_stat_user_tables WHERE schemaname = 'public';
 | Inventario de tratamiento (RAT) | Ver [`docs/registro-actividades-tratamiento.md`](docs/registro-actividades-tratamiento.md) |
 | Disponibilidad de la ficha ante pérdida de credenciales (Ley 20.584 art. 12, Ley 21.719) | Recuperación de cuenta self-service, ver abajo |
 | Cierre del tratamiento e integridad del informe de alta | Informe de alta versionado e inmutable con hash SHA-256 y registro de entregas (ADR 0006); ver [Informe de alta](#informe-de-alta-adr-0006) |
-| Pacientes menores de edad | Representantes legales, consentimiento otorgado por el representante y asentimiento del menor (ADR 0007); ver [Pacientes menores y representante legal](#pacientes-menores-y-representante-legal-adr-0007) |
+| Pacientes NNA | Representantes legales, consentimiento otorgado por el representante y asentimiento del NNA (ADR 0007); ver [Pacientes NNA y representante legal](#pacientes-nna-y-representante-legal-adr-0007) |
 | Cifrado de datos en reposo | AES-256-GCM con llaveros versionados para documentos, token de Google, credenciales de Flow y secreto TOTP (ADR 0005) |
 
 ### Subprocesadores y ubicación de los datos (issue #177)

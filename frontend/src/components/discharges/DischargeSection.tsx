@@ -20,7 +20,7 @@ import { formatCalendarDate, formatChileShortDateTime } from "../../utils/dateti
 interface DischargeSectionProps {
   patientId: string;
   treatmentStatus?: TreatmentStatus;
-  /** A un menor el informe se entrega a su representante, no a él. */
+  /** A un NNA el informe se entrega a su representante, no a él. */
   isMinor?: boolean;
   /** Called after a closure is issued (the open record refreshes its status). */
   onChanged?: () => void;

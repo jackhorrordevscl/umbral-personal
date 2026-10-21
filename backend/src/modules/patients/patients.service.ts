@@ -94,9 +94,9 @@ function comparableValue(key: string, value: unknown): string | null {
 }
 
 const MINOR_NEEDS_GUARDIAN_MESSAGE =
-  'El paciente es menor de edad: el consentimiento debe ser otorgado por su representante legal. Registra al representante e indícalo al registrar el consentimiento.';
+  'El paciente es un NNA: el consentimiento debe ser otorgado por su representante legal. Registra al representante e indícalo al registrar el consentimiento.';
 const MINOR_LEGACY_CONSENT_MESSAGE =
-  'El paciente es menor de edad: el consentimiento debe ser otorgado por su representante legal. Registra al representante y un nuevo consentimiento otorgado por él.';
+  'El paciente es un NNA: el consentimiento debe ser otorgado por su representante legal. Registra al representante y un nuevo consentimiento otorgado por él.';
 
 type ConsentStatusMap = Record<ConsentPurpose, boolean>;
 
@@ -761,7 +761,7 @@ export class PatientsService {
           });
           continue;
         }
-        // Ya vigente (adulto): no se agrega otro evento al ledger. Un menor
+        // Ya vigente (adulto): no se agrega otro evento al ledger. Un NNA
         // con consentimiento heredado sigue su regla de siempre abajo.
         if (
           latest?.action === ConsentAction.GRANT &&
@@ -856,7 +856,7 @@ export class PatientsService {
     if (isMinor(dto.birthDate)) {
       if (!guardian) {
         throw new BadRequestException(
-          'Para agendar a un menor de edad se requieren los datos de su representante legal.',
+          'Para agendar a un NNA se requieren los datos de su representante legal.',
         );
       }
       return this.resolveMinorForPublicBooking(
@@ -869,7 +869,7 @@ export class PatientsService {
     }
     if (guardian) {
       throw new BadRequestException(
-        'Los datos del representante legal solo aplican a pacientes menores de edad.',
+        'Los datos del representante legal solo aplican a pacientes NNA.',
       );
     }
     if (!dto.email) {
@@ -901,7 +901,7 @@ export class PatientsService {
       // the minor path (patient RUT + guardian RUT), never by email alone.
       if (isMinor(matches[0].birthDate)) {
         this.logger.warn(
-          `Reserva pública rechazada: la ficha corresponde a un menor bajo therapistId=${therapistId}`,
+          `Reserva pública rechazada: la ficha corresponde a un NNA bajo therapistId=${therapistId}`,
         );
         throw new PublicBookingRejectedException(matches[0].email);
       }
@@ -1023,7 +1023,7 @@ export class PatientsService {
     // flow, issue #289), so a stored minor with an invalid one can still book.
     if (!isValidRut(guardian.rut)) {
       this.logger.warn(
-        `Reserva pública de menor rechazada: RUT con dígito verificador inválido bajo therapistId=${therapistId}`,
+        `Reserva pública de NNA rechazada: RUT con dígito verificador inválido bajo therapistId=${therapistId}`,
       );
       throw new ConflictException('No fue posible procesar la reserva.');
     }
@@ -1041,14 +1041,14 @@ export class PatientsService {
       // the submitted birthDate never overrides the record.
       if (!matchingGuardian || !isMinor(existing.birthDate)) {
         this.logger.warn(
-          `Reserva pública de menor rechazada: identidad no verificada bajo therapistId=${therapistId}`,
+          `Reserva pública de NNA rechazada: identidad no verificada bajo therapistId=${therapistId}`,
         );
         throw new PublicBookingRejectedException(existing.email);
       }
       // Informe de alta (T1): mismo bloqueo que en el flujo de adultos.
       if (existing.treatmentStatus !== TreatmentStatus.ACTIVE) {
         this.logger.warn(
-          `Reserva pública de menor rechazada: tratamiento cerrado bajo therapistId=${therapistId}`,
+          `Reserva pública de NNA rechazada: tratamiento cerrado bajo therapistId=${therapistId}`,
         );
         throw new PublicBookingRejectedException(existing.email);
       }
@@ -1057,7 +1057,7 @@ export class PatientsService {
 
     if (!isValidRut(dto.rut)) {
       this.logger.warn(
-        `Reserva pública de menor rechazada: RUT con dígito verificador inválido bajo therapistId=${therapistId}`,
+        `Reserva pública de NNA rechazada: RUT con dígito verificador inválido bajo therapistId=${therapistId}`,
       );
       throw new PublicBookingRejectedException();
     }
@@ -1077,7 +1077,7 @@ export class PatientsService {
       });
       if (emailTaken.length > 0) {
         this.logger.warn(
-          `Reserva pública de menor rechazada: email ya registrado bajo therapistId=${therapistId}`,
+          `Reserva pública de NNA rechazada: email ya registrado bajo therapistId=${therapistId}`,
         );
         throw new PublicBookingRejectedException(email);
       }

@@ -67,7 +67,7 @@ describe('AssentsService', () => {
   });
 
   describe('record', () => {
-    it('menor de 14: calcula el tramo en el servidor y registra el evento', async () => {
+    it('NNA con menos de 14 años: calcula el tramo en el servidor y registra el evento', async () => {
       await service.record(
         'patient-1',
         { action: 'INFORMED_AND_HEARD', note: '  Escuchado en sesión  ' },

@@ -230,7 +230,7 @@ describe('PaymentReconciliationService', () => {
     it.each([
       ['paciente adulto', { email: 'paciente@example.com', guardians: [] }],
       [
-        'representante de un menor',
+        'representante de un NNA',
         {
           email: 'menor@example.com',
           guardians: [
@@ -279,7 +279,7 @@ describe('PaymentReconciliationService', () => {
       },
     );
 
-    describe('paciente menor de edad', () => {
+    describe('paciente NNA', () => {
       const duePayment = () =>
         buildPayment({
           id: 'payment-due',
@@ -325,7 +325,7 @@ describe('PaymentReconciliationService', () => {
         expect(notificationsService.create).toHaveBeenCalledTimes(1);
       });
 
-      it('sin representante con email no envía email (nunca al menor) pero notifica al terapeuta', async () => {
+      it('sin representante con email no envía email (nunca al NNA) pero notifica al terapeuta', async () => {
         pass1Candidates = [duePayment()];
         prisma.patient.findUnique.mockResolvedValue({
           email: 'menor@example.com',

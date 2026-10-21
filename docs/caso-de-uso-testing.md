@@ -36,24 +36,24 @@ Al terminar entras al **Dashboard**.
 
 ### 9:15 · Tu primera paciente nueva: Antonia
 
-En **Pacientes**, pulsa "Nuevo paciente" y carga a **Antonia Belén Espinoza Morales** (perfil #3 de la lista de pacientes ficticios que ya tienes). Es menor de edad, a propósito, para ver cómo se comporta el formulario con ese caso.
+En **Pacientes**, pulsa "Nuevo paciente" y carga a **Antonia Belén Espinoza Morales** (perfil #3 de la lista de pacientes ficticios que ya tienes). Es NNA (niños, niñas y adolescentes), a propósito, para ver cómo se comporta el formulario con ese caso.
 
 Deja el teléfono y el email en blanco, tal como indica el perfil. Al ingresar la fecha de nacimiento, el formulario debería avisarte que el representante legal se agrega desde la ficha, después de guardarla.
 
-Después de guardar, la fila de Antonia debería mostrar "Sin consentimiento" y la etiqueta "Menor sin representante".
+Después de guardar, la fila de Antonia debería mostrar "Sin consentimiento" y la etiqueta "NNA sin representante".
 
 > 📝 Anota: ¿el formulario te dejó guardar sin esos campos sin quejarse? ¿hubo alguna validación rara relacionada con la edad? ¿se entendió el aviso sobre el representante?
 
 ### 9:20 · El consentimiento incómodo
 
-Antes de la primera sesión, tienes que registrar los consentimientos de Antonia. Su madre autoriza el consentimiento de **tratamiento** (en pantalla aparece como **Presencial**) sin dudar, pero pide tiempo para pensar la modalidad de **Telemedicina**: prefiere que, por ahora, las sesiones sean presenciales. Como Antonia es menor, el consentimiento lo otorga su representante, no ella.
+Antes de la primera sesión, tienes que registrar los consentimientos de Antonia. Su madre autoriza el consentimiento de **tratamiento** (en pantalla aparece como **Presencial**) sin dudar, pero pide tiempo para pensar la modalidad de **Telemedicina**: prefiere que, por ahora, las sesiones sean presenciales. Como Antonia es NNA, el consentimiento lo otorga su representante, no ella.
 
 - Abre el detalle de Antonia ("Ver detalle"). En la sección **Representantes legales**, pulsa "Agregar representante": nombre y RUT de la madre, relación "Madre", **sin email** a propósito (lo agregarás más adelante), y deja marcadas "Puede otorgar consentimiento", "Es el pagador", "Recibe comunicaciones" y "Puede acceder a informes".
 - Ve a la pestaña **Editar**, marca **Presencial**, elige a la madre en "Representante que otorga el consentimiento" y escribe el motivo de la modificación (mínimo 10 caracteres), por ejemplo "Autorización firmada por la madre en admisión". Ese texto queda como evidencia.
 - **No** otorgues **Telemedicina**: déjalo sin marcar.
-- Vuelve a la pestaña **Detalle**: el aviso ámbar de menor sin representante debería haber desaparecido y el consentimiento **Presencial** debería figurar con ✓ (**Telemedicina** sigue "Pendiente").
+- Vuelve a la pestaña **Detalle**: el aviso ámbar de NNA sin representante debería haber desaparecido y el consentimiento **Presencial** debería figurar con ✓ (**Telemedicina** sigue "Pendiente").
 
-> 📝 Anota: ¿quedó claro en la pantalla que "Presencial" y "Telemedicina" son dos consentimientos independientes? ¿se entendió que el consentimiento de una menor lo da su representante? (Más adelante, comprueba que la app deja registrar una consulta por telemedicina aunque solo exista el consentimiento Presencial: basta cualquiera de los dos.)
+> 📝 Anota: ¿quedó claro en la pantalla que "Presencial" y "Telemedicina" son dos consentimientos independientes? ¿se entendió que el consentimiento de una paciente NNA lo da su representante? (Más adelante, comprueba que la app deja registrar una consulta por telemedicina aunque solo exista el consentimiento Presencial: basta cualquiera de los dos.)
 
 ### 9:30 · La primera sesión
 
@@ -142,14 +142,14 @@ prueba de Flow que te pasé aparte, como si fueras el paciente pagando.
 
 Ahora usa a **Antonia Belén Espinoza Morales** (perfil #3, cuya madre dejaste
 sin email en el paso de las 9:20). Cárgale también un monto de sesión por
-defecto y registra una consulta para ella. Como es menor y no hay ningún
+defecto y registra una consulta para ella. Como es NNA y no hay ningún
 representante con email, el cobro debería quedar creado **sin link de pago**:
 la sesión muestra un chip "Cobro no generado" con el motivo, y el botón
 "Reintentar cobro". Luego edita a la madre en "Representantes legales",
 agrégale un email y pulsa "Reintentar cobro": ahora debería generarse el link y
 enviarse a ese email.
 
-> 📝 Anota: ¿quedó claro en algún lado por qué el cobro no se generó (menor
+> 📝 Anota: ¿quedó claro en algún lado por qué el cobro no se generó (NNA
 > sin representante con email)? ¿el botón de reintentar fue fácil de
 > encontrar y funcionó?
 
@@ -199,8 +199,8 @@ sin monto de cobro".
 Pruebas extra, también en la ventana de incógnito:
 - Reserva usando el email de Jorge pero un RUT distinto: debería aparecer el
   mensaje genérico de "no fue posible procesar la reserva".
-- Reserva marcando "Reservo para un menor de edad" e ingresando los datos del
-  paciente y de su representante: debería crearse la ficha del menor con ese
+- Reserva marcando "Reservo para un NNA" e ingresando los datos del
+  paciente y de su representante: debería crearse la ficha del NNA con ese
   representante.
 - Intenta reservar el mismo horario desde dos ventanas: solo la primera debería
   concretarse.

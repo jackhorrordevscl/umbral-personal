@@ -21,10 +21,10 @@ jest.mock('../src/common/utils/patient-document-storage.util', () => {
 type Body = Record<string, unknown>;
 
 /**
- * M2b: consentimiento y asentimiento de pacientes menores de edad.
- * - Escritura estricta: un GRANT de un menor exige un representante del mismo
+ * M2b: consentimiento y asentimiento de pacientes NNA.
+ * - Escritura estricta: un GRANT de un NNA exige un representante del mismo
  *   paciente con canConsent; un REVOKE se acepta siempre.
- * - Subir un documento de consentimiento de un menor exige guardianId (400
+ * - Subir un documento de consentimiento de un NNA exige guardianId (400
  *   ANTES de guardar el archivo); subir INFORMED_ASSENT registra asentimiento.
  * - Ledger de asentimiento append-only.
  * - Guardrail de consultas: la lectura sigue siendo suave hasta
@@ -228,7 +228,7 @@ describe('Minor consent and assent (e2e)', () => {
     }
   });
 
-  describe('POST /patients/:id/consents para un menor (escritura estricta)', () => {
+  describe('POST /patients/:id/consents para un NNA (escritura estricta)', () => {
     let minorId: string;
 
     beforeAll(async () => {
@@ -334,8 +334,8 @@ describe('Minor consent and assent (e2e)', () => {
     });
   });
 
-  describe('bulk-declare con menores', () => {
-    it('omite al menor con la razón y declara al adulto', async () => {
+  describe('bulk-declare con NNA', () => {
+    it('omite al NNA con la razón y declara al adulto', async () => {
       const minorId = await createPatient(yearsAgoDate(10));
       const adultId = await createPatient(yearsAgoDate(30));
 
@@ -360,7 +360,7 @@ describe('Minor consent and assent (e2e)', () => {
     });
   });
 
-  describe('POST /documents/upload de un menor', () => {
+  describe('POST /documents/upload de un NNA', () => {
     it('INFORMED_CONSENT sin guardianId da 400 y no guarda el documento', async () => {
       const minorId = await createPatient(yearsAgoDate(10));
 
@@ -613,15 +613,15 @@ describe('Minor consent and assent (e2e)', () => {
   const beforeEnforcement =
     chileDayKeyFromInstant(new Date()) < MINOR_GUARDIAN_ENFORCEMENT_DATE;
   (beforeEnforcement ? describe : describe.skip)(
-    'guardrail de consultas para un menor (antes de la fecha de vigencia)',
+    'guardrail de consultas para un NNA (antes de la fecha de vigencia)',
     () => {
-      it('un menor sin consentimiento recibe 403', async () => {
+      it('un NNA sin consentimiento recibe 403', async () => {
         const minorId = await createPatient(yearsAgoDate(10));
 
         await createConsultation(minorId).expect(403);
       });
 
-      it('un menor con consentimiento legado del paciente puede tener consultas', async () => {
+      it('un NNA con consentimiento legado del paciente puede tener consultas', async () => {
         const minorId = await createPatient(yearsAgoDate(10));
         await prisma.patientConsent.create({
           data: {
@@ -636,7 +636,7 @@ describe('Minor consent and assent (e2e)', () => {
         await createConsultation(minorId).expect(201);
       });
 
-      it('un menor con consentimiento del representante puede tener consultas', async () => {
+      it('un NNA con consentimiento del representante puede tener consultas', async () => {
         const minorId = await createPatient(yearsAgoDate(10));
         const guardianId = await createGuardian(minorId);
         await postConsent(minorId, {

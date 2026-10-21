@@ -33,11 +33,11 @@ import {
 // Issue #131: subir uno de estos tipos es la forma válida de consentimiento
 // (Art. 1° N°2, Ley 20.584) -- registrarlo también en el ledger PatientConsent
 // evita que el terapeuta tenga que hacerlo a mano en un segundo paso.
-// INFORMED_ASSENT (asentimiento de un menor) queda fuera a propósito: el
-// asentimiento del menor no reemplaza el consentimiento del representante
+// INFORMED_ASSENT (asentimiento de un NNA) queda fuera a propósito: el
+// asentimiento del NNA no reemplaza el consentimiento del representante
 // legal (Ley 20.584 art. 14; el NNA debe ser informado y oído según los
 // arts. 4 y 25 de la Ley 21.331 y la Ley 21.430). Se registra en el ledger
-// PatientAssent, nunca como consentimiento. Para un menor, los tipos de
+// PatientAssent, nunca como consentimiento. Para un NNA, los tipos de
 // consentimiento exigen el representante que firma (guardianId).
 const CONSENT_DOCUMENT_PURPOSE: Partial<Record<DocumentType, ConsentPurpose>> =
   {
@@ -85,7 +85,7 @@ export class DocumentsService {
     // un objeto huérfano que limpiar.
     const patient = await this.patientsService.assertAccess(patientId, userId);
 
-    // M2b: la edad se calcula en el servidor. Para un menor, el documento de
+    // M2b: la edad se calcula en el servidor. Para un NNA, el documento de
     // consentimiento lo firma su representante: se exige y valida ANTES de
     // guardar el archivo (si no, quedaría un documento sin evento en el
     // ledger). Para un adulto el guardianId se ignora.
@@ -96,7 +96,7 @@ export class DocumentsService {
     if (purpose && minorAgeBand) {
       if (!guardianId) {
         throw new BadRequestException(
-          'El paciente es menor de edad: indica el representante legal que firma el consentimiento.',
+          'El paciente es un NNA: indica el representante legal que firma el consentimiento.',
         );
       }
       await this.patientsService.assertGuardianCanSign(
@@ -135,7 +135,7 @@ export class DocumentsService {
           consultationGroupId,
         },
       });
-    // El asentimiento de un menor se registra junto con su documento: o
+    // El asentimiento de un NNA se registra junto con su documento: o
     // quedan ambos o ninguno. Para un adulto solo se guarda el documento.
     let doc: Awaited<ReturnType<typeof createDocument>>;
     try {
@@ -420,7 +420,7 @@ export class DocumentsService {
   // documento anulado y no queda otro documento vigente del mismo propósito.
   // Un GRANT manual/en bloque (documentId null) o un REVOKE previo no se tocan.
   // El REVOKE hereda grantedBy/guardianId del GRANT que revoca: es el mismo
-  // consentimiento (el de un menor lo firmó su representante), así el ledger
+  // consentimiento (el de un NNA lo firmó su representante), así el ledger
   // queda coherente sin una regla aparte.
   private async revokeConsentIfOrphaned(
     tx: Prisma.TransactionClient,

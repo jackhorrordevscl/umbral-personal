@@ -10,7 +10,7 @@ export function uploadPatientDocument(
   file: File,
   type: string,
   consultationGroupId?: string,
-  // Bloque Menores: representante que otorga el consentimiento de un menor.
+  // Bloque NNA: representante que otorga el consentimiento de un NNA.
   // El servidor fija grantedBy; el cliente solo indica quién.
   guardianId?: string,
 ) {

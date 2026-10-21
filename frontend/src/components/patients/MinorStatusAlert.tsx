@@ -10,7 +10,7 @@ interface MinorStatusAlertProps {
   enforcementDate?: string;
 }
 
-// Bloque Menores (M5): aviso de regularización. Solo aparece cuando falta el
+// Bloque NNA (M5): aviso de regularización. Solo aparece cuando falta el
 // representante o el consentimiento vigente es legado (otorgado por el
 // paciente). Mismo estilo ámbar que los avisos de la ficha.
 export default function MinorStatusAlert({
@@ -23,8 +23,8 @@ export default function MinorStatusAlert({
   const deadline = formatCalendarDate(enforcementDate);
   const message =
     minorStatus === "MISSING_GUARDIAN"
-      ? `Este paciente es menor de edad y no tiene un representante legal con facultad para consentir. Debe registrarse antes del ${deadline}: desde esa fecha no se podrán agendar consultas sin él.`
-      : `El consentimiento vigente de este paciente menor de edad fue otorgado por él mismo. Debe registrarse un nuevo consentimiento otorgado por su representante legal antes del ${deadline}.`;
+      ? `Este paciente es NNA y no tiene un representante legal con facultad para consentir. Debe registrarse antes del ${deadline}: desde esa fecha no se podrán agendar consultas sin él.`
+      : `El consentimiento vigente de este paciente NNA fue otorgado por él mismo. Debe registrarse un nuevo consentimiento otorgado por su representante legal antes del ${deadline}.`;
 
   return (
     <div

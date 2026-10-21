@@ -21,8 +21,8 @@ revisión, con coincidencia de los dos jueces.
 ### 1. Responder igual que una reserva nueva
 
 Toda colisión de identidad con una ficha existente (email con RUT distinto,
-menor sin representante coincidente, tratamiento cerrado, email ambiguo, RUT ya
-registrado, email de menor ya registrado, carrera al crear, y DV inválido del
+NNA sin representante coincidente, tratamiento cerrado, email ambiguo, RUT ya
+registrado, email de NNA ya registrado, carrera al crear, y DV inválido del
 paciente) responde `201` con la misma forma que una reserva nueva: `id` y
 `groupId` inventados, `sessionDate` del slot pedido y, si el checkout inline
 está activo, `checkout: NOT_APPLICABLE` como un paciente autocreado. No se crea
