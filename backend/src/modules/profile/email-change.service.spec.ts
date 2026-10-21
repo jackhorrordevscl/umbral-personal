@@ -125,6 +125,97 @@ describe('EmailChangeService', () => {
       });
     });
 
+    // Judgment-day #499: los dos correos salen en secuencia. Si cualquiera
+    // falla, el pedido pendiente se cancela (compare-and-set sobre el
+    // timestamp de ESTE pedido): sin eso queda un cambio abierto cuyo dueño
+    // no se enteró, o un enlace enviado de un pedido que respondió 500.
+    describe('si falla un correo', () => {
+      const requester = {
+        id: 'user-1',
+        email: 'old@example.com',
+        name: 'Test User',
+      };
+
+      it('cancela el pedido pendiente si falla el correo de verificación, sin avisar al dueño ni auditar', async () => {
+        mailService.sendEmailChangeVerificationEmail.mockRejectedValue(
+          new Error('mail provider down'),
+        );
+
+        await expect(
+          service.requestChange(requester, 'new@example.com'),
+        ).rejects.toThrow('mail provider down');
+
+        expect(prisma.user.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: 'user-1',
+            pendingEmailTokenIssuedAt: expect.any(Date) as unknown as Date,
+          },
+          data: { pendingEmail: null, pendingEmailTokenIssuedAt: null },
+        });
+        expect(mailService.sendEmailChangeNoticeEmail).not.toHaveBeenCalled();
+        expect(auditService.log).not.toHaveBeenCalled();
+      });
+
+      it('cancela el pedido pendiente si falla el aviso a la dirección actual (el enlace ya enviado deja de servir)', async () => {
+        mailService.sendEmailChangeNoticeEmail.mockRejectedValue(
+          new Error('mail provider down'),
+        );
+
+        await expect(
+          service.requestChange(requester, 'new@example.com'),
+        ).rejects.toThrow('mail provider down');
+
+        expect(mailService.sendEmailChangeVerificationEmail).toHaveBeenCalled();
+        expect(prisma.user.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: 'user-1',
+            pendingEmailTokenIssuedAt: expect.any(Date) as unknown as Date,
+          },
+          data: { pendingEmail: null, pendingEmailTokenIssuedAt: null },
+        });
+        expect(auditService.log).not.toHaveBeenCalled();
+      });
+
+      it('cancela solo el pedido propio: el timestamp del where es el que se firmó en el token', async () => {
+        mailService.sendEmailChangeVerificationEmail.mockRejectedValue(
+          new Error('mail provider down'),
+        );
+
+        await expect(
+          service.requestChange(requester, 'new@example.com'),
+        ).rejects.toThrow();
+
+        const [updateArg] = prisma.user.update.mock.calls[0] as [
+          { data: { pendingEmailTokenIssuedAt: Date } },
+        ];
+        const [cancelArg] = prisma.user.updateMany.mock.calls[0] as [
+          { where: { pendingEmailTokenIssuedAt: Date } },
+        ];
+        expect(cancelArg.where.pendingEmailTokenIssuedAt).toBe(
+          updateArg.data.pendingEmailTokenIssuedAt,
+        );
+      });
+
+      it('si la cancelación también falla, propaga el error original del correo y deja registro', async () => {
+        const loggerError = jest
+          .spyOn(Logger.prototype, 'error')
+          .mockImplementation(() => undefined);
+        mailService.sendEmailChangeVerificationEmail.mockRejectedValue(
+          new Error('mail provider down'),
+        );
+        prisma.user.updateMany.mockRejectedValue(new Error('base caída'));
+
+        await expect(
+          service.requestChange(requester, 'new@example.com'),
+        ).rejects.toThrow('mail provider down');
+
+        expect(loggerError).toHaveBeenCalledWith(
+          expect.stringContaining('base caída'),
+        );
+        loggerError.mockRestore();
+      });
+    });
+
     // Judgment-day #499: la solicitud ya quedó guardada y los correos ya
     // salieron cuando se audita; un fallo de la auditoría no puede convertir
     // eso en un 500 (el usuario reintentaría sobre un pedido que sí existe).

@@ -72,7 +72,12 @@ function buildUser(overrides: Partial<User> = {}): User {
 describe('ProfileService', () => {
   let service: ProfileService;
   let prisma: {
-    user: { findFirst: jest.Mock; findMany: jest.Mock; update: jest.Mock };
+    user: {
+      findFirst: jest.Mock;
+      findMany: jest.Mock;
+      update: jest.Mock;
+      updateMany: jest.Mock;
+    };
   };
   let emailChangeService: { requestChange: jest.Mock };
   let auditService: { log: jest.Mock };
@@ -84,6 +89,7 @@ describe('ProfileService', () => {
         findFirst: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
     emailChangeService = {
@@ -694,10 +700,17 @@ describe('ProfileService', () => {
       mimetype: 'image/png',
     } as unknown as Express.Multer.File;
 
-    it('valida el contenido real del archivo, guarda el buffer en B2 y actualiza avatarMimeType/avatarUpdatedAt', async () => {
-      mockWriteAvatarBuffer.mockResolvedValue(undefined);
-      prisma.user.update.mockResolvedValue(buildUser());
+    const previousAvatarUpdatedAt = new Date('2026-01-01T00:00:00Z');
 
+    beforeEach(() => {
+      prisma.user.findFirst.mockResolvedValue({
+        avatarMimeType: 'image/jpeg',
+        avatarUpdatedAt: previousAvatarUpdatedAt,
+      });
+      mockWriteAvatarBuffer.mockResolvedValue(undefined);
+    });
+
+    it('valida el contenido real del archivo, actualiza avatarMimeType/avatarUpdatedAt y guarda el buffer en B2', async () => {
       const result = await service.uploadAvatar('user-1', file);
 
       expect(mockAssertFileContentMatchesMimetype).toHaveBeenCalledWith(
@@ -705,14 +718,88 @@ describe('ProfileService', () => {
         file.mimetype,
       );
       expect(mockWriteAvatarBuffer).toHaveBeenCalledWith('user-1', file.buffer);
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-1', deletedAt: null },
         data: {
           avatarMimeType: 'image/png',
           avatarUpdatedAt: expect.any(Date) as unknown as Date,
         },
       });
       expect(result.avatarUpdatedAt).toBeInstanceOf(Date);
+    });
+
+    // Judgment-day #499: la base se actualiza antes de escribir en B2 para
+    // poder revertirla si B2 falla; el PutObject es atómico, así que el
+    // objeto anterior queda intacto y base y bucket siguen coincidiendo.
+    it('actualiza la base antes de escribir en B2', async () => {
+      await service.uploadAvatar('user-1', file);
+
+      expect(prisma.user.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+        mockWriteAvatarBuffer.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('lanza 404 sin tocar la base ni B2 si la cuenta está dada de baja', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(service.uploadAvatar('user-1', file)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'user-1', deletedAt: null },
+        }),
+      );
+      expect(prisma.user.updateMany).not.toHaveBeenCalled();
+      expect(mockWriteAvatarBuffer).not.toHaveBeenCalled();
+    });
+
+    it('lanza 404 sin escribir en B2 si la cuenta se dio de baja entre la lectura y el update', async () => {
+      prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.uploadAvatar('user-1', file)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(mockWriteAvatarBuffer).not.toHaveBeenCalled();
+    });
+
+    it('si B2 falla, revierte la base al estado anterior y propaga el error', async () => {
+      mockWriteAvatarBuffer.mockRejectedValue(new Error('B2 caído'));
+
+      await expect(service.uploadAvatar('user-1', file)).rejects.toThrow(
+        'B2 caído',
+      );
+
+      expect(prisma.user.updateMany).toHaveBeenCalledTimes(2);
+      expect(prisma.user.updateMany).toHaveBeenLastCalledWith({
+        where: {
+          id: 'user-1',
+          avatarUpdatedAt: expect.any(Date) as unknown as Date,
+        },
+        data: {
+          avatarMimeType: 'image/jpeg',
+          avatarUpdatedAt: previousAvatarUpdatedAt,
+        },
+      });
+    });
+
+    it('si B2 falla y la reversión también, propaga el error original y deja registro', async () => {
+      const loggerError = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      mockWriteAvatarBuffer.mockRejectedValue(new Error('B2 caído'));
+      prisma.user.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockRejectedValueOnce(new Error('base caída'));
+
+      await expect(service.uploadAvatar('user-1', file)).rejects.toThrow(
+        'B2 caído',
+      );
+
+      expect(loggerError).toHaveBeenCalledWith(
+        expect.stringContaining('base caída'),
+      );
+      loggerError.mockRestore();
     });
 
     // Issue #51 (mismo criterio que DocumentsService): el mimetype declarado
@@ -730,7 +817,7 @@ describe('ProfileService', () => {
         'El contenido del archivo no coincide con el tipo declarado',
       );
       expect(mockWriteAvatarBuffer).not.toHaveBeenCalled();
-      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(prisma.user.updateMany).not.toHaveBeenCalled();
     });
   });
 

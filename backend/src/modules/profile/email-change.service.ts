@@ -93,19 +93,29 @@ export class EmailChangeService {
       this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
     const confirmUrl = `${frontendUrl}/confirm-email-change?token=${token}`;
 
-    await this.mailService.sendEmailChangeVerificationEmail(
-      newEmail,
-      user.name,
-      confirmUrl,
-    );
-    // Notificación a la dirección ACTUAL (no a la pendiente): si alguien más
-    // solicitó el cambio con una sesión robada, el dueño real se entera por
-    // la casilla que todavía controla, no por la que el atacante pidió.
-    await this.mailService.sendEmailChangeNoticeEmail(
-      user.email,
-      user.name,
-      newEmail,
-    );
+    // Judgment-day #499: los dos correos salen en secuencia y no son
+    // atómicos. Si cualquiera falla se cancela el pedido pendiente: dejarlo
+    // abierto sería un cambio de email cuyo dueño no fue avisado (falla el
+    // aviso) o un enlace enviado de un pedido que respondió 500. Al limpiar
+    // el estado pendiente, el enlace ya enviado deja de servir (replay guard).
+    try {
+      await this.mailService.sendEmailChangeVerificationEmail(
+        newEmail,
+        user.name,
+        confirmUrl,
+      );
+      // Notificación a la dirección ACTUAL (no a la pendiente): si alguien más
+      // solicitó el cambio con una sesión robada, el dueño real se entera por
+      // la casilla que todavía controla, no por la que el atacante pidió.
+      await this.mailService.sendEmailChangeNoticeEmail(
+        user.email,
+        user.name,
+        newEmail,
+      );
+    } catch (err) {
+      await this.cancelPendingChange(user.id, issuedAt);
+      throw err;
+    }
 
     // Fail-open: la solicitud ya quedó guardada y los correos ya salieron;
     // un fallo de auditoría no puede responder 500 sobre un pedido que existe.
@@ -116,6 +126,28 @@ export class EmailChangeService {
       resourceId: user.id,
       detail: `oldEmail=${user.email} newEmail=${newEmail}`,
     });
+  }
+
+  /**
+   * Compensación de requestChange: limpia el pedido pendiente solo si sigue
+   * siendo el propio (mismo timestamp). Si entre tanto llegó otra solicitud
+   * (que ya superó a esta), no se la pisa. Nunca lanza: el llamador relanza
+   * el error original del correo.
+   */
+  private async cancelPendingChange(
+    userId: string,
+    issuedAt: Date,
+  ): Promise<void> {
+    try {
+      await this.prisma.user.updateMany({
+        where: { id: userId, pendingEmailTokenIssuedAt: issuedAt },
+        data: { pendingEmail: null, pendingEmailTokenIssuedAt: null },
+      });
+    } catch (cleanupErr) {
+      this.logger.error(
+        `No se pudo cancelar el cambio de email pendiente tras fallar el envío: userId=${userId} — ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
+      );
+    }
   }
 
   /**
