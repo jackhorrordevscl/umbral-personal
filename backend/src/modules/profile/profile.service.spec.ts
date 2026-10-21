@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Logger,
   NotFoundException,
@@ -428,27 +427,32 @@ describe('ProfileService', () => {
       ).toBeLessThan(prisma.user.update.mock.invocationCallOrder[0]);
     });
 
-    it('lanza 409 si el email solicitado ya está registrado por otra cuenta y no delega nada', async () => {
-      prisma.user.findFirst
-        .mockResolvedValueOnce(buildUser())
-        .mockResolvedValueOnce(buildUser({ id: 'other-user' }));
+    // Judgment-day #499: el servicio ya no responde 409 si la dirección tiene
+    // cuenta (enumeración). No consulta otras cuentas: EmailChangeService decide
+    // y avisa al titular, y la respuesta es la misma en ambos casos.
+    it('no consulta otras cuentas ni lanza 409: delega siempre en EmailChangeService', async () => {
+      prisma.user.findFirst.mockResolvedValueOnce(buildUser());
       mockArgon2.verify.mockResolvedValue(true as never);
+      prisma.user.update.mockResolvedValue(
+        buildUser({ pendingEmail: 'taken@example.com' }),
+      );
 
-      await expect(
-        service.update('user-1', {
-          email: 'taken@example.com',
-          currentPassword: 'correct-password',
-        }),
-      ).rejects.toThrow(ConflictException);
-      expect(emailChangeService.requestChange).not.toHaveBeenCalled();
-      expect(prisma.user.update).not.toHaveBeenCalled();
+      const result = await service.update('user-1', {
+        email: 'taken@example.com',
+        currentPassword: 'correct-password',
+      });
+
+      expect(prisma.user.findFirst).toHaveBeenCalledTimes(1);
+      expect(emailChangeService.requestChange).toHaveBeenCalledWith(
+        { id: 'user-1', email: 'user@example.com', name: 'Test User' },
+        'taken@example.com',
+      );
+      expect(result.pendingEmail).toBe('taken@example.com');
     });
 
-    // Issue #303: comparación y unicidad usan el email canónico.
-    it('normaliza el email pedido antes de chequear unicidad y delegar', async () => {
-      prisma.user.findFirst
-        .mockResolvedValueOnce(buildUser())
-        .mockResolvedValueOnce(null);
+    // Issue #303: la comparación usa el email canónico.
+    it('normaliza el email pedido antes de delegar', async () => {
+      prisma.user.findFirst.mockResolvedValueOnce(buildUser());
       mockArgon2.verify.mockResolvedValue(true as never);
       prisma.user.update.mockResolvedValue(
         buildUser({ pendingEmail: 'new@example.com' }),
@@ -459,10 +463,6 @@ describe('ProfileService', () => {
         currentPassword: 'correct-password',
       });
 
-      expect(prisma.user.findFirst).toHaveBeenLastCalledWith({
-        where: { email: 'new@example.com', id: { not: 'user-1' } },
-        select: { id: true },
-      });
       expect(emailChangeService.requestChange).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'user-1' }),
         'new@example.com',

@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -162,13 +161,8 @@ export class ProfileService {
     const emailDelta = Boolean(
       newEmail && newEmail !== normalizeEmail(user.email),
     );
-    if (emailDelta) {
-      const exists = await this.prisma.user.findFirst({
-        where: { email: newEmail, id: { not: id } },
-        select: { id: true },
-      });
-      if (exists) throw new ConflictException('El email ya está registrado');
-    }
+    // Si la dirección ya tiene cuenta no se responde 409: lo resuelve
+    // EmailChangeService.requestChange sin distinguirlo para quien lo pide.
 
     const data: {
       name?: string;

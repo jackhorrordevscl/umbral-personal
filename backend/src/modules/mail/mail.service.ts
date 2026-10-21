@@ -165,6 +165,38 @@ export class MailService {
     }
   }
 
+  // Judgment-day #499: alguien pidió cambiar el email de su cuenta a la
+  // dirección de este titular. Quien lo pidió no ve ninguna diferencia con un
+  // pedido normal, así que este correo es la única señal (y la vía de
+  // corrección si el titular es la misma persona con otra cuenta). No nombra
+  // a quien lo pidió ni a su cuenta.
+  async sendEmailChangeTakenNoticeEmail(to: string): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn(
+        `RESEND_API_KEY no configurada: se salteó el aviso de dirección ya en uso a ${maskEmail(to)}.`,
+      );
+      return;
+    }
+
+    const { error } = await this.resend.emails.send({
+      from: this.from,
+      to,
+      subject: 'Alguien intentó usar tu dirección en Umbral - RCE',
+      html: `
+        <p>Hola,</p>
+        <p>Recibimos una solicitud para usar esta dirección de email en otra cuenta de Umbral - RCE, pero ya está asociada a una cuenta existente, así que no se hizo ningún cambio.</p>
+        <p>Si fuiste tú, inicia sesión con esta dirección o usa otra distinta para la otra cuenta.</p>
+        <p>Si no fuiste tú, puedes ignorar este mensaje: tu cuenta no se modificó.</p>
+      `,
+    });
+
+    if (error) {
+      this.logger.error(
+        `Falló el envío del aviso de dirección ya en uso a ${maskEmail(to)}: ${error.message}`,
+      );
+    }
+  }
+
   // Issue #302: aviso al dueño de la cuenta cuando MFA se desactiva con un
   // código de recuperación (y sus sesiones se cierran). Mismo contrato "nunca
   // lanza" que el resto de esta clase: la recuperación ya está hecha y un

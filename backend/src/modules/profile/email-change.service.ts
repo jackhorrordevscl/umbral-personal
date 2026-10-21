@@ -80,18 +80,15 @@ export class EmailChangeService {
       },
     });
 
-    const token = this.jwtService.sign(
-      {
-        sub: user.id,
-        purpose: EMAIL_CHANGE_PURPOSE,
-        pendingEmail: newEmail,
-        changeIssuedAt: issuedAt.getTime(),
-      },
-      { expiresIn: EMAIL_CHANGE_EXPIRES_IN },
-    );
-    const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
-    const confirmUrl = `${frontendUrl}/confirm-email-change?token=${token}`;
+    // Judgment-day #499: si la dirección ya tiene otra cuenta, el pedido se
+    // guarda y responde igual (mismo estado pendiente, mismo aviso a la casilla
+    // actual): un 409 permitiría sondear qué direcciones están registradas. El
+    // enlace no se firma nunca (no hay token que confirmar) y el titular recibe
+    // un aviso en su lugar.
+    const taken = await this.prisma.user.findFirst({
+      where: { email: newEmail, id: { not: user.id } },
+      select: { id: true },
+    });
 
     // Judgment-day #499: los dos correos salen en secuencia y no son
     // atómicos. Si cualquiera falla se cancela el pedido pendiente: dejarlo
@@ -99,11 +96,27 @@ export class EmailChangeService {
     // aviso) o un enlace enviado de un pedido que respondió 500. Al limpiar
     // el estado pendiente, el enlace ya enviado deja de servir (replay guard).
     try {
-      await this.mailService.sendEmailChangeVerificationEmail(
-        newEmail,
-        user.name,
-        confirmUrl,
-      );
+      if (taken) {
+        await this.mailService.sendEmailChangeTakenNoticeEmail(newEmail);
+      } else {
+        const token = this.jwtService.sign(
+          {
+            sub: user.id,
+            purpose: EMAIL_CHANGE_PURPOSE,
+            pendingEmail: newEmail,
+            changeIssuedAt: issuedAt.getTime(),
+          },
+          { expiresIn: EMAIL_CHANGE_EXPIRES_IN },
+        );
+        const frontendUrl =
+          this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
+        const confirmUrl = `${frontendUrl}/confirm-email-change?token=${token}`;
+        await this.mailService.sendEmailChangeVerificationEmail(
+          newEmail,
+          user.name,
+          confirmUrl,
+        );
+      }
       // Notificación a la dirección ACTUAL (no a la pendiente): si alguien más
       // solicitó el cambio con una sesión robada, el dueño real se entera por
       // la casilla que todavía controla, no por la que el atacante pidió.
