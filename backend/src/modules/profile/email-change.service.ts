@@ -72,22 +72,24 @@ export class EmailChangeService {
     // Issue #303: pendingEmail se guarda siempre en forma canónica.
     const newEmail = normalizeEmail(rawNewEmail);
     const issuedAt = new Date();
+
+    // Judgment-day #499: si la dirección ya tiene otra cuenta, el pedido se
+    // guarda y responde igual (mismo estado pendiente, mismo aviso a la casilla
+    // actual): un 409 permitiría sondear qué direcciones están registradas. El
+    // enlace no se firma nunca (no hay token que confirmar) y el titular recibe
+    // un aviso en su lugar. La búsqueda va antes de escribir: si fallara, no
+    // quedaría un pedido pendiente sin correos.
+    const taken = await this.prisma.user.findFirst({
+      where: { email: newEmail, id: { not: user.id } },
+      select: { id: true },
+    });
+
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
         pendingEmail: newEmail,
         pendingEmailTokenIssuedAt: issuedAt,
       },
-    });
-
-    // Judgment-day #499: si la dirección ya tiene otra cuenta, el pedido se
-    // guarda y responde igual (mismo estado pendiente, mismo aviso a la casilla
-    // actual): un 409 permitiría sondear qué direcciones están registradas. El
-    // enlace no se firma nunca (no hay token que confirmar) y el titular recibe
-    // un aviso en su lugar.
-    const taken = await this.prisma.user.findFirst({
-      where: { email: newEmail, id: { not: user.id } },
-      select: { id: true },
     });
 
     // Judgment-day #499: los dos correos salen en secuencia y no son
