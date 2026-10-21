@@ -151,7 +151,20 @@ describe('DocumentsService', () => {
         where: { patientId: 'patient-1' },
         orderBy: { uploadedAt: 'desc' },
         take: UNPAGINATED_SAFETY_LIMIT,
+        omit: { storagePath: true, voidedById: true },
       });
+    });
+
+    it('no expone storagePath ni voidedById en el listado', async () => {
+      prisma.patientDocument.findMany.mockResolvedValue([]);
+
+      await service.findByPatient('patient-1', 'therapist-1');
+
+      expect(prisma.patientDocument.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          omit: { storagePath: true, voidedById: true },
+        }),
+      );
     });
   });
 

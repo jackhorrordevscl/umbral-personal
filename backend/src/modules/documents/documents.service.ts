@@ -320,10 +320,13 @@ export class DocumentsService {
     // Lanza NotFoundException si el usuario no tiene acceso a este paciente
     await this.patientsService.assertAccess(patientId, userId);
 
+    // El listado no necesita la clave del objeto en B2 ni quién anuló: la
+    // descarga resuelve `storagePath` por id en el servidor.
     return this.prisma.patientDocument.findMany({
       where: { patientId },
       orderBy: { uploadedAt: 'desc' },
       take: UNPAGINATED_SAFETY_LIMIT,
+      omit: { storagePath: true, voidedById: true },
     });
   }
 
