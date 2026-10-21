@@ -83,6 +83,7 @@ describe('DocumentsService', () => {
       delete: jest.Mock;
     };
     patientAssent: { create: jest.Mock };
+    consultation: { findFirst: jest.Mock };
     $transaction: jest.Mock;
   };
   let patientsService: {
@@ -106,6 +107,9 @@ describe('DocumentsService', () => {
       },
       patientAssent: {
         create: jest.fn().mockResolvedValue({ id: 'assent-1' }),
+      },
+      consultation: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'consultation-1' }),
       },
       // Callback form only: the document and its assent share the tx client.
       $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
@@ -165,6 +169,59 @@ describe('DocumentsService', () => {
   });
 
   describe('uploadDocument', () => {
+    describe('consultationGroupId (judgment-day #499)', () => {
+      const GROUP_ID = '8d1c2b7e-3f4a-4b5c-9d6e-7f8a9b0c1d2e';
+
+      it('acepta un grupo que pertenece al paciente y lo guarda en el documento', async () => {
+        await service.uploadDocument(
+          'patient-1',
+          'therapist-1',
+          buildFile(),
+          'SESSION_SUMMARY',
+          GROUP_ID,
+        );
+
+        expect(prisma.consultation.findFirst).toHaveBeenCalledWith({
+          where: { groupId: GROUP_ID, patientId: 'patient-1' },
+          select: { id: true },
+        });
+        expect(prisma.patientDocument.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            patientId: 'patient-1',
+            consultationGroupId: GROUP_ID,
+          }) as unknown,
+        });
+      });
+
+      it('rechaza con 404 un grupo que no es de ese paciente, antes de escribir en B2', async () => {
+        prisma.consultation.findFirst.mockResolvedValue(null);
+
+        await expect(
+          service.uploadDocument(
+            'patient-1',
+            'therapist-1',
+            buildFile(),
+            'SESSION_SUMMARY',
+            GROUP_ID,
+          ),
+        ).rejects.toBeInstanceOf(NotFoundException);
+
+        expect(mockWritePatientDocumentBuffer).not.toHaveBeenCalled();
+        expect(prisma.patientDocument.create).not.toHaveBeenCalled();
+      });
+
+      it('sin consultationGroupId no consulta consultas', async () => {
+        await service.uploadDocument(
+          'patient-1',
+          'therapist-1',
+          buildFile(),
+          'SESSION_SUMMARY',
+        );
+
+        expect(prisma.consultation.findFirst).not.toHaveBeenCalled();
+      });
+    });
+
     it('INFORMED_CONSENT: registra el evento GRANT/TREATMENT en el ledger tras subir el documento', async () => {
       await service.uploadDocument(
         'patient-1',
