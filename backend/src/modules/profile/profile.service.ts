@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { normalizeEmail } from '../../common/utils/normalize-email.util';
@@ -19,9 +20,15 @@ import {
   isAvatarNotFoundError,
 } from '../../common/utils/avatar-storage.util';
 import { isValidRut, normalizeRut } from '../../common/utils/rut.util';
-import { generateUniqueSlug } from '../../common/utils/slug.util';
+import {
+  generateUniqueSlug,
+  isSlugConflict,
+} from '../../common/utils/slug.util';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 import * as argon2 from 'argon2';
+
+// Intentos de guardar el perfil si otra cuenta toma el slug calculado.
+const MAX_SLUG_ATTEMPTS = 3;
 
 const PROFILE_SELECT = {
   id: true,
@@ -239,11 +246,7 @@ export class ProfileService {
 
     // El select final corre después de requestChange, así que devuelve el
     // pendingEmail recién escrito sin una query extra.
-    const updated = await this.prisma.user.update({
-      where: { id },
-      data,
-      select: PROFILE_SELECT,
-    });
+    const updated = await this.updateRetryingSlug(id, data, dto.name);
 
     // Fail-open: la contraseña ya quedó cambiada (y las sesiones invalidadas);
     // un fallo de auditoría no puede responder 500 y hacer reintentar con la
@@ -259,6 +262,43 @@ export class ProfileService {
     }
 
     return updated;
+  }
+
+  // Judgment-day #499: entre calcular el slug y guardarlo otra cuenta puede
+  // tomarlo, y el índice único (P2002) rechaza el guardado. En ese caso se
+  // recalcula el slug (ya ve el ocupado y toma el siguiente sufijo) y se
+  // reintenta, con tope. Un P2002 de otra columna, o sin slug en `data`, se
+  // relanza tal cual.
+  private async updateRetryingSlug(
+    id: string,
+    initialData: Prisma.UserUpdateInput,
+    name: string | undefined,
+  ) {
+    let data = initialData;
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.prisma.user.update({
+          where: { id },
+          data,
+          select: PROFILE_SELECT,
+        });
+      } catch (err) {
+        if (
+          !data.slug ||
+          !name ||
+          attempt >= MAX_SLUG_ATTEMPTS ||
+          !(err instanceof Prisma.PrismaClientKnownRequestError) ||
+          err.code !== 'P2002' ||
+          !isSlugConflict(err)
+        ) {
+          throw err;
+        }
+        data = {
+          ...data,
+          slug: await generateUniqueSlug(this.prisma, name, id),
+        };
+      }
+    }
   }
 
   // El `fileFilter` del controller solo mira el header `mimetype` declarado
