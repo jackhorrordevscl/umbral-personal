@@ -12,9 +12,9 @@ interface Recipient {
 // futuras. Corre después del commit, nunca lanza (el cierre ya es definitivo) y
 // cada envío está aislado del resto. El aviso NO lleva el motivo del cierre.
 //
-// Destinatarios: el paciente adulto con email; para un menor, solo los
+// Destinatarios: el paciente adulto con email; para un NNA, solo los
 // representantes que reciben comunicaciones y tienen email, nunca el email del
-// propio menor.
+// propio NNA.
 @Injectable()
 export class DischargeCancellationNotifier {
   private readonly logger = new Logger(DischargeCancellationNotifier.name);

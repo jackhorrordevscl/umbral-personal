@@ -100,7 +100,7 @@ La pantalla **Pacientes** lista tus fichas con un buscador por nombre o RUT.
 Cada fila muestra el nombre, el email, el RUT, el teléfono y el estado del
 consentimiento ("Consentimiento ✓" o "Sin consentimiento"), junto con
 etiquetas cuando corresponde: el estado del tratamiento (si está cerrado) y
-los avisos de menores ("Menor sin representante" o "Menor: consentimiento por
+los avisos de niños, niñas y adolescentes (NNA) ("NNA sin representante" o "NNA: consentimiento por
 regularizar"). Cada ficha tiene cuatro acciones: **Ver detalle**, **Editar**,
 **Descargar PDF** y **Eliminar**. El detalle se abre en una ventana con tres
 pestañas: **Detalle**, **Editar** e **Historial**.
@@ -111,7 +111,7 @@ Campos obligatorios: **nombre completo, RUT, fecha de nacimiento**. Todo lo dem�
 
 El RUT se normaliza automáticamente en el servidor (saca puntos, pasa a mayúsculas): no hace falta que lo escribas con un formato exacto, pero sí tiene que ser un RUT válido.
 
-Al crear la ficha de un adulto puedes marcar los consentimientos **Presencial** y **Telemedicina** y adjuntar documentos legales; el consentimiento queda registrado con la evidencia automática "Otorgado durante la creación de la ficha". En un menor esto no es posible hasta cargar a su representante (ver más abajo).
+Al crear la ficha de un adulto puedes marcar los consentimientos **Presencial** y **Telemedicina** y adjuntar documentos legales; el consentimiento queda registrado con la evidencia automática "Otorgado durante la creación de la ficha". En un NNA esto no es posible hasta cargar a su representante (ver más abajo).
 
 ### Editar una ficha
 
@@ -131,30 +131,30 @@ Importante: revocar un consentimiento **no borra el evento anterior**. El histor
 
 **Consentimiento retroactivo.** Si un paciente ya estaba en tratamiento antes de que el consentimiento fuera obligatorio, o llegó por la agenda pública (que no registra consentimiento), la lista muestra "Sin consentimiento" y una casilla de **Declarar consentimiento retroactivo**. Puedes marcar varias fichas, elegir la finalidad, escribir la evidencia (mínimo 10 caracteres, por ejemplo dónde está el consentimiento en papel) y pulsar **Declarar**. Esta acción no reemplaza el consentimiento en papel: deja constancia en el sistema de que ya fue obtenido, y tú quedas como responsable de esa declaración. Si el documento está digitalizado, súbelo desde la ficha del paciente en vez de declararlo ahí.
 
-### Pacientes menores de edad y representante legal
+### Pacientes NNA y representante legal
 
-Si la fecha de nacimiento indica que el paciente tiene menos de 18 años, la ficha lo marca con su tramo de edad (menor de 14 años, o de 14 a 17 años) y cambia la forma de registrar el consentimiento. El detalle de la decisión está en `docs/decisiones/0007-pacientes-menores-y-representante-legal.md`.
+Si la fecha de nacimiento indica que el paciente tiene menos de 18 años, la ficha lo marca con su tramo de edad (menos de 14 años, o de 14 a 17 años) y cambia la forma de registrar el consentimiento. El detalle de la decisión está en `docs/decisiones/0007-pacientes-menores-y-representante-legal.md`.
 
-**Cargar al representante.** Al crear la ficha de un menor, esta se guarda primero; el representante se agrega después, desde el detalle de la ficha, en la sección **Representantes legales** con el botón **Agregar representante** (hasta 2 por paciente). Cada representante tiene nombre, RUT, relación con el paciente (madre, padre, tutor legal, curador, cuidador u otro), cuidado personal (exclusivo, compartido o no informado), email y teléfono, y estas marcas en "Permisos y avisos":
+**Cargar al representante.** Al crear la ficha de un NNA, esta se guarda primero; el representante se agrega después, desde el detalle de la ficha, en la sección **Representantes legales** con el botón **Agregar representante** (hasta 2 por paciente). Cada representante tiene nombre, RUT, relación con el paciente (madre, padre, tutor legal, curador, cuidador u otro), cuidado personal (exclusivo, compartido o no informado), email y teléfono, y estas marcas en "Permisos y avisos":
 - **Puede otorgar consentimiento** (en la lista: "Consiente"): puede otorgar el consentimiento del tratamiento.
 - **Es el pagador** (en la lista: "Pagador"): recibe el cobro. Solo uno a la vez: marcar a otro quita la marca al anterior.
 - **Recibe comunicaciones** (en la lista: "Recibe avisos"): se le envían los correos de cobro del paciente.
-- **Puede acceder a informes** (en la lista: "Accede a informes"): es el único representante al que se puede entregar el informe de alta del menor (ver "Cerrar el tratamiento e informe de alta").
+- **Puede acceder a informes** (en la lista: "Accede a informes"): es el único representante al que se puede entregar el informe de alta del NNA (ver "Cerrar el tratamiento e informe de alta").
 - **Hay conflicto entre los representantes** (en la lista: "Conflicto entre representantes").
 
 Un representante que ya firmó un consentimiento no se puede quitar; si cambió la situación, edítalo o desmarca "Puede otorgar consentimiento".
 
-**Consentimiento de un menor.** Lo otorga el representante, no el paciente. Al registrar el consentimiento de un menor (o al subir el documento de consentimiento informado o de telemedicina) debes elegir qué representante lo otorga; el sistema rechaza el consentimiento de un menor sin representante con la marca "Puede otorgar consentimiento". Revocar un consentimiento sigue siendo posible siempre.
+**Consentimiento de un NNA.** Lo otorga el representante, no el paciente. Al registrar el consentimiento de un NNA (o al subir el documento de consentimiento informado o de telemedicina) debes elegir qué representante lo otorga; el sistema rechaza el consentimiento de un NNA sin representante con la marca "Puede otorgar consentimiento". Revocar un consentimiento sigue siendo posible siempre.
 
-**Asentimiento del paciente.** El documento "Asentimiento informado" y la sección "Asentimiento del menor" dejan constancia de que el niño, niña o adolescente fue informado y oído (menores de 14 años) o de que dio su asentimiento expreso (14 a 17 años). Las acciones son: informado y oído, asentimiento otorgado, rechazado y retirado. El asentimiento **no reemplaza** el consentimiento del representante, y un rechazo muestra un aviso en la ficha pero no impide registrar ni agendar. Es un registro de bitácora: no se edita ni se borra.
+**Asentimiento del paciente.** El documento "Asentimiento informado" y la sección "Asentimiento del NNA" dejan constancia de que el niño, niña o adolescente fue informado y oído (menos de 14 años) o de que dio su asentimiento expreso (14 a 17 años). Las acciones son: informado y oído, asentimiento otorgado, rechazado y retirado. El asentimiento **no reemplaza** el consentimiento del representante, y un rechazo muestra un aviso en la ficha pero no impide registrar ni agendar. Es un registro de bitácora: no se edita ni se borra.
 
-**Aviso de regularización y plazo.** Si el menor no tiene un representante con "Puede otorgar consentimiento", o su consentimiento vigente lo otorgó él mismo (como se hacía antes), la ficha muestra un aviso ámbar con la fecha límite: **1 de diciembre de 2026**. Hasta esa fecha el consentimiento antiguo sigue sirviendo para crear consultas; desde entonces el sistema pedirá que el consentimiento vigente lo haya otorgado un representante y rechazará crear o corregir consultas de ese menor (y emitir o corregir su informe de alta) hasta que se regularice. Para regularizar: carga al representante y registra un nuevo consentimiento otorgado por él.
+**Aviso de regularización y plazo.** Si el NNA no tiene un representante con "Puede otorgar consentimiento", o su consentimiento vigente lo otorgó él mismo (como se hacía antes), la ficha muestra un aviso ámbar con la fecha límite: **1 de diciembre de 2026**. Hasta esa fecha el consentimiento antiguo sigue sirviendo para crear consultas; desde entonces el sistema pedirá que el consentimiento vigente lo haya otorgado un representante y rechazará crear o corregir consultas de ese NNA (y emitir o corregir su informe de alta) hasta que se regularice. Para regularizar: carga al representante y registra un nuevo consentimiento otorgado por él.
 
 **Padres separados o en desacuerdo.** El sistema guarda el tipo de cuidado personal y la marca "Conflicto entre representantes", y las muestra en la ficha, pero **no bloquea** ninguna acción por ello. Qué autorización pedir y cuándo avanzar es una decisión del terapeuta; en caso de duda, conviene pedir asesoría legal.
 
-**Cobros y correos van al representante.** Para un menor, el link de pago y el aviso de cobro vencido se envían al representante con "Recibe comunicaciones" y email (se prefiere el marcado como pagador), con el nombre del paciente en el texto y sin datos clínicos. El correo del propio menor no se usa. Si no hay ningún representante con email, el correo no se envía y el cobro queda como "sin email"; al reenviar el link la app avisa que el menor no tiene representante con email. En ese caso el cobro queda creado pero sin link de pago, porque Flow necesita el email del pagador para emitirlo y el sistema no usa el tuyo en su lugar; el cobro muestra el motivo. Carga el email de un representante y usa "Reintentar cobro" para generar el link. Los recordatorios de sesión siguen llegando a ti.
+**Cobros y correos van al representante.** Para un NNA, el link de pago y el aviso de cobro vencido se envían al representante con "Recibe comunicaciones" y email (se prefiere el marcado como pagador), con el nombre del paciente en el texto y sin datos clínicos. El correo del propio NNA no se usa. Si no hay ningún representante con email, el correo no se envía y el cobro queda como "sin email"; al reenviar el link la app avisa que el NNA no tiene representante con email. En ese caso el cobro queda creado pero sin link de pago, porque Flow necesita el email del pagador para emitirlo y el sistema no usa el tuyo en su lugar; el cobro muestra el motivo. Carga el email de un representante y usa "Reintentar cobro" para generar el link. Los recordatorios de sesión siguen llegando a ti.
 
-**Reserva pública de un menor.** En la agenda pública (sección 13), quien reserva marca "Reservo para un menor de edad" e ingresa los datos del paciente y del representante (nombre, RUT, correo y teléfono opcional). El sistema valida que el paciente sea menor de 18 años y que el RUT del representante sea distinto al del paciente. Un menor se identifica por **su propio RUT** (no por el email del representante, porque un mismo representante puede reservar para dos hijos); si ya existe una ficha con ese RUT, solo se reutiliza si el RUT del representante coincide con uno ya registrado. En cualquier otro caso no se crea nada y quien reservó ve la misma confirmación que una reserva nueva (ver sección 13). Al crear una ficha nueva, el representante queda con todas las marcas activas (consiente, pagador, avisos e informes) y cuidado personal no informado. La reserva no registra consentimiento: debes cargarlo tú después.
+**Reserva pública de un NNA.** En la agenda pública (sección 13), quien reserva marca "Reservo para un NNA" e ingresa los datos del paciente y del representante (nombre, RUT, correo y teléfono opcional). El sistema valida que el paciente tenga menos de 18 años y que el RUT del representante sea distinto al del paciente. Un NNA se identifica por **su propio RUT** (no por el email del representante, porque un mismo representante puede reservar para dos hijos); si ya existe una ficha con ese RUT, solo se reutiliza si el RUT del representante coincide con uno ya registrado. En cualquier otro caso no se crea nada y quien reservó ve la misma confirmación que una reserva nueva (ver sección 13). Al crear una ficha nueva, el representante queda con todas las marcas activas (consiente, pagador, avisos e informes) y cuidado personal no informado. La reserva no registra consentimiento: debes cargarlo tú después.
 
 **Deber de denuncia y secreto profesional (guía, sin funcionalidad).** Esta guía requiere revisión legal y no está implementada en la app. Como orientación general, el Código Procesal Penal (art. 175) establece quiénes están obligados a denunciar ciertos delitos de los que toman conocimiento, y el secreto profesional tiene excepciones y tensiones con esa obligación y con el derecho de los padres a ser informados sobre un adolescente. La app no avisa ni decide por ti: ante sospecha de vulneración de derechos o de un delito contra un niño, niña o adolescente, consulta con asesoría legal o con tu colegio profesional antes de actuar, y deja constancia de tu decisión en la ficha.
 
@@ -177,7 +177,7 @@ Cuando termina el proceso con un paciente, la sección **Cierre del tratamiento*
 **Qué pasa al emitir.** Antes de confirmar, la app te muestra la lista de consultas futuras que se cancelarán, y esa acción **no se puede deshacer**. Al emitir:
 - el paciente pasa a **Alta**, **Derivado** o **Deserción**, y deja de recibir reservas desde la agenda pública;
 - se cancelan sus consultas futuras, se liberan los horarios de la agenda pública y se anulan los cobros pendientes de esas consultas;
-- se envía un correo al paciente avisando que sus consultas quedaron canceladas. **No incluye el motivo del cierre**. Si el paciente es menor, el correo va solo a los representantes con "Recibe comunicaciones" y email, nunca al correo del menor. Si no hay a quién avisar, el correo simplemente no se envía y el cierre sigue adelante;
+- se envía un correo al paciente avisando que sus consultas quedaron canceladas. **No incluye el motivo del cierre**. Si el paciente es NNA, el correo va solo a los representantes con "Recibe comunicaciones" y email, nunca al correo del NNA. Si no hay a quién avisar, el correo simplemente no se envía y el cierre sigue adelante;
 - el informe queda **inmutable** y con una huella digital (SHA-256) impresa en el pie del PDF.
 
 **Descargar, verificar y corregir.** Cada informe emitido tiene un ícono para **descargar el PDF** y otro para **verificar**: la verificación recalcula la huella y te dice si el registro del informe y el PDF guardado coinciden con la huella original. Es una comprobación de que no hubo cambios desde la emisión; no reemplaza una firma electrónica avanzada. Si necesitas cambiar algo, usa **Corregir**: se crea una versión nueva y la anterior queda como "Reemplazada", sin borrarse.
@@ -186,10 +186,10 @@ Cuando termina el proceso con un paciente, la sección **Cierre del tratamiento*
 
 **Entregar el informe.** El sistema **no envía** el informe por correo: lo descargas y lo entregas por tu cuenta, y luego lo registras en el bloque **Entregas** con **Registrar entrega**. Cada entrega guarda a quién, por qué canal (en persona, email, correo postal u otro), cuándo y para qué (la finalidad, sin datos clínicos). Las entregas solo se agregan; no se editan ni se borran.
 - **Paciente adulto:** se le entrega a él.
-- **Paciente menor de 18 años:** no se le entrega directamente; se entrega a un **representante con "Accede a informes"**. Si ninguno lo tiene marcado, la app te lo indica y debes actualizar su ficha.
+- **Paciente con menos de 18 años:** no se le entrega directamente; se entrega a un **representante con "Accede a informes"**. Si ninguno lo tiene marcado, la app te lo indica y debes actualizar su ficha.
 - **Tercero** (un colegio, otro profesional, un tribunal): necesitas una autorización ya cargada en la ficha, en Documentos legales, con el tipo **Autorización de entrega de informe**. Puede ser la autorización del paciente o de su representante, o el oficio de un tribunal. La app no revisa el contenido ni la formalidad del documento: esa verificación es tuya, y para registrar la entrega debes marcar una casilla confirmando que revisaste la autorización (queda guardada con la entrega). Según el art. 13 de la Ley 20.584, un tercero particular debe estar autorizado por el titular mediante **poder simple otorgado ante notario**; a los tribunales se les entrega la información de las causas que conocen, y a fiscales y abogados solo con autorización del juez. Si la autorización que cargaste no cumple esa formalidad, consulta con asesoría legal antes de entregar.
 
-**Deber de denuncia y secreto profesional.** Vale la misma guía que en "Pacientes menores de edad y representante legal": la app no avisa ni decide por ti, y ante dudas conviene asesoría legal antes de entregar o de callar información.
+**Deber de denuncia y secreto profesional.** Vale la misma guía que en "Pacientes NNA y representante legal": la app no avisa ni decide por ti, y ante dudas conviene asesoría legal antes de entregar o de callar información.
 
 **Pendiente de revisión legal.** Esta funcionalidad no pasó por una revisión legal. Siguen abiertas, entre otras, si la autorización que acepta la app cumple lo que exige el art. 13 de la Ley 20.584 para entregar a terceros, la vigencia del código de ética del Colegio de Psicólogos (solo se encontró la versión de 1996) y si una firma simple con huella digital basta para los usos que le des al informe (ver el ADR 0006).
 
@@ -305,7 +305,7 @@ botones:
 - **Copiar link de pago**: lo copia al portapapeles, útil para compartirlo
   por otro canal (WhatsApp, SMS, etc.).
 - **Reenviar link de pago**: vuelve a enviarlo por email al paciente (o al
-  representante, si es menor). Requiere que haya un email cargado.
+  representante, si es NNA). Requiere que haya un email cargado.
 - **Generar nuevo link**: pide confirmación y anula el link actual para emitir
   uno nuevo, que se envía por email. Sirve, por ejemplo, cuando un pago fue
   rechazado y el link anterior quedó inservible.
@@ -320,7 +320,7 @@ motivo y un botón **"Reintentar cobro"**. Al pulsarlo, la app vuelve a
 intentar crear el cobro con el monto que ese cobro ya tiene y, si lo logra, el
 link queda disponible para copiar o reenviar. Sirve, por ejemplo, cuando Flow
 rechazó la creación de forma transitoria, cuando reconectaste tu cuenta Flow o,
-en un menor, cuando cargaste el email de un representante. Solo sirve para
+en un NNA, cuando cargaste el email de un representante. Solo sirve para
 cobros pendientes o vencidos que aún no tienen link. El monto del cobro se
 fija al crearlo: cambiar después el monto de sesión del paciente no modifica
 los cobros ya creados, así que un cobro bajo el mínimo vuelve a ser rechazado
@@ -481,7 +481,7 @@ Estos tipos de notificación llegan hoy:
   contrario esa primera sesión queda sin generar cargo.
 - **Cobro vencido**: cuando un cobro pasa su fecha límite sin pago, te llega un
   aviso con el nombre del paciente (y se le envía un correo al paciente, o a su
-  representante si es menor, cuando hay email y el cobro tenía un enlace de
+  representante si es NNA, cuando hay email y el cobro tenía un enlace de
   pago). Si el cobro nunca llegó a tener enlace, por ejemplo porque el monto
   está bajo el mínimo de la pasarela, el aviso te llega igual a ti, pero no se
   le escribe al paciente: nunca se le pidió pagar.
@@ -578,7 +578,7 @@ sesión directamente, sin que tengas que agendarlos tú a mano.
   RUT también coincide con el de su ficha**, la reserva se liga
   automáticamente a esa ficha; si es alguien nuevo, se crea una ficha nueva
   con esos datos mínimos. Si el email existe pero el RUT no coincide, o la
-  ficha es de un menor o tiene el tratamiento cerrado, no se crea nada y quien
+  ficha es de un NNA o tiene el tratamiento cerrado, no se crea nada y quien
   reservó ve la misma pantalla de confirmación que una reserva nueva, para que
   nadie pueda averiguar quién es tu paciente. Si esa ficha tiene email, ese
   email recibe un aviso genérico de que la solicitud no pudo completarse (no
@@ -589,10 +589,10 @@ sesión directamente, sin que tengas que agendarlos tú a mano.
   motivo "Reserva pública en línea" y la intervención "Pendiente de definir
   por el terapeuta", como sesión presencial. Corrígela después con lo que
   corresponda (ver sección 4).
-- **Reserva para un menor de edad.** El formulario tiene la opción "Reservo
-  para un menor de edad", que pide además los datos del representante legal.
-  El detalle de cómo se identifica al menor y qué queda registrado está en la
-  sección 3 ("Pacientes menores de edad y representante legal").
+- **Reserva para un NNA.** El formulario tiene la opción "Reservo
+  para un NNA", que pide además los datos del representante legal.
+  El detalle de cómo se identifica al NNA y qué queda registrado está en la
+  sección 3 ("Pacientes NNA y representante legal").
 - **Pago al reservar.** Si el paciente que reserva ya tiene un monto de
   sesión en su ficha y tu cuenta Flow está conectada, al confirmar la reserva
   puede ver el botón "Pagar ahora" para ir a pagar de inmediato; si el link

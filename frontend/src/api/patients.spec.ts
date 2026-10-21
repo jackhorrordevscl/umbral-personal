@@ -52,7 +52,7 @@ describe('api/patients (issue #290)', () => {
     expect(mockedApi.get).toHaveBeenCalledWith('/patients/summary')
   })
 
-  describe('bloque Menores', () => {
+  describe('bloque NNA', () => {
     it('recordPatientConsent no envía grantedBy ni guardianId para un adulto', async () => {
       mockedApi.post.mockResolvedValue({ data: {} })
 
@@ -65,7 +65,7 @@ describe('api/patients (issue #290)', () => {
       })
     })
 
-    it('recordPatientConsent envía GUARDIAN y guardianId para el GRANT de un menor', async () => {
+    it('recordPatientConsent envía GUARDIAN y guardianId para el GRANT de un NNA', async () => {
       mockedApi.post.mockResolvedValue({ data: {} })
 
       await recordPatientConsent('p1', 'TREATMENT', 'GRANT', 'Evidencia suficiente', {

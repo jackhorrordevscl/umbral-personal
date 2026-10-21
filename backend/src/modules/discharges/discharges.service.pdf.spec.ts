@@ -343,7 +343,7 @@ describe('DischargesService PDF (T3)', () => {
         expect(input.guardians).toEqual([]);
       });
 
-      it('menor al emitir: pasa solo los representantes con canAccessReports', async () => {
+      it('NNA al emitir: pasa solo los representantes con canAccessReports', async () => {
         prisma.patient.findFirst.mockResolvedValue(MINOR);
         const guardians = [
           {
@@ -364,8 +364,8 @@ describe('DischargesService PDF (T3)', () => {
         expect(buildPdfSpy.mock.calls[0][0].guardians).toEqual(guardians);
       });
 
-      it('la edad se mide al emitir, no hoy: quien era menor al emitir sigue con representante', async () => {
-        // Cumplió 18 el 2026-10-05: era menor al emitir (2026-09-01) y hoy
+      it('la edad se mide al emitir, no hoy: quien era NNA al emitir sigue con representante', async () => {
+        // Cumplió 18 el 2026-10-05: era NNA al emitir (2026-09-01) y hoy
         // (2026-10-11 o después) ya es mayor.
         prisma.treatmentDischarge.findFirst.mockResolvedValue(
           issuedRow({ issuedAt: new Date('2026-09-01T15:00:00.000Z') }),
@@ -381,7 +381,7 @@ describe('DischargesService PDF (T3)', () => {
         expect(buildPdfSpy.mock.calls[0][0].guardians).toHaveLength(1);
       });
 
-      it('menor sin representantes con acceso: la lista va vacía y la sección se omite', async () => {
+      it('NNA sin representantes con acceso: la lista va vacía y la sección se omite', async () => {
         prisma.patient.findFirst.mockResolvedValue(MINOR);
         await service.ensurePdf('dis-1', 'therapist-1');
         expect(buildPdfSpy.mock.calls[0][0].guardians).toEqual([]);

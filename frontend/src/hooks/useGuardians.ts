@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as patientsApi from "../api/patients";
 import { patientKeys } from "./usePatients";
 
-// Representantes legales de un paciente menor (bloque Menores, M5).
+// Representantes legales de un paciente NNA (bloque NNA, M5).
 export function useGuardians(patientId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: patientKeys.guardians(patientId ?? ""),

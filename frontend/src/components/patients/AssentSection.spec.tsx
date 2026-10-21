@@ -134,7 +134,7 @@ describe('AssentSection', () => {
     mockedApi.post.mockRejectedValue(
       Object.assign(new Error('bad'), {
         isAxiosError: true,
-        response: { status: 400, data: { message: 'El paciente no es menor de edad' } },
+        response: { status: 400, data: { message: 'El paciente no es NNA' } },
       }),
     )
     renderSection()
@@ -142,6 +142,6 @@ describe('AssentSection', () => {
     await screen.findByText('Sin registros de asentimiento.')
     await user.click(screen.getByRole('button', { name: /registrar asentimiento/i }))
 
-    expect(await screen.findByText('El paciente no es menor de edad')).toBeInTheDocument()
+    expect(await screen.findByText('El paciente no es NNA')).toBeInTheDocument()
   })
 })

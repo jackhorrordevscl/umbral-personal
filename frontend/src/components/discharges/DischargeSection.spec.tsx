@@ -109,7 +109,7 @@ describe('DischargeSection', () => {
     expect(mockedApi.get).not.toHaveBeenCalledWith('/discharges/d2/deliveries')
   })
 
-  it('con un paciente menor el diálogo de entrega no ofrece "Paciente" (T4c)', async () => {
+  it('con un paciente NNA el diálogo de entrega no ofrece "Paciente" (T4c)', async () => {
     const user = userEvent.setup()
     renderSection([build({ id: 'd1' })], 'DISCHARGED', true)
 

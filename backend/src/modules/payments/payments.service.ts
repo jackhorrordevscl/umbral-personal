@@ -70,7 +70,7 @@ interface IssueOrderRequest {
   context: GatewayContext;
   amount: number;
   groupId: string;
-  // null = menor sin representante con email: no se emite la orden.
+  // null = NNA sin representante con email: no se emite la orden.
   payerEmail: string | null;
   // Token que el llamador leyó de la fila (null si nunca tuvo orden). La orden
   // nueva solo se guarda si la fila sigue igual (ver issueOrder).
@@ -87,7 +87,7 @@ class OrderSupersededException extends ConflictException {
 }
 
 const MINOR_WITHOUT_GUARDIAN_EMAIL_ERROR =
-  'Falta el email de un representante legal para emitir el cobro de este paciente menor de edad.';
+  'Falta el email de un representante legal para emitir el cobro de este paciente NNA.';
 
 // design.md "Technical Approach": PaymentsService is the sole owner of the
 // charge lifecycle. It never touches PaymentAccount rows or ciphertext
@@ -309,7 +309,7 @@ export class PaymentsService {
     if (!recipient.email) {
       if (recipient.kind === 'GUARDIAN') {
         this.logger.warn(
-          `Paciente menor sin representante con email: link de pago no enviado (paymentId=${paymentId})`,
+          `Paciente NNA sin representante con email: link de pago no enviado (paymentId=${paymentId})`,
         );
       }
       await this.prisma.payment.update({
@@ -592,7 +592,7 @@ export class PaymentsService {
     if (!recipient?.email) {
       throw new BadRequestException(
         recipient?.kind === 'GUARDIAN'
-          ? 'El paciente es menor de edad y no tiene un representante con email registrado.'
+          ? 'El paciente es un NNA y no tiene un representante con email registrado.'
           : 'El paciente no tiene un email registrado.',
       );
     }
@@ -1115,7 +1115,7 @@ export class PaymentsService {
 
     if (!payerEmail) {
       this.logger.warn(
-        `Cobro no emitido (paymentId=${paymentId}, groupId=${groupId}): menor sin representante con email`,
+        `Cobro no emitido (paymentId=${paymentId}, groupId=${groupId}): NNA sin representante con email`,
       );
       await this.prisma.payment
         .update({

@@ -891,7 +891,7 @@ export class DischargesService {
     });
     if (!patient) throw new NotFoundException('Paciente no encontrado');
 
-    // Representante(s) solo si el paciente era menor de 18 al emitir y pueden
+    // Representante(s) solo si el paciente tenía menos de 18 años al emitir y pueden
     // acceder a informes (canAccessReports); si no hay, la sección se omite.
     const guardians = isMinor(patient.birthDate, row.issuedAt)
       ? await this.prisma.legalGuardian.findMany({

@@ -128,7 +128,7 @@ export class DischargeDeliveriesService {
         });
         if (isMinor(discharge.patient.birthDate)) {
           throw new BadRequestException(
-            'El paciente es menor de 18 años: el informe se entrega a su representante.',
+            'El paciente tiene menos de 18 años: el informe se entrega a su representante.',
           );
         }
         return {
