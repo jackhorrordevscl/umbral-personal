@@ -12,6 +12,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { AuditService } from '../audit/audit.service';
 import { deterministicEventId } from './google-event-id.util';
 import {
+  MAX_CONSECUTIVE_TRANSIENT_FAILURES,
   MAX_RECONCILE_PAGES,
   RECONCILE_BATCH_LIMIT,
 } from './calendar-integration.constants';
@@ -152,6 +153,117 @@ describe('CalendarSyncService', () => {
       }),
     };
     service = buildService();
+  });
+
+  describe('reconcile — corte del ciclo por caída de Google (issue #497)', () => {
+    const OUTAGE_LIMIT = MAX_CONSECUTIVE_TRANSIENT_FAILURES;
+    const transient = () =>
+      new GoogleCalendarError('transient', 'Google no respondió');
+
+    // Dos conexiones; la primera tiene `count` links FAILED por reparar.
+    function arrangeFailedLinks(count: number) {
+      const links = Array.from({ length: count }, (_, i) => ({
+        id: `link-${i}`,
+        connectionId: 'connection-1',
+        groupId: `group-${i}`,
+        googleEventId: `event-${i}`,
+        lastSessionDate: new Date('2026-03-10T12:00:00.000Z'),
+        lastBodyHash: null,
+        syncStatus: 'FAILED',
+      }));
+      prisma.googleCalendarConnection.findMany.mockResolvedValue([
+        buildConnection(),
+        buildConnection({ id: 'connection-2', therapistId: 'therapist-2' }),
+      ]);
+      prisma.calendarEventLink.findMany.mockImplementation(
+        ({ where }: { where: Record<string, unknown> }) =>
+          Promise.resolve(
+            where.connectionId === 'connection-1' &&
+              where.syncStatus === 'FAILED'
+              ? links
+              : [],
+          ),
+      );
+      prisma.consultation.findMany.mockResolvedValue([]);
+      prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
+      prisma.googleCalendarConnection.findUnique.mockResolvedValue(
+        buildConnection(),
+      );
+      prisma.calendarEventLink.findUnique.mockResolvedValue(links[0]);
+    }
+
+    function lastSyncAtWrites(): number {
+      return (
+        prisma.googleCalendarConnection.updateMany.mock.calls as unknown[][]
+      ).filter(([args]) => 'lastSyncAt' in (args as { data: object }).data)
+        .length;
+    }
+
+    function touchedConnection2(): boolean {
+      return (
+        prisma.calendarEventLink.findMany.mock.calls as [
+          { where: Record<string, unknown> },
+        ][]
+      ).some(([args]) => args.where.connectionId === 'connection-2');
+    }
+
+    it(`corta el ciclo tras ${OUTAGE_LIMIT} fallos transitorios seguidos y no toca a las demás conexiones`, async () => {
+      arrangeFailedLinks(10);
+      googleCalendarClient.patchEvent.mockRejectedValue(transient());
+
+      await service.reconcile();
+
+      expect(googleCalendarClient.patchEvent).toHaveBeenCalledTimes(
+        OUTAGE_LIMIT,
+      );
+      expect(touchedConnection2()).toBe(false);
+      expect(lastSyncAtWrites()).toBe(0);
+    });
+
+    it('una respuesta de Google reinicia la cuenta de fallos seguidos', async () => {
+      arrangeFailedLinks(10);
+      for (let i = 0; i < 2; i++) {
+        for (let j = 0; j < OUTAGE_LIMIT - 1; j++) {
+          googleCalendarClient.patchEvent.mockRejectedValueOnce(transient());
+        }
+        googleCalendarClient.patchEvent.mockResolvedValueOnce({
+          id: 'event-1',
+        });
+      }
+
+      await service.reconcile();
+
+      expect(googleCalendarClient.patchEvent).toHaveBeenCalledTimes(
+        2 * OUTAGE_LIMIT,
+      );
+      expect(touchedConnection2()).toBe(true);
+    });
+
+    it('el ciclo siguiente reintenta desde cero aunque el anterior se haya cortado', async () => {
+      arrangeFailedLinks(10);
+      googleCalendarClient.patchEvent.mockRejectedValueOnce(transient());
+      googleCalendarClient.patchEvent.mockRejectedValue(transient());
+      await service.reconcile();
+      googleCalendarClient.patchEvent.mockReset();
+      googleCalendarClient.patchEvent.mockResolvedValue({ id: 'event-1' });
+
+      await service.reconcile();
+
+      expect(googleCalendarClient.patchEvent).toHaveBeenCalledTimes(10);
+    });
+
+    it('los intents fuera del ciclo nunca se cortan', async () => {
+      arrangeFailedLinks(1);
+      googleCalendarClient.patchEvent.mockRejectedValue(transient());
+
+      for (let i = 0; i < OUTAGE_LIMIT + 1; i++) {
+        await service.syncGroup('group-1');
+      }
+
+      expect(googleCalendarClient.patchEvent).toHaveBeenCalledTimes(
+        OUTAGE_LIMIT + 1,
+      );
+    });
   });
 
   describe('reconcile — lastSyncAt (issue #497)', () => {

@@ -23,6 +23,7 @@ import { deterministicEventId } from './google-event-id.util';
 import {
   BACKFILL_WINDOW_DAYS,
   CALENDAR_TIME_ZONE,
+  MAX_CONSECUTIVE_TRANSIENT_FAILURES,
   MAX_RECONCILE_PAGES,
   RECONCILE_BATCH_LIMIT,
 } from './calendar-integration.constants';
@@ -64,6 +65,10 @@ export class CalendarSyncService {
   private readonly logger = new Logger(CalendarSyncService.name);
   private readonly enabled: boolean;
   private reconciling = false;
+  // issue #497: fallos transitorios de Google seguidos, sin una respuesta buena
+  // entremedio. Solo corta el tick del reconciler (ver outageDetected); los
+  // intents de create()/correct() nunca se cortan.
+  private consecutiveTransientFailures = 0;
 
   constructor(
     private prisma: PrismaService,
@@ -127,6 +132,8 @@ export class CalendarSyncService {
       return;
     }
     this.reconciling = true;
+    // Cada tick parte de cero: un corte anterior no se arrastra.
+    this.consecutiveTransientFailures = 0;
     try {
       const connections = await this.prisma.googleCalendarConnection.findMany({
         where: { status: 'CONNECTED' },
@@ -137,15 +144,37 @@ export class CalendarSyncService {
       // cortaba el ciclo para todas las demás, y la misma conexión volvía a
       // bloquearlas en cada tick. Mismo criterio que CalendarBusyService.
       for (const connection of connections) {
+        if (this.outageDetected) break;
         await this.reconcileConnection(connection).catch((err: unknown) => {
           this.logger.error(
             `Reconcile: fallo inesperado en therapistId=${connection.therapistId}: ${err instanceof Error ? err.message : String(err)}`,
           );
         });
       }
+
+      if (this.outageDetected) {
+        this.logger.warn(
+          `Reconcile: ${MAX_CONSECUTIVE_TRANSIENT_FAILURES} fallos transitorios seguidos con Google; se corta el resto del tick y se reintenta en el próximo`,
+        );
+      }
     } finally {
       this.reconciling = false;
     }
+  }
+
+  // issue #497: Google parece caído. Solo vale dentro de un tick: las llamadas
+  // de un intent (create()/correct()) cuentan fallos pero nunca se cortan.
+  private get outageDetected(): boolean {
+    return (
+      this.reconciling &&
+      this.consecutiveTransientFailures >= MAX_CONSECUTIVE_TRANSIENT_FAILURES
+    );
+  }
+
+  // Google contestó (bien o con un error que no es de disponibilidad): corta la
+  // racha de fallos transitorios.
+  private googleResponded(): void {
+    this.consecutiveTransientFailures = 0;
   }
 
   // T5.7: único disparador real de borrado hoy (design.md "Confirmed
@@ -217,10 +246,16 @@ export class CalendarSyncService {
   private async reconcileConnection(
     connection: GoogleCalendarConnection,
   ): Promise<void> {
+    // issue #497: si Google parece caído, se abandona la conexión sin escribir
+    // lastSyncAt: el ciclo no se completó.
     await this.repairFailedLinks(connection);
+    if (this.outageDetected) return;
     await this.deleteForRemovedConsultations(connection);
+    if (this.outageDetected) return;
     await this.repairDriftedLinks(connection);
+    if (this.outageDetected) return;
     await this.backfill(connection);
+    if (this.outageDetected) return;
 
     // issue #497: última vez que Umbral completó el ciclo de esta conexión. Los
     // eventos que no se pudieron subir no cortan el ciclo (quedan FAILED y se
@@ -250,6 +285,7 @@ export class CalendarSyncService {
         }),
       async (links) => {
         for (const link of links) {
+          if (this.outageDetected) return;
           await this.syncGroup(link.groupId).catch((err: unknown) => {
             this.logger.error(
               `Reconcile: fallo al reparar link FAILED groupId=${link.groupId}: ${err instanceof Error ? err.message : String(err)}`,
@@ -278,6 +314,7 @@ export class CalendarSyncService {
 
       await handlePage(rows);
 
+      if (this.outageDetected) return;
       if (rows.length < RECONCILE_BATCH_LIMIT) return;
       last = rows[rows.length - 1];
     }
@@ -318,6 +355,7 @@ export class CalendarSyncService {
         const byGroupId = new Map(consultations.map((c) => [c.groupId, c]));
 
         for (const link of links) {
+          if (this.outageDetected) return;
           const consultation = byGroupId.get(link.groupId);
           const shouldDelete =
             !consultation ||
@@ -373,6 +411,7 @@ export class CalendarSyncService {
         const byGroupId = new Map(consultations.map((c) => [c.groupId, c]));
 
         for (const link of links) {
+          if (this.outageDetected) return;
           const consultation = byGroupId.get(link.groupId);
           if (!consultation) continue; // ya cubierto por deleteForRemovedConsultations
 
@@ -446,6 +485,7 @@ export class CalendarSyncService {
         );
 
         for (const candidate of candidates) {
+          if (this.outageDetected) return;
           if (linkedGroupIds.has(candidate.groupId)) continue;
 
           await this.syncGroup(candidate.groupId).catch((err: unknown) => {
@@ -487,6 +527,7 @@ export class CalendarSyncService {
           existingLink.googleEventId,
           eventBody,
         );
+        this.googleResponded();
         await this.prisma.calendarEventLink.update({
           where: { id: existingLink.id },
           data: {
@@ -509,6 +550,7 @@ export class CalendarSyncService {
         eventBody,
         deterministicEventId(connection.id, consultation.groupId),
       );
+      this.googleResponded();
       try {
         await this.prisma.calendarEventLink.create({
           data: {
@@ -545,6 +587,7 @@ export class CalendarSyncService {
       }
 
       if (err.kind === 'gone' && existingLink) {
+        this.googleResponded();
         // design.md "404/410 on patch or delete: drop the link; on patch,
         // recreate" -- el evento fue borrado en Google o el link quedó
         // obsoleto. Se descarta y se reintenta una vez como insert fresco
@@ -562,6 +605,7 @@ export class CalendarSyncService {
       // (design.md "the next reconcile tick retries"). Un insert fallido
       // sin link previo no deja rastro -- el backfill del reconciler lo
       // vuelve a intentar mientras la sesión siga en la ventana.
+      this.consecutiveTransientFailures++;
       this.logger.error(
         `Fallo al sincronizar groupId=${consultation.groupId} con Google Calendar: ${err.message}`,
       );
@@ -592,6 +636,7 @@ export class CalendarSyncService {
         connection.calendarId,
         link.googleEventId,
       );
+      this.googleResponded();
     } catch (err) {
       if (!(err instanceof GoogleCalendarError)) throw err;
 
@@ -600,6 +645,7 @@ export class CalendarSyncService {
         return;
       }
       if (err.kind === 'transient') {
+        this.consecutiveTransientFailures++;
         this.logger.error(
           `No se pudo eliminar el evento de Google (groupId=${groupId}): ${err.message}`,
         );
@@ -610,6 +656,7 @@ export class CalendarSyncService {
       }
       // 'gone': el evento ya no existe en Google -- se procede a limpiar el
       // link igual, es exactamente el estado final deseado.
+      this.googleResponded();
     }
 
     await this.prisma.calendarEventLink

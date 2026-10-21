@@ -19,6 +19,15 @@ export const RECONCILE_BATCH_LIMIT = 200;
 // reconciler recorriendo sin límite (50 x 200 = 10.000 filas por método).
 export const MAX_RECONCILE_PAGES = 50;
 
+// issue #497: cuántos fallos transitorios de Google seguidos (red, 5xx,
+// timeout o 403 de cuota, sin ninguna respuesta buena entremedio) cortan el
+// resto del tick del reconciler. Con Google caído cada llamada espera su
+// timeout completo y el tick podía durar horas, saltándose los siguientes para
+// todos los terapeutas. 5 tolera un error suelto de un terapeuta sin cortar
+// para los demás; es una estimación, no hay datos de producción que la
+// calibren. No se guarda estado: el tick siguiente parte de cero.
+export const MAX_CONSECUTIVE_TRANSIENT_FAILURES = 5;
+
 // Consultation no tiene columna de duración (design.md "Minimized event
 // body, fixed 50-minute duration") -- PR 2.
 export const DEFAULT_SESSION_MINUTES = 50;
