@@ -114,13 +114,13 @@ The system MUST push consultation changes to Google Calendar one-directionally, 
 
 ### Requirement: Content Minimization
 
-Every synced event MUST contain only the patient's initials, a non-reversible short code derived from the patient identifier (never `rut` or the full name), a generic title, the session time, and a deep link to Umbral. The event MUST NOT contain the full name, RUT, `sessionType`, or clinical text. Its duration MUST be the consultation's own `durationMinutes`.
+Every synced event MUST contain only the patient's initials, a non-reversible short code derived from the patient identifier (never `rut` or the full name), a generic title, the session time, and a fixed generic description that points the therapist to Umbral. The event MUST NOT contain the full name, RUT, `sessionType`, clinical text, any patient or consultation identifier, or any link. Its duration MUST be the consultation's own `durationMinutes`.
 
 #### Scenario: Minimized event content
 
 - GIVEN a consultation is pushed to Google Calendar
 - WHEN the event is created or updated
-- THEN it contains only initials, the short code, the session time and the Umbral link
+- THEN it contains only initials, the short code, the session time and the fixed generic description, with no identifiers and no link
 
 #### Scenario: sessionType excluded
 

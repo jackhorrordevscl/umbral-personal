@@ -205,7 +205,7 @@ describe('CalendarSyncService', () => {
       expect(serialized).not.toContain('IN_PERSON'); // sessionType
     });
 
-    it('el cuerpo del evento contiene las iniciales, el código corto y el deep link', async () => {
+    it('el cuerpo del evento lleva iniciales y código corto, y una descripción genérica sin ids ni enlaces', async () => {
       prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
       prisma.googleCalendarConnection.findUnique.mockResolvedValue(
         buildConnection(),
@@ -225,10 +225,11 @@ describe('CalendarSyncService', () => {
       ];
 
       expect(eventBody.summary).toContain('JM-');
-      expect(eventBody.description).toContain(
-        'https://app.umbral.cl/consultations?patientId=patient-1&consultationId=consultation-1',
-      );
-      expect(eventBody.description).not.toContain('/consultations/');
+      expect(eventBody.description).toContain('Umbral');
+      // issue #497: ningún id del paciente ni de la consulta, ni URL, sale a Google.
+      expect(eventBody.description).not.toContain('patient-1');
+      expect(eventBody.description).not.toContain('consultation-1');
+      expect(eventBody.description).not.toMatch(/https?:|\/consultations/);
     });
 
     it.each([45, 60])(
@@ -765,12 +766,21 @@ describe('CalendarSyncService', () => {
       expect(patches).toBe(1);
     });
 
-    it('parcha el evento si cambió el id de la consulta vigente (corrección)', async () => {
+    it('no parcha si solo cambió el id de la consulta vigente (ya no viaja en el evento)', async () => {
       const hash = await storedHashFor(buildConsultation());
 
       const patches = await patchesAfterReconcile(
         hash,
         buildConsultation({ id: 'consultation-2' }),
+      );
+
+      expect(patches).toBe(0);
+    });
+
+    it('parcha un evento cuya huella es de un cuerpo anterior (descripción con ids)', async () => {
+      const patches = await patchesAfterReconcile(
+        'huella-del-cuerpo-con-uuid',
+        buildConsultation(),
       );
 
       expect(patches).toBe(1);

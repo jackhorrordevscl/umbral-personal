@@ -27,7 +27,12 @@ import {
   RECONCILE_BATCH_LIMIT,
 } from './calendar-integration.constants';
 
-const DEFAULT_FRONTEND_URL = 'http://localhost:5173';
+// issue #497: descripción fija. No lleva ids ni enlaces: un UUID de paciente en
+// el evento es un identificador estable por paciente en manos de Google, y el
+// código corto del título se deriva de ese mismo id, así que lo anularía como
+// seudónimo.
+const EVENT_DESCRIPTION =
+  'Sesión agendada en Umbral. Revisa el detalle ingresando a tu cuenta de Umbral.\n\nLos cambios hechos aquí no vuelven a Umbral.';
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 // Formas mínimas que este servicio necesita de cada consulta -- nunca el
@@ -673,12 +678,11 @@ export class CalendarSyncService {
     });
   }
 
-  // design.md "Minimized event body": solo iniciales + código corto + deep
-  // link -- nunca rut, fullName completo, sessionType ni texto clínico
-  // (T6.3/T6.4). El evento cubre [sessionDate, sessionDate + durationMinutes)
-  // con la duración propia de la consulta (#336). El deep link usa el id de
-  // la versión vigente (el que ConsultationsPage busca en su listado); cada
-  // correct() re-sincroniza el grupo y parchea el evento con el id nuevo.
+  // design.md "Minimized event body": solo iniciales + código corto + una
+  // descripción genérica -- nunca rut, fullName completo, sessionType, texto
+  // clínico ni ids (T6.3/T6.4, #497). El evento cubre [sessionDate,
+  // sessionDate + durationMinutes) con la duración propia de la consulta
+  // (#336).
   private buildEventBody(
     consultation: SyncableConsultation,
   ): GoogleCalendarEventBody {
@@ -686,13 +690,11 @@ export class CalendarSyncService {
     const end = new Date(
       start.getTime() + consultation.durationMinutes * 60 * 1000,
     );
-    const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') ?? DEFAULT_FRONTEND_URL;
     const label = patientLabel(consultation.patient);
 
     return {
       summary: `Sesión — ${label}`,
-      description: `${frontendUrl}/consultations?patientId=${consultation.patient.id}&consultationId=${consultation.id}\n\nGestionado por Umbral — los cambios hechos aquí no vuelven a Umbral.`,
+      description: EVENT_DESCRIPTION,
       start: { dateTime: start.toISOString(), timeZone: CALENDAR_TIME_ZONE },
       end: { dateTime: end.toISOString(), timeZone: CALENDAR_TIME_ZONE },
       extendedProperties: { private: { umbralGroupId: consultation.groupId } },
