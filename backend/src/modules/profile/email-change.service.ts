@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -9,6 +10,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { AuditService } from '../audit/audit.service';
 import { normalizeEmail } from '../../common/utils/normalize-email.util';
+import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 
 // Issue #76: purpose de JWT propio para el cambio de email diferido, no
 // reutiliza 'email-verify' (AuthService) -- ese payload solo lleva `sub`, sin
@@ -44,6 +46,8 @@ function isUniqueConstraintError(err: unknown): boolean {
 
 @Injectable()
 export class EmailChangeService {
+  private readonly logger = new Logger(EmailChangeService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -103,7 +107,9 @@ export class EmailChangeService {
       newEmail,
     );
 
-    await this.auditService.log({
+    // Fail-open: la solicitud ya quedó guardada y los correos ya salieron;
+    // un fallo de auditoría no puede responder 500 sobre un pedido que existe.
+    await logAuditFailOpen(this.auditService, this.logger, {
       userId: user.id,
       action: 'EMAIL_CHANGE_REQUESTED',
       resource: 'User',
@@ -187,7 +193,10 @@ export class EmailChangeService {
       );
     }
 
-    await this.auditService.log({
+    // Fail-open: el email ya cambió y el token ya no sirve (el estado pendiente
+    // se limpió). Si la auditoría lanzara, el usuario vería un 500 y su
+    // reintento, "ya utilizado", con el cambio ya aplicado.
+    await logAuditFailOpen(this.auditService, this.logger, {
       userId: user.id,
       action: 'EMAIL_CHANGE_CONFIRMED',
       resource: 'User',

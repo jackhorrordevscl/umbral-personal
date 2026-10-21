@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -20,6 +21,7 @@ import {
 } from '../../common/utils/avatar-storage.util';
 import { isValidRut, normalizeRut } from '../../common/utils/rut.util';
 import { generateUniqueSlug } from '../../common/utils/slug.util';
+import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 import * as argon2 from 'argon2';
 
 const PROFILE_SELECT = {
@@ -44,6 +46,8 @@ const PROFILE_SELECT = {
 
 @Injectable()
 export class ProfileService {
+  private readonly logger = new Logger(ProfileService.name);
+
   constructor(
     private prisma: PrismaService,
     private emailChangeService: EmailChangeService,
@@ -218,39 +222,46 @@ export class ProfileService {
       // dueño real recupera la cuenta cambiando la password sin depender de
       // que el token de email-change expire solo.
       data.passwordChangedAt = new Date();
-      data.pendingEmail = null;
-      data.pendingEmailTokenIssuedAt = null;
+      // Con delta de email, requestChange (abajo) reemplaza igual cualquier
+      // pedido pendiente por el nuevo; limpiarlo acá lo borraría después.
+      if (!emailDelta) {
+        data.pendingEmail = null;
+        data.pendingEmailTokenIssuedAt = null;
+      }
     }
 
+    // Judgment-day #499: requestChange (que puede fallar por el correo) corre
+    // ANTES de aplicar la contraseña y el resto del perfil. Si falla, el
+    // request responde 500 sin haber cambiado la contraseña ni invalidado las
+    // sesiones: el reintento con la contraseña actual sigue siendo válido. Va
+    // después de armar `data` para que un dato inválido (RUT) rechace antes
+    // de enviar correos.
+    if (emailDelta) {
+      await this.emailChangeService.requestChange(
+        { id: user.id, email: user.email, name: user.name },
+        newEmail as string,
+      );
+    }
+
+    // El select final corre después de requestChange, así que devuelve el
+    // pendingEmail recién escrito sin una query extra.
     const updated = await this.prisma.user.update({
       where: { id },
       data,
       select: PROFILE_SELECT,
     });
 
-    // La contraseña ya quedó cambiada (y las sesiones invalidadas): se audita
-    // antes de requestChange, que puede fallar por el correo y dejaría el
-    // cambio sin registro.
+    // Fail-open: la contraseña ya quedó cambiada (y las sesiones invalidadas);
+    // un fallo de auditoría no puede responder 500 y hacer reintentar con la
+    // contraseña vieja.
     if (dto.password) {
-      await this.auditService.log({
+      await logAuditFailOpen(this.auditService, this.logger, {
         userId: id,
         action: 'PASSWORD_CHANGED',
         resource: 'User',
         resourceId: id,
         detail: 'Contraseña actualizada por el propio usuario (step-up auth)',
       });
-    }
-
-    if (emailDelta) {
-      await this.emailChangeService.requestChange(
-        { id: user.id, email: user.email, name: user.name },
-        newEmail as string,
-      );
-      // `updated` se leyó antes de que requestChange escribiera pendingEmail
-      // en la DB (segunda query, separada a propósito -- ver comentario de
-      // clase); el caller necesita ver el pendingEmail recién seteado en la
-      // respuesta sin pagar un tercer round-trip.
-      updated.pendingEmail = newEmail as string;
     }
 
     return updated;

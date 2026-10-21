@@ -1,4 +1,4 @@
-import { ConflictException, BadRequestException } from '@nestjs/common';
+import { ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { User } from '@prisma/client';
@@ -123,6 +123,30 @@ describe('EmailChangeService', () => {
         resourceId: 'user-1',
         detail: 'oldEmail=old@example.com newEmail=new@example.com',
       });
+    });
+
+    // Judgment-day #499: la solicitud ya quedó guardada y los correos ya
+    // salieron cuando se audita; un fallo de la auditoría no puede convertir
+    // eso en un 500 (el usuario reintentaría sobre un pedido que sí existe).
+    it('responde OK aunque la auditoría falle (los correos ya salieron)', async () => {
+      const loggerError = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      auditService.log.mockRejectedValue(new Error('audit down'));
+
+      await expect(
+        service.requestChange(
+          { id: 'user-1', email: 'old@example.com', name: 'Test User' },
+          'new@example.com',
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(mailService.sendEmailChangeVerificationEmail).toHaveBeenCalled();
+      expect(loggerError).toHaveBeenCalledWith(
+        expect.stringContaining('EMAIL_CHANGE_REQUESTED'),
+        expect.anything(),
+      );
+      loggerError.mockRestore();
     });
 
     it('guarda y envía pendingEmail en forma canónica (issue #303)', async () => {
@@ -294,6 +318,40 @@ describe('EmailChangeService', () => {
       expect(result).toEqual({
         message: 'Email actualizado correctamente.',
       });
+    });
+
+    // Judgment-day #499: el email ya cambió y el token ya no sirve cuando se
+    // audita; si la auditoría lanzara, el usuario vería un 500 y su
+    // reintento, "ya utilizado", con el cambio ya aplicado.
+    it('confirma el cambio y responde OK aunque la auditoría falle', async () => {
+      const loggerError = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'email-change',
+        pendingEmail: 'new@example.com',
+        changeIssuedAt: 1000,
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({
+          email: 'old@example.com',
+          pendingEmail: 'new@example.com',
+          pendingEmailTokenIssuedAt: new Date(1000),
+        }),
+      );
+      auditService.log.mockRejectedValue(new Error('audit down'));
+
+      await expect(service.confirm('token')).resolves.toEqual({
+        message: 'Email actualizado correctamente.',
+      });
+
+      expect(prisma.user.updateMany).toHaveBeenCalled();
+      expect(loggerError).toHaveBeenCalledWith(
+        expect.stringContaining('EMAIL_CHANGE_CONFIRMED'),
+        expect.anything(),
+      );
+      loggerError.mockRestore();
     });
 
     it('lanza 409 si la dirección pendiente fue tomada por otra cuenta entre la solicitud y la confirmación', async () => {
