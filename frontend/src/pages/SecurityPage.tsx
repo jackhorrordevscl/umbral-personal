@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { formatChileShortDateTime } from '../utils/datetime';
-import { ShieldCheck, ShieldOff, QrCode, Calendar, UserPlus, Copy } from 'lucide-react';
+import { ShieldCheck, ShieldOff, QrCode, Calendar, UserPlus, Copy, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import { getApiErrorMessage } from '../utils/api-error';
 import { normalizeMfaCode } from '../utils/mfa-code';
@@ -339,6 +339,17 @@ function InviteCard() {
 // extraído de SettingsPage.tsx -- esta página cubre MFA, historial de
 // seguridad y el panel de Google Calendar (account-settings Req: Security
 // Section Scope). El nombre/email/password quedaron en ProfilePage.
+// issue #497: aviso (no bloqueante) de una sincronización con Google Calendar
+// que está fallando; el backend reintenta solo en el siguiente ciclo.
+function CalendarSyncWarning({ message }: { message: string }) {
+  return (
+    <div className="flex items-start gap-2">
+      <AlertCircle size={14} className="text-amber-600 shrink-0 mt-0.5" />
+      <p className="text-xs text-amber-700">{message}</p>
+    </div>
+  );
+}
+
 export default function SecurityPage() {
   const [searchParams] = useSearchParams();
 
@@ -505,6 +516,23 @@ export default function SecurityPage() {
                 <ShieldCheck size={18} />
                 <p className="text-sm font-medium">Conectado</p>
               </div>
+              <p className="text-sm text-slate-500">
+                {calendarStatus.lastSyncAt
+                  ? `Última sincronización: ${formatChileShortDateTime(calendarStatus.lastSyncAt)}`
+                  : 'Primera sincronización pendiente.'}
+              </p>
+              {calendarStatus.failedEvents > 0 && (
+                <CalendarSyncWarning
+                  message={
+                    calendarStatus.failedEvents === 1
+                      ? '1 sesión no se pudo enviar a tu Google Calendar. Se reintentará automáticamente.'
+                      : `${calendarStatus.failedEvents} sesiones no se pudieron enviar a tu Google Calendar. Se reintentará automáticamente.`
+                  }
+                />
+              )}
+              {calendarStatus.busySyncFailed && (
+                <CalendarSyncWarning message="No se pudo leer la disponibilidad de tu Google Calendar. Se reintentará automáticamente." />
+              )}
               <button
                 type="button"
                 onClick={handleDisconnectGoogle}

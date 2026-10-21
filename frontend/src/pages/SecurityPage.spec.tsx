@@ -175,6 +175,83 @@ describe('SecurityPage — account-settings Req: Security Section Scope', () => 
     ).toBeInTheDocument()
   })
 
+  // issue #497: el terapeuta debe poder ver si la sincronización está fallando.
+  describe('estado de la sincronización con Google Calendar', () => {
+    it('muestra la última sincronización y ningún aviso cuando todo va bien', async () => {
+      mockGets(
+        baseProfile(),
+        baseCalendarStatus({
+          status: 'CONNECTED',
+          lastSyncAt: '2026-10-21T15:00:00Z',
+          failedEvents: 0,
+          busySyncFailed: false,
+        }),
+      )
+
+      renderSecurityPage()
+
+      expect(await screen.findByText(/Última sincronización:/)).toBeInTheDocument()
+      expect(screen.queryByText(/no se pudieron enviar/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/disponibilidad/i)).not.toBeInTheDocument()
+    })
+
+    it('sin sincronización todavía, avisa que la primera está pendiente', async () => {
+      mockGets(
+        baseProfile(),
+        baseCalendarStatus({ status: 'CONNECTED', lastSyncAt: null }),
+      )
+
+      renderSecurityPage()
+
+      expect(await screen.findByText('Primera sincronización pendiente.')).toBeInTheDocument()
+    })
+
+    it('avisa cuántas sesiones no se pudieron enviar y que se reintenta solo', async () => {
+      mockGets(
+        baseProfile(),
+        baseCalendarStatus({ status: 'CONNECTED', failedEvents: 3 }),
+      )
+
+      renderSecurityPage()
+
+      expect(
+        await screen.findByText(
+          '3 sesiones no se pudieron enviar a tu Google Calendar. Se reintentará automáticamente.',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('usa el singular con una sola sesión fallida', async () => {
+      mockGets(
+        baseProfile(),
+        baseCalendarStatus({ status: 'CONNECTED', failedEvents: 1 }),
+      )
+
+      renderSecurityPage()
+
+      expect(
+        await screen.findByText(
+          '1 sesión no se pudo enviar a tu Google Calendar. Se reintentará automáticamente.',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('avisa si falló la lectura de la disponibilidad', async () => {
+      mockGets(
+        baseProfile(),
+        baseCalendarStatus({ status: 'CONNECTED', busySyncFailed: true }),
+      )
+
+      renderSecurityPage()
+
+      expect(
+        await screen.findByText(
+          'No se pudo leer la disponibilidad de tu Google Calendar. Se reintentará automáticamente.',
+        ),
+      ).toBeInTheDocument()
+    })
+  })
+
   it('no muestra ningún campo de identidad de cuenta (nombre/email/password quedan en Perfil)', async () => {
     renderSecurityPage()
 

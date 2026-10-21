@@ -98,6 +98,94 @@ function stubOAuth2Client(
 }
 
 describe('CalendarOauthService', () => {
+  // issue #497: el terapeuta debe poder ver si la sincronización está fallando.
+  describe('getStatus', () => {
+    function buildService(
+      connection: Record<string, unknown> | null,
+      failedEvents = 0,
+    ) {
+      const { prisma, connectionMock } = buildPrismaMock();
+      connectionMock.findUnique.mockResolvedValue(connection);
+      const count = jest.fn().mockResolvedValue(failedEvents);
+      (prisma as unknown as { calendarEventLink: unknown }).calendarEventLink =
+        { count };
+      const service = new CalendarOauthService(
+        prisma,
+        buildJwt(),
+        buildConfig(),
+        buildTokenCrypto(),
+        buildAuditServiceMock().auditService,
+      );
+      return { service, count };
+    }
+
+    const connected = {
+      id: 'connection-1',
+      status: 'CONNECTED',
+      googleAccountEmail: null,
+      connectedAt: new Date('2026-10-01T00:00:00Z'),
+      lastSyncAt: new Date('2026-10-21T12:00:00Z'),
+      lastError: null,
+      busySyncError: null,
+    };
+
+    it('informa los eventos FAILED y el fallo de ocupación de una conexión CONNECTED', async () => {
+      const { service, count } = buildService(
+        { ...connected, busySyncError: 'timeout' },
+        3,
+      );
+
+      const status = await service.getStatus('therapist-1');
+
+      expect(count).toHaveBeenCalledWith({
+        where: { connectionId: 'connection-1', syncStatus: 'FAILED' },
+      });
+      expect(status).toEqual({
+        status: 'CONNECTED',
+        googleAccountEmail: null,
+        connectedAt: connected.connectedAt,
+        lastSyncAt: connected.lastSyncAt,
+        lastError: null,
+        failedEvents: 3,
+        busySyncFailed: true,
+      });
+    });
+
+    it('no expone el texto del error de ocupación ni el id de la conexión', async () => {
+      const { service } = buildService({ ...connected, busySyncError: 'x' });
+
+      const status = await service.getStatus('therapist-1');
+
+      expect(status).not.toHaveProperty('busySyncError');
+      expect(status).not.toHaveProperty('id');
+    });
+
+    it('sin conexión devuelve el estado PENDING sin contar eventos', async () => {
+      const { service, count } = buildService(null);
+
+      const status = await service.getStatus('therapist-1');
+
+      expect(status).toMatchObject({
+        status: 'PENDING',
+        failedEvents: 0,
+        busySyncFailed: false,
+      });
+      expect(count).not.toHaveBeenCalled();
+    });
+
+    it('una conexión DISCONNECTED no cuenta eventos FAILED', async () => {
+      const { service, count } = buildService(
+        { ...connected, status: 'DISCONNECTED', busySyncError: 'x' },
+        5,
+      );
+
+      const status = await service.getStatus('therapist-1');
+
+      expect(count).not.toHaveBeenCalled();
+      expect(status).toMatchObject({ failedEvents: 0, busySyncFailed: false });
+    });
+  });
+
   describe('verifyAndConsumeState', () => {
     const therapistId = 'therapist-1';
     const nonce = 'a-fixed-nonce-value';

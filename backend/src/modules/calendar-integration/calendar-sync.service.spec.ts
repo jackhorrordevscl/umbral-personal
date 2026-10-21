@@ -154,6 +154,50 @@ describe('CalendarSyncService', () => {
     service = buildService();
   });
 
+  describe('reconcile — lastSyncAt (issue #497)', () => {
+    function lastSyncAtWrites(): unknown[] {
+      return (
+        prisma.googleCalendarConnection.updateMany.mock.calls as unknown[][]
+      )
+        .map(([args]) => args as { data: Record<string, unknown> })
+        .filter(({ data }) => 'lastSyncAt' in data);
+    }
+
+    it('escribe lastSyncAt al terminar el ciclo de una conexión CONNECTED', async () => {
+      prisma.googleCalendarConnection.findMany.mockResolvedValue([
+        buildConnection(),
+      ]);
+      prisma.calendarEventLink.findMany.mockResolvedValue([]);
+      prisma.consultation.findMany.mockResolvedValue([]);
+
+      await service.reconcile();
+
+      const writes = lastSyncAtWrites() as {
+        where: Record<string, unknown>;
+        data: { lastSyncAt: unknown };
+      }[];
+      expect(writes).toHaveLength(1);
+      expect(writes[0].where).toEqual({
+        id: 'connection-1',
+        status: 'CONNECTED',
+      });
+      expect(writes[0].data.lastSyncAt).toBeInstanceOf(Date);
+    });
+
+    it('no escribe lastSyncAt si el ciclo de la conexión falló', async () => {
+      prisma.googleCalendarConnection.findMany.mockResolvedValue([
+        buildConnection(),
+      ]);
+      prisma.calendarEventLink.findMany.mockRejectedValue(
+        new Error('db caída'),
+      );
+
+      await service.reconcile();
+
+      expect(lastSyncAtWrites()).toHaveLength(0);
+    });
+  });
+
   describe('syncGroup — minimización de contenido (T6.3/T6.4)', () => {
     it('crea un evento nuevo cuando no existe link previo', async () => {
       prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
