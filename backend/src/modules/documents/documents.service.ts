@@ -86,6 +86,20 @@ export class DocumentsService {
     // un objeto huérfano que limpiar.
     const patient = await this.patientsService.assertAccess(patientId, userId);
 
+    // Judgment-day #499: el groupId llega del cliente; sin este chequeo un
+    // documento de este paciente quedaba atado a la consulta de otro paciente
+    // (u otro terapeuta). Se valida contra el paciente ya autorizado, antes de
+    // subir nada a B2.
+    if (consultationGroupId) {
+      const consultation = await this.prisma.consultation.findFirst({
+        where: { groupId: consultationGroupId, patientId },
+        select: { id: true },
+      });
+      if (!consultation) {
+        throw new NotFoundException('Consulta no encontrada');
+      }
+    }
+
     // M2b: la edad se calcula en el servidor. Para un NNA, el documento de
     // consentimiento lo firma su representante: se exige y valida ANTES de
     // guardar el archivo (si no, quedaría un documento sin evento en el
@@ -311,10 +325,13 @@ export class DocumentsService {
     // Lanza NotFoundException si el usuario no tiene acceso a este paciente
     await this.patientsService.assertAccess(patientId, userId);
 
+    // El listado no necesita la clave del objeto en B2 ni quién anuló: la
+    // descarga resuelve `storagePath` por id en el servidor.
     return this.prisma.patientDocument.findMany({
       where: { patientId },
       orderBy: { uploadedAt: 'desc' },
       take: UNPAGINATED_SAFETY_LIMIT,
+      omit: { storagePath: true, voidedById: true },
     });
   }
 

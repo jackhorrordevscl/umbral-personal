@@ -276,6 +276,10 @@ describe('Documents encryption at rest (e2e)', () => {
       expect(
         (list.body as Array<{ id: string }>).some((d) => d.id === doc.id),
       ).toBe(true);
+      for (const listed of list.body as Array<Record<string, unknown>>) {
+        expect(listed).not.toHaveProperty('storagePath');
+        expect(listed).not.toHaveProperty('voidedById');
+      }
 
       await request(app.getHttpServer())
         .post(`/api/v1/documents/${doc.id}/void`)
