@@ -452,6 +452,17 @@ export default function PatientsPage() {
                 documentsApi.uploadPatientDocument(patient.id, doc.file, doc.type),
               ),
             );
+            const unrecordedDocs = docsToUpload.filter((_, i) => {
+              const r = results[i];
+              return r.status === "fulfilled" && r.value.data?.consentRecorded === false;
+            });
+            if (unrecordedDocs.length > 0) {
+              messages.push(
+                `Se subieron ${unrecordedDocs.length} documento(s) de consentimiento, pero no se pudo registrar el consentimiento: ${unrecordedDocs
+                  .map((d) => d.file.name)
+                  .join(", ")}. Regístralo manualmente desde la ficha del paciente.`,
+              );
+            }
             const failedDocs = docsToUpload.filter((_, i) => results[i].status === "rejected");
             if (failedDocs.length > 0) {
               messages.push(

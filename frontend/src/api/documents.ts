@@ -20,7 +20,9 @@ export function uploadPatientDocument(
   formData.append('type', type);
   if (consultationGroupId) formData.append('consultationGroupId', consultationGroupId);
   if (guardianId) formData.append('guardianId', guardianId);
-  return api.post('/documents/upload', formData, {
+  // consentRecorded solo viaja (en false) si el documento se guardó pero el
+  // evento de consentimiento no se pudo registrar.
+  return api.post<{ consentRecorded?: false }>('/documents/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
 }

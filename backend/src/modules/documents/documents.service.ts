@@ -191,6 +191,7 @@ export class DocumentsService {
       `Documento subido: id=${doc.id} patientId=${patientId} userId=${userId}`,
     );
 
+    let consentRecorded = true;
     if (purpose) {
       try {
         await this.patientsService.recordConsent(
@@ -211,7 +212,10 @@ export class DocumentsService {
         // No revertimos el documento ya subido -- si esto falla, el
         // paciente queda igual que antes de este cambio (sin evento en el
         // ledger), y el guardrail de #131 sigue bloqueando el tratamiento
-        // hasta que se resuelva. Fallar "cerrado", no "abierto".
+        // hasta que se resuelva. Fallar "cerrado", no "abierto". La respuesta
+        // lo avisa (consentRecorded: false) para que quien sube sepa que el
+        // consentimiento hay que registrarlo a mano.
+        consentRecorded = false;
         this.logger.error(
           `Fallo al registrar consentimiento automático: documentId=${doc.id} patientId=${patientId} — ${err instanceof Error ? err.message : err}`,
           err instanceof Error ? err.stack : undefined,
@@ -219,7 +223,8 @@ export class DocumentsService {
       }
     }
 
-    return doc;
+    // El flag solo viaja cuando falló: el resto de las respuestas no cambia.
+    return consentRecorded ? doc : { ...doc, consentRecorded: false as const };
   }
 
   // T3: guarda un documento generado por el sistema (p. ej. el PDF del informe

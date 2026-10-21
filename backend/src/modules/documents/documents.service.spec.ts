@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
@@ -531,11 +532,54 @@ describe('DocumentsService', () => {
       );
 
       // El documento se creó igual -- uploadDocument() no propaga el error
-      // de recordConsent(), solo lo loguea.
+      // de recordConsent(), lo loguea y lo avisa en la respuesta.
       expect(result).toEqual(
         expect.objectContaining({ id: 'doc-1', patientId: 'patient-1' }),
       );
       expect(prisma.patientDocument.create).toHaveBeenCalledTimes(1);
+    });
+
+    // Judgment-day #499: la subida responde 201 aunque el evento no se
+    // anotó; sin esta señal quien sube cree que el consentimiento quedó
+    // registrado y recién se entera cuando el tratamiento sigue bloqueado.
+    it('si recordConsent() falla, la respuesta lo avisa con consentRecorded: false', async () => {
+      const loggerError = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      patientsService.recordConsent.mockRejectedValue(new Error('DB caída'));
+
+      const result = await service.uploadDocument(
+        'patient-1',
+        'therapist-1',
+        buildFile(),
+        'INFORMED_CONSENT',
+      );
+
+      expect(result).toMatchObject({ id: 'doc-1', consentRecorded: false });
+      expect(loggerError).toHaveBeenCalled();
+      loggerError.mockRestore();
+    });
+
+    it('si el consentimiento se registra, la respuesta no trae consentRecorded', async () => {
+      const result = await service.uploadDocument(
+        'patient-1',
+        'therapist-1',
+        buildFile(),
+        'INFORMED_CONSENT',
+      );
+
+      expect(result).not.toHaveProperty('consentRecorded');
+    });
+
+    it('un tipo sin propósito de consentimiento no trae consentRecorded', async () => {
+      const result = await service.uploadDocument(
+        'patient-1',
+        'therapist-1',
+        buildFile(),
+        'OTHER',
+      );
+
+      expect(result).not.toHaveProperty('consentRecorded');
     });
 
     it('valida acceso al paciente antes de subir nada a B2', async () => {

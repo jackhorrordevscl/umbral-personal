@@ -373,6 +373,29 @@ describe('PatientModal — pacientes NNA (bloque NNA, M5)', () => {
     expect((mockedApi.post.mock.calls[0][1] as FormData).has('guardianId')).toBe(false)
   })
 
+  it('si el backend no pudo registrar el consentimiento, avisa que hay que registrarlo a mano', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockResolvedValue({ data: [] })
+    mockedApi.post.mockResolvedValue({ data: { id: 'doc-9', consentRecorded: false } })
+    const { container } = renderModal()
+
+    await user.upload(fileInput(container), new File(['x'], 'firma.pdf', { type: 'application/pdf' }))
+
+    expect(await screen.findByText(/no se pudo registrar el consentimiento/i)).toBeInTheDocument()
+  })
+
+  it('si el consentimiento se registró, no muestra ninguna advertencia', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockResolvedValue({ data: [] })
+    mockedApi.post.mockResolvedValue({ data: { id: 'doc-9' } })
+    const { container } = renderModal()
+
+    await user.upload(fileInput(container), new File(['x'], 'firma.pdf', { type: 'application/pdf' }))
+
+    await waitFor(() => expect(mockedApi.post).toHaveBeenCalled())
+    expect(screen.queryByText(/no se pudo registrar el consentimiento/i)).not.toBeInTheDocument()
+  })
+
   it('al otorgar un consentimiento desde la edición envía GUARDIAN y el guardianId', async () => {
     const user = userEvent.setup()
     mockMinorApi([guardian])
