@@ -260,7 +260,16 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
     uploadDocument.mutate(
       { file, type: docType, guardianId },
       {
-        onSuccess: refreshSelected,
+        onSuccess: (res) => {
+          // Judgment-day #499: el documento se guardó pero el backend no pudo
+          // anotar el consentimiento en el registro.
+          if (res.data?.consentRecorded === false) {
+            setDocError(
+              "El documento se subió, pero no se pudo registrar el consentimiento. Regístralo manualmente desde la ficha.",
+            );
+          }
+          refreshSelected();
+        },
         onSettled: () => {
           if (fileInputRef.current) fileInputRef.current.value = "";
         },
