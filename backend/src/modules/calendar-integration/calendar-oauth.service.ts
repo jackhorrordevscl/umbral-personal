@@ -33,6 +33,11 @@ export interface CalendarConnectionStatus {
   connectedAt: Date | null;
   lastSyncAt: Date | null;
   lastError: string | null;
+  // issue #497: lo que hoy solo queda en los logs. Cantidad de eventos que no se
+  // pudieron subir a Google y si falló el último refresco de ocupación; el
+  // texto del error no sale del backend.
+  failedEvents: number;
+  busySyncFailed: boolean;
 }
 
 // googleAccountEmail queda siempre null: el scope pedido es solo `calendar.events`
@@ -44,6 +49,8 @@ const DEFAULT_STATUS: CalendarConnectionStatus = {
   connectedAt: null,
   lastSyncAt: null,
   lastError: null,
+  failedEvents: 0,
+  busySyncFailed: false,
 };
 
 // design.md "The OAuth callback is unauthenticated; identity travels in a
@@ -87,15 +94,36 @@ export class CalendarOauthService {
     const connection = await this.prisma.googleCalendarConnection.findUnique({
       where: { therapistId },
       select: {
+        id: true,
         status: true,
         googleAccountEmail: true,
         connectedAt: true,
         lastSyncAt: true,
         lastError: true,
+        busySyncError: true,
       },
     });
 
-    return connection ?? DEFAULT_STATUS;
+    if (!connection) return DEFAULT_STATUS;
+
+    // Solo una conexión activa tiene sincronización que mostrar: al desconectar
+    // se pierden las advertencias de una sincronización que ya no corre.
+    const connected = connection.status === 'CONNECTED';
+    const failedEvents = connected
+      ? await this.prisma.calendarEventLink.count({
+          where: { connectionId: connection.id, syncStatus: 'FAILED' },
+        })
+      : 0;
+
+    return {
+      status: connection.status,
+      googleAccountEmail: connection.googleAccountEmail,
+      connectedAt: connection.connectedAt,
+      lastSyncAt: connection.lastSyncAt,
+      lastError: connection.lastError,
+      failedEvents,
+      busySyncFailed: connected && connection.busySyncError !== null,
+    };
   }
 
   // `bindingToken` lo debe dejar el controller en la cookie del navegador; el

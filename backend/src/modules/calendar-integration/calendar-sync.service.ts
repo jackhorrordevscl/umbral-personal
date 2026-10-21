@@ -221,6 +221,16 @@ export class CalendarSyncService {
     await this.deleteForRemovedConsultations(connection);
     await this.repairDriftedLinks(connection);
     await this.backfill(connection);
+
+    // issue #497: última vez que Umbral completó el ciclo de esta conexión. Los
+    // eventos que no se pudieron subir no cortan el ciclo (quedan FAILED y se
+    // informan aparte); si algo lanza, este punto no se alcanza y la fecha no
+    // avanza. El filtro por estado evita escribir sobre una conexión que
+    // handleInvalidGrant desconectó durante el ciclo.
+    await this.prisma.googleCalendarConnection.updateMany({
+      where: { id: connection.id, status: 'CONNECTED' },
+      data: { lastSyncAt: new Date() },
+    });
   }
 
   private async repairFailedLinks(

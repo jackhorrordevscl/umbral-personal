@@ -7,6 +7,10 @@ export interface CalendarConnectionStatus {
   connectedAt: string | null;
   lastSyncAt: string | null;
   lastError: string | null;
+  // issue #497: sesiones que no se pudieron enviar a Google y si falló la
+  // lectura de la disponibilidad; el backend los reintenta solo.
+  failedEvents: number;
+  busySyncFailed: boolean;
 }
 
 // issue #122: mismo patrón react-query que usePaymentAccount.ts --
