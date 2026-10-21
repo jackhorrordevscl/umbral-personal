@@ -156,7 +156,9 @@ describe('CalendarSyncService', () => {
 
   describe('reconcile — lastSyncAt (issue #497)', () => {
     function lastSyncAtWrites(): unknown[] {
-      return (prisma.googleCalendarConnection.updateMany.mock.calls as unknown[][])
+      return (
+        prisma.googleCalendarConnection.updateMany.mock.calls as unknown[][]
+      )
         .map(([args]) => args as { data: Record<string, unknown> })
         .filter(({ data }) => 'lastSyncAt' in data);
     }
@@ -186,7 +188,9 @@ describe('CalendarSyncService', () => {
       prisma.googleCalendarConnection.findMany.mockResolvedValue([
         buildConnection(),
       ]);
-      prisma.calendarEventLink.findMany.mockRejectedValue(new Error('db caída'));
+      prisma.calendarEventLink.findMany.mockRejectedValue(
+        new Error('db caída'),
+      );
 
       await service.reconcile();
 
