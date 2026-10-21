@@ -24,6 +24,17 @@ export function slugify(name: string): string {
   return slug || DEFAULT_SLUG;
 }
 
+// Prisma informa el campo del índice único en meta.target (arreglo o texto):
+// distingue un P2002 por el slug de uno por otra columna única (p. ej. email).
+export function isSlugConflict(err: {
+  meta?: Record<string, unknown>;
+}): boolean {
+  const target = err.meta?.target;
+  return Array.isArray(target)
+    ? target.includes('slug')
+    : typeof target === 'string' && target.includes('slug');
+}
+
 // Subconjunto estructural de PrismaService / TransactionClient, para poder
 // usarlo dentro o fuera de una transacción.
 export interface SlugLookupClient {

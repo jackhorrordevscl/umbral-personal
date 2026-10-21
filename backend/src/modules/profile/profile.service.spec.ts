@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
-import { User } from '@prisma/client';
+import { Prisma, User } from '@prisma/client';
 import { ProfileService } from './profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailChangeService } from './email-change.service';
@@ -239,6 +239,72 @@ describe('ProfileService', () => {
           data: { name: 'Ana Pérez', slug: 'ana-perez-2' },
         }) as unknown as Record<string, unknown>,
       );
+    });
+
+    // Judgment-day #499: entre calcular el slug y guardarlo, otra cuenta puede
+    // tomarlo; el índice único (P2002) lo frena y se recalcula en vez de
+    // responder 500.
+    describe('si otra cuenta toma el slug entre el cálculo y el guardado', () => {
+      const slugConflict = () =>
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+          meta: { target: ['slug'] },
+        });
+
+      beforeEach(() => {
+        prisma.user.findFirst.mockResolvedValue(
+          buildUser({ slug: 'test-user' }),
+        );
+      });
+
+      it('recalcula el slug y reintenta el guardado con el siguiente sufijo', async () => {
+        prisma.user.findMany
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([{ slug: 'ana-perez' }]);
+        prisma.user.update
+          .mockRejectedValueOnce(slugConflict())
+          .mockResolvedValueOnce(buildUser({ name: 'Ana Pérez' }));
+
+        await service.update('user-1', { name: 'Ana Pérez' });
+
+        expect(prisma.user.update).toHaveBeenCalledTimes(2);
+        expect(prisma.user.update).toHaveBeenNthCalledWith(
+          1,
+          expect.objectContaining({
+            data: { name: 'Ana Pérez', slug: 'ana-perez' },
+          }) as unknown as Record<string, unknown>,
+        );
+        expect(prisma.user.update).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({
+            data: { name: 'Ana Pérez', slug: 'ana-perez-2' },
+          }) as unknown as Record<string, unknown>,
+        );
+      });
+
+      it('no reintenta un choque en otra columna única: relanza el error', async () => {
+        const otherConflict = new Prisma.PrismaClientKnownRequestError(
+          'Unique constraint failed',
+          { code: 'P2002', clientVersion: 'test', meta: { target: ['email'] } },
+        );
+        prisma.user.update.mockRejectedValue(otherConflict);
+
+        await expect(
+          service.update('user-1', { name: 'Ana Pérez' }),
+        ).rejects.toBe(otherConflict);
+        expect(prisma.user.update).toHaveBeenCalledTimes(1);
+      });
+
+      it('si el choque persiste, se rinde tras 3 intentos y relanza el error', async () => {
+        const conflict = slugConflict();
+        prisma.user.update.mockRejectedValue(conflict);
+
+        await expect(
+          service.update('user-1', { name: 'Ana Pérez' }),
+        ).rejects.toBe(conflict);
+        expect(prisma.user.update).toHaveBeenCalledTimes(3);
+      });
     });
 
     it('no toca el slug si el nombre enviado es el mismo y ya hay slug', async () => {
