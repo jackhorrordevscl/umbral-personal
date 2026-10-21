@@ -82,12 +82,19 @@ export class DischargeDeliveriesService {
   async list(
     dischargeId: string,
     therapistId: string,
-  ): Promise<DischargeDelivery[]> {
+  ): Promise<(DischargeDelivery & { authorizationVoidedAt: Date | null })[]> {
     const discharge = await this.findOwned(dischargeId, therapistId);
-    return this.prisma.dischargeDelivery.findMany({
+    const deliveries = await this.prisma.dischargeDelivery.findMany({
       where: { dischargeId: discharge.id },
       orderBy: { deliveredAt: 'desc' },
+      include: { authorizationDocument: { select: { voidedAt: true } } },
     });
+    // La autorización puede anularse después de entregar: la entrega no se
+    // toca, el listado solo deja ver la anulación.
+    return deliveries.map(({ authorizationDocument, ...delivery }) => ({
+      ...delivery,
+      authorizationVoidedAt: authorizationDocument?.voidedAt ?? null,
+    }));
   }
 
   private async findOwned(dischargeId: string, therapistId: string) {

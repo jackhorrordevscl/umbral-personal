@@ -156,6 +156,8 @@ export interface DischargeDelivery {
   recipientName: string;
   guardianId: string | null;
   authorizationDocumentId: string | null;
+  // Fecha en que se anuló la autorización, si ocurrió después de la entrega.
+  authorizationVoidedAt?: string | null;
   authorizationAttested: boolean;
   purpose: string;
   channel: DischargeDeliveryChannel;

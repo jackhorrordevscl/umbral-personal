@@ -56,6 +56,17 @@ describe('AssentSection', () => {
     expect(screen.getByText('"Lo conversó con calma"')).toBeInTheDocument()
   })
 
+  it('marca el registro cuyo documento de respaldo fue anulado', async () => {
+    mockAssents([
+      buildAssent({ id: 'a1', documentId: 'd1', documentVoidedAt: '2026-10-05T12:00:00.000Z' }),
+      buildAssent({ id: 'a2', documentId: 'd2', documentVoidedAt: null }),
+    ])
+    renderSection()
+
+    expect(await screen.findAllByText(/Dra\. Soto/)).toHaveLength(2)
+    expect(screen.getAllByText(/documento de respaldo anulado/i)).toHaveLength(1)
+  })
+
   it('indica lo que corresponde según el tramo etario', async () => {
     mockAssents([])
     renderSection('UNDER_14')

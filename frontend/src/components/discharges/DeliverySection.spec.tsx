@@ -74,6 +74,25 @@ describe('DeliverySection (T4c)', () => {
     expect(screen.getByText(/Entrega en la última sesión/)).toBeInTheDocument()
   })
 
+  it('marca la entrega cuya autorización fue anulada después', async () => {
+    setup({
+      deliveries: [
+        {
+          ...DELIVERY,
+          id: 'del2',
+          recipientType: 'THIRD_PARTY',
+          recipientName: 'Colegio Norte',
+          authorizationDocumentId: 'doc2',
+          authorizationVoidedAt: '2026-10-13T10:00:00.000Z',
+        },
+        { ...DELIVERY, authorizationVoidedAt: null },
+      ],
+    })
+
+    expect(await screen.findByText(/Colegio Norte/)).toBeInTheDocument()
+    expect(screen.getAllByText(/autorización anulada después/i)).toHaveLength(1)
+  })
+
   it('sin entregas muestra un mensaje y ofrece registrar una', async () => {
     setup()
 

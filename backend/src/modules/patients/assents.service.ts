@@ -19,14 +19,21 @@ export class AssentsService {
 
   async list(patientId: string, therapistId: string) {
     await this.patientsService.assertAccess(patientId, therapistId);
-    return this.prisma.patientAssent.findMany({
+    const assents = await this.prisma.patientAssent.findMany({
       where: { patientId },
       include: {
         recordedBy: { select: { id: true, name: true, role: true } },
+        document: { select: { voidedAt: true } },
       },
       orderBy: { recordedAt: 'desc' },
       take: UNPAGINATED_SAFETY_LIMIT,
     });
+    // Anular el documento no agrega un evento al ledger (no es un retiro del
+    // NNA): el listado solo indica que el respaldo fue anulado.
+    return assents.map(({ document, ...assent }) => ({
+      ...assent,
+      documentVoidedAt: document?.voidedAt ?? null,
+    }));
   }
 
   async record(patientId: string, dto: RecordAssentDto, therapistId: string) {

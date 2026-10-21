@@ -373,7 +373,51 @@ describe('DischargeDeliveriesService (T4)', () => {
       expect(prisma.dischargeDelivery.findMany).toHaveBeenCalledWith({
         where: { dischargeId: 'dis-1' },
         orderBy: { deliveredAt: 'desc' },
+        include: { authorizationDocument: { select: { voidedAt: true } } },
       });
+    });
+
+    // Judgment-day #499: anular la autorización después de entregar no se
+    // bloquea ni toca la entrega; el listado solo deja ver la anulación.
+    it('indica en authorizationVoidedAt si la autorización fue anulada después', async () => {
+      const voidedAt = new Date('2026-10-01T10:00:00Z');
+      prisma.dischargeDelivery.findMany.mockResolvedValue([
+        {
+          id: 'del-1',
+          authorizationDocumentId: 'doc-1',
+          authorizationDocument: { voidedAt },
+        },
+        {
+          id: 'del-2',
+          authorizationDocumentId: 'doc-2',
+          authorizationDocument: { voidedAt: null },
+        },
+        {
+          id: 'del-3',
+          authorizationDocumentId: null,
+          authorizationDocument: null,
+        },
+      ]);
+
+      const result = await service.list('dis-1', 'therapist-1');
+
+      expect(result).toEqual([
+        {
+          id: 'del-1',
+          authorizationDocumentId: 'doc-1',
+          authorizationVoidedAt: voidedAt,
+        },
+        {
+          id: 'del-2',
+          authorizationDocumentId: 'doc-2',
+          authorizationVoidedAt: null,
+        },
+        {
+          id: 'del-3',
+          authorizationDocumentId: null,
+          authorizationVoidedAt: null,
+        },
+      ]);
     });
 
     it('un informe ajeno responde 404', async () => {

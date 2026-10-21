@@ -110,6 +110,11 @@ export default function AssentSection({
                 {a.recordedBy ? ` · ${a.recordedBy.name}` : ""}
               </p>
               {a.note && <p className="italic">"{a.note}"</p>}
+              {a.documentVoidedAt && (
+                <p className="text-amber-700">
+                  Documento de respaldo anulado el {formatChileShortDateTime(a.documentVoidedAt)}
+                </p>
+              )}
             </li>
           ))}
         </ul>
