@@ -12,8 +12,8 @@ import type { PublicBookingPatientInput } from '../../patients/patients.service'
 // que el terapeuta configura después) y no incluye ningún campo de
 // documentos/consentimientos legales (esos flujos requieren sesión). email
 // es la clave de resolución de identidad de un ADULTO en la reserva pública
-// (PatientsService.resolveForPublicBooking, que lo exige para adultos); un
-// menor se identifica por RUT + RUT de su representante.
+// (PatientsService.resolveForPublicBooking, que lo exige para adultos); un NNA
+// se identifica por RUT + RUT de su representante.
 //
 // Cumple PublicBookingPatientInput por FORMA (structural typing de
 // TypeScript), sin que PatientsModule importe nada de public-scheduling --

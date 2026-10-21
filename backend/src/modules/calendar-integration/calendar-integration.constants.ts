@@ -62,6 +62,12 @@ export const BUSY_WINDOW_DAYS = 60;
 // cuota de Google si hay muchos terapeutas conectados a la vez.
 export const BUSY_REFRESH_CONCURRENCY = 5;
 
+// issue #497: tope de páginas de events.list por refresh de una conexión (20 x
+// 250 eventos por página por defecto = 5.000 eventos en la ventana de 60
+// días). Si se supera, el refresh falla en vez de truncar: un overlay
+// incompleto dejaría reservar sobre horas realmente ocupadas.
+export const MAX_BUSY_PAGES = 20;
+
 // sdd/public-booking-payment-calendar PR 2 (tasks.md 2.3): umbral de
 // "frescura" del overlay que AvailabilityService.computeSlots() exige antes
 // de leer CalendarBusyBlock -- 3x el intervalo del cron (30 min), para

@@ -85,7 +85,7 @@ describe('DischargeCancellationNotifier (T4b)', () => {
     expect(mail.sendConsultationCancelledEmail).not.toHaveBeenCalled();
   });
 
-  it('a un menor se avisa solo a los representantes que reciben comunicaciones y nunca a su propio email', async () => {
+  it('a un NNA se avisa solo a los representantes que reciben comunicaciones y nunca a su propio email', async () => {
     prisma.treatmentDischarge.findUnique.mockResolvedValue(
       discharge({ birthDate: MINOR_BIRTH, email: 'menor@example.com' }),
     );
@@ -112,7 +112,7 @@ describe('DischargeCancellationNotifier (T4b)', () => {
     );
   });
 
-  it('a un menor sin representantes elegibles no se le envía nada', async () => {
+  it('a un NNA sin representantes elegibles no se le envía nada', async () => {
     prisma.treatmentDischarge.findUnique.mockResolvedValue(
       discharge({ birthDate: MINOR_BIRTH, email: 'menor@example.com' }),
     );

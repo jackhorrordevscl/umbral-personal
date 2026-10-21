@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as patientsApi from "../api/patients";
 import { patientKeys } from "./usePatients";
 
-// Ledger de asentimiento del menor (bloque Menores, M5).
+// Ledger de asentimiento del NNA (bloque NNA, M5).
 export function useAssents(patientId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: patientKeys.assents(patientId ?? ""),

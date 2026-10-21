@@ -44,6 +44,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 export class CalendarBusyService {
   private readonly logger = new Logger(CalendarBusyService.name);
   private readonly enabled: boolean;
+  private refreshing = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -66,26 +67,40 @@ export class CalendarBusyService {
   async refresh(): Promise<void> {
     if (!this.enabled) return;
 
-    const connections = await this.prisma.googleCalendarConnection.findMany({
-      where: { status: 'CONNECTED' },
-    });
-
-    for (let i = 0; i < connections.length; i += BUSY_REFRESH_CONCURRENCY) {
-      const batch = connections.slice(i, i + BUSY_REFRESH_CONCURRENCY);
-      await Promise.all(
-        batch.map((connection) =>
-          this.refreshConnection(connection).catch((err: unknown) => {
-            // Red de seguridad adicional: refreshConnection ya atrapa todo
-            // lo esperable (invalid_grant, transient) -- esto solo cubre un
-            // fallo verdaderamente inesperado (p. ej. handleInvalidGrant
-            // mismo throweando), para que "el job nunca throwea" siga
-            // siendo cierto incluso ahí.
-            this.logger.error(
-              `CalendarBusyService: fallo inesperado refrescando therapistId=${connection.therapistId}: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }),
-        ),
+    // issue #497: guarda de reentrada, igual que CalendarSyncService.reconcile.
+    // Con Google lento, un tick de 30 min puede tardar más que su intervalo y
+    // solaparse con el siguiente (duplicaría las llamadas a Google).
+    if (this.refreshing) {
+      this.logger.warn(
+        'CalendarBusyService: el refresh anterior sigue en curso; se omite este',
       );
+      return;
+    }
+    this.refreshing = true;
+    try {
+      const connections = await this.prisma.googleCalendarConnection.findMany({
+        where: { status: 'CONNECTED' },
+      });
+
+      for (let i = 0; i < connections.length; i += BUSY_REFRESH_CONCURRENCY) {
+        const batch = connections.slice(i, i + BUSY_REFRESH_CONCURRENCY);
+        await Promise.all(
+          batch.map((connection) =>
+            this.refreshConnection(connection).catch((err: unknown) => {
+              // Red de seguridad adicional: refreshConnection ya atrapa todo
+              // lo esperable (invalid_grant, transient) -- esto solo cubre un
+              // fallo verdaderamente inesperado (p. ej. handleInvalidGrant
+              // mismo throweando), para que "el job nunca throwea" siga
+              // siendo cierto incluso ahí.
+              this.logger.error(
+                `CalendarBusyService: fallo inesperado refrescando therapistId=${connection.therapistId}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }),
+          ),
+        );
+      }
+    } finally {
+      this.refreshing = false;
     }
   }
 

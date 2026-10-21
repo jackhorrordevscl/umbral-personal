@@ -26,7 +26,7 @@ interface GuardiansSectionProps {
   onChanged?: () => void;
 }
 
-// Bloque Menores (M5): representantes legales del paciente (hasta 2).
+// Bloque NNA (M5): representantes legales del paciente (hasta 2).
 export default function GuardiansSection({
   patientId,
   onChanged,

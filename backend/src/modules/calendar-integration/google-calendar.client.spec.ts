@@ -1,4 +1,5 @@
 import { OAuth2Client } from 'google-auth-library';
+import { MAX_BUSY_PAGES } from './calendar-integration.constants';
 import {
   GOOGLE_REQUEST_TIMEOUT_MS,
   GoogleCalendarClient,
@@ -415,9 +416,80 @@ describe('GoogleCalendarClient', () => {
       expect(url).toContain(
         new URLSearchParams({
           fields:
-            'items(start,end,status,transparency,extendedProperties),nextPageToken',
+            'items(start,end,status,transparency,attendees(self,responseStatus),extendedProperties/private),nextPageToken',
         }).toString(),
       );
+    });
+
+    // issue #497: la máscara solo pide self/responseStatus de los asistentes
+    // (nunca email ni nombre) y solo extendedProperties.private.
+    it('la máscara no pide summary, description, location ni datos de asistentes', async () => {
+      mockFetchListOnce({ items: [] });
+
+      await client.listBusyIntervals(
+        buildOAuth2Client(),
+        CALENDAR_ID,
+        WINDOW_START,
+        WINDOW_END,
+      );
+
+      const [url] = (globalThis.fetch as jest.Mock).mock.calls[0] as [string];
+      const fields = new URL(url).searchParams.get('fields') ?? '';
+      expect(fields).not.toMatch(/summary|description|location|email/);
+      expect(fields).toContain('attendees(self,responseStatus)');
+    });
+
+    it('descarta una invitación que el propio terapeuta rechazó (attendees.self + declined)', async () => {
+      mockFetchListOnce({
+        items: [
+          {
+            start: { dateTime: '2026-02-10T10:00:00-03:00' },
+            end: { dateTime: '2026-02-10T11:00:00-03:00' },
+            attendees: [
+              { self: true, responseStatus: 'declined' },
+              { responseStatus: 'accepted' },
+            ],
+          },
+        ],
+      });
+
+      const result = await client.listBusyIntervals(
+        buildOAuth2Client(),
+        CALENDAR_ID,
+        WINDOW_START,
+        WINDOW_END,
+      );
+
+      expect(result).toEqual([]);
+    });
+
+    it('mantiene el bloqueo si quien rechazó es otro asistente o el terapeuta aceptó/tentativo', async () => {
+      mockFetchListOnce({
+        items: [
+          {
+            start: { dateTime: '2026-02-10T10:00:00-03:00' },
+            end: { dateTime: '2026-02-10T11:00:00-03:00' },
+            attendees: [
+              { self: true, responseStatus: 'accepted' },
+              { responseStatus: 'declined' },
+            ],
+          },
+          {
+            start: { dateTime: '2026-02-11T10:00:00-03:00' },
+            end: { dateTime: '2026-02-11T11:00:00-03:00' },
+            attendees: [{ self: true, responseStatus: 'tentative' }],
+          },
+        ],
+      });
+
+      const result = await client.listBusyIntervals(
+        buildOAuth2Client(),
+        CALENDAR_ID,
+        WINDOW_START,
+        WINDOW_END,
+      );
+
+      expect(result).toHaveLength(2);
     });
 
     it('descarta eventos cancelados (status=cancelled)', async () => {
@@ -551,6 +623,48 @@ describe('GoogleCalendarClient', () => {
       expect(secondUrl).toContain('pageToken=page-2-token');
     });
 
+    // issue #497: un nextPageToken que nunca termina no puede dejar el refresh
+    // paginando sin límite, y tampoco debe devolver una lista truncada.
+    it('falla como transient al superar MAX_BUSY_PAGES en vez de paginar sin límite ni truncar', async () => {
+      (globalThis.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: jest.fn().mockResolvedValue({
+          items: [],
+          nextPageToken: 'siempre-hay-otra-pagina',
+        }),
+      });
+
+      await expect(
+        client.listBusyIntervals(
+          buildOAuth2Client(),
+          CALENDAR_ID,
+          WINDOW_START,
+          WINDOW_END,
+        ),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<GoogleCalendarError>);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(MAX_BUSY_PAGES);
+    });
+
+    it('acepta exactamente MAX_BUSY_PAGES páginas', async () => {
+      for (let page = 1; page < MAX_BUSY_PAGES; page++) {
+        mockFetchListOnce({ items: [], nextPageToken: `page-${page + 1}` });
+      }
+      mockFetchListOnce({ items: [] });
+
+      await expect(
+        client.listBusyIntervals(
+          buildOAuth2Client(),
+          CALENDAR_ID,
+          WINDOW_START,
+          WINDOW_END,
+        ),
+      ).resolves.toEqual([]);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(MAX_BUSY_PAGES);
+    });
+
     it('clasifica un 401 durante events.list como invalid_grant (reusa GoogleCalendarError)', async () => {
       const oauth2Client = buildOAuth2Client();
       mockFetchOnce({ ok: false, status: 401 });
@@ -565,6 +679,57 @@ describe('GoogleCalendarClient', () => {
       ).rejects.toMatchObject({
         kind: 'invalid_grant',
       } as Partial<GoogleCalendarError>);
+    });
+
+    async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
+      try {
+        await promise;
+      } catch (err) {
+        return err as Error;
+      }
+      throw new Error('la promesa debía rechazar');
+    }
+
+    // issue #497: el mensaje del error acaba en logs y en lastError, así que no
+    // puede llevar el calendarId (email del terapeuta), el id del evento ni las
+    // fechas de la query.
+    it.each([401, 404, 500])(
+      'el mensaje del error %i no incluye calendarId, eventId ni la query',
+      async (status) => {
+        mockFetchOnce({ ok: false, status });
+
+        const error = await rejectionOf(
+          client.listBusyIntervals(
+            buildOAuth2Client(),
+            'terapeuta@example.com',
+            WINDOW_START,
+            WINDOW_END,
+          ),
+        );
+
+        expect(error.message).toContain(
+          `${status} (GET /calendars/:calendarId/events)`,
+        );
+        expect(error.message).not.toContain('terapeuta');
+        expect(error.message).not.toContain('timeMin');
+      },
+    );
+
+    it('el mensaje de un error sobre un evento no incluye su id', async () => {
+      mockFetchOnce({ ok: false, status: 404 });
+
+      const error = await rejectionOf(
+        client.deleteEvent(
+          buildOAuth2Client(),
+          'terapeuta@example.com',
+          'evento-123',
+        ),
+      );
+
+      expect(error.message).toContain(
+        '(DELETE /calendars/:calendarId/events/:eventId)',
+      );
+      expect(error.message).not.toContain('evento-123');
     });
 
     it('clasifica un 403 (quota) durante events.list como transient', async () => {

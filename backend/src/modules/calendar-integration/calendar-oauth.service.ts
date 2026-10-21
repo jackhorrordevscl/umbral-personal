@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -22,6 +22,9 @@ interface OAuthStatePayload {
   sub: string;
   purpose: string;
   nonce: string;
+  // issue #497: sha256 del secreto de la cookie del navegador que inició el
+  // flujo (ver calendar-oauth-cookie.ts). El secreto en sí nunca va en el state.
+  bind?: string;
 }
 
 export interface CalendarConnectionStatus {
@@ -95,9 +98,14 @@ export class CalendarOauthService {
     return connection ?? DEFAULT_STATUS;
   }
 
-  async buildAuthorizationUrl(therapistId: string): Promise<{ url: string }> {
+  // `bindingToken` lo debe dejar el controller en la cookie del navegador; el
+  // callback lo exige de vuelta (verifyAndConsumeState).
+  async buildAuthorizationUrl(
+    therapistId: string,
+  ): Promise<{ url: string; bindingToken: string }> {
     this.assertEnabled();
 
+    const bindingToken = randomBytes(32).toString('hex');
     const nonce = randomBytes(16).toString('hex');
     const nonceHash = this.hashNonce(nonce);
     const stateExpiresAt = new Date(Date.now() + STATE_TTL_MS);
@@ -120,7 +128,12 @@ export class CalendarOauthService {
     });
 
     const state = this.jwtService.sign(
-      { sub: therapistId, purpose: OAUTH_STATE_PURPOSE, nonce },
+      {
+        sub: therapistId,
+        purpose: OAUTH_STATE_PURPOSE,
+        nonce,
+        bind: this.hashNonce(bindingToken),
+      },
       { expiresIn: `${Math.floor(STATE_TTL_MS / 1000)}s` },
     );
 
@@ -136,7 +149,7 @@ export class CalendarOauthService {
       state,
     });
 
-    return { url };
+    return { url, bindingToken };
   }
 
   // design.md: firma+exp+purpose ya los valida jwtService.verify (lanza si
@@ -145,7 +158,14 @@ export class CalendarOauthService {
   // "claim" que RemindersService.claimAndDispatch) -- así una segunda
   // llamada concurrente con el mismo `state` (replay) nunca puede ganar la
   // carrera contra la primera.
-  async verifyAndConsumeState(state: string): Promise<{ therapistId: string }> {
+  //
+  // issue #497: además exige que el navegador que vuelve sea el que inició el
+  // flujo (`bindingToken` es el valor de la cookie). Se comprueba ANTES de
+  // consumir el nonce, para que quien solo tenga el state no pueda quemarlo.
+  async verifyAndConsumeState(
+    state: string,
+    bindingToken: string | undefined,
+  ): Promise<{ therapistId: string }> {
     let payload: OAuthStatePayload;
     try {
       payload = this.jwtService.verify<OAuthStatePayload>(state);
@@ -155,6 +175,14 @@ export class CalendarOauthService {
 
     if (payload.purpose !== OAUTH_STATE_PURPOSE) {
       throw new UnauthorizedException('state inválido');
+    }
+
+    if (
+      !bindingToken ||
+      typeof payload.bind !== 'string' ||
+      !this.safeEqualHex(this.hashNonce(bindingToken), payload.bind)
+    ) {
+      throw new UnauthorizedException('state no corresponde a este navegador');
     }
 
     const nonceHash = this.hashNonce(payload.nonce);
@@ -222,10 +250,10 @@ export class CalendarOauthService {
     }
 
     if (connection.refreshTokenEncrypted) {
-      const refreshToken = this.tokenCrypto
-        .decrypt(connection.refreshTokenEncrypted as Buffer)
-        .toString('utf-8');
       try {
+        const refreshToken = this.tokenCrypto
+          .decrypt(connection.refreshTokenEncrypted as Buffer)
+          .toString('utf-8');
         await this.buildOAuth2Client().revokeToken(refreshToken);
       } catch (err) {
         // La revocación en Google es best-effort: el token local se borra
@@ -233,6 +261,10 @@ export class CalendarOauthService {
         // endpoint, then delete the stored token") -- si Google ya lo
         // invalidó por su cuenta, revoke devuelve error pero el objetivo
         // (que Umbral deje de tener un token utilizable) se cumple igual.
+        // issue #497: el descifrado va dentro del try. Con una clave rotada o
+        // un dato corrupto no se puede revocar, pero tampoco debe impedirse
+        // la desconexión: si no, el terapeuta queda sin salida y el token
+        // cifrado sigue guardado.
         this.logger.error(
           `Fallo al revocar el token en Google para therapistId=${therapistId}: ${err instanceof Error ? err.message : err}`,
         );
@@ -279,6 +311,13 @@ export class CalendarOauthService {
     return updated;
   }
 
+  // Comparación en tiempo constante de dos digests hex (sha256: largo fijo).
+  private safeEqualHex(a: string, b: string): boolean {
+    const left = Buffer.from(a, 'utf8');
+    const right = Buffer.from(b, 'utf8');
+    return left.length === right.length && timingSafeEqual(left, right);
+  }
+
   private hashNonce(nonce: string): string {
     return createHash('sha256').update(nonce).digest('hex');
   }
@@ -314,6 +353,25 @@ export class CalendarOauthService {
       );
     }
 
+    // issue #497: con consentimiento granular el usuario puede desmarcar el
+    // permiso de calendario y Google igual devuelve un refresh_token. Conectar
+    // así dejaría la conexión CONNECTED con todas las llamadas en 403
+    // (clasificadas transient) y la UI mostrando una integración sana. Se
+    // rechaza antes de persistir. No se revoca el token recién emitido: el
+    // único scope que se pide es el de calendario, así que sin él el token no
+    // da acceso a nada, y revocarlo puede invalidar el grant completo de un
+    // terapeuta que ya tenía una conexión vigente y solo reintentó el flujo.
+    if (!this.hasCalendarScope(tokens.scope)) {
+      throw new UnauthorizedException(
+        'Google no concedió el permiso de calendario: vuelve a conectar y deja marcado el acceso a tu calendario.',
+      );
+    }
+
     return { refreshToken: tokens.refresh_token, scope: tokens.scope };
+  }
+
+  // `scope` llega como lista separada por espacios (RFC 6749 §3.3).
+  private hasCalendarScope(scope: string | undefined): boolean {
+    return (scope ?? '').split(/\s+/).includes(GOOGLE_CALENDAR_SCOPE);
   }
 }

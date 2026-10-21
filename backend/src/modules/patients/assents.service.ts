@@ -39,7 +39,7 @@ export class AssentsService {
     const ageBand = getAgeBand(patient.birthDate);
     if (ageBand === 'ADULT') {
       throw new BadRequestException(
-        'El asentimiento solo se registra para pacientes menores de 18 años.',
+        'El asentimiento solo se registra para pacientes con menos de 18 años.',
       );
     }
 

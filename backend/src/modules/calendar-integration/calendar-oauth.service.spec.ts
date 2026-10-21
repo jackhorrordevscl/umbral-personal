@@ -6,7 +6,10 @@ import { CalendarOauthService } from './calendar-oauth.service';
 import { GoogleTokenCryptoService } from './google-token-crypto.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { OAUTH_STATE_PURPOSE } from './calendar-integration.constants';
+import {
+  GOOGLE_CALENDAR_SCOPE,
+  OAUTH_STATE_PURPOSE,
+} from './calendar-integration.constants';
 
 function buildAuditServiceMock(): {
   auditService: AuditService;
@@ -99,6 +102,9 @@ describe('CalendarOauthService', () => {
     const therapistId = 'therapist-1';
     const nonce = 'a-fixed-nonce-value';
     const nonceHash = createHash('sha256').update(nonce).digest('hex');
+    // issue #497: secreto de la cookie del navegador; el state lleva su hash.
+    const bindingToken = 'secreto-de-la-cookie-del-navegador';
+    const bind = createHash('sha256').update(bindingToken).digest('hex');
 
     function buildService(updateManyResult?: { count: number }) {
       const jwt = buildJwt();
@@ -124,23 +130,24 @@ describe('CalendarOauthService', () => {
         sub: therapistId,
         purpose: OAUTH_STATE_PURPOSE,
         nonce,
+        bind,
       });
 
-      await expect(service.verifyAndConsumeState(forgedState)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(
+        service.verifyAndConsumeState(forgedState, bindingToken),
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it('rechaza un state expirado', async () => {
       const { service, jwt } = buildService();
       const expiredState = jwt.sign(
-        { sub: therapistId, purpose: OAUTH_STATE_PURPOSE, nonce },
+        { sub: therapistId, purpose: OAUTH_STATE_PURPOSE, nonce, bind },
         { expiresIn: '-1s' },
       );
 
-      await expect(service.verifyAndConsumeState(expiredState)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(
+        service.verifyAndConsumeState(expiredState, bindingToken),
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it('rechaza un state con purpose incorrecto', async () => {
@@ -149,11 +156,61 @@ describe('CalendarOauthService', () => {
         sub: therapistId,
         purpose: 'password-reset',
         nonce,
+        bind,
       });
 
       await expect(
-        service.verifyAndConsumeState(wrongPurposeState),
+        service.verifyAndConsumeState(wrongPurposeState, bindingToken),
       ).rejects.toThrow(UnauthorizedException);
+    });
+
+    // issue #497: el state solo vale en el navegador que inició el flujo.
+    describe('atado al navegador (cookie)', () => {
+      function signState(payload: Record<string, unknown>, jwt: JwtService) {
+        return jwt.sign({
+          sub: therapistId,
+          purpose: OAUTH_STATE_PURPOSE,
+          nonce,
+          ...payload,
+        });
+      }
+
+      it.each([
+        ['sin cookie', undefined],
+        ['con cookie vacía', ''],
+        ['con una cookie de otro navegador', 'secreto-de-otro-navegador'],
+      ])(
+        'rechaza el callback %s y no consume el nonce',
+        async (_label, cookie) => {
+          const { service, jwt, connectionMock } = buildService({ count: 1 });
+          const state = signState({ bind }, jwt);
+
+          await expect(
+            service.verifyAndConsumeState(state, cookie),
+          ).rejects.toThrow(UnauthorizedException);
+          expect(connectionMock.updateMany).not.toHaveBeenCalled();
+        },
+      );
+
+      it('rechaza un state sin huella de navegador (emitido antes del cambio)', async () => {
+        const { service, jwt, connectionMock } = buildService({ count: 1 });
+        const state = signState({}, jwt);
+
+        await expect(
+          service.verifyAndConsumeState(state, bindingToken),
+        ).rejects.toThrow(UnauthorizedException);
+        expect(connectionMock.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('rechaza si la huella del state no es un string', async () => {
+        const { service, jwt, connectionMock } = buildService({ count: 1 });
+        const state = signState({ bind: 123 }, jwt);
+
+        await expect(
+          service.verifyAndConsumeState(state, bindingToken),
+        ).rejects.toThrow(UnauthorizedException);
+        expect(connectionMock.updateMany).not.toHaveBeenCalled();
+      });
     });
 
     it('rechaza un nonce ya consumido (replay)', async () => {
@@ -162,11 +219,12 @@ describe('CalendarOauthService', () => {
         sub: therapistId,
         purpose: OAUTH_STATE_PURPOSE,
         nonce,
+        bind,
       });
 
-      await expect(service.verifyAndConsumeState(state)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(
+        service.verifyAndConsumeState(state, bindingToken),
+      ).rejects.toThrow(UnauthorizedException);
       const callArg = connectionMock.updateMany.mock.calls[0][0] as {
         where: { therapistId: string; stateNonceHash: string };
       };
@@ -180,9 +238,10 @@ describe('CalendarOauthService', () => {
         sub: therapistId,
         purpose: OAUTH_STATE_PURPOSE,
         nonce,
+        bind,
       });
 
-      const result = await service.verifyAndConsumeState(state);
+      const result = await service.verifyAndConsumeState(state, bindingToken);
 
       expect(result).toEqual({ therapistId });
       const callArg = connectionMock.updateMany.mock.calls[0][0] as {
@@ -200,6 +259,60 @@ describe('CalendarOauthService', () => {
         stateNonceHash: null,
         stateExpiresAt: null,
       });
+    });
+  });
+
+  describe('buildAuthorizationUrl', () => {
+    function buildService() {
+      const { prisma } = buildPrismaMock();
+      return new CalendarOauthService(
+        prisma,
+        buildJwt(),
+        buildConfig(),
+        buildTokenCrypto(),
+        buildAuditServiceMock().auditService,
+      );
+    }
+
+    // issue #497: el secreto de la cookie nunca viaja en el state ni en la URL;
+    // el state solo lleva su hash.
+    it('devuelve un bindingToken aleatorio cuyo hash va en el state y que no aparece en la URL', async () => {
+      const service = buildService();
+
+      const first = await service.buildAuthorizationUrl('therapist-1');
+      const second = await service.buildAuthorizationUrl('therapist-1');
+
+      expect(first.bindingToken).toMatch(/^[0-9a-f]{64}$/);
+      expect(first.bindingToken).not.toBe(second.bindingToken);
+      expect(first.url).not.toContain(first.bindingToken);
+
+      const state = new URL(first.url).searchParams.get('state') as string;
+      const payload = buildJwt().verify<{ bind: string }>(state);
+      expect(payload.bind).toBe(
+        createHash('sha256').update(first.bindingToken).digest('hex'),
+      );
+      expect(state).not.toContain(first.bindingToken);
+    });
+
+    it('el state emitido es aceptado con su cookie y rechazado sin ella', async () => {
+      const { prisma } = buildPrismaMock();
+      const service = new CalendarOauthService(
+        prisma,
+        buildJwt(),
+        buildConfig(),
+        buildTokenCrypto(),
+        buildAuditServiceMock().auditService,
+      );
+      const { url, bindingToken } =
+        await service.buildAuthorizationUrl('therapist-1');
+      const state = new URL(url).searchParams.get('state') as string;
+
+      await expect(
+        service.verifyAndConsumeState(state, undefined),
+      ).rejects.toThrow(UnauthorizedException);
+      await expect(
+        service.verifyAndConsumeState(state, bindingToken),
+      ).resolves.toEqual({ therapistId: 'therapist-1' });
     });
   });
 
@@ -280,6 +393,103 @@ describe('CalendarOauthService', () => {
       ).rejects.toThrow(UnauthorizedException);
       // Sin refresh_token no hay nada que persistir ni auditar.
       expect(logMock).not.toHaveBeenCalled();
+    });
+
+    // issue #497: consentimiento granular -- el usuario desmarca el permiso de
+    // calendario pero Google igual entrega un refresh_token.
+    describe('scope concedido', () => {
+      function buildService() {
+        const { prisma, connectionMock } = buildPrismaMock();
+        connectionMock.update.mockResolvedValue({});
+        const { auditService, logMock } = buildAuditServiceMock();
+        const service = new CalendarOauthService(
+          prisma,
+          buildJwt(),
+          buildConfig(),
+          buildTokenCrypto(),
+          auditService,
+        );
+        return { service, connectionMock, logMock };
+      }
+
+      it('rechaza, no persiste ni audita y NO revoca el token si falta el permiso de calendario', async () => {
+        const { service, connectionMock, logMock } = buildService();
+        const revokeToken = jest.fn().mockResolvedValue(undefined);
+        stubOAuth2Client(service, {
+          getToken: jest.fn().mockResolvedValue({
+            tokens: {
+              refresh_token: '1//sin-permiso-de-calendario',
+              scope: 'openid email',
+            },
+          }),
+          revokeToken,
+        });
+
+        await expect(
+          service.exchangeCodeAndPersist('therapist-1', 'auth-code'),
+        ).rejects.toThrow(UnauthorizedException);
+
+        expect(connectionMock.update).not.toHaveBeenCalled();
+        expect(logMock).not.toHaveBeenCalled();
+        // Revocar el token nuevo puede invalidar el grant completo y romper la
+        // conexión vigente de un terapeuta que solo reintentó el flujo.
+        expect(revokeToken).not.toHaveBeenCalled();
+      });
+
+      it('rechaza una respuesta de Google sin scope', async () => {
+        const { service, connectionMock } = buildService();
+        stubOAuth2Client(service, {
+          getToken: jest.fn().mockResolvedValue({
+            tokens: { refresh_token: '1//token', scope: undefined },
+          }),
+        });
+
+        await expect(
+          service.exchangeCodeAndPersist('therapist-1', 'auth-code'),
+        ).rejects.toThrow(UnauthorizedException);
+        expect(connectionMock.update).not.toHaveBeenCalled();
+      });
+
+      it('no confunde un scope que solo contiene el nombre como prefijo', async () => {
+        const { service, connectionMock } = buildService();
+        stubOAuth2Client(service, {
+          getToken: jest.fn().mockResolvedValue({
+            tokens: {
+              refresh_token: '1//token',
+              scope: `${GOOGLE_CALENDAR_SCOPE}.readonly`,
+            },
+          }),
+          revokeToken: jest.fn().mockResolvedValue(undefined),
+        });
+
+        await expect(
+          service.exchangeCodeAndPersist('therapist-1', 'auth-code'),
+        ).rejects.toThrow(UnauthorizedException);
+        expect(connectionMock.update).not.toHaveBeenCalled();
+      });
+
+      it('conecta cuando el scope concedido incluye calendar.events junto a otros', async () => {
+        const { service, connectionMock } = buildService();
+        stubOAuth2Client(service, {
+          getToken: jest.fn().mockResolvedValue({
+            tokens: {
+              refresh_token: '1//token',
+              scope: `openid ${GOOGLE_CALENDAR_SCOPE}`,
+            },
+          }),
+        });
+
+        await service.exchangeCodeAndPersist('therapist-1', 'auth-code');
+
+        expect(connectionMock.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              status: 'CONNECTED',
+              scope: `openid ${GOOGLE_CALENDAR_SCOPE}`,
+            }) as unknown,
+          }),
+        );
+      });
     });
 
     it('propaga el error de Google al intercambiar el código (getToken rechaza)', async () => {
@@ -433,6 +643,37 @@ describe('CalendarOauthService', () => {
       // (y la auditoría) deben ocurrir igual aunque Google rechace.
       expect(result).toEqual({ status: 'DISCONNECTED' });
       expect(connectionMock.update).toHaveBeenCalledTimes(1);
+      expect(logMock).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'CALENDAR_DISCONNECTED' }),
+      );
+    });
+
+    // issue #497: con una clave rotada o un dato corrupto el descifrado lanza;
+    // el terapeuta igual debe poder desconectarse y el token cifrado borrarse.
+    it('desconecta y borra el token aunque no se pueda descifrar', async () => {
+      const { service, connectionMock, tokenCrypto, logMock } = buildService();
+      connectionMock.findUnique.mockResolvedValue({
+        status: 'CONNECTED',
+        refreshTokenEncrypted: Buffer.from('basura-que-no-es-un-ciphertext'),
+      });
+      // Explícito: no depender de que el mock de cifrado falle por sí solo.
+      jest.spyOn(tokenCrypto, 'decrypt').mockImplementation(() => {
+        throw new Error('clave rotada o dato corrupto');
+      });
+      connectionMock.update.mockResolvedValue({ status: 'DISCONNECTED' });
+      const revokeToken = jest.fn();
+      stubOAuth2Client(service, { revokeToken });
+
+      await expect(service.disconnect(therapistId)).resolves.toEqual({
+        status: 'DISCONNECTED',
+      });
+
+      expect(revokeToken).not.toHaveBeenCalled();
+      const callArg = connectionMock.update.mock.calls[0][0] as {
+        data: { status: string; refreshTokenEncrypted: null };
+      };
+      expect(callArg.data.status).toBe('DISCONNECTED');
+      expect(callArg.data.refreshTokenEncrypted).toBeNull();
       expect(logMock).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'CALENDAR_DISCONNECTED' }),
       );

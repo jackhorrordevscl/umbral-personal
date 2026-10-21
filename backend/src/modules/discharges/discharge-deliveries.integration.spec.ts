@@ -137,7 +137,7 @@ describe('DischargeDeliveriesService (integration)', () => {
     expect(audits).toBe(1);
   });
 
-  it('a un menor solo se entrega a un representante con acceso a informes', async () => {
+  it('a un NNA solo se entrega a un representante con acceso a informes', async () => {
     const minor = await createPatient('Menor', new Date('2015-05-20'));
     const other = await createPatient('Otro', new Date('2015-05-20'));
     const discharge = await createIssuedDischarge(minor.id);

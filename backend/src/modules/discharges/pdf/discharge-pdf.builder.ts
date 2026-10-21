@@ -50,7 +50,7 @@ export interface DischargePdfGuardian {
 export interface DischargePdfInput {
   discharge: DischargePdfDischarge;
   patient: DischargePdfPatient;
-  // Solo para un paciente menor de 18 al emitir; vacío en cualquier otro caso.
+  // Solo para un paciente con menos de 18 años al emitir; vacío en cualquier otro caso.
   guardians: DischargePdfGuardian[];
 }
 

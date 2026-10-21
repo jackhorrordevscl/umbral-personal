@@ -181,7 +181,7 @@ describe('formato de rut en CreatePatientDto', () => {
   });
 });
 
-// birthDate no puede ser futura (base del cálculo de edad / menores).
+// birthDate no puede ser futura (base del cálculo de edad / NNA).
 describe('birthDate no futura en DTOs de patients', () => {
   const today = chileDayKeyFromInstant(new Date());
   const tomorrow = chileDayKeyFromInstant(new Date(Date.now() + 86_400_000));

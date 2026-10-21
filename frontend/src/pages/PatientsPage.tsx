@@ -56,11 +56,11 @@ const displayRut = (rut: string) => formatRut(rut.replace(/\./g, ""));
 // consents.TREATMENT, así que un paciente con consentimiento SOLO de
 // telemedicina (igual de válido) aparecía como "Sin consentimiento". El
 // consentimiento de cualquiera de las dos finalidades habilita la ficha.
-// Bloque Menores (M5): documentos que otorgan consentimiento y, en un menor,
+// Bloque NNA (M5): documentos que otorgan consentimiento y, en un NNA,
 // requieren un representante (no puede existir aún al crear la ficha).
 const MINOR_GUARDIAN_DOC_TYPES = ["INFORMED_CONSENT", "TELEMED_AGREEMENT"];
 
-// Menor sin representante con facultad de consentir, o con consentimiento
+// NNA sin representante con facultad de consentir, o con consentimiento
 // legado: se marca en la lista para regularizarlo antes de la fecha límite.
 const needsMinorAttention = (p: Patient) =>
   p.minorStatus === "MISSING_GUARDIAN" || p.minorStatus === "LEGACY_CONSENT";
@@ -70,8 +70,8 @@ function MinorStatusBadge({ patient }: { patient: Patient }) {
   return (
     <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 whitespace-nowrap">
       {patient.minorStatus === "MISSING_GUARDIAN"
-        ? "Menor sin representante"
-        : "Menor: consentimiento por regularizar"}
+        ? "NNA sin representante"
+        : "NNA: consentimiento por regularizar"}
     </span>
   );
 }
@@ -425,12 +425,12 @@ export default function PatientsPage() {
             );
           }
 
-          // Bloque Menores: sin representante todavía no se puede otorgar el
-          // consentimiento de un menor ni subir documentos que lo otorgan.
+          // Bloque NNA: sin representante todavía no se puede otorgar el
+          // consentimiento de un NNA ni subir documentos que lo otorgan.
           const minorPatient = isMinorOnChileDay(form.birthDate);
           if (deferredPurposes.length > 0) {
             messages.push(
-              "Paciente menor de edad creado: agrega a su representante legal desde la ficha y luego registra el consentimiento.",
+              "Paciente NNA creado: agrega a su representante legal desde la ficha y luego registra el consentimiento.",
             );
           }
           const docsToUpload = minorPatient

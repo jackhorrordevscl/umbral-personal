@@ -136,7 +136,7 @@ describe('DischargeDeliveriesService (T4)', () => {
       expect(prisma.dischargeDelivery.create).not.toHaveBeenCalled();
     });
 
-    it('rechaza entregar al paciente si es menor de 18 años', async () => {
+    it('rechaza entregar al paciente si tiene menos de 18 años', async () => {
       prisma.treatmentDischarge.findFirst.mockResolvedValue(
         discharge({
           patient: { fullName: 'Luis Soto', birthDate: MINOR_BIRTH },

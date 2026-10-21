@@ -404,7 +404,7 @@ describe('PaymentsService', () => {
       });
     });
 
-    describe('paciente menor de edad', () => {
+    describe('paciente NNA', () => {
       const guardian = {
         fullName: 'Ana Soto',
         email: 'apoderada@example.com',
@@ -446,7 +446,7 @@ describe('PaymentsService', () => {
         );
       });
 
-      it('sin representante con email: SKIPPED_NO_EMAIL, no usa el email del menor, no cae al terapeuta y no emite la orden', async () => {
+      it('sin representante con email: SKIPPED_NO_EMAIL, no usa el email del NNA, no cae al terapeuta y no emite la orden', async () => {
         prisma.consultation.findFirst.mockResolvedValue(
           buildConsultation(
             {},
@@ -1573,7 +1573,7 @@ describe('PaymentsService', () => {
     });
   });
 
-  describe('paciente menor sin representante con email', () => {
+  describe('paciente NNA sin representante con email', () => {
     const guardian = {
       fullName: 'Ana Soto',
       email: null as string | null,
@@ -1750,7 +1750,7 @@ describe('PaymentsService', () => {
       expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
     });
 
-    it('menor: reenvía al representante con redacción de representante', async () => {
+    it('NNA: reenvía al representante con redacción de representante', async () => {
       prisma.payment.findUniqueOrThrow.mockResolvedValue(
         buildPayment({ paymentUrl: 'https://flow.cl/pay/existing-token' }),
       );
@@ -1784,7 +1784,7 @@ describe('PaymentsService', () => {
       );
     });
 
-    it('menor sin representante con email: 400 específico y nunca usa el email del menor', async () => {
+    it('NNA sin representante con email: 400 específico y nunca usa el email del NNA', async () => {
       prisma.payment.findUniqueOrThrow.mockResolvedValue(
         buildPayment({ paymentUrl: 'https://flow.cl/pay/existing-token' }),
       );
@@ -1796,7 +1796,7 @@ describe('PaymentsService', () => {
       );
 
       await expect(service.resendPaymentLink('group-1')).rejects.toThrow(
-        'El paciente es menor de edad y no tiene un representante con email registrado.',
+        'El paciente es un NNA y no tiene un representante con email registrado.',
       );
       expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
     });

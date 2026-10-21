@@ -12,7 +12,7 @@ El núcleo clínico, la seguridad de cuentas, los respaldos y el pipeline de CI 
 
 ## Resumen ejecutivo
 
-- Producto funcionalmente completo para el alcance de v1: pacientes (incluidos menores con representante legal y asentimiento), consultas versionadas, documentos, informe de alta con registro de entregas, calendario con Google Calendar, agenda pública con checkout, cobro con Flow, recordatorios, notificaciones, MFA y auditoría.
+- Producto funcionalmente completo para el alcance de v1: pacientes (incluidos niños, niñas y adolescentes, NNA, con representante legal y asentimiento), consultas versionadas, documentos, informe de alta con registro de entregas, calendario con Google Calendar, agenda pública con checkout, cobro con Flow, recordatorios, notificaciones, MFA y auditoría.
 - Los riesgos más serios no están en el código de negocio sino en la operación (Render plan gratuito) y en el cumplimiento (transferencia internacional sin revisión legal completa, identificación y datos de contacto sin cifrado a nivel de aplicación).
 - Hay una distancia entre lo que el sistema hace y lo que conviene afirmar públicamente: el aislamiento entre terapeutas lo garantiza el código de aplicación (no políticas de base de datos) y a nivel de aplicación solo se cifran los textos clínicos libres (desde el 2026-10-17), no la identificación ni los datos de contacto. Ver "Riesgos aceptables" para la redacción segura.
 

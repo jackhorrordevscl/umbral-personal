@@ -120,7 +120,7 @@ Cada entrega del informe se registra (`DischargeDelivery`, solo se agregan):
 destinatario (`PATIENT`, `GUARDIAN` o `THIRD_PARTY`), canal (en persona,
 email, correo postal u otro), finalidad y fecha fijada por el servidor.
 
-- A un paciente menor de 18 años no se le entrega directamente: se entrega al
+- A un paciente con menos de 18 años no se le entrega directamente: se entrega al
   representante con `canAccessReports`. `PATIENT` se rechaza (400).
 - A un tercero se exige una autorización ya cargada en la ficha
   (`DocumentType.DELIVERY_AUTHORIZATION`), que puede ser la autorización del
@@ -143,9 +143,9 @@ email, correo postal u otro), finalidad y fecha fijada por el servidor.
 Al cerrar el tratamiento, un correo avisa la cancelación de las consultas. Se
 envía automáticamente si hay destinatario con email; si no lo hay o el envío
 falla, se omite y no interrumpe el cierre. No incluye el motivo del cierre, para no exponer el estado clínico a
-un correo posiblemente compartido. Para un adulto va a su email; para un menor,
+un correo posiblemente compartido. Para un adulto va a su email; para un NNA,
 solo a los representantes con `receivesCommunications` y email, nunca al email
-del menor.
+del NNA.
 
 ## Consecuencias
 
@@ -186,7 +186,7 @@ Esta sección es un resumen de trabajo, no una validación legal.
     documento cargado como "Autorización de entrega de informe", sin exigir ni
     comprobar esa formalidad; solo exige que el terapeuta declare haberlo
     revisado (ver el punto 7). Tampoco distingue entre la letra c) (tribunal) y
-    la d) (fiscal o abogado, con autorización del juez). La entrega a un menor
+    la d) (fiscal o abogado, con autorización del juez). La entrega a un NNA
     a través de su representante encaja en la letra a). Falta definir con
     asesoría legal si la autorización del paciente o de su representante
     basta, o si la app debe exigir y marcar la formalidad notarial.
@@ -199,12 +199,12 @@ Esta sección es un resumen de trabajo, no una validación legal.
   revelar sin orden judicial expresa o autorización escrita del cliente o
   paciente mayor de edad, con discernimiento e informado (5.2), y su violación
   es una infracción ética grave (5.5); la confidencialidad exige resguardar los
-  antecedentes de personas no autorizadas (6.1). Para un menor, el texto de 1996
+  antecedentes de personas no autorizadas (6.1). Para un NNA, el texto de 1996
   no resuelve quién autoriza. Falta confirmar la versión vigente.
 - **Fuerza probatoria de la firma simple.** Falta confirmar con asesoría legal
   si un informe con firma simple y hash es suficiente para los usos previstos
   (colegios, tribunales, otros prestadores).
-- **Informe de un menor de 14 a 17 años.** En v1 se entrega solo al
+- **Informe de un NNA de 14 a 17 años.** En v1 se entrega solo al
   representante con `canAccessReports`. Falta resolver la tensión entre la
   confidencialidad del adolescente y el derecho de los padres (ver ADR 0007).
 - **Oficios de tribunales.** El sistema no valida que el documento cargado

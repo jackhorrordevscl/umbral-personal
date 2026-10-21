@@ -13,7 +13,7 @@ export const patientKeys = {
   list: (params: patientsApi.ListPatientsParams) => ['patients', 'list', params] as const,
   summary: ['patients', 'summary'] as const,
   detail: (id: string) => ['patients', 'detail', id] as const,
-  // Bloque Menores: cuelgan de ['patients'] para refrescarse con patientKeys.all.
+  // Bloque NNA: cuelgan de ['patients'] para refrescarse con patientKeys.all.
   guardians: (id: string) => ['patients', 'guardians', id] as const,
   assents: (id: string) => ['patients', 'assents', id] as const,
 };
@@ -74,7 +74,7 @@ export function useCreatePatient() {
       const requested = (Object.keys(consents) as ConsentPurpose[]).filter(
         (purpose) => consents[purpose],
       );
-      // Bloque Menores: el GRANT de un menor exige un representante con
+      // Bloque NNA: el GRANT de un NNA exige un representante con
       // canConsent, que todavía no existe al crear la ficha. No se envía (el
       // servidor lo rechazaría) y se informa como diferido.
       const minor = isMinorOnChileDay(data.birthDate);
@@ -116,7 +116,7 @@ export function useUpdatePatient() {
     }: {
       id: string;
       data: Record<string, unknown>;
-      // grantedBy/guardianId solo para el GRANT de un menor.
+      // grantedBy/guardianId solo para el GRANT de un NNA.
       consentChanges: {
         purpose: ConsentPurpose;
         action: 'GRANT' | 'REVOKE';

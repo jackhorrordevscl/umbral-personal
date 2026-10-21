@@ -62,7 +62,7 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   OTHER: "Otro",
 };
 
-// Bloque Menores: estos documentos otorgan consentimiento, así que en un menor
+// Bloque NNA: estos documentos otorgan consentimiento, así que en un NNA
 // los firma un representante con canConsent (INFORMED_ASSENT no lo requiere).
 const GUARDIAN_CONSENT_DOC_TYPES = ["INFORMED_CONSENT", "TELEMED_AGREEMENT"];
 
@@ -108,7 +108,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
   const [voidError, setVoidError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Representante elegido para el documento a subir y para los consentimientos
-  // que se otorgan desde la edición (solo se usan con pacientes menores).
+  // que se otorgan desde la edición (solo se usan con pacientes NNA).
   const [uploadGuardianId, setUploadGuardianId] = useState("");
   const [editGuardianId, setEditGuardianId] = useState("");
 
@@ -197,12 +197,12 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
     const changedPurposes = (Object.keys(editConsents) as ConsentPurpose[]).filter(
       (purpose) => editConsents[purpose] !== originalConsents[purpose],
     );
-    // Bloque Menores: el GRANT de un menor lo otorga un representante con
+    // Bloque NNA: el GRANT de un NNA lo otorga un representante con
     // canConsent; un adulto nunca envía grantedBy ni guardianId.
     const grantingGuardianId = resolveGuardianId(editGuardianId);
     if (isMinor && changedPurposes.some((purpose) => editConsents[purpose]) && !grantingGuardianId) {
       setEditError(
-        "Para otorgar el consentimiento de un menor selecciona el representante que lo otorga.",
+        "Para otorgar el consentimiento de un NNA selecciona el representante que lo otorga.",
       );
       return;
     }
