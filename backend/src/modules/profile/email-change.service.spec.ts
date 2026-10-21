@@ -35,13 +35,19 @@ function buildUser(overrides: Partial<User> = {}): User {
 describe('EmailChangeService', () => {
   let service: EmailChangeService;
   let prisma: {
-    user: { update: jest.Mock; updateMany: jest.Mock; findUnique: jest.Mock };
+    user: {
+      update: jest.Mock;
+      updateMany: jest.Mock;
+      findUnique: jest.Mock;
+      findFirst: jest.Mock;
+    };
   };
   let jwtService: { sign: jest.Mock; verify: jest.Mock };
   let config: { get: jest.Mock };
   let mailService: {
     sendEmailChangeVerificationEmail: jest.Mock;
     sendEmailChangeNoticeEmail: jest.Mock;
+    sendEmailChangeTakenNoticeEmail: jest.Mock;
   };
   let auditService: { log: jest.Mock };
 
@@ -51,6 +57,7 @@ describe('EmailChangeService', () => {
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUnique: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(null),
       },
     };
     jwtService = {
@@ -63,6 +70,7 @@ describe('EmailChangeService', () => {
     mailService = {
       sendEmailChangeVerificationEmail: jest.fn().mockResolvedValue(undefined),
       sendEmailChangeNoticeEmail: jest.fn().mockResolvedValue(undefined),
+      sendEmailChangeTakenNoticeEmail: jest.fn().mockResolvedValue(undefined),
     };
     auditService = {
       log: jest.fn().mockResolvedValue(undefined),
@@ -122,6 +130,91 @@ describe('EmailChangeService', () => {
         resource: 'User',
         resourceId: 'user-1',
         detail: 'oldEmail=old@example.com newEmail=new@example.com',
+      });
+    });
+
+    // Judgment-day #499: si la dirección pedida ya tiene cuenta, el pedido es
+    // indistinguible para quien lo hace (mismo estado pendiente, mismo aviso a
+    // su casilla actual, sin error); el titular de esa dirección recibe un
+    // aviso en lugar del enlace, que nunca se firma.
+    describe('si la dirección pedida ya pertenece a otra cuenta', () => {
+      const requester = {
+        id: 'user-1',
+        email: 'old@example.com',
+        name: 'Test User',
+      };
+
+      beforeEach(() => {
+        prisma.user.findFirst.mockResolvedValue({ id: 'other-user' });
+      });
+
+      it('busca la dirección canónica en otras cuentas', async () => {
+        await service.requestChange(requester, '  Taken@Example.COM ');
+
+        expect(prisma.user.findFirst).toHaveBeenCalledWith({
+          where: { email: 'taken@example.com', id: { not: 'user-1' } },
+          select: { id: true },
+        });
+      });
+
+      it('guarda el pedido pendiente igual que en el camino normal', async () => {
+        await service.requestChange(requester, 'taken@example.com');
+
+        expect(prisma.user.update).toHaveBeenCalledWith({
+          where: { id: 'user-1' },
+          data: {
+            pendingEmail: 'taken@example.com',
+            pendingEmailTokenIssuedAt: expect.any(Date) as unknown as Date,
+          },
+        });
+      });
+
+      it('no firma token ni envía el enlace; avisa al titular de la dirección', async () => {
+        await service.requestChange(requester, 'taken@example.com');
+
+        expect(jwtService.sign).not.toHaveBeenCalled();
+        expect(
+          mailService.sendEmailChangeVerificationEmail,
+        ).not.toHaveBeenCalled();
+        expect(
+          mailService.sendEmailChangeTakenNoticeEmail,
+        ).toHaveBeenCalledWith('taken@example.com');
+      });
+
+      it('avisa a la casilla actual y audita igual que en el camino normal, sin lanzar', async () => {
+        await expect(
+          service.requestChange(requester, 'taken@example.com'),
+        ).resolves.toBeUndefined();
+
+        expect(mailService.sendEmailChangeNoticeEmail).toHaveBeenCalledWith(
+          'old@example.com',
+          'Test User',
+          'taken@example.com',
+        );
+        expect(auditService.log).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'EMAIL_CHANGE_REQUESTED',
+            userId: 'user-1',
+          }),
+        );
+      });
+
+      it('si falla un correo, cancela el pedido como en el camino normal', async () => {
+        mailService.sendEmailChangeTakenNoticeEmail.mockRejectedValue(
+          new Error('mail provider down'),
+        );
+
+        await expect(
+          service.requestChange(requester, 'taken@example.com'),
+        ).rejects.toThrow('mail provider down');
+
+        expect(prisma.user.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: 'user-1',
+            pendingEmailTokenIssuedAt: expect.any(Date) as unknown as Date,
+          },
+          data: { pendingEmail: null, pendingEmailTokenIssuedAt: null },
+        });
       });
     });
 

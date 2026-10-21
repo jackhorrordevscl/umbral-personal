@@ -404,15 +404,28 @@ describe('ProfileModule (e2e)', () => {
         .expect(201);
     });
 
-    it('rechaza actualizar a un email ya registrado por otra cuenta (409) y no deja pendingEmail', async () => {
-      await request(app.getHttpServer())
+    // Judgment-day #499: pedir una dirección que ya tiene cuenta responde igual
+    // que una libre (sin 409 que permita sondear qué direcciones existen). El
+    // pedido queda pendiente pero nunca se puede confirmar, y la otra cuenta
+    // no se toca.
+    it('pedir un email ya registrado por otra cuenta responde 200 igual que uno libre y no cambia ninguna cuenta', async () => {
+      const res = await request(app.getHttpServer())
         .patch('/api/v1/profile')
         .set('Authorization', `Bearer ${userAToken}`)
         .send({ email: userBEmail, currentPassword: TEST_PASSWORD })
-        .expect(409);
+        .expect(200);
 
-      const user = await prisma.user.findUnique({ where: { id: userAId } });
-      expect(user!.pendingEmail).not.toBe(userBEmail);
+      expect((res.body as Record<string, unknown>).email).toBe(userAEmail);
+      expect((res.body as Record<string, unknown>).pendingEmail).toBe(
+        userBEmail,
+      );
+
+      const userA = await prisma.user.findUnique({ where: { id: userAId } });
+      expect(userA!.email).toBe(userAEmail);
+      const userB = await prisma.user.findFirst({
+        where: { email: userBEmail },
+      });
+      expect(userB!.pendingEmail).toBeNull();
     });
 
     it('camino feliz completo: solicitar + confirmar activa el nuevo email, limpia pendingEmail y audita ambos pasos', async () => {
