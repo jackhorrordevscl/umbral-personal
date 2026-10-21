@@ -281,6 +281,47 @@ describe('DocumentsService', () => {
       expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
+    it('guarda el nombre saneado y con las tildes recuperadas del latin1 de multer', async () => {
+      const asMulterDelivers = Buffer.from(
+        '../Informe sesión.PDF',
+        'utf8',
+      ).toString('latin1');
+
+      await service.uploadDocument(
+        'patient-1',
+        'therapist-1',
+        buildFile({ originalname: asMulterDelivers }),
+        'OTHER',
+      );
+
+      expect(prisma.patientDocument.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          fileName: 'Informe sesión.pdf',
+        }) as unknown,
+      });
+      expect(mockWritePatientDocumentBuffer.mock.calls[0][0]).toMatch(
+        /^[0-9a-f-]{36}\.pdf\.enc$/,
+      );
+    });
+
+    it('la evidencia del consentimiento usa el nombre saneado', async () => {
+      await service.uploadDocument(
+        'patient-1',
+        'therapist-1',
+        buildFile({ originalname: 'a"b<c>.pdf' }),
+        'INFORMED_CONSENT',
+      );
+
+      expect(patientsService.recordConsent).toHaveBeenCalledWith(
+        'patient-1',
+        expect.objectContaining({
+          evidence: 'Documento subido: a_b_c_.pdf (id doc-1)',
+        }),
+        'therapist-1',
+        'doc-1',
+      );
+    });
+
     it('borra el objeto cifrado de B2 y propaga el error si falla el insert del documento', async () => {
       prisma.patientDocument.create.mockRejectedValue(new Error('db down'));
 

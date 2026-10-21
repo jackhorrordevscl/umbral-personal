@@ -20,6 +20,7 @@ import { VoidDocumentDto } from './dto/void-document.dto';
 import { DocumentEncryptionService } from './document-encryption.service';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { getAgeBand } from '../../common/utils/age.util';
+import { sanitizeAttachmentFileName } from '../../common/utils/attachment-file-name.util';
 import { assertFileContentMatchesMimetype } from '../../common/utils/file-signature.util';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
@@ -126,7 +127,11 @@ export class DocumentsService {
     // contenido (issue #51), corre sobre el buffer ya completo.
     assertFileContentMatchesMimetype(file.buffer, file.mimetype);
 
-    const storagePath = `${randomUUID()}${extname(file.originalname)}.enc`;
+    // El nombre del cliente no se confía tal cual: se recupera el UTF-8 que
+    // multer entrega como latin1 y se sanea antes de guardarlo y de usarlo en
+    // la clave del objeto, la evidencia del ledger y Content-Disposition.
+    const fileName = sanitizeAttachmentFileName(file.originalname);
+    const storagePath = `${randomUUID()}${extname(fileName)}.enc`;
     const encrypted = this.encryption.encrypt(file.buffer);
     try {
       await writePatientDocumentBuffer(storagePath, encrypted);
@@ -144,7 +149,7 @@ export class DocumentsService {
           patientId,
           uploadedBy: userId,
           type,
-          fileName: file.originalname,
+          fileName,
           storagePath,
           consultationGroupId,
         },
@@ -193,7 +198,7 @@ export class DocumentsService {
           {
             purpose,
             action: ConsentAction.GRANT,
-            evidence: `Documento subido: ${file.originalname} (id ${doc.id})`,
+            evidence: `Documento subido: ${fileName} (id ${doc.id})`,
             ...(consentGuardianId && {
               grantedBy: ConsentGrantor.GUARDIAN,
               guardianId: consentGuardianId,

@@ -20,6 +20,7 @@ import {
   CurrentUser,
   type RequestUser,
 } from '../../common/decorators/current-user.decorator';
+import { contentDispositionAttachment } from '../../common/utils/attachment-file-name.util';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { VoidDocumentDto } from './dto/void-document.dto';
 
@@ -130,7 +131,7 @@ export class DocumentsController {
     req.auditPatientId = doc.patientId;
     res.set({
       'Content-Type': 'application/octet-stream',
-      'Content-Disposition': `attachment; filename="${encodeURIComponent(doc.fileName)}"`,
+      'Content-Disposition': contentDispositionAttachment(doc.fileName),
       'Content-Length': buffer.length,
     });
     res.end(buffer);
