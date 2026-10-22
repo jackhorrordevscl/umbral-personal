@@ -542,8 +542,11 @@ describe('RemindersService.scan', () => {
     }
 
     // Versión original de una consulta que el terapeuta ya corrigió.
-    function superseded() {
-      return { ...buildConsultation(), correctedBy: { id: 'consultation-2' } };
+    function superseded(overrides: Partial<MockConsultation> = {}) {
+      return {
+        ...buildConsultation(overrides),
+        correctedBy: { id: 'consultation-2' },
+      };
     }
 
     it('consulta FAILED o PENDING abandonado bajo el tope, solo de sesiones futuras y vigentes', async () => {
@@ -578,14 +581,22 @@ describe('RemindersService.scan', () => {
     });
 
     it('un FAILED de una consulta corregida sin cambio de fecha se reenvía con la versión vigente y la deja asociada', async () => {
+      // Fecha compartida: tres buildConsultation() separados difieren por un
+      // milisegundo cuando el reloj avanza entre llamadas, y el reintento
+      // descartaría la fila como reprogramada.
+      const sessionDate = new Date(Date.now() + 10 * 60 * 60 * 1000);
       const current = buildConsultation({
         id: 'consultation-2',
+        sessionDate,
         patient: { fullName: 'Juan Soto Corregido' },
       });
       prisma.consultation.findMany.mockResolvedValue([]);
       prisma.consultation.findFirst.mockResolvedValue(current);
       prisma.reminderDispatch.findMany.mockResolvedValue([
-        { ...retryRow(), consultation: superseded() },
+        {
+          ...retryRow({ sessionDate }),
+          consultation: superseded({ sessionDate }),
+        },
       ]);
 
       await service.scan();
