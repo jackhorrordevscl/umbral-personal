@@ -54,6 +54,9 @@ describe('NotificationsPurgeService (integration, real Prisma)', () => {
     const oldUnread = await create(120, null);
     const recentUnread = await create(60, null);
 
+    // La purga no se puede acotar a un usuario: borra en toda la tabla. Es
+    // seguro en la base compartida de los tests porque ningún otro spec crea
+    // notificaciones con más de 30 días; no cambiar eso sin acotar este test.
     const service = new NotificationsPurgeService(prisma, {
       get: () => undefined,
     } as unknown as ConfigService);
