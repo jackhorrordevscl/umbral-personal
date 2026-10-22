@@ -220,6 +220,47 @@ describe('RemindersService (integration, real Prisma)', () => {
     expect(notRetried.attempts).toBe(REMINDER_MAX_ATTEMPTS);
   }, 30000);
 
+  it('un EMAIL FAILED de H24 cuando ya solo falta 1 h queda SKIPPED y no se reenvía; el H2 vigente sí sale', async () => {
+    const inOneHour = new Date(Date.now() + 60 * 60 * 1000);
+    const consultation = await createConsultation(inOneHour);
+    await prisma.reminderDispatch.create({
+      data: {
+        groupId: consultation.id,
+        sessionDate: inOneHour,
+        offsetKind: 'H24',
+        channel: 'EMAIL',
+        consultationId: consultation.id,
+        therapistId,
+        status: 'FAILED',
+        error: 'proveedor caído',
+        attempts: 1,
+        claimedAt: new Date(Date.now() - 60 * 60 * 1000),
+      },
+    });
+
+    await service.scan();
+
+    const stale = await prisma.reminderDispatch.findFirstOrThrow({
+      where: {
+        consultationId: consultation.id,
+        offsetKind: 'H24',
+        channel: 'EMAIL',
+      },
+    });
+    expect(stale.status).toBe('SKIPPED');
+    expect(stale.attempts).toBe(1);
+    expect(stale.resendMessageId).toBeNull();
+
+    const current = await prisma.reminderDispatch.findFirstOrThrow({
+      where: {
+        consultationId: consultation.id,
+        offsetKind: 'H2',
+        channel: 'EMAIL',
+      },
+    });
+    expect(current.status).toBe('SENT');
+  }, 30000);
+
   it('reintenta un EMAIL FAILED cuyo terapeuta corrigió la consulta antes del reintento', async () => {
     const dueSoon = new Date(Date.now() + 10 * 60 * 60 * 1000);
     const original = await createConsultation(dueSoon, { superseded: true });

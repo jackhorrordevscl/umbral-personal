@@ -666,10 +666,68 @@ describe('RemindersService.scan', () => {
       expect(mailService.sendSessionReminderEmail).toHaveBeenCalledTimes(1);
     });
 
+    // Fila reintentable de una consulta que empieza en `hours` horas.
+    function retryRowAt(hours: number, overrides: RetryRowOverrides = {}) {
+      const sessionDate = new Date(Date.now() + hours * 60 * 60 * 1000);
+      return {
+        ...retryRow({ ...overrides, sessionDate }),
+        consultation: buildConsultation({ sessionDate }),
+      };
+    }
+
+    it('un FAILED de H24 cuando ya solo faltan 1-2 h queda SKIPPED: no reenvía un "en 24 horas" obsoleto', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+      prisma.reminderDispatch.findMany.mockResolvedValue([
+        retryRowAt(1, { offsetKind: 'H24' }),
+      ]);
+
+      await service.scan();
+
+      expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledTimes(1);
+      expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledWith({
+        where: { id: 'dispatch-retry-1', status: 'FAILED', attempts: 1 },
+        data: { status: 'SKIPPED', error: null },
+      });
+      expect(mailService.sendSessionReminderEmail).not.toHaveBeenCalled();
+      expect(prisma.reminderDispatch.update).not.toHaveBeenCalled();
+    });
+
+    it('un PENDING abandonado de H24 con H2 ya vigente también queda SKIPPED, con su candado optimista', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+      prisma.reminderDispatch.findMany.mockResolvedValue([
+        retryRowAt(1, { offsetKind: 'H24', status: 'PENDING', attempts: 2 }),
+      ]);
+
+      await service.scan();
+
+      expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledWith({
+        where: { id: 'dispatch-retry-1', status: 'PENDING', attempts: 2 },
+        data: { status: 'SKIPPED', error: null },
+      });
+      expect(mailService.sendSessionReminderEmail).not.toHaveBeenCalled();
+    });
+
+    it('un FAILED de H24 con la sesión aún a más de 2 h sí se reintenta', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+      prisma.reminderDispatch.findMany.mockResolvedValue([
+        retryRowAt(10, { offsetKind: 'H24' }),
+      ]);
+
+      await service.scan();
+
+      expect(mailService.sendSessionReminderEmail).toHaveBeenCalledWith(
+        'therapist@example.com',
+        'Dra. Pérez',
+        'Juan Soto',
+        expect.any(Date),
+        '24 horas',
+      );
+    });
+
     it('reintenta un FAILED bajo el tope: re-reclama con attempts+1 y reenvía con la etiqueta de su offset', async () => {
       prisma.consultation.findMany.mockResolvedValue([]);
       prisma.reminderDispatch.findMany.mockResolvedValue([
-        retryRow({ offsetKind: 'H2' }),
+        retryRowAt(1, { offsetKind: 'H2' }),
       ]);
 
       await service.scan();

@@ -337,6 +337,22 @@ export class RemindersService {
       return;
     }
 
+    // El offset guardado puede haber quedado obsoleto mientras el reintento
+    // esperaba (p. ej. un "en 24 horas" cuando ya faltan 2 horas): se
+    // descarta en vez de enviar un aviso que miente sobre cuánto falta. El
+    // offset vigente lo despacha el scan normal.
+    const { dispatch: currentOffset } = resolveDueOffsets(
+      now,
+      consultation.sessionDate,
+    );
+    if (currentOffset !== row.offsetKind) {
+      await this.prisma.reminderDispatch.updateMany({
+        where: { id: row.id, status: row.status, attempts: row.attempts },
+        data: { status: 'SKIPPED', error: null },
+      });
+      return;
+    }
+
     const reclaimed = await this.prisma.reminderDispatch.updateMany({
       where: { id: row.id, status: row.status, attempts: row.attempts },
       data: {
