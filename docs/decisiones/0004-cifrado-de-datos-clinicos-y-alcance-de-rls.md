@@ -120,6 +120,10 @@ Se adopta la alternativa **B**, con esta secuencia:
   se cifran con `npm run crypto:reencrypt -- --only clinical --apply`.
 - **No cambia:** `Notification.metadata` (solo ids) y `linkPath` siguen en claro;
   la retención de las notificaciones no leídas es una decisión aparte.
+- **Volver a una versión anterior:** el cambio es de un solo sentido. Desde el
+  despliegue, toda notificación nueva se escribe cifrada; una versión anterior
+  del backend no la descifra y mostraría `enc:v3:…` en la campanita. Revertir
+  no deshace esas filas, así que ante un problema se corrige hacia adelante.
 
 ## Por qué
 
