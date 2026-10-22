@@ -796,7 +796,8 @@ umbral-personal/
   reportó un cobro inconsistente)
 - Purga diaria (04:30) de notificaciones **leídas** con más de 30 días
   (`NOTIFICATIONS_PURGE_RETENTION_DAYS`, desactivable con
-  `NOTIFICATIONS_PURGE_ENABLED=false`); las no leídas nunca se purgan
+  `NOTIFICATIONS_PURGE_ENABLED=false`) y de las **no leídas** con más de 90 días
+  desde su creación (`NOTIFICATIONS_PURGE_UNREAD_RETENTION_DAYS`)
 
 ### Integración con Google Calendar (sdd/google-calendar-integration, issue #78)
 - Conexión OAuth 2.0 por cuenta de terapeuta (`calendar.events`, acceso
@@ -1454,8 +1455,9 @@ proveedor definido (Backblaze B2 + `rclone`); ver
 | `GOOGLE_REDIRECT_URI` | Redirect URI del handshake OAuth, registrada en Google Cloud Console. Usa un cliente OAuth de **desarrollo** separado del de producción: la URI de `localhost` se registra solo en el cliente de desarrollo; el de producción lleva únicamente la URI HTTPS del backend (Google marca como inseguro un cliente de producción con redirects de loopback) | Desarrollo: `http://localhost:3001/api/v1/calendar-integration/callback`. Producción: `https://<host-del-backend>/api/v1/calendar-integration/callback` |
 | `GOOGLE_CALENDAR_SYNC_ENABLED` | Si es `false`, desactiva el cron de reconciliación y los intents de sync sin necesitar un deploy/revert | `false` en CI/e2e |
 | `SESSION_PURGE_ENABLED` | Si es `false`, desactiva el cron diario (04:00, hora del servidor) que borra sesiones expiradas o revocadas hace más de 7 días (`SessionPurgeService`, issue #287). Debe ser exactamente `true` o `false` | Habilitado si no se define |
-| `NOTIFICATIONS_PURGE_ENABLED` | Si es `false`, desactiva el cron diario (04:30, hora del servidor) que borra notificaciones leídas con más de `NOTIFICATIONS_PURGE_RETENTION_DAYS` días (`NotificationsPurgeService`, issue #290). Debe ser exactamente `true` o `false` | Habilitado si no se define |
+| `NOTIFICATIONS_PURGE_ENABLED` | Si es `false`, desactiva el cron diario (04:30, hora del servidor) que borra notificaciones leídas con más de `NOTIFICATIONS_PURGE_RETENTION_DAYS` días y no leídas con más de `NOTIFICATIONS_PURGE_UNREAD_RETENTION_DAYS` días desde su creación (`NotificationsPurgeService`, issues #290 y #501). Debe ser exactamente `true` o `false` | Habilitado si no se define |
 | `NOTIFICATIONS_PURGE_RETENTION_DAYS` | Días que se conserva una notificación leída antes de purgarla. Entero positivo | `30` |
+| `NOTIFICATIONS_PURGE_UNREAD_RETENTION_DAYS` | Días desde su creación que se conserva una notificación no leída antes de purgarla (issue #501). Entero positivo | `90` |
 | `NOTIFICATIONS_PURGE_MAX_BATCHES` | Máximo de lotes de 1000 filas por corrida de la purga de notificaciones. Entero positivo | `100` |
 | `REMINDERS_ENABLED` | Si es `false`, desactiva el cron de recordatorios de sesión (`RemindersService`, cada 5 min) sin necesitar un deploy/revert | `false` en CI/e2e |
 | `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar la credencial del merchant Flow de cada terapeuta en reposo, distinta de `DOCUMENT_ENCRYPTION_KEY`/`GOOGLE_TOKEN_ENCRYPTION_KEY` (sdd/online-payment-integration) | Generar con `openssl rand -base64 32` |

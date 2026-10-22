@@ -76,12 +76,18 @@ The authenticated layout MUST show a notification bell that polls the unread cou
 - WHEN the therapist follows the link in the detail view
 - THEN the detail closes and the app navigates to that path
 
-### Requirement: Read Notification Retention
+### Requirement: Notification Retention
 
-The system MUST run a daily scheduled job (04:30) that deletes notifications read more than 30 days ago (configurable through `NOTIFICATIONS_PURGE_RETENTION_DAYS`), in bounded batches (1000 rows per batch, at most 100 batches per run by default, configurable through `NOTIFICATIONS_PURGE_MAX_BATCHES`; an invalid retention value falls back to 30 days), skipping a run if the previous one is still in progress. Unread notifications MUST NOT be purged. The job MUST be disabled only when `NOTIFICATIONS_PURGE_ENABLED` is exactly `'false'`.
+The system MUST run a daily scheduled job (04:30) that deletes notifications read more than 30 days ago (configurable through `NOTIFICATIONS_PURGE_RETENTION_DAYS`), in bounded batches (1000 rows per batch, at most 100 batches per run by default, configurable through `NOTIFICATIONS_PURGE_MAX_BATCHES`; an invalid retention value falls back to 30 days), skipping a run if the previous one is still in progress. Unread notifications MUST also be purged once more than 90 days have passed since their creation (configurable through `NOTIFICATIONS_PURGE_UNREAD_RETENTION_DAYS`; an invalid value falls back to 90 days). The job MUST be disabled only when `NOTIFICATIONS_PURGE_ENABLED` is exactly `'false'`.
 
-#### Scenario: Old read notifications are purged, unread are kept
+#### Scenario: Old read notifications are purged, recent unread are kept
 
 - GIVEN a notification read 31 days ago, a notification read yesterday, and an unread notification created 60 days ago
+- WHEN the purge job runs
+- THEN only the first one is deleted
+
+#### Scenario: Old unread notifications are purged
+
+- GIVEN an unread notification created 91 days ago and an unread notification created 89 days ago
 - WHEN the purge job runs
 - THEN only the first one is deleted

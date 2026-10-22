@@ -495,7 +495,7 @@ Estos tipos de notificación llegan hoy:
   problema de almacenamiento antes del 23/09. No se repite.
 
 Las notificaciones leídas se eliminan automáticamente pasados 30 días; las
-no leídas se conservan hasta que las leas.
+no leídas, pasados 90 días desde que se generaron.
 
 Además de las notificaciones, la app envía correos de seguridad y de cuenta:
 verificación de email, restablecimiento de contraseña, cambio de email (a la

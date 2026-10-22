@@ -88,7 +88,7 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 ### Recordatorios y notificaciones
 
 - Recordatorios de sesión 24 horas y 2 horas antes, por notificación en la app y por email al terapeuta.
-- Notificaciones en la app con contador de no leídas y marcado como leídas; las leídas se purgan a los 30 días.
+- Notificaciones en la app con contador de no leídas y marcado como leídas; las leídas se purgan a los 30 días y las no leídas a los 90 días de generadas.
 - Avisos de Google Calendar desconectado, cobro vencido, anomalías de cobro y paciente autoagendado sin monto de sesión.
 
 ### Seguridad de la cuenta

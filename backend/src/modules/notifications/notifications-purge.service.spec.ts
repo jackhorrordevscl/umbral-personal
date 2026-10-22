@@ -5,10 +5,12 @@ import {
   NOTIFICATIONS_PURGE_BATCH_SIZE,
   NOTIFICATIONS_PURGE_DEFAULT_MAX_BATCHES,
   NOTIFICATIONS_PURGE_DEFAULT_RETENTION_DAYS,
+  NOTIFICATIONS_PURGE_DEFAULT_UNREAD_RETENTION_DAYS,
   NotificationsPurgeService,
 } from './notifications-purge.service';
 
-// Issue #290: purga diaria de notificaciones leídas antiguas.
+// Issue #290: purga diaria de notificaciones leídas antiguas. Issue #501 (A4):
+// también las no leídas, con una retención propia.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -81,59 +83,100 @@ describe('NotificationsPurgeService', () => {
     expect(prisma.notification.findMany).toHaveBeenCalledTimes(1);
   });
 
-  it('solo purga notificaciones leídas hace más que la retención por defecto', async () => {
+  // Cortes que usó la primera consulta de la corrida: el de las leídas
+  // (readAt) y el de las no leídas (createdAt).
+  function cutoffsOfFirstQuery() {
+    const where = (
+      prisma.notification.findMany.mock.calls[0] as [
+        {
+          where: {
+            OR: [
+              { readAt: { lt: Date } },
+              { readAt: null; createdAt: { lt: Date } },
+            ];
+          };
+        },
+      ]
+    )[0].where;
+    return {
+      read: where.OR[0].readAt.lt.getTime(),
+      unread: where.OR[1].createdAt.lt.getTime(),
+      unreadOnlyWhenNeverRead: where.OR[1].readAt === null,
+    };
+  }
+
+  it('purga las leídas hace más que la retención por defecto', async () => {
     prisma.notification.findMany.mockResolvedValueOnce(buildRows(3));
     const service = buildService();
     const before = Date.now();
 
     await service.purge();
 
-    const where = (
-      prisma.notification.findMany.mock.calls[0] as [
-        { where: { readAt: { lt: Date } } },
-      ]
-    )[0].where;
-    const cutoff = where.readAt.lt.getTime();
+    const { read } = cutoffsOfFirstQuery();
     const retentionMs = NOTIFICATIONS_PURGE_DEFAULT_RETENTION_DAYS * DAY_MS;
-    expect(cutoff).toBeGreaterThanOrEqual(before - retentionMs);
-    expect(cutoff).toBeLessThanOrEqual(Date.now() - retentionMs);
+    expect(read).toBeGreaterThanOrEqual(before - retentionMs);
+    expect(read).toBeLessThanOrEqual(Date.now() - retentionMs);
     expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
       where: { id: { in: ['n-0', 'n-1', 'n-2'] } },
     });
   });
 
-  it('respeta NOTIFICATIONS_PURGE_RETENTION_DAYS', async () => {
-    const service = buildService({ NOTIFICATIONS_PURGE_RETENTION_DAYS: '90' });
+  it('purga también las no leídas creadas hace más que la retención por defecto de no leídas (A4 de #501)', async () => {
+    const service = buildService();
     const before = Date.now();
 
     await service.purge();
 
-    const where = (
-      prisma.notification.findMany.mock.calls[0] as [
-        { where: { readAt: { lt: Date } } },
-      ]
-    )[0].where;
-    expect(where.readAt.lt.getTime()).toBeGreaterThanOrEqual(
-      before - 90 * DAY_MS,
-    );
-    expect(where.readAt.lt.getTime()).toBeLessThanOrEqual(
-      Date.now() - 90 * DAY_MS,
+    const { unread, unreadOnlyWhenNeverRead } = cutoffsOfFirstQuery();
+    const retentionMs =
+      NOTIFICATIONS_PURGE_DEFAULT_UNREAD_RETENTION_DAYS * DAY_MS;
+    expect(unreadOnlyWhenNeverRead).toBe(true);
+    expect(unread).toBeGreaterThanOrEqual(before - retentionMs);
+    expect(unread).toBeLessThanOrEqual(Date.now() - retentionMs);
+  });
+
+  it('respeta NOTIFICATIONS_PURGE_RETENTION_DAYS sin mover el corte de las no leídas', async () => {
+    const service = buildService({ NOTIFICATIONS_PURGE_RETENTION_DAYS: '10' });
+    const before = Date.now();
+
+    await service.purge();
+
+    const { read, unread } = cutoffsOfFirstQuery();
+    expect(read).toBeGreaterThanOrEqual(before - 10 * DAY_MS);
+    expect(read).toBeLessThanOrEqual(Date.now() - 10 * DAY_MS);
+    expect(unread).toBeLessThanOrEqual(
+      Date.now() - NOTIFICATIONS_PURGE_DEFAULT_UNREAD_RETENTION_DAYS * DAY_MS,
     );
   });
 
-  it('usa la retención por defecto si NOTIFICATIONS_PURGE_RETENTION_DAYS es inválido', async () => {
-    const service = buildService({ NOTIFICATIONS_PURGE_RETENTION_DAYS: 'abc' });
+  it('respeta NOTIFICATIONS_PURGE_UNREAD_RETENTION_DAYS', async () => {
+    const service = buildService({
+      NOTIFICATIONS_PURGE_UNREAD_RETENTION_DAYS: '45',
+    });
     const before = Date.now();
 
     await service.purge();
 
-    const where = (
-      prisma.notification.findMany.mock.calls[0] as [
-        { where: { readAt: { lt: Date } } },
-      ]
-    )[0].where;
-    expect(where.readAt.lt.getTime()).toBeGreaterThanOrEqual(
+    const { unread } = cutoffsOfFirstQuery();
+    expect(unread).toBeGreaterThanOrEqual(before - 45 * DAY_MS);
+    expect(unread).toBeLessThanOrEqual(Date.now() - 45 * DAY_MS);
+  });
+
+  it('usa los valores por defecto si las retenciones son inválidas', async () => {
+    const service = buildService({
+      NOTIFICATIONS_PURGE_RETENTION_DAYS: 'abc',
+      NOTIFICATIONS_PURGE_UNREAD_RETENTION_DAYS: '-5',
+    });
+    const before = Date.now();
+
+    await service.purge();
+
+    const { read, unread } = cutoffsOfFirstQuery();
+    expect(read).toBeGreaterThanOrEqual(
       before - NOTIFICATIONS_PURGE_DEFAULT_RETENTION_DAYS * DAY_MS,
+    );
+    expect(unread).toBeGreaterThanOrEqual(
+      before - NOTIFICATIONS_PURGE_DEFAULT_UNREAD_RETENTION_DAYS * DAY_MS,
     );
   });
 
