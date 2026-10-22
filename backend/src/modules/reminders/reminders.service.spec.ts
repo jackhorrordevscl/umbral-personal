@@ -85,6 +85,7 @@ describe('RemindersService.scan', () => {
       findMany: jest.Mock;
       updateMany: jest.Mock;
     };
+    notification: { findFirst: jest.Mock };
   };
   let notificationsService: { create: jest.Mock };
   let mailService: { sendSessionReminderEmail: jest.Mock };
@@ -108,6 +109,9 @@ describe('RemindersService.scan', () => {
         findMany: jest.fn().mockResolvedValue([]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      // issue #501 (B1): por defecto no existe una notificación previa del
+      // despacho.
+      notification: { findFirst: jest.fn().mockResolvedValue(null) },
     };
     notificationsService = { create: jest.fn().mockResolvedValue(undefined) };
     mailService = {
@@ -623,6 +627,7 @@ describe('RemindersService.scan', () => {
         'Juan Soto Corregido',
         expect.any(Date),
         '24 horas',
+        expect.any(String),
       );
     });
 
@@ -721,7 +726,73 @@ describe('RemindersService.scan', () => {
         'Juan Soto',
         expect.any(Date),
         '24 horas',
+        expect.any(String),
       );
+    });
+
+    // issue #501 (B1): si el envío salió pero el update a SENT falló, el
+    // reintento no puede duplicar ni el correo ni la notificación in-app.
+    it('el reintento del email usa la misma clave de idempotencia que el primer intento (derivada del id del despacho)', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+      prisma.reminderDispatch.findMany.mockResolvedValue([
+        retryRowAt(10, { channel: 'EMAIL', offsetKind: 'H24' }),
+      ]);
+
+      await service.scan();
+
+      expect(mailService.sendSessionReminderEmail).toHaveBeenCalledWith(
+        'therapist@example.com',
+        'Dra. Pérez',
+        'Juan Soto',
+        expect.any(Date),
+        '24 horas',
+        'reminder-dispatch-dispatch-retry-1',
+      );
+    });
+
+    it('el reintento in-app no crea otra notificación si el intento anterior ya la creó, y deja el despacho SENT', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+      prisma.reminderDispatch.findMany.mockResolvedValue([
+        retryRowAt(10, { channel: 'IN_APP', offsetKind: 'H24' }),
+      ]);
+      prisma.notification.findFirst.mockResolvedValue({ id: 'notification-1' });
+
+      await service.scan();
+
+      expect(prisma.notification.findFirst).toHaveBeenCalledWith({
+        where: {
+          userId: 'therapist-1',
+          metadata: {
+            path: ['reminderDispatchId'],
+            equals: 'dispatch-retry-1',
+          },
+        },
+        select: { id: true },
+      });
+      expect(notificationsService.create).not.toHaveBeenCalled();
+      expect(prisma.reminderDispatch.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'dispatch-retry-1' },
+          data: expect.objectContaining({ status: 'SENT' }) as object,
+        }),
+      );
+    });
+
+    it('la notificación in-app guarda el id del despacho en metadata (solo el id, sin datos del paciente)', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+      prisma.reminderDispatch.findMany.mockResolvedValue([
+        retryRowAt(10, { channel: 'IN_APP', offsetKind: 'H24' }),
+      ]);
+
+      await service.scan();
+
+      expect(notificationsService.create).toHaveBeenCalledTimes(1);
+      const calls = notificationsService.create.mock.calls as {
+        metadata: unknown;
+      }[][];
+      expect(calls[0][0].metadata).toEqual({
+        reminderDispatchId: 'dispatch-retry-1',
+      });
     });
 
     it('reintenta un FAILED bajo el tope: re-reclama con attempts+1 y reenvía con la etiqueta de su offset', async () => {
@@ -746,6 +817,7 @@ describe('RemindersService.scan', () => {
         'Juan Soto',
         expect.any(Date),
         '2 horas',
+        expect.any(String),
       );
       expect(prisma.reminderDispatch.update).toHaveBeenCalledWith(
         expect.objectContaining({
