@@ -266,6 +266,31 @@ describe('RemindersService.scan', () => {
     );
   });
 
+  it('un error inesperado en una consulta no aborta el resto del lote ni los reintentos', async () => {
+    const failing = buildConsultation({ id: 'c-fails', groupId: 'g-fails' });
+    const healthy = buildConsultation({ id: 'c-ok', groupId: 'g-ok' });
+    prisma.consultation.findMany.mockResolvedValue([failing, healthy]);
+    prisma.reminderDispatch.create.mockImplementation((args) =>
+      (args as unknown as { data: { groupId: string } }).data.groupId ===
+      'g-fails'
+        ? Promise.reject(new Error('conexión caída'))
+        : Promise.resolve({ id: 'dispatch-ok' }),
+    );
+    const logError = jest
+      .spyOn(service['logger'], 'error')
+      .mockImplementation(() => undefined);
+
+    await expect(service.scan()).resolves.toBeUndefined();
+
+    // La consulta sana se despachó en ambos canales y el reintento corrió.
+    expect(notificationsService.create).toHaveBeenCalledTimes(1);
+    expect(mailService.sendSessionReminderEmail).toHaveBeenCalledTimes(1);
+    expect(prisma.reminderDispatch.findMany).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalledWith(
+      expect.stringContaining('c-fails') as string,
+    );
+  });
+
   it('despacha un único offset due en ambos canales y marca el dispatch como SENT', async () => {
     const consultation = buildConsultation();
     prisma.consultation.findMany.mockResolvedValue([consultation]);
@@ -710,6 +735,27 @@ describe('RemindersService.scan', () => {
 
       expect(prisma.reminderDispatch.updateMany).not.toHaveBeenCalled();
       expect(mailService.sendSessionReminderEmail).not.toHaveBeenCalled();
+    });
+
+    it('un error inesperado al reintentar una fila no impide reintentar las siguientes', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+      prisma.reminderDispatch.findMany.mockResolvedValue([
+        retryRow({ id: 'dispatch-bad' }),
+        retryRow({ id: 'dispatch-good' }),
+      ]);
+      prisma.reminderDispatch.updateMany
+        .mockRejectedValueOnce(new Error('conexión caída'))
+        .mockResolvedValueOnce({ count: 1 });
+      const logError = jest
+        .spyOn(service['logger'], 'error')
+        .mockImplementation(() => undefined);
+
+      await expect(service.scan()).resolves.toBeUndefined();
+
+      expect(mailService.sendSessionReminderEmail).toHaveBeenCalledTimes(1);
+      expect(logError).toHaveBeenCalledWith(
+        expect.stringContaining('dispatch-bad') as string,
+      );
     });
 
     it('no consulta reintentos si REMINDERS_ENABLED="false"', async () => {
