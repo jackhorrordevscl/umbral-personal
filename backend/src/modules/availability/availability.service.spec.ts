@@ -791,7 +791,7 @@ describe('AvailabilityService (CRUD)', () => {
         TemplateStringsArray,
         ...unknown[],
       ];
-      expect(strings.join('?')).toContain('FOR UPDATE');
+      expect(strings.join('?')).toContain('FOR NO KEY UPDATE');
       expect(values).toEqual(['therapist-1']);
       expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
         prisma.therapistAvailability.deleteMany.mock.invocationCallOrder[0],
