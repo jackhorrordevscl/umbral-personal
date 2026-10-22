@@ -5,9 +5,12 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 // Issue #290: la tabla Notification solo crecía y el listado sin paginar
 // devolvía todas las filas del usuario. Se purgan las notificaciones ya LEÍDAS
-// hace más de NOTIFICATIONS_PURGE_RETENTION_DAYS; las no leídas nunca se
-// borran.
+// hace más de NOTIFICATIONS_PURGE_RETENTION_DAYS.
+// Issue #501 (A4): las no leídas tampoco se conservan para siempre (pueden
+// nombrar al paciente; minimización, Ley 21.719): se purgan a los
+// NOTIFICATIONS_PURGE_UNREAD_RETENTION_DAYS desde su creación.
 export const NOTIFICATIONS_PURGE_DEFAULT_RETENTION_DAYS = 30;
+export const NOTIFICATIONS_PURGE_DEFAULT_UNREAD_RETENTION_DAYS = 90;
 export const NOTIFICATIONS_PURGE_BATCH_SIZE = 1000;
 // Tope de seguridad por corrida (configurable con
 // NOTIFICATIONS_PURGE_MAX_BATCHES). Si queda backlog, lo toma la corrida del
@@ -21,6 +24,7 @@ export class NotificationsPurgeService {
   private readonly logger = new Logger(NotificationsPurgeService.name);
   private readonly enabled: boolean;
   private readonly retentionMs: number;
+  private readonly unreadRetentionMs: number;
   private readonly maxBatches: number;
   private running = false;
 
@@ -37,6 +41,11 @@ export class NotificationsPurgeService {
         'NOTIFICATIONS_PURGE_RETENTION_DAYS',
         NOTIFICATIONS_PURGE_DEFAULT_RETENTION_DAYS,
       ) * DAY_MS;
+    this.unreadRetentionMs =
+      this.readPositiveInt(
+        'NOTIFICATIONS_PURGE_UNREAD_RETENTION_DAYS',
+        NOTIFICATIONS_PURGE_DEFAULT_UNREAD_RETENTION_DAYS,
+      ) * DAY_MS;
     this.maxBatches = this.readPositiveInt(
       'NOTIFICATIONS_PURGE_MAX_BATCHES',
       NOTIFICATIONS_PURGE_DEFAULT_MAX_BATCHES,
@@ -44,7 +53,7 @@ export class NotificationsPurgeService {
 
     if (!this.enabled) {
       this.logger.warn(
-        'NOTIFICATIONS_PURGE_ENABLED="false": la purga de notificaciones leídas queda deshabilitada.',
+        'NOTIFICATIONS_PURGE_ENABLED="false": la purga de notificaciones queda deshabilitada.',
       );
     }
   }
@@ -71,12 +80,19 @@ export class NotificationsPurgeService {
 
     this.running = true;
     try {
-      const cutoff = new Date(Date.now() - this.retentionMs);
+      const now = Date.now();
+      const readCutoff = new Date(now - this.retentionMs);
+      const unreadCutoff = new Date(now - this.unreadRetentionMs);
       let deleted = 0;
 
       for (let batch = 0; batch < this.maxBatches; batch++) {
         const rows = await this.prisma.notification.findMany({
-          where: { readAt: { lt: cutoff } },
+          where: {
+            OR: [
+              { readAt: { lt: readCutoff } },
+              { readAt: null, createdAt: { lt: unreadCutoff } },
+            ],
+          },
           select: { id: true },
           take: NOTIFICATIONS_PURGE_BATCH_SIZE,
         });

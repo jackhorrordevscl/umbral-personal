@@ -203,6 +203,7 @@ function validateMainTsEnvVars(config: Record<string, unknown>): void {
   }
   for (const name of [
     'NOTIFICATIONS_PURGE_RETENTION_DAYS',
+    'NOTIFICATIONS_PURGE_UNREAD_RETENTION_DAYS',
     'NOTIFICATIONS_PURGE_MAX_BATCHES',
   ]) {
     const value = config[name];

@@ -453,6 +453,7 @@ describe('validateEnv', () => {
 
   it.each([
     'NOTIFICATIONS_PURGE_RETENTION_DAYS',
+    'NOTIFICATIONS_PURGE_UNREAD_RETENTION_DAYS',
     'NOTIFICATIONS_PURGE_MAX_BATCHES',
   ])('rechaza un %s que no es un entero positivo', (name) => {
     for (const value of ['abc', '0', '-5', '1.5', '']) {
@@ -464,6 +465,7 @@ describe('validateEnv', () => {
 
   it.each([
     'NOTIFICATIONS_PURGE_RETENTION_DAYS',
+    'NOTIFICATIONS_PURGE_UNREAD_RETENTION_DAYS',
     'NOTIFICATIONS_PURGE_MAX_BATCHES',
   ])('permite %s como entero positivo', (name) => {
     const config = { NODE_ENV: 'test', [name]: '45' };
