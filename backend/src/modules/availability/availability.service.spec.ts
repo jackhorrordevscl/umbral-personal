@@ -683,11 +683,13 @@ describe('AvailabilityService (CRUD)', () => {
       delete: jest.Mock;
     };
     $transaction: jest.Mock;
+    $queryRaw: jest.Mock;
   };
   let service: AvailabilityService;
 
   beforeEach(() => {
     prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
       user: {
         findUnique: jest.fn().mockResolvedValue({ sessionDurationMinutes: 50 }),
         update: jest.fn(),
@@ -773,6 +775,27 @@ describe('AvailabilityService (CRUD)', () => {
         where: { id: 'therapist-1' },
         data: { sessionDurationMinutes: 60 },
       });
+    });
+
+    // Judgment-day #501: dos guardados concurrentes chocaban con el unique de
+    // TherapistAvailability (P2002 -> 500). El lock de la fila del terapeuta
+    // serializa la transacción completa, antes de borrar o insertar.
+    it('toma el lock de la fila del terapeuta antes de reemplazar las entries', async () => {
+      await service.saveSchedule('therapist-1', {
+        sessionDurationMinutes: 60,
+        entries: [{ dayOfWeek: 1, startMinute: 540, endMinute: 780 }],
+      });
+
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+      const [strings, ...values] = prisma.$queryRaw.mock.calls[0] as [
+        TemplateStringsArray,
+        ...unknown[],
+      ];
+      expect(strings.join('?')).toContain('FOR UPDATE');
+      expect(values).toEqual(['therapist-1']);
+      expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.therapistAvailability.deleteMany.mock.invocationCallOrder[0],
+      );
     });
 
     it('invalida el cache del terapeuta tras guardar', async () => {
