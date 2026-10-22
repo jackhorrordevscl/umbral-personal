@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { CONSULTATION_TEXT_KEYS } from '../../modules/consultations/util/consultation-text.util';
 import { DISCHARGE_TEXT_FIELDS } from '../../modules/discharges/util/discharge-text.util';
+import { NOTIFICATION_TEXT_FIELDS } from '../../modules/notifications/util/notification-text.util';
 import { DatasetPort, Row, Stored, textCodec } from './reencrypt';
 import { Keyring } from './keyring';
 
@@ -41,9 +42,11 @@ interface ColumnDelegate {
   }): Promise<{ count: number }>;
 }
 
+type ColumnModel = 'consultation' | 'treatmentDischarge' | 'notification';
+
 const COLUMN_TABLES: {
   table: string;
-  model: 'consultation' | 'treatmentDischarge';
+  model: ColumnModel;
   fields: readonly string[];
 }[] = [
   {
@@ -55,6 +58,11 @@ const COLUMN_TABLES: {
     table: 'discharge',
     model: 'treatmentDischarge',
     fields: DISCHARGE_TEXT_FIELDS,
+  },
+  {
+    table: 'notification',
+    model: 'notification',
+    fields: NOTIFICATION_TEXT_FIELDS,
   },
 ];
 
@@ -76,7 +84,7 @@ export function buildClinicalPort(
   prisma: PrismaClient,
   keyring: Keyring,
 ): DatasetPort {
-  const delegateOf = (model: 'consultation' | 'treatmentDischarge') =>
+  const delegateOf = (model: ColumnModel) =>
     prisma[model] as unknown as ColumnDelegate;
 
   async function* listColumns(): AsyncGenerator<Row> {

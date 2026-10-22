@@ -1,3 +1,4 @@
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import { randomUUID } from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
@@ -129,7 +130,7 @@ describe('CalendarSyncService (integration, real Prisma)', () => {
       prisma,
       tokenCrypto,
       googleCalendarClient as unknown as GoogleCalendarClient,
-      new NotificationsService(prisma),
+      new NotificationsService(prisma, buildTestClinicalCrypto()),
       buildConfig(),
       new AuditService(prisma),
     );

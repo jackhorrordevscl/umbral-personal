@@ -1,3 +1,4 @@
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import { randomUUID } from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
@@ -54,7 +55,10 @@ describe('RemindersService (integration, real Prisma)', () => {
     });
     patientId = patient.id;
 
-    const notificationsService = new NotificationsService(prisma);
+    const notificationsService = new NotificationsService(
+      prisma,
+      buildTestClinicalCrypto(),
+    );
     // Stub del envío: sin RESEND_API_KEY el MailService real devuelve null y el
     // dispatch EMAIL queda FAILED (issue #286). Estos tests verifican la
     // idempotencia de la clave única, no el proveedor, así que no hay red.

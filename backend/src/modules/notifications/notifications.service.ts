@@ -2,6 +2,11 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
+import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
+import {
+  decryptNotificationRow,
+  encryptNotificationTexts,
+} from './util/notification-text.util';
 
 // sdd/session-reminders PR 1: modelo genérico de notificaciones in-app,
 // consumido en este PR solo por su propio CRUD dueño-scoped. `create` queda
@@ -21,15 +26,39 @@ export interface CreateNotificationData {
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private clinicalCrypto: ClinicalTextCryptoService,
+  ) {}
+
+  // issue #501 (A4): title y body se guardan cifrados; todo lo que sale hacia
+  // fuera pasa por `readable()`.
+  private readable<T extends { id: string; title: string; body: string }>(
+    row: T,
+  ): T {
+    const { row: out, readable } = decryptNotificationRow(
+      row,
+      this.clinicalCrypto,
+    );
+    if (!readable) {
+      this.logger.warn(
+        `No se pudo descifrar la notificación id=${row.id}: se muestra un texto neutro`,
+      );
+    }
+    return out;
+  }
 
   async create(data: CreateNotificationData) {
+    const texts = encryptNotificationTexts(
+      { title: data.title, body: data.body },
+      this.clinicalCrypto,
+    );
     const notification = await this.prisma.notification.create({
       data: {
         userId: data.userId,
         type: data.type,
-        title: data.title,
-        body: data.body,
+        title: texts.title,
+        body: texts.body,
         linkPath: data.linkPath,
         metadata: data.metadata,
       },
@@ -37,7 +66,7 @@ export class NotificationsService {
     this.logger.log(
       `Notificación creada: id=${notification.id} userId=${data.userId} type=${data.type}`,
     );
-    return notification;
+    return this.readable(notification);
   }
 
   // Sin page/pageSize devuelve la lista completa (mismo criterio
@@ -68,7 +97,8 @@ export class NotificationsService {
         : Promise.resolve(undefined),
     ]);
 
-    return isPaginated ? { data, total, page, pageSize } : data;
+    const rows = data.map((row) => this.readable(row));
+    return isPaginated ? { data: rows, total, page, pageSize } : rows;
   }
 
   async unreadCount(userId: string): Promise<{ count: number }> {
@@ -92,7 +122,10 @@ export class NotificationsService {
     if (result.count === 0) {
       throw new NotFoundException('Notificación no encontrada');
     }
-    return this.prisma.notification.findFirst({ where: { id, userId } });
+    const updated = await this.prisma.notification.findFirst({
+      where: { id, userId },
+    });
+    return updated ? this.readable(updated) : updated;
   }
 
   async markAllRead(userId: string) {
