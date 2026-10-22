@@ -368,6 +368,54 @@ describe('RemindersService.scan', () => {
     expect(mailService.sendSessionReminderEmail).not.toHaveBeenCalled();
   });
 
+  it('un P2002 en una versión corregida re-apunta cada dispatch del grupo a la versión vigente para que deje de ser accionable', async () => {
+    const consultation = buildConsultation({ id: 'consultation-2' });
+    prisma.consultation.findMany.mockResolvedValue([consultation]);
+    prisma.reminderDispatch.create.mockRejectedValue(uniqueViolation());
+
+    await service.scan();
+
+    // H24 está due a 10h: una llamada por canal (IN_APP y EMAIL).
+    expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledTimes(2);
+    expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledWith({
+      where: {
+        groupId: 'group-1',
+        sessionDate: consultation.sessionDate,
+        offsetKind: 'H24',
+        channel: 'EMAIL',
+        consultationId: { not: 'consultation-2' },
+      },
+      data: { consultationId: 'consultation-2' },
+    });
+  });
+
+  it('un P2002 al reclamar un offset SKIPPED también re-apunta el dispatch existente', async () => {
+    const consultation = buildConsultation({
+      id: 'consultation-2',
+      sessionDate: new Date(Date.now() + 10 * 60 * 1000),
+    });
+    prisma.consultation.findMany.mockResolvedValue([consultation]);
+    prisma.reminderDispatch.create.mockRejectedValue(uniqueViolation());
+
+    await service.scan();
+
+    expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        offsetKind: 'H24',
+        consultationId: { not: 'consultation-2' },
+      }) as object,
+      data: { consultationId: 'consultation-2' },
+    });
+  });
+
+  it('sin P2002 no re-apunta ningún dispatch', async () => {
+    prisma.consultation.findMany.mockResolvedValue([buildConsultation()]);
+
+    await service.scan();
+
+    expect(prisma.reminderDispatch.updateMany).not.toHaveBeenCalled();
+  });
+
   it('un P2002 al reclamar el dispatch salta silenciosamente sin enviar el email (T6.5/T6.6)', async () => {
     const consultation = buildConsultation();
     prisma.consultation.findMany.mockResolvedValue([consultation]);

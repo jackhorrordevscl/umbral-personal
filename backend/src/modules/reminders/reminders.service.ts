@@ -193,8 +193,31 @@ export class RemindersService {
       });
     } catch (err) {
       if (!isUniqueConstraintError(err)) throw err;
-      // Ya reclamado por un tick anterior (SENT/FAILED/SKIPPED) -- no-op.
+      // Ya reclamado por un tick anterior (SENT/FAILED/SKIPPED).
+      await this.adoptExistingClaim(consultation, offsetKind, channel);
     }
+  }
+
+  // El unique es por groupId, pero el filtro "accionable" mira los dispatches
+  // por consultationId. Si el terapeuta corrigió la consulta, la versión nueva
+  // choca con el claim de la anterior y, sin esto, seguiría pareciendo
+  // accionable en cada tick. Re-apuntar el claim a la versión vigente la saca
+  // del filtro; si ya apuntaba a ella (otro tick), no toca nada.
+  private async adoptExistingClaim(
+    consultation: ScannedConsultation,
+    offsetKind: ReminderOffset,
+    channel: ReminderChannel,
+  ): Promise<void> {
+    await this.prisma.reminderDispatch.updateMany({
+      where: {
+        groupId: consultation.groupId,
+        sessionDate: consultation.sessionDate,
+        offsetKind,
+        channel,
+        consultationId: { not: consultation.id },
+      },
+      data: { consultationId: consultation.id },
+    });
   }
 
   // Claim-then-send: el INSERT con status PENDING es la operación
@@ -221,8 +244,9 @@ export class RemindersService {
         },
       })) as { id: string };
     } catch (err) {
-      if (isUniqueConstraintError(err)) return;
-      throw err;
+      if (!isUniqueConstraintError(err)) throw err;
+      await this.adoptExistingClaim(consultation, offsetKind, channel);
+      return;
     }
 
     await this.sendAndMark(claim.id, consultation, offsetKind, channel);
