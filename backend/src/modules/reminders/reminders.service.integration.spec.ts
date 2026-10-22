@@ -219,6 +219,36 @@ describe('RemindersService (integration, real Prisma)', () => {
     expect(notRetried.attempts).toBe(REMINDER_MAX_ATTEMPTS);
   }, 30000);
 
+  it('reintenta un EMAIL FAILED cuyo terapeuta corrigió la consulta antes del reintento', async () => {
+    const dueSoon = new Date(Date.now() + 10 * 60 * 60 * 1000);
+    const original = await createConsultation(dueSoon, { superseded: true });
+    const corrected = await prisma.consultation.findFirstOrThrow({
+      where: { correctsId: original.id },
+    });
+    await prisma.reminderDispatch.create({
+      data: {
+        groupId: original.groupId,
+        sessionDate: dueSoon,
+        offsetKind: 'H24',
+        channel: 'EMAIL',
+        consultationId: original.id,
+        therapistId,
+        status: 'FAILED',
+        error: 'proveedor caído',
+        claimedAt: new Date(Date.now() - 60 * 60 * 1000),
+      },
+    });
+
+    await service.scan();
+
+    const row = await prisma.reminderDispatch.findFirstOrThrow({
+      where: { groupId: original.groupId, channel: 'EMAIL' },
+    });
+    expect(row.status).toBe('SENT');
+    expect(row.attempts).toBe(2);
+    expect(row.consultationId).toBe(corrected.id);
+  }, 30000);
+
   it('no reintenta un EMAIL FAILED dentro del backoff (#286)', async () => {
     const dueSoon = new Date(Date.now() + 10 * 60 * 60 * 1000);
     const consultation = await createConsultation(dueSoon);
