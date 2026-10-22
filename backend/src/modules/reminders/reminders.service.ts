@@ -121,17 +121,32 @@ export class RemindersService {
       ...buildActionableConsultationWhere(now),
     };
 
-    // issue #286: paginación con cursor (sessionDate, id) hasta agotar la
-    // ventana. Las filas reclamadas durante el tick salen del filtro, pero el
-    // cursor se resuelve por orden, así que la página siguiente continúa tras
-    // la última fila vista sin saltar ni repetir consultas.
-    let cursorId: string | undefined;
+    // issue #286: paginación keyset por (sessionDate, id) hasta agotar la
+    // ventana. Las filas reclamadas durante el tick salen del filtro, así que
+    // un cursor por id + skip saltaría la primera fila que queda; la
+    // condición "estrictamente posterior a la última vista" no depende de que
+    // esa fila siga existiendo en el resultado.
+    let lastSeen: { sessionDate: Date; id: string } | undefined;
     for (let page = 0; page < SCAN_MAX_PAGES; page++) {
       const consultations = (await this.prisma.consultation.findMany({
-        where,
+        where: lastSeen
+          ? {
+              AND: [
+                where,
+                {
+                  OR: [
+                    { sessionDate: { gt: lastSeen.sessionDate } },
+                    {
+                      sessionDate: lastSeen.sessionDate,
+                      id: { gt: lastSeen.id },
+                    },
+                  ],
+                },
+              ],
+            }
+          : where,
         orderBy: [{ sessionDate: 'asc' }, { id: 'asc' }],
         take: SCAN_BATCH_LIMIT,
-        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
         include: {
           patient: { select: { fullName: true } },
           therapist: { select: { name: true, email: true } },
@@ -152,7 +167,7 @@ export class RemindersService {
       }
 
       if (consultations.length < SCAN_BATCH_LIMIT) break;
-      cursorId = consultations[consultations.length - 1].id;
+      lastSeen = consultations[consultations.length - 1];
     }
 
     await this.retryStaleDispatches(now);

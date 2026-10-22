@@ -23,7 +23,7 @@ export const MAX_LOOKAHEAD_MS = Math.max(...REMINDER_OFFSETS.map((o) => o.ms));
 // Tipado como number (no literal 500) para poder sustituirlo en los tests.
 export const SCAN_BATCH_LIMIT: number = 500;
 
-// issue #286 (parte 2): el scan pagina con cursor (sessionDate, id) hasta
+// issue #286 (parte 2): el scan pagina por keyset (sessionDate, id) hasta
 // agotar la ventana, así que ninguna sesión queda sin alcanzar por estar más
 // allá de SCAN_BATCH_LIMIT. Este tope de páginas por tick es solo una red de
 // seguridad para que un dataset patológico no deje el cron sin límite.

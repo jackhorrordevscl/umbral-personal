@@ -379,6 +379,38 @@ describe('RemindersService (integration, real Prisma)', () => {
       expect(freshRows.every((r) => r.offsetKind === 'H24')).toBe(true);
     }, 30000);
 
+    it('la paginación no salta ninguna consulta en el límite de página: tras el scan no queda ninguna accionable', async () => {
+      // Con lote de 2, las filas de la página 1 se reclaman durante el tick y
+      // salen del filtro; la página 2 no debe saltarse la primera que queda.
+      jest.replaceProperty(constants, 'SCAN_BATCH_LIMIT', 2);
+      const consultations: Awaited<ReturnType<typeof createConsultation>>[] =
+        [];
+      for (const hours of [5, 6, 7, 8, 9]) {
+        consultations.push(
+          await createConsultation(new Date(Date.now() + hours * HOUR_MS)),
+        );
+      }
+
+      await service.scan();
+
+      const stillActionable = await prisma.consultation.findMany({
+        where: {
+          therapistId,
+          deletedAt: null,
+          correctedBy: null,
+          patient: { deletedAt: null },
+          sessionDate: { gt: new Date() },
+          ...buildActionableConsultationWhere(new Date()),
+        },
+        select: { id: true },
+      });
+      expect(stillActionable).toEqual([]);
+      const rows = await prisma.reminderDispatch.findMany({
+        where: { consultationId: { in: consultations.map((c) => c.id) } },
+      });
+      expect(rows).toHaveLength(consultations.length * 2);
+    }, 30000);
+
     it('con la sesión a <2h: H24 SKIPPED sin H2 sigue accionable; con H2 reclamado en ambos canales ya no', async () => {
       const needsH2 = await createConsultation(
         new Date(Date.now() + 1 * HOUR_MS),
