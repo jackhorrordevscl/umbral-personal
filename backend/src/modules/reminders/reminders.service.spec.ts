@@ -78,7 +78,7 @@ function offsetKindsOf(branch: ActionableBand['OR'][number]): string[] {
 
 describe('RemindersService.scan', () => {
   let prisma: {
-    consultation: { findMany: jest.Mock };
+    consultation: { findMany: jest.Mock; findFirst: jest.Mock };
     reminderDispatch: {
       create: jest.Mock<Promise<{ id: string }>, [CreateCallArgs]>;
       update: jest.Mock<Promise<unknown>, [UpdateCallArgs]>;
@@ -97,7 +97,7 @@ describe('RemindersService.scan', () => {
 
   beforeEach(() => {
     prisma = {
-      consultation: { findMany: jest.fn() },
+      consultation: { findMany: jest.fn(), findFirst: jest.fn() },
       reminderDispatch: {
         create: jest
           .fn<Promise<{ id: string }>, [CreateCallArgs]>()
@@ -393,6 +393,54 @@ describe('RemindersService.scan', () => {
     expect(mailService.sendSessionReminderEmail).not.toHaveBeenCalled();
   });
 
+  it('un P2002 en una versión corregida re-apunta cada dispatch del grupo a la versión vigente para que deje de ser accionable', async () => {
+    const consultation = buildConsultation({ id: 'consultation-2' });
+    prisma.consultation.findMany.mockResolvedValue([consultation]);
+    prisma.reminderDispatch.create.mockRejectedValue(uniqueViolation());
+
+    await service.scan();
+
+    // H24 está due a 10h: una llamada por canal (IN_APP y EMAIL).
+    expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledTimes(2);
+    expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledWith({
+      where: {
+        groupId: 'group-1',
+        sessionDate: consultation.sessionDate,
+        offsetKind: 'H24',
+        channel: 'EMAIL',
+        consultationId: { not: 'consultation-2' },
+      },
+      data: { consultationId: 'consultation-2' },
+    });
+  });
+
+  it('un P2002 al reclamar un offset SKIPPED también re-apunta el dispatch existente', async () => {
+    const consultation = buildConsultation({
+      id: 'consultation-2',
+      sessionDate: new Date(Date.now() + 10 * 60 * 1000),
+    });
+    prisma.consultation.findMany.mockResolvedValue([consultation]);
+    prisma.reminderDispatch.create.mockRejectedValue(uniqueViolation());
+
+    await service.scan();
+
+    expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        offsetKind: 'H24',
+        consultationId: { not: 'consultation-2' },
+      }) as object,
+      data: { consultationId: 'consultation-2' },
+    });
+  });
+
+  it('sin P2002 no re-apunta ningún dispatch', async () => {
+    prisma.consultation.findMany.mockResolvedValue([buildConsultation()]);
+
+    await service.scan();
+
+    expect(prisma.reminderDispatch.updateMany).not.toHaveBeenCalled();
+  });
+
   it('un P2002 al reclamar el dispatch salta silenciosamente sin enviar el email (T6.5/T6.6)', async () => {
     const consultation = buildConsultation();
     prisma.consultation.findMany.mockResolvedValue([consultation]);
@@ -484,6 +532,11 @@ describe('RemindersService.scan', () => {
       };
     }
 
+    // Versión original de una consulta que el terapeuta ya corrigió.
+    function superseded() {
+      return { ...buildConsultation(), correctedBy: { id: 'consultation-2' } };
+    }
+
     it('consulta FAILED o PENDING abandonado bajo el tope, solo de sesiones futuras y vigentes', async () => {
       prisma.consultation.findMany.mockResolvedValue([]);
 
@@ -507,10 +560,90 @@ describe('RemindersService.scan', () => {
       expect(args.where.consultation).toEqual(
         expect.objectContaining({
           deletedAt: null,
-          correctedBy: null,
           patient: { deletedAt: null },
         }),
       );
+      // La consulta corregida no se excluye: el reintento sigue la cadena
+      // hasta la versión vigente del grupo.
+      expect(args.where.consultation).not.toHaveProperty('correctedBy');
+    });
+
+    it('un FAILED de una consulta corregida sin cambio de fecha se reenvía con la versión vigente y la deja asociada', async () => {
+      const current = buildConsultation({
+        id: 'consultation-2',
+        patient: { fullName: 'Juan Soto Corregido' },
+      });
+      prisma.consultation.findMany.mockResolvedValue([]);
+      prisma.consultation.findFirst.mockResolvedValue(current);
+      prisma.reminderDispatch.findMany.mockResolvedValue([
+        { ...retryRow(), consultation: superseded() },
+      ]);
+
+      await service.scan();
+
+      expect(prisma.consultation.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            groupId: 'group-1',
+            correctedBy: null,
+            deletedAt: null,
+            patient: { deletedAt: null },
+          }) as object,
+        }),
+      );
+      expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledWith({
+        where: { id: 'dispatch-retry-1', status: 'FAILED', attempts: 1 },
+        data: expect.objectContaining({
+          consultationId: 'consultation-2',
+        }) as object,
+      });
+      expect(mailService.sendSessionReminderEmail).toHaveBeenCalledWith(
+        'therapist@example.com',
+        'Dra. Pérez',
+        'Juan Soto Corregido',
+        expect.any(Date),
+        '24 horas',
+      );
+    });
+
+    it('un FAILED de una consulta corregida cuya versión vigente cambió de fecha no se reenvía', async () => {
+      const current = buildConsultation({
+        id: 'consultation-2',
+        sessionDate: new Date(Date.now() + 99 * 60 * 60 * 1000),
+      });
+      prisma.consultation.findMany.mockResolvedValue([]);
+      prisma.consultation.findFirst.mockResolvedValue(current);
+      prisma.reminderDispatch.findMany.mockResolvedValue([
+        { ...retryRow(), consultation: superseded() },
+      ]);
+
+      await service.scan();
+
+      expect(prisma.reminderDispatch.updateMany).not.toHaveBeenCalled();
+      expect(mailService.sendSessionReminderEmail).not.toHaveBeenCalled();
+    });
+
+    it('un FAILED de una consulta corregida sin versión vigente (anulada o paciente eliminado) no se reenvía', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+      prisma.consultation.findFirst.mockResolvedValue(null);
+      prisma.reminderDispatch.findMany.mockResolvedValue([
+        { ...retryRow(), consultation: superseded() },
+      ]);
+
+      await service.scan();
+
+      expect(prisma.reminderDispatch.updateMany).not.toHaveBeenCalled();
+      expect(mailService.sendSessionReminderEmail).not.toHaveBeenCalled();
+    });
+
+    it('un FAILED de una consulta vigente no busca otra versión', async () => {
+      prisma.consultation.findMany.mockResolvedValue([]);
+      prisma.reminderDispatch.findMany.mockResolvedValue([retryRow()]);
+
+      await service.scan();
+
+      expect(prisma.consultation.findFirst).not.toHaveBeenCalled();
+      expect(mailService.sendSessionReminderEmail).toHaveBeenCalledTimes(1);
     });
 
     it('reintenta un FAILED bajo el tope: re-reclama con attempts+1 y reenvía con la etiqueta de su offset', async () => {

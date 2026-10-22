@@ -1,6 +1,11 @@
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { CalendarOauthService } from './calendar-oauth.service';
 import { GoogleTokenCryptoService } from './google-token-crypto.service';
@@ -42,6 +47,7 @@ function buildConfig(overrides: Record<string, string | undefined> = {}) {
 interface PrismaConnectionMock {
   findUnique: jest.Mock<Promise<unknown>, unknown[]>;
   upsert: jest.Mock<Promise<unknown>, unknown[]>;
+  create: jest.Mock<Promise<unknown>, unknown[]>;
   update: jest.Mock<Promise<unknown>, unknown[]>;
   updateMany: jest.Mock<Promise<{ count: number }>, unknown[]>;
 }
@@ -54,6 +60,7 @@ function buildPrismaMock(): {
   const connectionMock: PrismaConnectionMock = {
     findUnique: jest.fn<Promise<unknown>, unknown[]>(),
     upsert: jest.fn<Promise<unknown>, unknown[]>(),
+    create: jest.fn<Promise<unknown>, unknown[]>().mockResolvedValue({}),
     update: jest.fn<Promise<unknown>, unknown[]>(),
     updateMany: jest
       .fn<Promise<{ count: number }>, unknown[]>()
@@ -380,6 +387,80 @@ describe('CalendarOauthService', () => {
         createHash('sha256').update(first.bindingToken).digest('hex'),
       );
       expect(state).not.toContain(first.bindingToken);
+    });
+
+    // issue #497: reconectar con la conexión activa pisaba el refresh token sin
+    // revocar el anterior. Hay que desconectar primero (disconnect() lo revoca).
+    describe('con la conexión CONNECTED', () => {
+      function buildWith(
+        updateManyCount: number,
+        createResult: 'ok' | Error = 'ok',
+      ) {
+        const { prisma, connectionMock } = buildPrismaMock();
+        connectionMock.updateMany.mockResolvedValue({ count: updateManyCount });
+        if (createResult === 'ok') {
+          connectionMock.create.mockResolvedValue({});
+        } else {
+          connectionMock.create.mockRejectedValue(createResult);
+        }
+        const service = new CalendarOauthService(
+          prisma,
+          buildJwt(),
+          buildConfig(),
+          buildTokenCrypto(),
+          buildAuditServiceMock().auditService,
+        );
+        return { service, connectionMock };
+      }
+
+      const uniqueViolation = () =>
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        });
+
+      it('responde 409 y no emite state ni toca la conexión', async () => {
+        const { service, connectionMock } = buildWith(0, uniqueViolation());
+
+        await expect(
+          service.buildAuthorizationUrl('therapist-1'),
+        ).rejects.toThrow(ConflictException);
+        expect(connectionMock.upsert).not.toHaveBeenCalled();
+        expect(connectionMock.update).not.toHaveBeenCalled();
+      });
+
+      it('solo reclama la fila si no está CONNECTED', async () => {
+        const { service, connectionMock } = buildWith(1);
+
+        await service.buildAuthorizationUrl('therapist-1');
+
+        expect(connectionMock.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              therapistId: 'therapist-1',
+              status: { not: 'CONNECTED' },
+            },
+          }),
+        );
+        expect(connectionMock.create).not.toHaveBeenCalled();
+      });
+
+      it('sin fila previa la crea y devuelve la URL', async () => {
+        const { service, connectionMock } = buildWith(0);
+
+        const { url } = await service.buildAuthorizationUrl('therapist-1');
+
+        expect(connectionMock.create).toHaveBeenCalledTimes(1);
+        expect(new URL(url).searchParams.get('state')).toBeTruthy();
+      });
+
+      it('un error de base de datos distinto de P2002 se propaga, no se disfraza de 409', async () => {
+        const { service } = buildWith(0, new Error('conexión caída'));
+
+        await expect(
+          service.buildAuthorizationUrl('therapist-1'),
+        ).rejects.toThrow('conexión caída');
+      });
     });
 
     it('el state emitido es aceptado con su cookie y rechazado sin ella', async () => {

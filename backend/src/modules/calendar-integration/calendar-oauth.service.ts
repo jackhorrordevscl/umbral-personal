@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -7,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { Prisma } from '@prisma/client';
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -138,22 +140,38 @@ export class CalendarOauthService {
     const nonceHash = this.hashNonce(nonce);
     const stateExpiresAt = new Date(Date.now() + STATE_TTL_MS);
 
-    // Upsert (no create-only): reconectar después de un disconnect, o
-    // reintentar un /authorize antes de completar el anterior, reutiliza la
-    // misma fila -- @unique(therapistId) es la garantía de "una conexión por
-    // terapeuta" (proposal.md "Granularity").
-    await this.prisma.googleCalendarConnection.upsert({
-      where: { therapistId },
-      create: {
-        therapistId,
-        stateNonceHash: nonceHash,
-        stateExpiresAt,
-      },
-      update: {
-        stateNonceHash: nonceHash,
-        stateExpiresAt,
-      },
+    // Reconectar después de un disconnect, o reintentar un /authorize antes de
+    // completar el anterior, reutiliza la misma fila -- @unique(therapistId) es
+    // la garantía de "una conexión por terapeuta" (proposal.md "Granularity").
+    //
+    // issue #497: con la conexión CONNECTED no se emite un state nuevo. El
+    // callback pisaría el refresh token guardado sin revocar el anterior, que
+    // quedaría vivo en Google y fuera del control de Umbral. Hay que desconectar
+    // primero: disconnect() sí lo revoca. El claim es un solo updateMany
+    // condicionado al estado, y no un findUnique + upsert, para que un callback
+    // que termina justo en medio no se cuele.
+    const claimed = await this.prisma.googleCalendarConnection.updateMany({
+      where: { therapistId, status: { not: 'CONNECTED' } },
+      data: { stateNonceHash: nonceHash, stateExpiresAt },
     });
+    if (claimed.count === 0) {
+      try {
+        await this.prisma.googleCalendarConnection.create({
+          data: { therapistId, stateNonceHash: nonceHash, stateExpiresAt },
+        });
+      } catch (err) {
+        // P2002: la fila ya existe y no era reclamable, o sea está CONNECTED.
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          throw new ConflictException(
+            'Desconecta Google Calendar antes de volver a conectarlo',
+          );
+        }
+        throw err;
+      }
+    }
 
     const state = this.jwtService.sign(
       {

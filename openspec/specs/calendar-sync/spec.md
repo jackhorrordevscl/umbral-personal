@@ -36,19 +36,25 @@ The system MUST let a therapist connect their Google account via OAuth 2.0 autho
 
 ### Requirement: Calendar Integration Endpoints
 
-The backend MUST expose, under `/calendar-integration`: `GET /status` and `POST /authorize` and `POST /disconnect`, all requiring an authenticated session (JWT), and `GET /callback`, which is unauthenticated because Google redirects the browser there without an `Authorization` header (identity travels only in the signed `state`). `GET /status` MUST return `status`, `googleAccountEmail`, `connectedAt`, `lastSyncAt` and `lastError`; for a therapist with no connection it MUST return `status: 'PENDING'` and the remaining fields as `null`. `POST /authorize` MUST return `{ url }` with the Google consent URL (`access_type=offline`, `prompt=consent`, only the `calendar.events` scope). Links between consultations and events MUST record a sync state of `SYNCED` or `FAILED`.
+The backend MUST expose, under `/calendar-integration`: `GET /status` and `POST /authorize` and `POST /disconnect`, all requiring an authenticated session (JWT), and `GET /callback`, which is unauthenticated because Google redirects the browser there without an `Authorization` header (identity travels only in the signed `state`). `GET /status` MUST return `status`, `googleAccountEmail`, `connectedAt`, `lastSyncAt`, `lastError`, `failedEvents` (links in `FAILED` state of an active connection) and `busySyncFailed` (whether the last busy refresh failed, without its error text); for a therapist with no connection it MUST return `status: 'PENDING'`, `failedEvents: 0`, `busySyncFailed: false` and the remaining fields as `null`. `POST /authorize` MUST return `{ url }` with the Google consent URL (`access_type=offline`, `prompt=consent`, only the `calendar.events` scope), and MUST answer `409` with the message "Desconecta Google Calendar antes de volver a conectarlo" when the connection is already active, without issuing a `state` or touching the stored token: reconnecting over an active connection would overwrite the refresh token without revoking the previous one, and disconnecting is what revokes it. Links between consultations and events MUST record a sync state of `SYNCED` or `FAILED`.
 
 #### Scenario: Status without a connection
 
 - GIVEN a therapist who never started the connection
 - WHEN `GET /calendar-integration/status` is called
-- THEN the response has `status: 'PENDING'` and `googleAccountEmail`, `connectedAt`, `lastSyncAt` and `lastError` as `null`
+- THEN the response has `status: 'PENDING'`, `failedEvents: 0`, `busySyncFailed: false` and `googleAccountEmail`, `connectedAt`, `lastSyncAt` and `lastError` as `null`
 
 #### Scenario: Authorize returns the consent URL
 
 - GIVEN the Google client credentials are configured
 - WHEN an authenticated therapist calls `POST /calendar-integration/authorize`
 - THEN the response is `{ url }` pointing to Google's consent screen with offline access and forced consent
+
+#### Scenario: Authorize with an active connection
+
+- GIVEN a therapist whose connection is active
+- WHEN they call `POST /calendar-integration/authorize`
+- THEN the response is `409`, no `state` or cookie is issued, and the stored token and connection are unchanged
 
 ### Requirement: Encrypted Token Custody
 

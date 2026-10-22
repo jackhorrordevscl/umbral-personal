@@ -121,6 +121,15 @@ describe('Calendar Integration (e2e)', () => {
       .mockResolvedValue({ refreshToken, scope: 'calendar.events' });
   }
 
+  // issue #497: /authorize responde 409 con la conexión CONNECTED. Los tests que
+  // solo necesitan emitir un state parten de una conexión desconectada.
+  async function markTherapistADisconnected() {
+    await prisma.googleCalendarConnection.updateMany({
+      where: { therapistId: therapistAId },
+      data: { status: 'DISCONNECTED', refreshTokenEncrypted: null },
+    });
+  }
+
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
@@ -308,10 +317,40 @@ describe('Calendar Integration (e2e)', () => {
     });
   });
 
+  // issue #497: reconectar con la conexión activa pisaría el refresh token sin
+  // revocar el anterior; hay que desconectar primero.
+  describe('POST /authorize — con la conexión CONNECTED', () => {
+    it('responde 409 y no toca el token guardado, el nonce ni la cookie', async () => {
+      const before = await prisma.googleCalendarConnection.findUnique({
+        where: { therapistId: therapistAId },
+      });
+      expect(before?.status).toBe('CONNECTED');
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/calendar-integration/authorize')
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .expect(409);
+
+      expect((res.body as { message: string }).message).toBe(
+        'Desconecta Google Calendar antes de volver a conectarlo',
+      );
+      expect(res.headers['set-cookie']).toBeUndefined();
+      const after = await prisma.googleCalendarConnection.findUnique({
+        where: { therapistId: therapistAId },
+      });
+      expect(after?.status).toBe('CONNECTED');
+      expect(after?.refreshTokenEncrypted).toEqual(
+        before?.refreshTokenEncrypted,
+      );
+      expect(after?.stateNonceHash).toBe(before?.stateNonceHash);
+    });
+  });
+
   // issue #497: el state solo se puede completar desde el navegador que llamó
   // a /authorize (la cookie con el secreto cuyo hash va en el state).
   describe('GET /callback — state atado al navegador (cookie)', () => {
     it('POST /authorize deja la cookie HttpOnly SameSite=Lax y el secreto no aparece en la URL', async () => {
+      await markTherapistADisconnected();
       const authorize = await request(app.getHttpServer())
         .post('/api/v1/calendar-integration/authorize')
         .set('Authorization', `Bearer ${therapistAToken}`)
@@ -327,6 +366,7 @@ describe('Calendar Integration (e2e)', () => {
     });
 
     it('sin la cookie el callback no conecta ni consume el state, que sigue sirviendo en el navegador correcto', async () => {
+      await markTherapistADisconnected();
       const authorize = await request(app.getHttpServer())
         .post('/api/v1/calendar-integration/authorize')
         .set('Authorization', `Bearer ${therapistAToken}`)
@@ -364,13 +404,15 @@ describe('Calendar Integration (e2e)', () => {
     });
 
     it('la cookie de otro flujo (otro /authorize) tampoco sirve para este state', async () => {
+      // El terapeuta B (sin conexión activa) para no dejar desconectado a A,
+      // cuya conexión CONNECTED necesitan los tests de tenencia que siguen.
       const first = await request(app.getHttpServer())
         .post('/api/v1/calendar-integration/authorize')
-        .set('Authorization', `Bearer ${therapistAToken}`)
+        .set('Authorization', `Bearer ${therapistBToken}`)
         .expect(201);
       const second = await request(app.getHttpServer())
         .post('/api/v1/calendar-integration/authorize')
-        .set('Authorization', `Bearer ${therapistAToken}`)
+        .set('Authorization', `Bearer ${therapistBToken}`)
         .expect(201);
       stubExchange('1//token');
 
