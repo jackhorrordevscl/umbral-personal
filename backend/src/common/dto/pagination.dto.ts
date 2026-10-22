@@ -18,6 +18,9 @@ export class PaginationQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  // Sin cota, un page enorme desborda el skip (page - 1) * pageSize y la query
+  // termina en 500 en vez de un 400.
+  @Max(10000)
   page?: number;
 
   @IsOptional()

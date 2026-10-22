@@ -1,5 +1,11 @@
 import { Type } from 'class-transformer';
-import { IsDate, IsEnum, IsOptional, IsString } from 'class-validator';
+import {
+  IsDate,
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { BlockoutKind } from '@prisma/client';
 import { IsAfter } from '../../../common/validators/is-after.validator';
 
@@ -23,5 +29,6 @@ export class CreateBlockoutDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   reason?: string;
 }

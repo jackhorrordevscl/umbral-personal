@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsInt, Max, Min, ValidateNested } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsInt,
+  Max,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { ScheduleEntryDto } from './schedule-entry.dto';
 
 // sdd/patient-self-scheduling PR 2 (tasks.md 2.4/2.5, design.md Decision 8
@@ -13,6 +20,8 @@ export class ScheduleUpdateDto {
   sessionDurationMinutes: number;
 
   @IsArray()
+  // 7 días con holgura de sobra para varias franjas por día.
+  @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => ScheduleEntryDto)
   entries: ScheduleEntryDto[];

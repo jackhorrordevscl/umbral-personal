@@ -94,6 +94,32 @@ describe('ScheduleUpdateDto', () => {
     expect(errors.length).toBeGreaterThan(0);
   });
 
+  // Judgment-day #501: entries sin tope dejaba mandar miles de filas en un
+  // solo PUT (la grilla se reescribe en una transacción).
+  it('acepta hasta 100 entries', async () => {
+    const entries = Array.from({ length: 100 }, () => ({
+      dayOfWeek: 1,
+      startMinute: 540,
+      endMinute: 780,
+    }));
+    const dto = plainToInstance(ScheduleUpdateDto, buildPlain({ entries }));
+
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('rechaza más de 100 entries', async () => {
+    const entries = Array.from({ length: 101 }, () => ({
+      dayOfWeek: 1,
+      startMinute: 540,
+      endMinute: 780,
+    }));
+    const dto = plainToInstance(ScheduleUpdateDto, buildPlain({ entries }));
+
+    const errors = await validate(dto);
+
+    expect(errors.some((e) => e.property === 'entries')).toBe(true);
+  });
+
   it('acepta múltiples entries válidas', async () => {
     const dto = plainToInstance(
       ScheduleUpdateDto,
