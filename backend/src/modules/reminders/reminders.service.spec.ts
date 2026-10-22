@@ -197,7 +197,7 @@ describe('RemindersService.scan', () => {
     expect(h2Band.sessionDate.lte).toEqual(h24Band.sessionDate.gt);
   });
 
-  it('pagina con cursor (sessionDate, id) hasta agotar la ventana más allá de SCAN_BATCH_LIMIT', async () => {
+  it('pagina por keyset (sessionDate, id) hasta agotar la ventana más allá de SCAN_BATCH_LIMIT', async () => {
     jest.replaceProperty(constants, 'SCAN_BATCH_LIMIT', 2);
     const c1 = buildConsultation({ id: 'c1', groupId: 'g1' });
     const c2 = buildConsultation({ id: 'c2', groupId: 'g2' });
@@ -211,6 +211,7 @@ describe('RemindersService.scan', () => {
     expect(prisma.consultation.findMany).toHaveBeenCalledTimes(2);
     const calls = prisma.consultation.findMany.mock.calls as {
       orderBy: unknown;
+      where: { AND?: unknown[] };
       cursor?: unknown;
       skip?: number;
     }[][];
@@ -218,9 +219,17 @@ describe('RemindersService.scan', () => {
       { sessionDate: 'asc' },
       { id: 'asc' },
     ]);
-    expect(calls[0][0].cursor).toBeUndefined();
-    expect(calls[1][0].cursor).toEqual({ id: 'c2' });
-    expect(calls[1][0].skip).toBe(1);
+    expect(calls[0][0].where.AND).toBeUndefined();
+    // La página 2 continúa estrictamente después de la última fila vista, sin
+    // cursor ni skip (la fila de referencia puede haber salido del filtro).
+    expect(calls[1][0].where.AND?.[1]).toEqual({
+      OR: [
+        { sessionDate: { gt: c2.sessionDate } },
+        { sessionDate: c2.sessionDate, id: { gt: 'c2' } },
+      ],
+    });
+    expect(calls[1][0].cursor).toBeUndefined();
+    expect(calls[1][0].skip).toBeUndefined();
     // Las tres consultas se procesan (2 canales cada una).
     expect(prisma.reminderDispatch.create).toHaveBeenCalledTimes(6);
   });
