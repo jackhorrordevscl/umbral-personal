@@ -52,6 +52,27 @@ describe('CreateBlockoutDto', () => {
     expect(errors.some((e) => e.property === 'kind')).toBe(true);
   });
 
+  // Judgment-day #501: reason sin tope se persistía y se devolvía entero.
+  it('acepta un reason de hasta 500 caracteres', async () => {
+    const dto = plainToInstance(
+      CreateBlockoutDto,
+      buildPlain({ reason: 'a'.repeat(500) }),
+    );
+
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('rechaza un reason de más de 500 caracteres', async () => {
+    const dto = plainToInstance(
+      CreateBlockoutDto,
+      buildPlain({ reason: 'a'.repeat(501) }),
+    );
+
+    const errors = await validate(dto);
+
+    expect(errors.some((e) => e.property === 'reason')).toBe(true);
+  });
+
   // Triangulación: partial-day (rango corto, mismo día) también es válido.
   it('acepta un blockout parcial de un mismo día', async () => {
     const dto = plainToInstance(
