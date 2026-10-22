@@ -139,7 +139,16 @@ export class RemindersService {
       })) as ScannedConsultation[];
 
       for (const consultation of consultations) {
-        await this.processConsultation(consultation, now);
+        // Un error de una consulta (p. ej. la DB cortó una conexión) no debe
+        // abortar el resto del lote ni los reintentos: el próximo tick la
+        // vuelve a tomar porque su claim no quedó registrado.
+        try {
+          await this.processConsultation(consultation, now);
+        } catch (err) {
+          this.logger.error(
+            `Falló el procesamiento de recordatorios para consultationId=${consultation.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
 
       if (consultations.length < SCAN_BATCH_LIMIT) break;
@@ -266,37 +275,45 @@ export class RemindersService {
     })) as RetryCandidate[];
 
     for (const row of rows) {
-      // Si la sesión se reprogramó, esta fila corresponde a la fecha vieja:
-      // los offsets de la nueva fecha los reclama el scan normal.
-      if (
-        row.sessionDate.getTime() !== row.consultation.sessionDate.getTime()
-      ) {
-        continue;
-      }
-
-      const reclaimed = await this.prisma.reminderDispatch.updateMany({
-        where: { id: row.id, status: row.status, attempts: row.attempts },
-        data: {
-          status: 'PENDING',
-          attempts: { increment: 1 },
-          error: null,
-          claimedAt: new Date(),
-        },
-      });
-      if (reclaimed.count !== 1) continue;
-
-      if (row.attempts + 1 >= REMINDER_MAX_ATTEMPTS) {
-        this.logger.warn(
-          `Último intento de recordatorio ${row.channel}/${row.offsetKind} para consultationId=${row.consultationId}`,
+      try {
+        await this.retryDispatch(row);
+      } catch (err) {
+        this.logger.error(
+          `Falló el reintento del dispatch ${row.id} (consultationId=${row.consultationId}): ${err instanceof Error ? err.message : String(err)}`,
         );
       }
-      await this.sendAndMark(
-        row.id,
-        row.consultation,
-        row.offsetKind,
-        row.channel,
+    }
+  }
+
+  private async retryDispatch(row: RetryCandidate): Promise<void> {
+    // Si la sesión se reprogramó, esta fila corresponde a la fecha vieja:
+    // los offsets de la nueva fecha los reclama el scan normal.
+    if (row.sessionDate.getTime() !== row.consultation.sessionDate.getTime()) {
+      return;
+    }
+
+    const reclaimed = await this.prisma.reminderDispatch.updateMany({
+      where: { id: row.id, status: row.status, attempts: row.attempts },
+      data: {
+        status: 'PENDING',
+        attempts: { increment: 1 },
+        error: null,
+        claimedAt: new Date(),
+      },
+    });
+    if (reclaimed.count !== 1) return;
+
+    if (row.attempts + 1 >= REMINDER_MAX_ATTEMPTS) {
+      this.logger.warn(
+        `Último intento de recordatorio ${row.channel}/${row.offsetKind} para consultationId=${row.consultationId}`,
       );
     }
+    await this.sendAndMark(
+      row.id,
+      row.consultation,
+      row.offsetKind,
+      row.channel,
+    );
   }
 
   // Envía por el canal y deja el dispatch en SENT o FAILED. Compartido por el
