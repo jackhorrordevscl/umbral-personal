@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MailService } from '../mail/mail.service';
 import { RemindersService } from './reminders.service';
+import { buildActionableConsultationWhere } from './reminders.util';
 import * as constants from './reminders.constants';
 import { REMINDER_MAX_ATTEMPTS } from './reminders.constants';
 
@@ -217,6 +218,77 @@ describe('RemindersService (integration, real Prisma)', () => {
     });
     expect(notRetried.status).toBe('FAILED');
     expect(notRetried.attempts).toBe(REMINDER_MAX_ATTEMPTS);
+  }, 30000);
+
+  it('reintenta un EMAIL FAILED cuyo terapeuta corrigió la consulta antes del reintento', async () => {
+    const dueSoon = new Date(Date.now() + 10 * 60 * 60 * 1000);
+    const original = await createConsultation(dueSoon, { superseded: true });
+    const corrected = await prisma.consultation.findFirstOrThrow({
+      where: { correctsId: original.id },
+    });
+    await prisma.reminderDispatch.create({
+      data: {
+        groupId: original.groupId,
+        sessionDate: dueSoon,
+        offsetKind: 'H24',
+        channel: 'EMAIL',
+        consultationId: original.id,
+        therapistId,
+        status: 'FAILED',
+        error: 'proveedor caído',
+        claimedAt: new Date(Date.now() - 60 * 60 * 1000),
+      },
+    });
+
+    await service.scan();
+
+    const row = await prisma.reminderDispatch.findFirstOrThrow({
+      where: { groupId: original.groupId, channel: 'EMAIL' },
+    });
+    expect(row.status).toBe('SENT');
+    expect(row.attempts).toBe(2);
+    expect(row.consultationId).toBe(corrected.id);
+  }, 30000);
+
+  it('una consulta corregida sin cambio de fecha deja de ser accionable: el scan re-apunta los dispatches de su grupo a la versión vigente', async () => {
+    const dueSoon = new Date(Date.now() + 10 * 60 * 60 * 1000);
+    const original = await createConsultation(dueSoon, { superseded: true });
+    const corrected = await prisma.consultation.findFirstOrThrow({
+      where: { correctsId: original.id },
+    });
+    for (const channel of ['IN_APP', 'EMAIL'] as const) {
+      await prisma.reminderDispatch.create({
+        data: {
+          groupId: original.groupId,
+          sessionDate: dueSoon,
+          offsetKind: 'H24',
+          channel,
+          consultationId: original.id,
+          therapistId,
+          status: 'SENT',
+        },
+      });
+    }
+
+    await service.scan();
+
+    const dispatches = await prisma.reminderDispatch.findMany({
+      where: { groupId: original.groupId },
+    });
+    expect(dispatches).toHaveLength(2);
+    expect(dispatches.every((d) => d.consultationId === corrected.id)).toBe(
+      true,
+    );
+    expect(dispatches.every((d) => d.status === 'SENT')).toBe(true);
+
+    // Con ambos canales reclamados en la versión vigente, ya no es accionable.
+    const actionable = await prisma.consultation.findFirst({
+      where: {
+        id: corrected.id,
+        ...buildActionableConsultationWhere(new Date()),
+      },
+    });
+    expect(actionable).toBeNull();
   }, 30000);
 
   it('no reintenta un EMAIL FAILED dentro del backoff (#286)', async () => {

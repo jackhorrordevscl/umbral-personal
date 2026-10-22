@@ -76,7 +76,7 @@ interface RetryCandidate {
   channel: ReminderChannel;
   status: 'PENDING' | 'FAILED';
   attempts: number;
-  consultation: ScannedConsultation;
+  consultation: ScannedConsultation & { correctedBy?: { id: string } | null };
 }
 
 // sdd/session-reminders PR 2 (T5.2): detecta consultas próximas y despacha
@@ -193,8 +193,31 @@ export class RemindersService {
       });
     } catch (err) {
       if (!isUniqueConstraintError(err)) throw err;
-      // Ya reclamado por un tick anterior (SENT/FAILED/SKIPPED) -- no-op.
+      // Ya reclamado por un tick anterior (SENT/FAILED/SKIPPED).
+      await this.adoptExistingClaim(consultation, offsetKind, channel);
     }
+  }
+
+  // El unique es por groupId, pero el filtro "accionable" mira los dispatches
+  // por consultationId. Si el terapeuta corrigió la consulta, la versión nueva
+  // choca con el claim de la anterior y, sin esto, seguiría pareciendo
+  // accionable en cada tick. Re-apuntar el claim a la versión vigente la saca
+  // del filtro; si ya apuntaba a ella (otro tick), no toca nada.
+  private async adoptExistingClaim(
+    consultation: ScannedConsultation,
+    offsetKind: ReminderOffset,
+    channel: ReminderChannel,
+  ): Promise<void> {
+    await this.prisma.reminderDispatch.updateMany({
+      where: {
+        groupId: consultation.groupId,
+        sessionDate: consultation.sessionDate,
+        offsetKind,
+        channel,
+        consultationId: { not: consultation.id },
+      },
+      data: { consultationId: consultation.id },
+    });
   }
 
   // Claim-then-send: el INSERT con status PENDING es la operación
@@ -221,8 +244,9 @@ export class RemindersService {
         },
       })) as { id: string };
     } catch (err) {
-      if (isUniqueConstraintError(err)) return;
-      throw err;
+      if (!isUniqueConstraintError(err)) throw err;
+      await this.adoptExistingClaim(consultation, offsetKind, channel);
+      return;
     }
 
     await this.sendAndMark(claim.id, consultation, offsetKind, channel);
@@ -246,9 +270,11 @@ export class RemindersService {
           { status: 'FAILED', claimedAt: { lt: backoffCutoff } },
           { status: 'PENDING', claimedAt: { lt: staleCutoff } },
         ],
+        // Sin `correctedBy: null`: si el terapeuta corrigió la consulta, la
+        // nueva versión no puede reclamar este offset (el unique es por
+        // groupId), así que el reintento lo envía con la versión vigente.
         consultation: {
           deletedAt: null,
-          correctedBy: null,
           patient: { deletedAt: null },
           sessionDate: { gt: now },
         },
@@ -260,17 +286,19 @@ export class RemindersService {
           include: {
             patient: { select: { fullName: true } },
             therapist: { select: { name: true, email: true } },
+            correctedBy: { select: { id: true } },
           },
         },
       },
     })) as RetryCandidate[];
 
     for (const row of rows) {
+      const consultation = await this.resolveCurrentVersion(row, now);
+      if (!consultation) continue;
+
       // Si la sesión se reprogramó, esta fila corresponde a la fecha vieja:
       // los offsets de la nueva fecha los reclama el scan normal.
-      if (
-        row.sessionDate.getTime() !== row.consultation.sessionDate.getTime()
-      ) {
+      if (row.sessionDate.getTime() !== consultation.sessionDate.getTime()) {
         continue;
       }
 
@@ -281,22 +309,42 @@ export class RemindersService {
           attempts: { increment: 1 },
           error: null,
           claimedAt: new Date(),
+          consultationId: consultation.id,
         },
       });
       if (reclaimed.count !== 1) continue;
 
       if (row.attempts + 1 >= REMINDER_MAX_ATTEMPTS) {
         this.logger.warn(
-          `Último intento de recordatorio ${row.channel}/${row.offsetKind} para consultationId=${row.consultationId}`,
+          `Último intento de recordatorio ${row.channel}/${row.offsetKind} para consultationId=${consultation.id}`,
         );
       }
-      await this.sendAndMark(
-        row.id,
-        row.consultation,
-        row.offsetKind,
-        row.channel,
-      );
+      await this.sendAndMark(row.id, consultation, row.offsetKind, row.channel);
     }
+  }
+
+  // La consulta del dispatch puede haber sido corregida: las versiones
+  // comparten groupId y solo la última (correctedBy null) sigue vigente.
+  // Devuelve null si ya no hay versión vigente que avisar.
+  private async resolveCurrentVersion(
+    row: RetryCandidate,
+    now: Date,
+  ): Promise<ScannedConsultation | null> {
+    if (!row.consultation.correctedBy) return row.consultation;
+
+    return (await this.prisma.consultation.findFirst({
+      where: {
+        groupId: row.consultation.groupId,
+        correctedBy: null,
+        deletedAt: null,
+        patient: { deletedAt: null },
+        sessionDate: { gt: now },
+      },
+      include: {
+        patient: { select: { fullName: true } },
+        therapist: { select: { name: true, email: true } },
+      },
+    })) as ScannedConsultation | null;
   }
 
   // Envía por el canal y deja el dispatch en SENT o FAILED. Compartido por el
