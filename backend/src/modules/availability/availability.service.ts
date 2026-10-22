@@ -506,6 +506,15 @@ export class AvailabilityService {
   ): Promise<void> {
     assertNoOverlappingEntries(dto.entries);
     await this.prisma.$transaction(async (tx) => {
+      // Serializa los guardados del mismo terapeuta: sin esto, dos PUT
+      // concurrentes insertan las mismas filas y el segundo choca con el
+      // unique (therapistId, dayOfWeek, startMinute) -> P2002 -> 500. Gana el
+      // último en confirmar. FOR NO KEY UPDATE (el nivel que de todos modos
+      // toma el user.update de abajo) conflicta con el FOR UPDATE de
+      // ConsultationsService.lockTherapistSchedule, pero no bloquea los
+      // inserts con FK al terapeuta (FOR KEY SHARE). Solo toma User, así que
+      // no cierra ningún ciclo con el orden de locks User -> Patient.
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${therapistId} FOR NO KEY UPDATE`;
       await tx.therapistAvailability.deleteMany({
         where: { therapistId },
       });
