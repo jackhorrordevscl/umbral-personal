@@ -107,6 +107,20 @@ Se adopta la alternativa **B**, con esta secuencia:
 - **En producción:** el backend no arranca sin `CLINICAL_TEXT_ENCRYPTION_KEY`.
   Perder la clave deja ilegibles estos textos, también en los respaldos.
 
+## Ampliación: notificaciones internas (2026-10-22, issue #501)
+
+- **Qué se cifra:** `Notification.title` y `Notification.body`, porque el
+  recordatorio de sesión y el aviso de cobro vencido llevan el nombre del
+  paciente. Ninguna consulta filtra ni busca por esas columnas.
+- **Cómo:** el mismo `ClinicalTextCryptoService` y la misma clave
+  (`CLINICAL_TEXT_ENCRYPTION_KEY`, dataset `clinical`); la API sigue devolviendo
+  texto en claro. Una fila que no se puede descifrar muestra un texto neutro en
+  vez de tumbar la lista de la campanita.
+- **Datos existentes:** las filas anteriores se leen como texto plano heredado y
+  se cifran con `npm run crypto:reencrypt -- --only clinical --apply`.
+- **No cambia:** `Notification.metadata` (solo ids) y `linkPath` siguen en claro;
+  la retención de las notificaciones no leídas es una decisión aparte.
+
 ## Por qué
 
 - Las notas clínicas son el contenido más sensible y el que menos usa la

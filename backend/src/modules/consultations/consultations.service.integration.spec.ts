@@ -70,7 +70,7 @@ function buildDisabledPaymentsService(prisma: PrismaService): PaymentsService {
     registry,
     config,
     new MailService(config),
-    new NotificationsService(prisma),
+    new NotificationsService(prisma, buildTestClinicalCrypto()),
   );
 }
 
@@ -187,7 +187,7 @@ describe('ConsultationsService + CalendarSyncService (integration, Google client
       prisma,
       tokenCrypto,
       googleCalendarClient as unknown as GoogleCalendarClient,
-      new NotificationsService(prisma),
+      new NotificationsService(prisma, buildTestClinicalCrypto()),
       buildConfig(),
       auditService,
     );
@@ -379,7 +379,7 @@ describe('ConsultationsService.findByRange (integration, real Prisma)', () => {
       prisma,
       tokenCrypto,
       googleCalendarClient as unknown as GoogleCalendarClient,
-      new NotificationsService(prisma),
+      new NotificationsService(prisma, buildTestClinicalCrypto()),
       buildConfig(),
       auditService,
     );
@@ -565,7 +565,7 @@ describe('ConsultationsService.createFromPublicBooking (integration, concurrenci
       prisma,
       tokenCrypto,
       {} as unknown as GoogleCalendarClient,
-      new NotificationsService(prisma),
+      new NotificationsService(prisma, buildTestClinicalCrypto()),
       buildConfig(),
       auditService,
     );
@@ -1170,7 +1170,7 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
       prisma,
       tokenCrypto,
       googleCalendarClient as unknown as GoogleCalendarClient,
-      new NotificationsService(prisma),
+      new NotificationsService(prisma, buildTestClinicalCrypto()),
       buildConfig(),
       auditService,
     );
@@ -1202,7 +1202,7 @@ describe('ConsultationsService + PaymentsService (integration, gateway stub thro
       registry,
       buildConfig(),
       new MailService(buildConfig()),
-      new NotificationsService(prisma),
+      new NotificationsService(prisma, buildTestClinicalCrypto()),
     );
     consultationsService = new ConsultationsService(
       prisma,

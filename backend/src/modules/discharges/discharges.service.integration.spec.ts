@@ -80,7 +80,7 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
       registry,
       config,
       new MailService(config),
-      new NotificationsService(prisma),
+      new NotificationsService(prisma, buildTestClinicalCrypto()),
     );
   }
 
@@ -232,7 +232,7 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
       prisma,
       {} as unknown as GoogleTokenCryptoService,
       {} as unknown as GoogleCalendarClient,
-      new NotificationsService(prisma),
+      new NotificationsService(prisma, buildTestClinicalCrypto()),
       config,
       auditService,
     );

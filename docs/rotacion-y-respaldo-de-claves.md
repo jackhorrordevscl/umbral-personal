@@ -36,8 +36,9 @@ Alcance de cada dato, según el código:
   los informes de alta en PDF (`DISCHARGE_REPORT`) y las autorizaciones de
   entrega (`DELIVERY_AUTHORIZATION`), y también los documentos anulados.
 - El dataset `clinical` cubre las columnas de texto libre de `Consultation` y
-  `TreatmentDischarge` y los textos dentro de `ConsultationHistory.snapshot`,
-  incluidas las filas borradas o canceladas (ADR 0004, opción B).
+  `TreatmentDischarge`, los textos dentro de `ConsultationHistory.snapshot` y el
+  título y cuerpo de `Notification`, incluidas las filas borradas o canceladas
+  (ADR 0004, opción B).
 - No se cifran con estas claves: los avatares y los archivos personales
   (`SharedFile`) guardados en B2, ni los datos de identificación y contacto de
   la base (nombre, RUT, teléfono; ADR 0004, alternativa C descartada).

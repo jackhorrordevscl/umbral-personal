@@ -3,6 +3,12 @@ import { Notification } from '@prisma/client';
 import { NotificationsService } from './notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
+import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
+import {
+  UNREADABLE_NOTIFICATION_BODY,
+  UNREADABLE_NOTIFICATION_TITLE,
+} from './util/notification-text.util';
 
 function buildNotification(
   overrides: Partial<Notification> = {},
@@ -23,6 +29,7 @@ function buildNotification(
 
 describe('NotificationsService', () => {
   let service: NotificationsService;
+  let crypto: ClinicalTextCryptoService;
   let prisma: {
     notification: {
       create: jest.Mock;
@@ -44,15 +51,30 @@ describe('NotificationsService', () => {
       },
     };
 
-    service = new NotificationsService(prisma as unknown as PrismaService);
+    crypto = buildTestClinicalCrypto();
+    service = new NotificationsService(
+      prisma as unknown as PrismaService,
+      crypto,
+    );
   });
+
+  // Fila tal como queda en la base: title y body cifrados.
+  function storedNotification(overrides: Partial<Notification> = {}) {
+    return buildNotification({
+      title: crypto.encrypt('Sesión próxima'),
+      body: crypto.encrypt('Tu sesión con Juan Soto es en 24 horas'),
+      ...overrides,
+    });
+  }
 
   describe('create', () => {
     it('crea la notificación asociada al userId recibido', async () => {
-      const created = buildNotification();
-      prisma.notification.create.mockResolvedValue(created);
+      prisma.notification.create.mockImplementation(
+        ({ data }: { data: Partial<Notification> }) =>
+          Promise.resolve(buildNotification(data)),
+      );
 
-      const result = await service.create({
+      await service.create({
         userId: 'therapist-a',
         type: 'SESSION_REMINDER',
         title: 'Sesión próxima',
@@ -63,20 +85,47 @@ describe('NotificationsService', () => {
         data: {
           userId: 'therapist-a',
           type: 'SESSION_REMINDER',
-          title: 'Sesión próxima',
-          body: 'Tienes una sesión en 24 horas',
+          title: expect.any(String) as unknown as string,
+          body: expect.any(String) as unknown as string,
           linkPath: undefined,
           metadata: undefined,
         },
       });
-      expect(result).toBe(created);
+    });
+
+    it('guarda title y body cifrados (sin el nombre del paciente en claro) y devuelve la notificación en claro', async () => {
+      prisma.notification.create.mockImplementation(
+        ({ data }: { data: Partial<Notification> }) =>
+          Promise.resolve(buildNotification(data)),
+      );
+
+      const result = await service.create({
+        userId: 'therapist-a',
+        type: 'SESSION_REMINDER',
+        title: 'Recordatorio de sesión en 24 horas',
+        body: 'Tu sesión con Juan Soto está programada para mañana.',
+      });
+
+      const calls = prisma.notification.create.mock.calls as {
+        data: { title: string; body: string };
+      }[][];
+      const stored = calls[0][0].data;
+      expect(stored.title).toMatch(/^enc:v3:/);
+      expect(stored.body).toMatch(/^enc:v3:/);
+      expect(JSON.stringify(stored)).not.toContain('Juan Soto');
+      expect(crypto.decrypt(stored.body)).toBe(
+        'Tu sesión con Juan Soto está programada para mañana.',
+      );
+      expect(result.title).toBe('Recordatorio de sesión en 24 horas');
+      expect(result.body).toBe(
+        'Tu sesión con Juan Soto está programada para mañana.',
+      );
     });
   });
 
   describe('list', () => {
-    it('sin page/pageSize devuelve la lista completa scoped por userId', async () => {
-      const notifications = [buildNotification()];
-      prisma.notification.findMany.mockResolvedValue(notifications);
+    it('sin page/pageSize devuelve la lista completa scoped por userId, con title y body en claro', async () => {
+      prisma.notification.findMany.mockResolvedValue([storedNotification()]);
 
       const result = await service.list('therapist-a');
 
@@ -85,7 +134,44 @@ describe('NotificationsService', () => {
         orderBy: { createdAt: 'desc' },
         take: UNPAGINATED_SAFETY_LIMIT,
       });
-      expect(result).toBe(notifications);
+      expect(result).toEqual([
+        expect.objectContaining({
+          id: 'notification-1',
+          title: 'Sesión próxima',
+          body: 'Tu sesión con Juan Soto es en 24 horas',
+        }),
+      ]);
+    });
+
+    it('las filas heredadas en texto plano se leen tal cual', async () => {
+      prisma.notification.findMany.mockResolvedValue([buildNotification()]);
+
+      const result = (await service.list('therapist-a')) as Notification[];
+
+      expect(result[0].title).toBe('Sesión próxima');
+      expect(result[0].body).toBe('Tienes una sesión en 24 horas');
+    });
+
+    it('una fila que no se puede descifrar muestra un texto neutro y no tumba al resto de la lista', async () => {
+      // Cambia un carácter del medio del base64: la autenticación de GCM falla.
+      const valid = crypto.encrypt('Tu sesión con Ana Pérez');
+      const at = valid.length - 8;
+      const tampered = storedNotification({
+        id: 'notification-bad',
+        body: `${valid.slice(0, at)}${valid[at] === 'A' ? 'B' : 'A'}${valid.slice(at + 1)}`,
+      });
+      prisma.notification.findMany.mockResolvedValue([
+        tampered,
+        storedNotification({ id: 'notification-ok' }),
+      ]);
+
+      const result = (await service.list('therapist-a')) as Notification[];
+
+      expect(result).toHaveLength(2);
+      expect(result[0].title).toBe(UNREADABLE_NOTIFICATION_TITLE);
+      expect(result[0].body).toBe(UNREADABLE_NOTIFICATION_BODY);
+      expect(JSON.stringify(result[0])).not.toContain('Ana Pérez');
+      expect(result[1].body).toBe('Tu sesión con Juan Soto es en 24 horas');
     });
 
     it('con page/pageSize pagina con take/skip y devuelve el total', async () => {
@@ -147,8 +233,10 @@ describe('NotificationsService', () => {
 
     it('el dueño puede marcar su notificación como leída', async () => {
       prisma.notification.updateMany.mockResolvedValue({ count: 1 });
-      const updated = buildNotification({ readAt: new Date() });
-      prisma.notification.findFirst.mockResolvedValue(updated);
+      const readAt = new Date();
+      prisma.notification.findFirst.mockResolvedValue(
+        storedNotification({ readAt }),
+      );
 
       const result = await service.markRead('notification-1', 'therapist-a');
 
@@ -156,7 +244,14 @@ describe('NotificationsService', () => {
         where: { id: 'notification-1', userId: 'therapist-a' },
         data: { readAt: expect.any(Date) as unknown as Date },
       });
-      expect(result).toBe(updated);
+      expect(result).toEqual(
+        expect.objectContaining({
+          id: 'notification-1',
+          readAt,
+          title: 'Sesión próxima',
+          body: 'Tu sesión con Juan Soto es en 24 horas',
+        }),
+      );
     });
   });
 
