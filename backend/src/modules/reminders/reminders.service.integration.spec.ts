@@ -265,6 +265,79 @@ describe('RemindersService (integration, real Prisma)', () => {
     expect(current.status).toBe('SENT');
   }, 30000);
 
+  // issue #501 (B1): el filtro por ruta JSON de metadata solo se prueba contra
+  // Postgres real.
+  describe('reintento in-app sin duplicar la notificación (B1 de #501)', () => {
+    const failedInApp = (consultationId: string, sessionDate: Date) =>
+      prisma.reminderDispatch.create({
+        data: {
+          groupId: consultationId,
+          sessionDate,
+          offsetKind: 'H24',
+          channel: 'IN_APP',
+          consultationId,
+          therapistId,
+          status: 'FAILED',
+          error: 'falló el update a SENT',
+          attempts: 1,
+          claimedAt: new Date(Date.now() - 60 * 60 * 1000),
+        },
+      });
+
+    // Cuenta por consulta (linkPath), no por la marca de metadata: así un
+    // duplicado creado sin marca también se detecta.
+    const remindersOf = (consultationId: string) =>
+      prisma.notification.count({
+        where: {
+          userId: therapistId,
+          type: 'SESSION_REMINDER',
+          linkPath: { contains: consultationId },
+        },
+      });
+
+    it('si la notificación del intento anterior ya existe, el reintento no crea otra y deja el despacho SENT', async () => {
+      const dueSoon = new Date(Date.now() + 10 * 60 * 60 * 1000);
+      const consultation = await createConsultation(dueSoon);
+      const row = await failedInApp(consultation.id, dueSoon);
+      await prisma.notification.create({
+        data: {
+          userId: therapistId,
+          type: 'SESSION_REMINDER',
+          title: 'creada por el intento anterior',
+          body: 'creada por el intento anterior',
+          linkPath: `/consultations?patientId=${patientId}&consultationId=${consultation.id}`,
+          metadata: { reminderDispatchId: row.id },
+        },
+      });
+
+      await service.scan();
+
+      expect(await remindersOf(consultation.id)).toBe(1);
+      const after = await prisma.reminderDispatch.findUniqueOrThrow({
+        where: { id: row.id },
+      });
+      expect(after.status).toBe('SENT');
+      expect(after.attempts).toBe(2);
+    });
+
+    it('sin notificación previa, el reintento crea exactamente una con el id del despacho en metadata', async () => {
+      const dueSoon = new Date(Date.now() + 10 * 60 * 60 * 1000);
+      const consultation = await createConsultation(dueSoon);
+      const row = await failedInApp(consultation.id, dueSoon);
+
+      await service.scan();
+
+      expect(await remindersOf(consultation.id)).toBe(1);
+      const created = await prisma.notification.findFirstOrThrow({
+        where: {
+          userId: therapistId,
+          metadata: { path: ['reminderDispatchId'], equals: row.id },
+        },
+      });
+      expect(created.metadata).toEqual({ reminderDispatchId: row.id });
+    });
+  });
+
   it('reintenta un EMAIL FAILED cuyo terapeuta corrigió la consulta antes del reintento', async () => {
     const dueSoon = new Date(Date.now() + 10 * 60 * 60 * 1000);
     const original = await createConsultation(dueSoon, { superseded: true });

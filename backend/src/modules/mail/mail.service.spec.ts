@@ -8,7 +8,10 @@ import { MailService } from './mail.service';
 // el canal de email (design.md "Channels dispatch independently").
 const sendMock = jest.fn<
   Promise<{ data: { id: string } | null; error: { message: string } | null }>,
-  [{ from: string; to: string; subject: string; html: string }]
+  [
+    { from: string; to: string; subject: string; html: string },
+    { idempotencyKey?: string }?,
+  ]
 >();
 
 jest.mock('resend', () => ({
@@ -55,6 +58,43 @@ describe('MailService.sendSessionReminderEmail', () => {
     expect(payload.subject).toContain('24 horas');
     expect(payload.html).toContain('Juan Soto');
     expect(payload.html).toContain('Dra. Pérez');
+  });
+
+  it('pasa la clave de idempotencia a Resend como opción del envío (issue #501, B1)', async () => {
+    sendMock.mockResolvedValue({ data: { id: 'email-1' }, error: null });
+    const service = new MailService(
+      buildConfig({ RESEND_API_KEY: 'test-key' }),
+    );
+
+    await service.sendSessionReminderEmail(
+      'therapist@example.com',
+      'Dra. Pérez',
+      'Juan Soto',
+      new Date('2026-06-16T14:00:00.000Z'),
+      '24 horas',
+      'reminder-dispatch-abc',
+    );
+
+    expect(sendMock.mock.calls[0][1]).toEqual({
+      idempotencyKey: 'reminder-dispatch-abc',
+    });
+  });
+
+  it('sin clave de idempotencia no pasa opciones de envío (comportamiento previo)', async () => {
+    sendMock.mockResolvedValue({ data: { id: 'email-1' }, error: null });
+    const service = new MailService(
+      buildConfig({ RESEND_API_KEY: 'test-key' }),
+    );
+
+    await service.sendSessionReminderEmail(
+      'therapist@example.com',
+      'Dra. Pérez',
+      'Juan Soto',
+      new Date('2026-06-16T14:00:00.000Z'),
+      '24 horas',
+    );
+
+    expect(sendMock.mock.calls[0][1]).toBeUndefined();
   });
 
   it('no lanza, no intenta enviar, y resuelve null si RESEND_API_KEY no está configurada (skip silencioso, issue #163)', async () => {

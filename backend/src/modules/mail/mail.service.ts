@@ -296,6 +296,7 @@ export class MailService {
     patientFullName: string,
     when: Date,
     offsetLabel: string,
+    idempotencyKey?: string,
   ): Promise<string | null> {
     if (!this.resend) {
       this.logger.warn(
@@ -313,15 +314,21 @@ export class MailService {
       timeStyle: 'short',
     }).format(when);
 
-    const { data, error } = await this.resend.emails.send({
-      from: this.from,
-      to,
-      subject: `Recordatorio de sesión en ${offsetLabel}`,
-      html: `
+    // issue #501 (B1): con clave de idempotencia, reenviar tras un SENT que no
+    // se pudo guardar devuelve el mismo correo de Resend (la recuerda 24 h) en
+    // vez de enviar un duplicado.
+    const { data, error } = await this.resend.emails.send(
+      {
+        from: this.from,
+        to,
+        subject: `Recordatorio de sesión en ${offsetLabel}`,
+        html: `
         <p>Hola ${escapeHtml(therapistName)},</p>
         <p>Tu sesión con <strong>${escapeHtml(patientFullName)}</strong> está programada para ${escapeHtml(formattedWhen)} (en ${escapeHtml(offsetLabel)}).</p>
       `,
-    });
+      },
+      idempotencyKey ? { idempotencyKey } : undefined,
+    );
 
     if (error) {
       this.logger.error(

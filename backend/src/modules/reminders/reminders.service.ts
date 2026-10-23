@@ -411,16 +411,30 @@ export class RemindersService {
       // issue #163: resendMessageId queda null para IN_APP (no aplica).
       let resendMessageId: string | null = null;
       if (channel === ReminderChannel.IN_APP) {
-        await this.notificationsService.create({
-          userId: consultation.therapistId,
-          type: NotificationType.SESSION_REMINDER,
-          title: `Recordatorio de sesión en ${offsetLabel}`,
-          body: `Tu sesión con ${consultation.patient.fullName} está programada para ${formatSessionDate(consultation.sessionDate)} (en ${offsetLabel}).`,
-          // La ruta real (App.tsx) es /consultations sin :id -- el detalle
-          // vive en query params que ConsultationsPage lee para
-          // preseleccionar el paciente y abrir el modal de Corregir sesión.
-          linkPath: `/consultations?patientId=${consultation.patientId}&consultationId=${consultation.id}`,
+        // issue #501 (B1): si un intento anterior ya creó la notificación y
+        // falló el update a SENT, el reintento no la duplica. El id del
+        // despacho en metadata es la marca (solo un id, sin datos del
+        // paciente).
+        const alreadyCreated = await this.prisma.notification.findFirst({
+          where: {
+            userId: consultation.therapistId,
+            metadata: { path: ['reminderDispatchId'], equals: claimId },
+          },
+          select: { id: true },
         });
+        if (!alreadyCreated) {
+          await this.notificationsService.create({
+            userId: consultation.therapistId,
+            type: NotificationType.SESSION_REMINDER,
+            title: `Recordatorio de sesión en ${offsetLabel}`,
+            body: `Tu sesión con ${consultation.patient.fullName} está programada para ${formatSessionDate(consultation.sessionDate)} (en ${offsetLabel}).`,
+            // La ruta real (App.tsx) es /consultations sin :id -- el detalle
+            // vive en query params que ConsultationsPage lee para
+            // preseleccionar el paciente y abrir el modal de Corregir sesión.
+            linkPath: `/consultations?patientId=${consultation.patientId}&consultationId=${consultation.id}`,
+            metadata: { reminderDispatchId: claimId },
+          });
+        }
       } else {
         // MailService.sendSessionReminderEmail nunca lanza por contrato
         // (ver mail.service.ts), pero igual queda dentro de este try/catch:
@@ -432,6 +446,7 @@ export class RemindersService {
           consultation.patient.fullName,
           consultation.sessionDate,
           offsetLabel,
+          `reminder-dispatch-${claimId}`,
         );
         // issue #286: null significa que el proveedor no confirmó el envío
         // (sin RESEND_API_KEY o error de Resend). No es SENT: queda FAILED
