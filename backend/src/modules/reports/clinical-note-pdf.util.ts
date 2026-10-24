@@ -9,6 +9,8 @@
 // whitelist exacta que el backend permite persistir, así que no hace falta
 // traer una dependencia de parsing nueva para esto.
 
+import { sanitizePdfText } from '../../common/utils/pdf-text.util';
+
 export interface ClinicalNoteTextRun {
   text: string;
   bold: boolean;
@@ -134,7 +136,7 @@ export function parseClinicalNoteHtml(html: string): ClinicalNoteLine[] {
           break;
       }
     } else {
-      const text = decodeEntities(token);
+      const text = sanitizePdfText(decodeEntities(token));
       if (text.length === 0) continue;
       currentRuns.push({
         text,
