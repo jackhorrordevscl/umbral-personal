@@ -1,13 +1,21 @@
 import {
   HttpException,
   Injectable,
+  InternalServerErrorException,
   Logger,
   NestInterceptor,
   ExecutionContext,
   CallHandler,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Observable, catchError, tap, throwError } from 'rxjs';
+import {
+  Observable,
+  OperatorFunction,
+  catchError,
+  mergeMap,
+  tap,
+  throwError,
+} from 'rxjs';
 import type { Request } from 'express';
 import { AuditAction } from '@prisma/client';
 import { AuditService } from '../../modules/audit/audit.service';
@@ -96,44 +104,72 @@ export class AuditInterceptor implements NestInterceptor {
     const action = readOptions?.action ?? actionMap[method] ?? 'VIEW';
     const resource = getResourceFromUrl(url);
 
-    return next.handle().pipe(
-      tap(() => {
-        // request.body recién en este punto está garantizado completo: en
-        // POST /documents/upload, patientId viaja en el body (multipart,
-        // parseado por el FileInterceptor del controller) en vez de en la
-        // URL, y ese interceptor corre DESPUÉS de este (que es global) pero
-        // ANTES de que next.handle() resuelva -- leer el body antes de acá
-        // lo encontraba vacío y dejaba resourceId en 'N/A' (issue #36).
-        const resourceId = this.resolveResourceId(request);
+    // Escribe la fila de la lectura exitosa. Corre cuando el handler ya
+    // resolvió: auditPatientId, si lo fijó, está disponible.
+    const logSuccess = (): {
+      resourceId: string;
+      written: Promise<unknown>;
+    } => {
+      // request.body recién en este punto está garantizado completo: en
+      // POST /documents/upload, patientId viaja en el body (multipart,
+      // parseado por el FileInterceptor del controller) en vez de en la
+      // URL, y ese interceptor corre DESPUÉS de este (que es global) pero
+      // ANTES de que next.handle() resuelva -- leer el body antes de acá
+      // lo encontraba vacío y dejaba resourceId en 'N/A' (issue #36).
+      const resourceId = this.resolveResourceId(request);
 
-        // El handler ya corrió: auditPatientId, si lo fijó, está disponible.
-        const detailParts = [`${method} ${url}`];
-        if (readOptions?.detail) detailParts.push(readOptions.detail);
-        if (request.auditPatientId) {
-          detailParts.push(`patientId=${request.auditPatientId}`);
-        }
+      const detailParts = [`${method} ${url}`];
+      if (readOptions?.detail) detailParts.push(readOptions.detail);
+      if (request.auditPatientId) {
+        detailParts.push(`patientId=${request.auditPatientId}`);
+      }
 
-        // Registra después de que la respuesta fue exitosa. Si falla, el
-        // request principal no se ve afectado (fail-open: la atención al
-        // paciente no depende de la disponibilidad del log), pero el fallo
-        // se reporta de forma alta y clara — nunca desaparece en silencio.
-        this.auditService
-          .log({
-            userId: user.id,
-            action,
-            resource,
-            resourceId,
-            detail: detailParts.join(' '),
-            ipAddress,
-            userAgent,
+      const written = this.auditService.log({
+        userId: user.id,
+        action,
+        resource,
+        resourceId,
+        detail: detailParts.join(' '),
+        ipAddress,
+        userAgent,
+      });
+      return { resourceId, written };
+    };
+
+    const reportFailure = (resourceId: string, err: unknown) => {
+      this.logger.error(
+        `Fallo al registrar auditoría: userId=${user.id} action=${action} resource=${resource} resourceId=${resourceId} — ${err instanceof Error ? err.message : String(err)}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+    };
+
+    // failClosed: la respuesta no sale hasta que la fila esté escrita; si el
+    // insert falla, el request responde 500 y el dato nunca se entrega.
+    const recordSuccess: OperatorFunction<unknown, unknown> =
+      readOptions?.failClosed
+        ? mergeMap(async (value: unknown) => {
+            const { resourceId, written } = logSuccess();
+            try {
+              await written;
+            } catch (err) {
+              reportFailure(resourceId, err);
+              throw new InternalServerErrorException(
+                'No se pudo registrar la auditoría de esta operación',
+              );
+            }
+            return value;
           })
-          .catch((err) => {
-            this.logger.error(
-              `Fallo al registrar auditoría: userId=${user.id} action=${action} resource=${resource} resourceId=${resourceId} — ${err instanceof Error ? err.message : err}`,
-              err instanceof Error ? err.stack : undefined,
-            );
+        : // Registra después de que la respuesta fue exitosa. Si falla, el
+          // request principal no se ve afectado (fail-open: la atención al
+          // paciente no depende de la disponibilidad del log), pero el fallo
+          // se reporta de forma alta y clara — nunca desaparece en silencio.
+          tap(() => {
+            const { resourceId, written } = logSuccess();
+            written.catch((err) => reportFailure(resourceId, err));
           });
-      }),
+
+    return next.handle().pipe(
+      recordSuccess,
       catchError((error: unknown) => {
         // Acceso denegado o a un recurso inexistente/ajeno sobre datos
         // clínicos: queda registrado y el error original se relanza intacto.
