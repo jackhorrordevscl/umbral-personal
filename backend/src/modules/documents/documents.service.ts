@@ -406,7 +406,12 @@ export class DocumentsService {
       // ninguna agrega el REVOKE (queda un GRANT sin revocar). Con el lock la
       // segunda espera, y su findFirst ya ve el voidedAt de la primera. Solo
       // los tipos con propósito de consentimiento lo necesitan.
+      // Orden de locks User ANTES que Patient, igual que discharges y
+      // consultations: el REVOKE que agrega revokeConsentIfOrphaned tiene una FK
+      // recordedById a User, que toma un lock sobre esa fila. Con el orden
+      // inverso (Patient y luego User) dos transacciones pueden esperarse.
       if (CONSENT_DOCUMENT_PURPOSE[existing.type]) {
+        await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
         await tx.$queryRaw`SELECT id FROM "Patient" WHERE id = ${existing.patientId} FOR UPDATE`;
       }
 

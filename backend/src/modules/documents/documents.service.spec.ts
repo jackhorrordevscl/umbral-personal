@@ -945,20 +945,30 @@ describe('DocumentsService', () => {
       });
     });
 
-    it('documento de consentimiento: bloquea la fila del paciente antes de marcar la anulación', async () => {
+    it('documento de consentimiento: bloquea al terapeuta y luego al paciente antes de marcar la anulación', async () => {
       await service.voidDocument('doc-1', dto, 'therapist-1');
-      expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
-      expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+      expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
         tx.patientDocument.updateMany.mock.invocationCallOrder[0],
       );
-      const [strings, ...values] = tx.$queryRaw.mock.calls[0] as [
+      // Orden User -> Patient, el mismo de discharges y consultations: invertido
+      // puede interbloquearse con ellos (el REVOKE tiene una FK a User).
+      const [userSql, ...userValues] = tx.$queryRaw.mock.calls[0] as [
         TemplateStringsArray,
         ...unknown[],
       ];
-      expect(strings.join('?')).toMatch(
+      expect(userSql.join('?')).toMatch(
+        /FROM "User" WHERE id = \?\s+FOR UPDATE/,
+      );
+      expect(userValues).toEqual(['therapist-1']);
+      const [patientSql, ...patientValues] = tx.$queryRaw.mock.calls[1] as [
+        TemplateStringsArray,
+        ...unknown[],
+      ];
+      expect(patientSql.join('?')).toMatch(
         /FROM "Patient" WHERE id = \?\s+FOR UPDATE/,
       );
-      expect(values).toEqual(['patient-1']);
+      expect(patientValues).toEqual(['patient-1']);
     });
 
     it('tipo sin propósito de consentimiento: no bloquea al paciente', async () => {
