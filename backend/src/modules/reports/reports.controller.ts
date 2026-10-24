@@ -5,6 +5,7 @@ import {
   StreamableFile,
   UseGuards,
 } from '@nestjs/common';
+import { SkipThrottle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuditRead } from '../../common/decorators/audit-read.decorator';
 import { ReportsService } from './reports.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -13,7 +14,28 @@ import {
   type RequestUser,
 } from '../../common/decorators/current-user.decorator';
 
-@UseGuards(JwtAuthGuard)
+// Issue #504: solo 'reports-export' (buildReportsThrottlerOptions) limita acá.
+// ThrottlerModule es @Global(), así que se saltean los throttlers de los demás
+// módulos; reports.controller.spec.ts recorre los registrados para que uno
+// nuevo sin saltar rompa el test.
+@UseGuards(JwtAuthGuard, ThrottlerGuard)
+@SkipThrottle({
+  login: true,
+  'mfa-verify': true,
+  signup: true,
+  'mfa-setup': true,
+  'verify-email': true,
+  'mfa-recover': true,
+  'password-change': true,
+  'resend-verification': true,
+  'password-reset': true,
+  'public-availability': true,
+  'public-booking': true,
+  'payment-confirm': true,
+  'payment-return': true,
+  'profile-update': true,
+  'email-change-confirm': true,
+})
 @Controller('reports')
 export class ReportsController {
   constructor(private reportsService: ReportsService) {}
