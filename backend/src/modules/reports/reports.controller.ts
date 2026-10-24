@@ -1,6 +1,11 @@
-import { Controller, Get, Param, Res, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  StreamableFile,
+  UseGuards,
+} from '@nestjs/common';
 import { AuditRead } from '../../common/decorators/audit-read.decorator';
-import type { Response } from 'express';
 import { ReportsService } from './reports.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import {
@@ -13,24 +18,24 @@ import {
 export class ReportsController {
   constructor(private reportsService: ReportsService) {}
 
-  @AuditRead({ action: 'EXPORT_PDF' })
+  // failClosed: la ficha completa no sale sin su fila EXPORT_PDF. Por eso se
+  // devuelve un StreamableFile (Nest envía la respuesta después de los
+  // interceptores) en vez de cerrar la respuesta con @Res().
+  @AuditRead({ action: 'EXPORT_PDF', failClosed: true })
   @Get('patient/:patientId')
   async generateReport(
     @Param('patientId') patientId: string,
     @CurrentUser() user: RequestUser,
-    @Res() res: Response,
-  ) {
+  ): Promise<StreamableFile> {
     const buffer = await this.reportsService.generatePatientReport(
       patientId,
       user.id,
     );
 
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="ficha-${patientId}.pdf"`,
-      'Content-Length': buffer.length,
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="ficha-${patientId}.pdf"`,
+      length: buffer.length,
     });
-
-    res.end(buffer);
   }
 }

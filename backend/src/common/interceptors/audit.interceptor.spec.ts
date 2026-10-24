@@ -5,6 +5,7 @@ import {
   ExecutionContext,
   ForbiddenException,
   Get,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
   UnauthorizedException,
@@ -235,6 +236,79 @@ describe('AuditInterceptor', () => {
             errorSpy.mockRestore();
             done();
           });
+        });
+    });
+  });
+
+  describe('auditoría bloqueante (@AuditRead failClosed)', () => {
+    class Ctrl {
+      @AuditRead({ action: 'EXPORT_PDF', failClosed: true })
+      handler() {}
+    }
+
+    it('espera a que la fila quede escrita antes de entregar la respuesta', async () => {
+      const order: string[] = [];
+      const logMock = jest.fn().mockImplementation(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+        order.push('log');
+      });
+      const interceptor = new AuditInterceptor({
+        log: logMock,
+      } as unknown as AuditService);
+
+      await new Promise<void>((resolve) => {
+        interceptor
+          .intercept(buildContext({}, handlerOf(Ctrl)), buildCallHandler())
+          .subscribe(() => {
+            order.push('response');
+            resolve();
+          });
+      });
+
+      expect(order).toEqual(['log', 'response']);
+      expect(firstLogEntry(logMock).action).toBe('EXPORT_PDF');
+    });
+
+    it('si el registro falla, no entrega la respuesta: responde 500 y reporta el fallo', async () => {
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      const logMock = jest.fn().mockRejectedValue(new Error('caído'));
+      const interceptor = new AuditInterceptor({
+        log: logMock,
+      } as unknown as AuditService);
+      const next = jest.fn();
+
+      const outcome = await new Promise<unknown>((resolve) => {
+        interceptor
+          .intercept(buildContext({}, handlerOf(Ctrl)), buildCallHandler())
+          .subscribe({ next, error: resolve });
+      });
+
+      expect(next).not.toHaveBeenCalled();
+      expect(outcome).toBeInstanceOf(InternalServerErrorException);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy.mock.calls[0][0]).toContain('caído');
+      errorSpy.mockRestore();
+    });
+
+    it('sin failClosed el comportamiento no cambia: el fallo no bloquea la respuesta', (done) => {
+      class OpenCtrl {
+        @AuditRead({ action: 'EXPORT_PDF' })
+        handler() {}
+      }
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      const interceptor = new AuditInterceptor({
+        log: jest.fn().mockRejectedValue(new Error('caído')),
+      } as unknown as AuditService);
+      interceptor
+        .intercept(buildContext({}, handlerOf(OpenCtrl)), buildCallHandler())
+        .subscribe((value) => {
+          expect(value).toEqual({ ok: true });
+          errorSpy.mockRestore();
+          done();
         });
     });
   });
