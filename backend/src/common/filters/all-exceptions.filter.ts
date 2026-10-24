@@ -15,9 +15,10 @@ import * as Sentry from '@sentry/node';
 // un upload) caía al filtro por defecto de Nest -- responde bien al cliente
 // (no filtra información), pero no queda loggeado con contexto en ningún
 // lado, así que una falla real ahí no deja rastro más allá del 500 genérico.
-// Registrado DESPUÉS de PrismaExceptionFilter en main.ts (@Catch() sin
-// argumentos actúa como catch-all, así que tiene que ser el último: Nest
-// usa el primer filtro registrado cuyo tipo matchea la excepción).
+// Se registra ANTES que PrismaExceptionFilter en registerGlobalFilters
+// (@Catch() sin argumentos actúa como catch-all, así que tiene que quedar
+// último en la cadena: Nest invierte la lista de filtros globales al
+// resolverlos).
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);

@@ -1,12 +1,11 @@
 import './instrument';
-import { HttpAdapterHost, NestFactory } from '@nestjs/core';
+import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 import * as path from 'path';
 import { runMigrations } from './common/utils/run-migrations';
-import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
-import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { registerGlobalFilters } from './common/filters/register-global-filters';
 
 async function bootstrap() {
   // rawBody: true (issue #163): además del body ya parseado por Express,
@@ -19,14 +18,7 @@ async function bootstrap() {
 
   app.use(helmet());
 
-  // Orden importa: Nest usa el primer filtro registrado cuyo tipo matchea la
-  // excepción. PrismaExceptionFilter (específico) va primero; AllExceptionsFilter
-  // (@Catch() sin argumentos, catch-all) va último como red de contención.
-  const httpAdapterHost = app.get(HttpAdapterHost);
-  app.useGlobalFilters(
-    new PrismaExceptionFilter(httpAdapterHost),
-    new AllExceptionsFilter(httpAdapterHost),
-  );
+  registerGlobalFilters(app);
 
   app.enableCors({
     origin: [
