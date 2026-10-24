@@ -108,7 +108,7 @@ export class DischargesController {
   // T3b: sube el PDF propio y cierra el tratamiento en un solo paso (el informe
   // nace emitido). SkipAudit: el servicio registra DISCHARGE_ISSUE,
   // TREATMENT_CLOSED y CONSULTATION_CANCELLED.
-  @SkipAudit()
+  @SkipAudit({ keepDenied: true })
   @Post('patients/:patientId/discharges/upload')
   @UseInterceptors(pdfUploadInterceptor)
   upload(
@@ -129,7 +129,7 @@ export class DischargesController {
 
   // @SkipAudit: el servicio registra DISCHARGE_ISSUE y TREATMENT_CLOSED de forma
   // explícita; sin esto el interceptor global agregaría una tercera fila genérica.
-  @SkipAudit()
+  @SkipAudit({ keepDenied: true })
   @Post('discharges/:id/issue')
   issue(
     @Param('id') id: string,
@@ -139,7 +139,7 @@ export class DischargesController {
     return this.dischargesService.issue(id, user.id, auditContext(req));
   }
 
-  @SkipAudit()
+  @SkipAudit({ keepDenied: true })
   @Post('discharges/:id/correct')
   correct(
     @Param('id') id: string,
@@ -150,7 +150,7 @@ export class DischargesController {
   }
 
   // T3b: reemplazo versionado de un informe subido (nueva versión emitida).
-  @SkipAudit()
+  @SkipAudit({ keepDenied: true })
   @Post('discharges/:id/correct-upload')
   @UseInterceptors(pdfUploadInterceptor)
   correctUpload(
@@ -200,7 +200,7 @@ export class DischargesController {
 
   // T4: el servicio registra DISCHARGE_DELIVER de forma explícita (sin datos
   // personales); SkipAudit evita la fila genérica duplicada del interceptor.
-  @SkipAudit()
+  @SkipAudit({ keepDenied: true })
   @Post('discharges/:id/deliveries')
   recordDelivery(
     @Param('id') id: string,

@@ -773,6 +773,17 @@ export class DischargesService {
           { reason: 'Reemplazado por una nueva versión del informe' },
           therapistId,
         );
+        // La anulación no pasa por el endpoint genérico (que la audita como
+        // DOCUMENT_VOID): se registra aquí, sin el motivo ni datos personales.
+        await logAuditFailOpen(this.auditService, this.logger, {
+          userId: therapistId,
+          action: 'DOCUMENT_VOID',
+          resource: 'Document',
+          resourceId: original.documentId,
+          detail: `patientId=${original.patientId} dischargeId=${original.id} replacedBy=${result.row.documentId}`,
+          ipAddress: ctx.ipAddress,
+          userAgent: ctx.userAgent,
+        });
       } catch (err) {
         this.logger.error(
           `No se pudo anular el PDF reemplazado (dischargeId=${original.id}, documentId=${original.documentId}): ${errorMessage(err)}`,

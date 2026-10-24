@@ -168,6 +168,26 @@ describe('AuditInterceptor', () => {
       expect(entry.detail).toBe('GET /api/v1/patients/abc');
     });
 
+    it('registra un PUT como UPDATE y no como VIEW', async () => {
+      const logMock = jest.fn().mockResolvedValue(undefined);
+      const entry = await run(
+        buildContext({
+          method: 'PUT',
+          url: '/api/v1/availability/schedule',
+          params: {},
+        }),
+        logMock,
+      );
+      expect(entry.action).toBe('UPDATE');
+      expect(entry.detail).toBe('PUT /api/v1/availability/schedule');
+    });
+
+    it('un método sin mapeo sigue cayendo en VIEW', async () => {
+      const logMock = jest.fn().mockResolvedValue(undefined);
+      const entry = await run(buildContext({ method: 'HEAD' }), logMock);
+      expect(entry.action).toBe('VIEW');
+    });
+
     it('registra la IP real del cliente (req.clientIp) y no la del proxy (issue #301)', async () => {
       const logMock = jest.fn().mockResolvedValue(undefined);
       const entry = await run(
@@ -332,6 +352,25 @@ describe('AuditInterceptor', () => {
           });
         });
     });
+
+    it('@SkipAudit({ keepDenied: true }) no registra la fila del éxito', (done) => {
+      class Ctrl {
+        @SkipAudit({ keepDenied: true })
+        handler() {}
+      }
+      const logMock = jest.fn().mockResolvedValue(undefined);
+      const interceptor = new AuditInterceptor({
+        log: logMock,
+      } as unknown as AuditService);
+      interceptor
+        .intercept(buildContext({}, handlerOf(Ctrl)), buildCallHandler())
+        .subscribe(() => {
+          setImmediate(() => {
+            expect(logMock).not.toHaveBeenCalled();
+            done();
+          });
+        });
+    });
   });
 
   describe('accesos denegados sobre recursos clínicos', () => {
@@ -414,6 +453,33 @@ describe('AuditInterceptor', () => {
       }
       const logMock = jest.fn().mockResolvedValue(undefined);
       await runError(new ForbiddenException(), logMock, {}, handlerOf(Ctrl));
+      expect(logMock).not.toHaveBeenCalled();
+    });
+
+    it('@SkipAudit({ keepDenied: true }) igual registra el acceso denegado sobre un recurso clínico', async () => {
+      class Ctrl {
+        @SkipAudit({ keepDenied: true })
+        handler() {}
+      }
+      const logMock = jest.fn().mockResolvedValue(undefined);
+      const error = new ForbiddenException();
+      const thrown = await runError(error, logMock, {}, handlerOf(Ctrl));
+      expect(thrown).toBe(error);
+      expect(logMock).toHaveBeenCalledTimes(1);
+      expect(firstLogEntry(logMock)).toMatchObject({
+        action: 'UNAUTHORIZED_ATTEMPT',
+        resource: 'Patient',
+        detail: 'GET /api/v1/patients/abc status=403',
+      });
+    });
+
+    it('@SkipAudit({ keepDenied: true }) sigue sin registrar un 400', async () => {
+      class Ctrl {
+        @SkipAudit({ keepDenied: true })
+        handler() {}
+      }
+      const logMock = jest.fn().mockResolvedValue(undefined);
+      await runError(new BadRequestException(), logMock, {}, handlerOf(Ctrl));
       expect(logMock).not.toHaveBeenCalled();
     });
 

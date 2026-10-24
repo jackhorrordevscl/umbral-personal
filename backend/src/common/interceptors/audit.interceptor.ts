@@ -25,7 +25,10 @@ import {
   AUDIT_READ_KEY,
   type AuditReadOptions,
 } from '../decorators/audit-read.decorator';
-import { SKIP_AUDIT_KEY } from '../decorators/skip-audit.decorator';
+import {
+  SKIP_AUDIT_KEY,
+  type SkipAuditOptions,
+} from '../decorators/skip-audit.decorator';
 import type { RequestUser } from '../decorators/current-user.decorator';
 
 interface AuditableRequest extends Request {
@@ -73,12 +76,21 @@ export class AuditInterceptor implements NestInterceptor {
     // Solo registra si hay usuario autenticado
     if (!user) return next.handle();
 
-    // @SkipAudit(): endpoints de sondeo que no deben generar filas.
-    const skip = this.reflector.get<boolean | undefined>(
+    // @SkipAudit(): endpoints de sondeo que no deben generar filas. Con
+    // keepDenied, el acceso denegado sí se registra (ver SkipAuditOptions).
+    const skip = this.reflector.get<SkipAuditOptions | undefined>(
       SKIP_AUDIT_KEY,
       context.getHandler(),
     );
-    if (skip) return next.handle();
+    if (skip) {
+      if (!skip.keepDenied) return next.handle();
+      return next.handle().pipe(
+        catchError((error: unknown) => {
+          this.recordDenied(error, request, user);
+          return throwError(() => error);
+        }),
+      );
+    }
 
     const method = request.method;
     // Solo la ruta: el query string puede traer datos personales (ej. el
@@ -93,6 +105,7 @@ export class AuditInterceptor implements NestInterceptor {
     const actionMap: Record<string, AuditAction> = {
       GET: 'VIEW',
       POST: 'CREATE',
+      PUT: 'UPDATE',
       PATCH: 'UPDATE',
       DELETE: 'SOFT_DELETE',
     };
@@ -171,35 +184,48 @@ export class AuditInterceptor implements NestInterceptor {
     return next.handle().pipe(
       recordSuccess,
       catchError((error: unknown) => {
-        // Acceso denegado o a un recurso inexistente/ajeno sobre datos
-        // clínicos: queda registrado y el error original se relanza intacto.
-        // El 401 no se registra acá (ya lo hace el guard JWT).
-        if (
-          error instanceof HttpException &&
-          (error.getStatus() === 403 || error.getStatus() === 404) &&
-          CLINICAL_RESOURCES.has(resource)
-        ) {
-          const status = error.getStatus();
-          this.auditService
-            .log({
-              userId: user.id,
-              action: 'UNAUTHORIZED_ATTEMPT',
-              resource,
-              resourceId: this.resolveResourceId(request),
-              detail: `${method} ${url} status=${status}`,
-              ipAddress,
-              userAgent,
-            })
-            .catch((err) => {
-              this.logger.error(
-                `Fallo al registrar intento no autorizado: userId=${user.id} resource=${resource} status=${status} — ${err instanceof Error ? err.message : err}`,
-                err instanceof Error ? err.stack : undefined,
-              );
-            });
-        }
+        this.recordDenied(error, request, user);
         return throwError(() => error);
       }),
     );
+  }
+
+  // Acceso denegado o a un recurso inexistente/ajeno sobre datos clínicos:
+  // queda registrado y el llamador relanza el error original intacto. El 401 no
+  // se registra acá (ya lo hace el guard JWT).
+  private recordDenied(
+    error: unknown,
+    request: AuditableRequest,
+    user: RequestUser,
+  ): void {
+    if (
+      !(error instanceof HttpException) ||
+      (error.getStatus() !== 403 && error.getStatus() !== 404)
+    ) {
+      return;
+    }
+    // Solo la ruta, por la misma razón que en intercept().
+    const url = request.url.split('?')[0];
+    const resource = getResourceFromUrl(url);
+    if (!CLINICAL_RESOURCES.has(resource)) return;
+
+    const status = error.getStatus();
+    this.auditService
+      .log({
+        userId: user.id,
+        action: 'UNAUTHORIZED_ATTEMPT',
+        resource,
+        resourceId: this.resolveResourceId(request),
+        detail: `${request.method} ${url} status=${status}`,
+        ipAddress: getRequestClientIp(request),
+        userAgent: request.headers['user-agent'],
+      })
+      .catch((err) => {
+        this.logger.error(
+          `Fallo al registrar intento no autorizado: userId=${user.id} resource=${resource} status=${status} — ${err instanceof Error ? err.message : err}`,
+          err instanceof Error ? err.stack : undefined,
+        );
+      });
   }
 
   private resolveResourceId(request: AuditableRequest): string {
