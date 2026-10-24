@@ -86,6 +86,46 @@ describe('clinical-note-pdf.util', () => {
       expect(numbered.map((l) => l.bullet)).toEqual(['1. ', '2. ']);
     });
 
+    it('lista ordenada anidada conserva la numeración del nivel exterior y marca la sangría (issue #504)', () => {
+      const lines = parseClinicalNoteHtml(
+        '<ol><li><p>a</p><ol><li><p>b</p></li></ol></li><li><p>c</p></li></ol>',
+      );
+
+      expect(lines.map((l) => l.bullet)).toEqual(['1. ', '1. ', '2. ']);
+      expect(lines.map((l) => l.runs[0].text)).toEqual(['a', 'b', 'c']);
+      expect(lines.map((l) => l.depth)).toEqual([0, 1, 0]);
+    });
+
+    it('viñetas dentro de una lista ordenada (y al revés) no mezclan el tipo ni el contador', () => {
+      const lines = parseClinicalNoteHtml(
+        '<ol><li>uno<ul><li>x</li><li>y</li></ul></li><li>dos<ol><li>p</li></ol></li><li>tres</li></ol>',
+      );
+
+      expect(lines.map((l) => l.bullet)).toEqual([
+        '1. ',
+        '• ',
+        '• ',
+        '2. ',
+        '1. ',
+        '3. ',
+      ]);
+      expect(lines.map((l) => l.depth)).toEqual([0, 1, 1, 0, 1, 0]);
+    });
+
+    it('un <ol> anidado reiniciado no pisa el contador del exterior al cerrarse', () => {
+      const lines = parseClinicalNoteHtml(
+        '<ol><li>a<ol><li>b</li><li>c</li></ol></li><li>d<ol><li>e</li></ol></li></ol>',
+      );
+
+      expect(lines.map((l) => l.bullet)).toEqual([
+        '1. ',
+        '1. ',
+        '2. ',
+        '2. ',
+        '1. ',
+      ]);
+    });
+
     it('decodifica entidades HTML básicas', () => {
       const lines = parseClinicalNoteHtml(
         '<p>A &amp; B &lt;test&gt; &quot;cita&quot;</p>',
@@ -161,6 +201,20 @@ describe('clinical-note-pdf.util', () => {
       const textCalls = calls.filter((c) => c.method === 'text');
       expect(textCalls[0].args[0]).toBe('• ');
       expect(textCalls[1].args[0]).toBe('Tarea');
+    });
+
+    it('sangra la viñeta de los items de listas anidadas (issue #504)', () => {
+      const { doc, calls } = buildFakeDoc();
+      renderClinicalNoteToPdf(
+        doc,
+        '<ul><li>Uno<ul><li>Sub</li></ul></li></ul>',
+        { width: 500 },
+      );
+
+      const texts = calls
+        .filter((c) => c.method === 'text')
+        .map((c) => c.args[0]);
+      expect(texts).toEqual(['• ', 'Uno', '    • ', 'Sub']);
     });
   });
 });
