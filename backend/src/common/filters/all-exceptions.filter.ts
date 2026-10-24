@@ -48,8 +48,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const message =
         exception instanceof Error ? exception.message : String(exception);
       const stack = exception instanceof Error ? exception.stack : undefined;
+      // El query string puede traer PII o tokens (búsquedas por nombre o RUT,
+      // enlaces con token), así que se loggea solo el path.
+      const path = request.url?.split('?')[0] ?? '?';
       this.logger.error(
-        `${request.method ?? '?'} ${request.url ?? '?'} -> 500: ${message}`,
+        `${request.method ?? '?'} ${path} -> 500: ${message}`,
         stack,
       );
       // Issue #191: no-op when Sentry was not initialised (no SENTRY_DSN).
