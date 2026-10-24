@@ -432,10 +432,35 @@ describe('DischargesService T3b (PDF propio)', () => {
         auditService.log.mock.calls as { action: string }[][]
       ).map((c) => c[0].action);
       expect(actions).toEqual([
+        'DOCUMENT_VOID',
         'DISCHARGE_ISSUE',
         'DISCHARGE_CORRECT',
         'TREATMENT_CLOSED',
       ]);
+    });
+
+    it('registra DOCUMENT_VOID del PDF reemplazado, sin el motivo ni datos personales', async () => {
+      await service.correctUpload(
+        'dis-1',
+        dto({ closureReason: 'REFERRED' }),
+        pdfFile(),
+        'therapist-1',
+        { ipAddress: '10.0.0.1', userAgent: 'jest' },
+      );
+      const voidEntry = (
+        auditService.log.mock.calls as Record<string, unknown>[][]
+      )
+        .map((c) => c[0])
+        .find((e) => e.action === 'DOCUMENT_VOID');
+      expect(voidEntry).toEqual({
+        userId: 'therapist-1',
+        action: 'DOCUMENT_VOID',
+        resource: 'Document',
+        resourceId: 'doc-old',
+        detail: 'patientId=patient-1 dischargeId=dis-1 replacedBy=doc-new',
+        ipAddress: '10.0.0.1',
+        userAgent: 'jest',
+      });
     });
 
     it('con el paciente reabierto registra la versión sin tocar su estado ni sus consultas', async () => {
@@ -477,7 +502,11 @@ describe('DischargesService T3b (PDF propio)', () => {
       const actions = (
         auditService.log.mock.calls as { action: string }[][]
       ).map((c) => c[0].action);
-      expect(actions).toEqual(['DISCHARGE_ISSUE', 'DISCHARGE_CORRECT']);
+      expect(actions).toEqual([
+        'DOCUMENT_VOID',
+        'DISCHARGE_ISSUE',
+        'DISCHARGE_CORRECT',
+      ]);
     });
 
     it('da 409 si la versión ya fue corregida, sin guardar ni anular nada', async () => {
@@ -542,6 +571,10 @@ describe('DischargesService T3b (PDF propio)', () => {
       await expect(
         service.correctUpload('dis-1', dto(), pdfFile(), 'therapist-1'),
       ).resolves.toMatchObject({ version: 2 });
+      const actions = (
+        auditService.log.mock.calls as { action: string }[][]
+      ).map((c) => c[0].action);
+      expect(actions).not.toContain('DOCUMENT_VOID');
     });
   });
 
