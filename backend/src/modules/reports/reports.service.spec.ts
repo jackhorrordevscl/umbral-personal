@@ -1,5 +1,6 @@
 import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import { NotFoundException } from '@nestjs/common';
+import PDFDocument from 'pdfkit';
 import { ReportsService } from './reports.service';
 import * as clinicalNotePdf from './clinical-note-pdf.util';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -230,5 +231,109 @@ describe('ReportsService', () => {
     );
 
     expect(buffer.length).toBeGreaterThan(0);
+  });
+
+  // Issue #504: el PDF es el registro clínico oficial; no basta con que
+  // empiece con %PDF-. Se captura lo que se dibuja con doc.text().
+  describe('contenido de la ficha', () => {
+    let textSpy: jest.SpyInstance<unknown, unknown[]>;
+    const drawn = () =>
+      textSpy.mock.calls
+        .map(([text]) => text)
+        .filter((text): text is string => typeof text === 'string');
+
+    beforeEach(() => {
+      // Sin mockImplementation: llama al text() real y solo registra.
+      textSpy = jest.spyOn(
+        PDFDocument.prototype as { text: (...args: unknown[]) => unknown },
+        'text',
+      );
+    });
+
+    afterEach(() => {
+      textSpy.mockRestore();
+    });
+
+    it('imprime la identificación del paciente, el psicólogo y el estado de los consentimientos', async () => {
+      prisma.patient.findFirst.mockResolvedValue(
+        buildPatientWithConsultations(),
+      );
+
+      await service.generatePatientReport('patient-1', 'therapist-1');
+
+      expect(drawn()).toEqual(
+        expect.arrayContaining([
+          '1. Identificación del Paciente',
+          'Nombre completo: Paciente de Prueba',
+          'RUT: 11111111-1',
+          'Fecha de nacimiento: 01-01-1990',
+          'Ocupación: No registrada',
+          'Psicólogo/a tratante: Dra. Terapeuta',
+          'Consentimiento informado: Firmado',
+          'Acuerdo telemedicina: Pendiente',
+        ]),
+      );
+    });
+
+    it('no imprime el email del terapeuta', async () => {
+      prisma.patient.findFirst.mockResolvedValue(
+        buildPatientWithConsultations(),
+      );
+
+      await service.generatePatientReport('patient-1', 'therapist-1');
+
+      expect(drawn().join('\n')).not.toContain('terapeuta@umbral.cl');
+    });
+
+    it('imprime cada sesión numerada con su tipo, "Ninguno" sin acuerdos y "No agendada" sin próxima sesión', async () => {
+      prisma.patient.findFirst.mockResolvedValue(
+        buildPatientWithConsultations(),
+      );
+
+      await service.generatePatientReport('patient-1', 'therapist-1');
+
+      expect(drawn()).toEqual(
+        expect.arrayContaining([
+          '2. Historial Clínico',
+          expect.stringMatching(/^Sesión 1 {2}— {2}10-01-2026$/),
+          'Tipo: Presencial',
+          'Acuerdos:',
+          'Ninguno',
+          'Próxima sesión: No agendada',
+        ]),
+      );
+      expect(drawn()).not.toContain('Sin consultas registradas.');
+    });
+
+    it('rotula la telemedicina y numera las sesiones en el orden recibido', async () => {
+      const patient = buildPatientWithConsultations();
+      patient.consultations = [
+        { ...patient.consultations[0], sessionType: 'TELEMEDICINE' },
+        { ...patient.consultations[0], sessionType: 'IN_PERSON' },
+      ];
+      prisma.patient.findFirst.mockResolvedValue(patient);
+
+      await service.generatePatientReport('patient-1', 'therapist-1');
+
+      const sessions = drawn().filter((t) => t.startsWith('Sesión '));
+      expect(sessions).toHaveLength(2);
+      expect(sessions[0]).toMatch(/^Sesión 1 /);
+      expect(sessions[1]).toMatch(/^Sesión 2 /);
+      expect(drawn().filter((t) => t.startsWith('Tipo: '))).toEqual([
+        'Tipo: Telemedicina',
+        'Tipo: Presencial',
+      ]);
+    });
+
+    it('sin consultas imprime "Sin consultas registradas." y ninguna sesión', async () => {
+      const patient = buildPatientWithConsultations();
+      patient.consultations = [];
+      prisma.patient.findFirst.mockResolvedValue(patient);
+
+      await service.generatePatientReport('patient-1', 'therapist-1');
+
+      expect(drawn()).toContain('Sin consultas registradas.');
+      expect(drawn().some((t) => t.startsWith('Sesión '))).toBe(false);
+    });
   });
 });
