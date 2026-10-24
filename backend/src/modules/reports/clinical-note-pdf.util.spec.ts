@@ -32,6 +32,35 @@ describe('clinical-note-pdf.util', () => {
       );
     });
 
+    // Issue #504: texto heredado con forma de etiqueta (no está en la whitelist
+    // del editor) es contenido clínico, no markup: no puede desaparecer.
+    it('texto heredado con forma de etiqueta desconocida ("<paciente llora>", "<mg>") se conserva como texto', () => {
+      const lines = parseClinicalNoteHtml(
+        'Refiere <paciente llora> y toma 20 <mg> al día</mg>',
+      );
+
+      expect(lines).toHaveLength(1);
+      expect(lines[0].runs.map((r) => r.text).join('')).toBe(
+        'Refiere <paciente llora> y toma 20 <mg> al día</mg>',
+      );
+    });
+
+    it('una etiqueta desconocida dentro de HTML real se conserva y los tags de la whitelist siguen aplicando', () => {
+      const lines = parseClinicalNoteHtml(
+        '<p>Sesión <strong>difícil</strong>: <llanto></p>',
+      );
+
+      expect(lines).toHaveLength(1);
+      expect(lines[0].runs.map((r) => r.text)).toEqual([
+        'Sesión ',
+        'difícil',
+        ': ',
+        '<llanto>',
+      ]);
+      expect(lines[0].runs[1].bold).toBe(true);
+      expect(lines[0].runs[3].bold).toBe(false);
+    });
+
     it('HTML real con entidades escapadas sigue decodificándose y respeta los tags', () => {
       const lines = parseClinicalNoteHtml(
         '<p>Puntaje &lt; 10 con <strong>mejora</strong></p>',

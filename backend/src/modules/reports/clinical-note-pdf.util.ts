@@ -79,6 +79,17 @@ export function parseClinicalNoteHtml(html: string): ClinicalNoteLine[] {
     currentDepth = undefined;
   };
 
+  const pushText = (raw: string) => {
+    const text = sanitizePdfText(decodeEntities(raw));
+    if (text.length === 0) return;
+    currentRuns.push({
+      text,
+      bold: boldDepth > 0,
+      italic: italicDepth > 0,
+      underline: underlineDepth > 0,
+    });
+  };
+
   // Solo se reconocen como tag los patrones `<nombre ...>` / `</nombre>`. Un
   // `<` o `>` suelto en texto plano heredado ("PHQ < 10", "a > b") no abre un
   // tag, así que queda como texto en vez de descartarse. El HTML sanitizado
@@ -133,17 +144,15 @@ export function parseClinicalNoteHtml(html: string): ClinicalNoteLine[] {
           }
           break;
         default:
+          // Fuera de la whitelist del editor: solo puede venir de texto
+          // heredado con forma de etiqueta ("<paciente llora>"). El HTML
+          // sanitizado escapa esos caracteres, así que es contenido clínico y
+          // se conserva como texto en vez de descartarse sin marca.
+          pushText(token);
           break;
       }
     } else {
-      const text = sanitizePdfText(decodeEntities(token));
-      if (text.length === 0) continue;
-      currentRuns.push({
-        text,
-        bold: boldDepth > 0,
-        italic: italicDepth > 0,
-        underline: underlineDepth > 0,
-      });
+      pushText(token);
     }
   }
   pushLine();
