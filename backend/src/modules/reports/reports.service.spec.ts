@@ -35,14 +35,14 @@ function buildPatientWithConsultations() {
 
 describe('ReportsService', () => {
   let service: ReportsService;
-  let prisma: { patient: { findUnique: jest.Mock } };
+  let prisma: { patient: { findFirst: jest.Mock } };
   let patientsService: {
     assertAccess: jest.Mock;
     getConsentStatusMap: jest.Mock;
   };
 
   beforeEach(() => {
-    prisma = { patient: { findUnique: jest.fn() } };
+    prisma = { patient: { findFirst: jest.fn() } };
     patientsService = {
       assertAccess: jest
         .fn()
@@ -69,21 +69,40 @@ describe('ReportsService', () => {
     await expect(
       service.generatePatientReport('patient-1', 'therapist-1'),
     ).rejects.toThrow(NotFoundException);
-    expect(prisma.patient.findUnique).not.toHaveBeenCalled();
+    expect(prisma.patient.findFirst).not.toHaveBeenCalled();
   });
 
   it('lanza 404 si el paciente no existe', async () => {
-    prisma.patient.findUnique.mockResolvedValue(null);
+    prisma.patient.findFirst.mockResolvedValue(null);
 
     await expect(
       service.generatePatientReport('patient-1', 'therapist-1'),
     ).rejects.toThrow(NotFoundException);
   });
 
-  it('genera un PDF no vacío con los datos del paciente y sus consultas', async () => {
-    prisma.patient.findUnique.mockResolvedValue(
-      buildPatientWithConsultations(),
+  it('valida acceso con el id del paciente y el del usuario, y repite ambos filtros al leer la ficha (defensa en profundidad)', async () => {
+    prisma.patient.findFirst.mockResolvedValue(buildPatientWithConsultations());
+
+    await service.generatePatientReport('patient-1', 'therapist-1');
+
+    expect(patientsService.assertAccess).toHaveBeenCalledWith(
+      'patient-1',
+      'therapist-1',
     );
+    const args = prisma.patient.findFirst.mock.calls[0] as [
+      { where: unknown; include: { therapist: { select: unknown } } },
+    ];
+    expect(args[0].where).toEqual({
+      id: 'patient-1',
+      therapistId: 'therapist-1',
+      deletedAt: null,
+    });
+    // El email del terapeuta no se imprime en la ficha: no se lee.
+    expect(args[0].include.therapist.select).toEqual({ name: true });
+  });
+
+  it('genera un PDF no vacío con los datos del paciente y sus consultas', async () => {
+    prisma.patient.findFirst.mockResolvedValue(buildPatientWithConsultations());
 
     const buffer = await service.generatePatientReport(
       'patient-1',
@@ -99,7 +118,7 @@ describe('ReportsService', () => {
   it('formatea las fechas con zona horaria explícita: instantes en Chile, fecha de nacimiento en UTC (issue #185)', async () => {
     const patient = buildPatientWithConsultations();
     patient.consultations[0].nextSessionDate = new Date('2026-02-10T12:00:00Z');
-    prisma.patient.findUnique.mockResolvedValue(patient);
+    prisma.patient.findFirst.mockResolvedValue(patient);
     const spy = jest.spyOn(Date.prototype, 'toLocaleDateString');
 
     try {
@@ -131,7 +150,7 @@ describe('ReportsService', () => {
         nextSessionDate: null,
       },
     ];
-    prisma.patient.findUnique.mockResolvedValue(patient);
+    prisma.patient.findFirst.mockResolvedValue(patient);
 
     const buffer = await service.generatePatientReport(
       'patient-1',
@@ -158,7 +177,7 @@ describe('ReportsService', () => {
         nextSessionDate: null,
       },
     ];
-    prisma.patient.findUnique.mockResolvedValue(patient);
+    prisma.patient.findFirst.mockResolvedValue(patient);
 
     await service.generatePatientReport('patient-1', 'therapist-1');
 
@@ -172,14 +191,12 @@ describe('ReportsService', () => {
   });
 
   it('consulta solo sesiones ya ocurridas, ordenadas por sessionDate y no por createdAt (issue #288)', async () => {
-    prisma.patient.findUnique.mockResolvedValue(
-      buildPatientWithConsultations(),
-    );
+    prisma.patient.findFirst.mockResolvedValue(buildPatientWithConsultations());
     const before = Date.now();
 
     await service.generatePatientReport('patient-1', 'therapist-1');
 
-    const args = prisma.patient.findUnique.mock.calls[0] as [
+    const args = prisma.patient.findFirst.mock.calls[0] as [
       {
         include: {
           consultations: {
@@ -205,7 +222,7 @@ describe('ReportsService', () => {
   it('funciona también sin consultas registradas', async () => {
     const patient = buildPatientWithConsultations();
     patient.consultations = [];
-    prisma.patient.findUnique.mockResolvedValue(patient);
+    prisma.patient.findFirst.mockResolvedValue(patient);
 
     const buffer = await service.generatePatientReport(
       'patient-1',
