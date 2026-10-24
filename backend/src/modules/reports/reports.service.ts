@@ -38,8 +38,10 @@ export class ReportsService {
     // internamente.
     await this.patientsService.assertAccess(patientId, userId);
 
-    const patient = await this.prisma.patient.findUnique({
-      where: { id: patientId },
+    // La lectura repite los filtros de assertAccess (therapistId y deletedAt)
+    // como defensa en profundidad: la ficha nunca depende solo del guard previo.
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patientId, therapistId: userId, deletedAt: null },
       include: {
         // Solo la versión vigente de cada consulta (T2.3: corregir crea una
         // fila nueva, hay que excluir las versiones ya superadas)
@@ -55,7 +57,7 @@ export class ReportsService {
           orderBy: { sessionDate: 'asc' },
         },
         therapist: {
-          select: { name: true, email: true },
+          select: { name: true },
         },
       },
     });
