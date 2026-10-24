@@ -19,8 +19,12 @@ export interface ClinicalNoteTextRun {
 export interface ClinicalNoteLine {
   /** Viñeta o número de lista ("• ", "1. "), si la línea viene de un <li>. */
   bullet?: string;
+  /** Nivel de anidamiento de la lista (0 = lista exterior), si viene de un <li>. */
+  depth?: number;
   runs: ClinicalNoteTextRun[];
 }
+
+const NESTED_LIST_INDENT = '    ';
 
 const HTML_ENTITIES: Record<string, string> = {
   amp: '&',
@@ -55,15 +59,22 @@ export function parseClinicalNoteHtml(html: string): ClinicalNoteLine[] {
   let boldDepth = 0;
   let italicDepth = 0;
   let underlineDepth = 0;
-  let listType: 'ul' | 'ol' | null = null;
-  let olCounter = 0;
+  let currentDepth: number | undefined;
+  // Una entrada por lista abierta: las listas anidadas llevan su propio tipo y
+  // contador, y al cerrarse devuelven el control a la lista exterior.
+  const listStack: { type: 'ul' | 'ol'; counter: number }[] = [];
 
   const pushLine = () => {
     if (currentRuns.length > 0 || currentBullet !== undefined) {
-      lines.push({ bullet: currentBullet, runs: currentRuns });
+      lines.push({
+        bullet: currentBullet,
+        runs: currentRuns,
+        depth: currentDepth,
+      });
     }
     currentRuns = [];
     currentBullet = undefined;
+    currentDepth = undefined;
   };
 
   // Solo se reconocen como tag los patrones `<nombre ...>` / `</nombre>`. Un
@@ -99,27 +110,24 @@ export function parseClinicalNoteHtml(html: string): ClinicalNoteLine[] {
           underlineDepth = Math.max(0, underlineDepth + (closing ? -1 : 1));
           break;
         case 'ul':
-          listType = closing ? null : 'ul';
-          break;
         case 'ol':
           if (closing) {
-            listType = null;
+            listStack.pop();
           } else {
-            listType = 'ol';
-            olCounter = 0;
+            listStack.push({ type: tag, counter: 0 });
           }
           break;
         case 'li':
-          if (closing) {
-            pushLine();
-          } else {
-            pushLine();
-            if (listType === 'ol') {
-              olCounter += 1;
-              currentBullet = `${olCounter}. `;
+          pushLine();
+          if (!closing) {
+            const list = listStack[listStack.length - 1];
+            if (list?.type === 'ol') {
+              list.counter += 1;
+              currentBullet = `${list.counter}. `;
             } else {
               currentBullet = '• ';
             }
+            currentDepth = Math.max(0, listStack.length - 1);
           }
           break;
         default:
@@ -173,7 +181,7 @@ export function renderClinicalNoteToPdf(
     }[] = [];
     if (line.bullet) {
       writes.push({
-        text: line.bullet,
+        text: NESTED_LIST_INDENT.repeat(line.depth ?? 0) + line.bullet,
         bold: false,
         italic: false,
         underline: false,
