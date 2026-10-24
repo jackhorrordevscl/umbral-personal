@@ -6,6 +6,7 @@ import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-cry
 import { decryptConsultationRow } from '../consultations/util/consultation-text.util';
 import { renderClinicalNoteToPdf } from './clinical-note-pdf.util';
 import { CHILE_TIMEZONE } from '../../common/utils/chile-time.util';
+import { sanitizePdfText } from '../../common/utils/pdf-text.util';
 
 // Instants (session dates, generation time) render in Chile time: the server
 // may run in UTC, which would shift late-evening sessions to the next day.
@@ -123,33 +124,39 @@ export class ReportsService {
       doc.moveDown(0.5);
 
       doc.fontSize(10).font('Helvetica');
-      doc.text(`Nombre completo: ${patient.fullName}`);
-      doc.text(`RUT: ${patient.rut}`);
+      // Las fuentes estándar solo cubren WinAnsi: el texto libre del paciente
+      // pasa por sanitizePdfText para no dibujar glifos equivocados en silencio.
+      const safe = (value: string | null | undefined, fallback: string) =>
+        sanitizePdfText(value ?? fallback);
+      doc.text(`Nombre completo: ${sanitizePdfText(patient.fullName)}`);
+      doc.text(`RUT: ${sanitizePdfText(patient.rut)}`);
       doc.text(
         `Fecha de nacimiento: ${formatCalendarDate(new Date(patient.birthDate))}`,
       );
-      doc.text(`Ocupación: ${patient.occupation ?? 'No registrada'}`);
-      doc.text(`Teléfono: ${patient.phone ?? 'No registrado'}`);
-      doc.text(`Email: ${patient.email ?? 'No registrado'}`);
-      doc.text(`Dirección: ${patient.address ?? 'No registrada'}`);
+      doc.text(`Ocupación: ${safe(patient.occupation, 'No registrada')}`);
+      doc.text(`Teléfono: ${safe(patient.phone, 'No registrado')}`);
+      doc.text(`Email: ${safe(patient.email, 'No registrado')}`);
+      doc.text(`Dirección: ${safe(patient.address, 'No registrada')}`);
 
       doc.moveDown();
       doc.text(
-        `Contacto de emergencia: ${patient.emergencyContactName ?? 'No registrado'}`,
+        `Contacto de emergencia: ${safe(patient.emergencyContactName, 'No registrado')}`,
       );
       doc.text(
-        `Teléfono emergencia: ${patient.emergencyContactPhone ?? 'No registrado'}`,
+        `Teléfono emergencia: ${safe(patient.emergencyContactPhone, 'No registrado')}`,
       );
 
       doc.moveDown();
       doc.text(
-        `Psiquiatra tratante: ${patient.treatingPsychiatrist ?? 'No registrado'}`,
+        `Psiquiatra tratante: ${safe(patient.treatingPsychiatrist, 'No registrado')}`,
       );
-      doc.text(`Médico tratante: ${patient.treatingDoctor ?? 'No registrado'}`);
+      doc.text(
+        `Médico tratante: ${safe(patient.treatingDoctor, 'No registrado')}`,
+      );
 
       // ── PSICÓLOGO TRATANTE ───────────────────────────────
       doc.text(
-        `Psicólogo/a tratante: ${patient.therapist?.name ?? 'No asignado'}`,
+        `Psicólogo/a tratante: ${safe(patient.therapist?.name, 'No asignado')}`,
       );
 
       doc.moveDown();

@@ -216,5 +216,27 @@ describe('clinical-note-pdf.util', () => {
         .map((c) => c.args[0]);
       expect(texts).toEqual(['• ', 'Uno', '    • ', 'Sub']);
     });
+
+    it('reemplaza por "?" lo que WinAnsi no representa (issue #504)', () => {
+      const { doc, calls } = buildFakeDoc();
+      renderClinicalNoteToPdf(doc, '<p>PHQ ≥ 10 → derivar 😀</p>', {
+        width: 500,
+      });
+
+      const texts = calls
+        .filter((c) => c.method === 'text')
+        .map((c) => c.args[0]);
+      expect(texts).toEqual(['PHQ ? 10 ? derivar ?']);
+    });
+
+    it('conserva tildes, ñ y signos tipográficos de WinAnsi', () => {
+      const { doc, calls } = buildFakeDoc();
+      renderClinicalNoteToPdf(doc, '<p>Año — “sesión” €5</p>', { width: 500 });
+
+      const texts = calls
+        .filter((c) => c.method === 'text')
+        .map((c) => c.args[0]);
+      expect(texts).toEqual(['Año — “sesión” €5']);
+    });
   });
 });
