@@ -1,5 +1,9 @@
 import { AuditAction } from '@prisma/client';
-import { AuditService } from './audit.service';
+import {
+  AUDIT_DETAIL_MAX_LENGTH,
+  AUDIT_USER_AGENT_MAX_LENGTH,
+  AuditService,
+} from './audit.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 
 describe('AuditService', () => {
@@ -73,6 +77,52 @@ describe('AuditService', () => {
       const arg = calls[0][0];
       expect(arg.data).not.toHaveProperty('id');
       expect(arg.data).not.toHaveProperty('createdAt');
+    });
+
+    // Issue #504: el User-Agent lo manda el cliente y se guardaba tal cual.
+    it('recorta userAgent y detail a su tope de largo y deja intactos los que caben', async () => {
+      await service.log({
+        action: AuditAction.VIEW,
+        resource: 'Patient',
+        resourceId: 'patient-4',
+        detail: 'd'.repeat(AUDIT_DETAIL_MAX_LENGTH + 50),
+        userAgent: 'u'.repeat(AUDIT_USER_AGENT_MAX_LENGTH + 50),
+      });
+      await service.log({
+        action: AuditAction.VIEW,
+        resource: 'Patient',
+        resourceId: 'patient-4',
+        detail: 'd'.repeat(AUDIT_DETAIL_MAX_LENGTH),
+        userAgent: 'u'.repeat(AUDIT_USER_AGENT_MAX_LENGTH),
+      });
+
+      const calls = create.mock.calls as [
+        { data: { detail: string; userAgent: string } },
+      ][];
+      expect(calls[0][0].data.detail).toBe('d'.repeat(AUDIT_DETAIL_MAX_LENGTH));
+      expect(calls[0][0].data.userAgent).toBe(
+        'u'.repeat(AUDIT_USER_AGENT_MAX_LENGTH),
+      );
+      expect(calls[1][0].data.detail).toHaveLength(AUDIT_DETAIL_MAX_LENGTH);
+      expect(calls[1][0].data.userAgent).toHaveLength(
+        AUDIT_USER_AGENT_MAX_LENGTH,
+      );
+    });
+
+    it('al recortar no deja un par sustituto partido a la mitad', async () => {
+      // '😀' ocupa 2 unidades UTF-16: cortar entre ambas dejaría un sustituto
+      // suelto que no se puede codificar en UTF-8.
+      await service.log({
+        action: AuditAction.VIEW,
+        resource: 'Patient',
+        resourceId: 'patient-5',
+        userAgent: 'u'.repeat(AUDIT_USER_AGENT_MAX_LENGTH - 1) + '😀',
+      });
+
+      const calls = create.mock.calls as [{ data: { userAgent: string } }][];
+      expect(calls[0][0].data.userAgent).toBe(
+        'u'.repeat(AUDIT_USER_AGENT_MAX_LENGTH - 1),
+      );
     });
 
     it('propaga el error de la base de datos (no lo traga) para que el llamador decida', async () => {
