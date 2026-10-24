@@ -66,6 +66,31 @@ describe('AllExceptionsFilter', () => {
     errorSpy.mockRestore();
   });
 
+  it('no escribe el query string en el log de un 500 (puede traer PII o tokens)', () => {
+    const reply = buildReplyMock();
+    const errorSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    const filter = new AllExceptionsFilter(buildAdapterHost(reply));
+
+    filter.catch(
+      new Error('fallo interno'),
+      buildHost({
+        method: 'GET',
+        url: '/api/v1/patients?search=Juan%20Perez&rut=12.345.678-9&token=abc123',
+      }),
+    );
+
+    const [logMessage] = errorSpy.mock.calls[0] as [string, string?];
+    expect(logMessage).toContain('GET /api/v1/patients ->');
+    expect(logMessage).not.toContain('?');
+    expect(logMessage).not.toContain('Perez');
+    expect(logMessage).not.toContain('12.345.678-9');
+    expect(logMessage).not.toContain('abc123');
+
+    errorSpy.mockRestore();
+  });
+
   it('no loggea para excepciones HTTP normales (4xx)', () => {
     const reply = buildReplyMock();
     const errorSpy = jest
