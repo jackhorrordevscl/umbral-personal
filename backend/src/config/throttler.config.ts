@@ -3,6 +3,7 @@ import { ThrottlerModuleOptions, ThrottlerOptions } from '@nestjs/throttler';
 import { buildAuthThrottlerOptions } from '../modules/auth/auth.module';
 import { buildPaymentsThrottlerOptions } from '../modules/payments/payments.module';
 import { buildProfileThrottlerOptions } from '../modules/profile/profile.module';
+import { buildReportsThrottlerOptions } from '../modules/reports/reports.module';
 
 type ResolvedThrottlerOptions = {
   throttlers: ThrottlerOptions[];
@@ -29,6 +30,10 @@ export function buildAppThrottlerOptions(
     config,
   ) as ResolvedThrottlerOptions;
 
+  const reports = buildReportsThrottlerOptions(
+    config,
+  ) as ResolvedThrottlerOptions;
+
   return {
     throttlers: [
       ...auth.throttlers,
@@ -37,6 +42,10 @@ export function buildAppThrottlerOptions(
         getTracker: profile.getTracker,
       })),
       ...payments.throttlers,
+      ...reports.throttlers.map((throttler) => ({
+        ...throttler,
+        getTracker: reports.getTracker,
+      })),
     ],
     getTracker: auth.getTracker,
   };
