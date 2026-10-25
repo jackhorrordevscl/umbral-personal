@@ -637,6 +637,47 @@ describe('ConsultationsPage', () => {
     expect(screen.queryByText(/cobro no generado/i)).not.toBeInTheDocument()
   })
 
+  // Issue #494: si Flow no confirmó si creó la orden, reintentar a ciegas puede
+  // dejar dos órdenes vivas; el terapeuta confirma que verificó en Flow.
+  describe('cobro con resultado incierto de la pasarela', () => {
+    const uncertain = {
+      lastError: 'Flow no confirmó si creó la orden de este cobro.',
+      orderOutcomeUncertain: true,
+    }
+
+    it('pide confirmación y no llama a la API hasta confirmar', async () => {
+      mockPayment(uncertain)
+      mockedApi.post.mockResolvedValue({ data: {} })
+      const user = userEvent.setup()
+
+      renderConsultationsPage()
+      await selectFirstPatient(user)
+      await user.click(await screen.findByRole('button', { name: /reintentar cobro/i }))
+
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
+      expect(mockedApi.post).not.toHaveBeenCalled()
+
+      await user.click(screen.getByRole('button', { name: /sí, verifiqué/i }))
+
+      expect(mockedApi.post).toHaveBeenCalledWith('/payments/group-1/retry-charge', {
+        confirmOrderNotCreated: true,
+      })
+    })
+
+    it('cancelar la confirmación no llama a la API', async () => {
+      mockPayment(uncertain)
+      const user = userEvent.setup()
+
+      renderConsultationsPage()
+      await selectFirstPatient(user)
+      await user.click(await screen.findByRole('button', { name: /reintentar cobro/i }))
+      await user.click(await screen.findByRole('button', { name: /cancelar/i }))
+
+      expect(mockedApi.post).not.toHaveBeenCalled()
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    })
+  })
+
   it('reintentar cobro que falla: muestra el mensaje de error', async () => {
     mockPayment({ lastError: 'x' })
     mockedApi.post.mockRejectedValue({

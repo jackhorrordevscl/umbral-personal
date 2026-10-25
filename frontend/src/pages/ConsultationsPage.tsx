@@ -180,14 +180,24 @@ function RegeneratePaymentLinkButton({ groupId, amount }: { groupId: string; amo
 // sin paymentUrl no hay link que copiar/reenviar, así que se muestra el
 // motivo y se permite reintentar la creación de la orden. El éxito o el
 // nuevo rechazo se ve al refrescarse la lista (lastError actualizado).
-function RetryChargeButton({ groupId }: { groupId: string }) {
+//
+// Issue #494: si Flow no confirmó si creó la orden, reintentar a ciegas puede
+// dejar dos órdenes vivas bajo la misma sesión, así que se pide confirmar que
+// se verificó en el panel de Flow.
+function RetryChargeButton({ groupId, needsConfirmation }: { groupId: string; needsConfirmation: boolean }) {
   const retry = useRetryCharge();
+  const [confirming, setConfirming] = useState(false);
+
+  const handleConfirm = () => {
+    setConfirming(false);
+    retry.mutate({ groupId, confirmOrderNotCreated: true });
+  };
 
   return (
     <>
       <button
         type="button"
-        onClick={() => retry.mutate(groupId)}
+        onClick={() => (needsConfirmation ? setConfirming(true) : retry.mutate({ groupId }))}
         disabled={retry.isPending}
         title={retry.isError ? getApiErrorMessage(retry.error, 'No se pudo reintentar el cobro.') : 'Reintentar la creación del cobro'}
         className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors inline-flex items-center gap-1 disabled:opacity-50"
@@ -197,6 +207,15 @@ function RetryChargeButton({ groupId }: { groupId: string }) {
       </button>
       {retry.isError && (
         <ErrorBanner className="w-full" message={getApiErrorMessage(retry.error, 'No se pudo reintentar el cobro.')} />
+      )}
+      {confirming && (
+        <ConfirmDialog
+          title="Reintentar el cobro"
+          message="Flow no confirmó si llegó a crear la orden de este cobro. Revisa en tu panel de Flow que no exista una orden con el identificador de esta sesión; si existe y se emite otra, el paciente podría recibir dos links de pago. ¿Verificaste que no existe?"
+          confirmLabel="Sí, verifiqué"
+          onConfirm={handleConfirm}
+          onCancel={() => setConfirming(false)}
+        />
       )}
     </>
   );
@@ -758,7 +777,10 @@ export default function ConsultationsPage() {
                                   ? `Cobro no generado: ${c.payment.lastError}`
                                   : 'Cobro no generado'}
                               </span>
-                              <RetryChargeButton groupId={c.payment.groupId} />
+                              <RetryChargeButton
+                                groupId={c.payment.groupId}
+                                needsConfirmation={c.payment.orderOutcomeUncertain === true}
+                              />
                             </>
                           )}
                           {c.history.length > 0 && (

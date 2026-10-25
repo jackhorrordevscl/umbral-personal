@@ -64,7 +64,10 @@ export function useRegeneratePaymentLink() {
 export function useRetryCharge() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (groupId: string) => api.post(`/payments/${groupId}/retry-charge`),
+    mutationFn: ({ groupId, confirmOrderNotCreated }: { groupId: string; confirmOrderNotCreated?: boolean }) =>
+      confirmOrderNotCreated
+        ? api.post(`/payments/${groupId}/retry-charge`, { confirmOrderNotCreated: true })
+        : api.post(`/payments/${groupId}/retry-charge`),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['consultations'] });
     },
