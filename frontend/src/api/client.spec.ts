@@ -156,4 +156,60 @@ describe('api client', () => {
     expect(localStorage.getItem('user')).toBe('{"id":"u1"}')
     expect(window.location.href).toBe('/dashboard')
   })
+
+  describe('error body of a blob request', () => {
+    function failBlobWith(status: number, body: Blob) {
+      api.defaults.adapter = (config: InternalAxiosRequestConfig) =>
+        Promise.reject(
+          new AxiosError('failed', undefined, config, undefined, {
+            status,
+            statusText: '',
+            data: body,
+            headers: {},
+            config,
+          }),
+        )
+    }
+
+    it('parses a JSON error body so the message is readable', async () => {
+      const message = 'La ficha supera el máximo de 500 sesiones por exportación'
+      failBlobWith(
+        422,
+        new Blob([JSON.stringify({ statusCode: 422, message })], {
+          type: 'application/json; charset=utf-8',
+        }),
+      )
+
+      const error = await api
+        .get('/reports/patient/p1', { responseType: 'blob' })
+        .catch((e: AxiosError) => e)
+
+      expect((error as AxiosError).response?.data).toEqual({
+        statusCode: 422,
+        message,
+      })
+    })
+
+    it('leaves a non-JSON error body untouched', async () => {
+      const body = new Blob(['<html>bad gateway</html>'], { type: 'text/html' })
+      failBlobWith(502, body)
+
+      const error = await api
+        .get('/reports/patient/p1', { responseType: 'blob' })
+        .catch((e: AxiosError) => e)
+
+      expect((error as AxiosError).response?.data).toBe(body)
+    })
+
+    it('leaves a malformed JSON error body untouched', async () => {
+      const body = new Blob(['{"message":'], { type: 'application/json' })
+      failBlobWith(500, body)
+
+      const error = await api
+        .get('/reports/patient/p1', { responseType: 'blob' })
+        .catch((e: AxiosError) => e)
+
+      expect((error as AxiosError).response?.data).toBe(body)
+    })
+  })
 })

@@ -111,13 +111,32 @@ function warnIfUnclassifiedAuthPath(requestUrl: string) {
   }
 }
 
+// Con responseType 'blob' (descargas de PDF) el cuerpo de un error también
+// llega como Blob, así que `response.data.message` no existe y la UI caía al
+// mensaje genérico. Si el Blob es JSON se reemplaza por el objeto parseado;
+// si no lo es, o no se puede leer, se deja tal cual.
+async function parseJsonBlobErrorBody(error: unknown): Promise<void> {
+  const response = (error as { response?: { data?: unknown } } | null)
+    ?.response;
+  const data = response?.data;
+  if (!response || !(data instanceof Blob) || !data.type.includes('json')) {
+    return;
+  }
+  try {
+    response.data = JSON.parse(await data.text());
+  } catch {
+    // Cuerpo ilegible o JSON malformado: se conserva el Blob original.
+  }
+}
+
 // Si el token de sesión expiró (401 en una llamada normal), redirige al login.
 // Excepción: los 401 del flujo público de auth (ver PUBLIC_AUTH_PATHS).
 // Redirigir en esos casos recargaría la página, borraría el error de la UI (y
 // del Network tab) y dejaría al usuario sin saber qué pasó.
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    await parseJsonBlobErrorBody(error);
     const requestUrl = error.config?.url ?? '';
     const isPublicAuth = isPublicAuthRequest(requestUrl);
     if (error.response?.status === 401 && !isPublicAuth) {
