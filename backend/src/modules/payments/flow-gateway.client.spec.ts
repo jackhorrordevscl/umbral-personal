@@ -492,20 +492,23 @@ describe('FlowPaymentGatewayClient', () => {
     it('mapea status=2 (pagado, según la documentación pública) a PAID', async () => {
       mockFetchOnce(
         { ok: true, status: 200 },
-        { status: 2, flowOrder: 123456 },
+        { status: 2, flowOrder: 123456, amount: 30000 },
       );
 
       const result = await client.getOrderStatus(credentials, 'flow-token-abc');
 
-      expect(result).toEqual({ status: 'PAID', gatewayPaymentId: '123456' });
+      expect(result).toEqual({
+        status: 'PAID',
+        gatewayPaymentId: '123456',
+        amount: 30000,
+      });
     });
 
     // issue #284: el monto que reporta Flow (número o string numérico) se
-    // expone para que markPaid lo compare; uno no parseable se ignora.
+    // expone para que markPaid lo compare.
     it.each([
       [45000, 45000],
       ['45000', 45000],
-      ['no-numerico', undefined],
     ])('expone amount=%p como %p', async (raw, expected) => {
       mockFetchOnce(
         { ok: true, status: 200 },
@@ -515,6 +518,68 @@ describe('FlowPaymentGatewayClient', () => {
       const result = await client.getOrderStatus(credentials, 'flow-token-abc');
 
       expect(result.amount).toBe(expected);
+    });
+
+    // Issue #494: markPaid se salta la comparación de monto cuando el adaptador
+    // no lo informa, así que un PAID sin monto válido se marcaría pagado sin
+    // verificar. Para Flow es una anomalía: se rechaza y la reconciliación lo
+    // reintenta en el próximo barrido.
+    it.each([
+      ['ausente', undefined],
+      ['no numérico', 'no-numerico'],
+      ['vacío', ''],
+    ])(
+      'un PAID con amount %s es invalid_response y no se informa como pagado',
+      async (_label, raw) => {
+        mockFetchOnce(
+          { ok: true, status: 200 },
+          { status: 2, flowOrder: 1, amount: raw },
+        );
+
+        await expect(
+          client.getOrderStatus(credentials, 'flow-token-abc'),
+        ).rejects.toMatchObject({
+          kind: 'invalid_response',
+        } as Partial<PaymentGatewayError>);
+      },
+    );
+
+    it('un PAID con una moneda distinta de CLP es invalid_response', async () => {
+      mockFetchOnce(
+        { ok: true, status: 200 },
+        { status: 2, flowOrder: 1, amount: 30000, currency: 'USD' },
+      );
+
+      await expect(
+        client.getOrderStatus(credentials, 'flow-token-abc'),
+      ).rejects.toMatchObject({
+        kind: 'invalid_response',
+      } as Partial<PaymentGatewayError>);
+    });
+
+    it.each(['CLP', 'clp', undefined])(
+      'un PAID con moneda %p se informa con normalidad',
+      async (currency) => {
+        mockFetchOnce(
+          { ok: true, status: 200 },
+          { status: 2, flowOrder: 1, amount: 30000, currency },
+        );
+
+        const result = await client.getOrderStatus(
+          credentials,
+          'flow-token-abc',
+        );
+
+        expect(result.status).toBe('PAID');
+      },
+    );
+
+    it('un estado que no es PAID no exige monto', async () => {
+      mockFetchOnce({ ok: true, status: 200 }, { status: 1 });
+
+      const result = await client.getOrderStatus(credentials, 'flow-token-abc');
+
+      expect(result).toMatchObject({ status: 'PENDING', amount: undefined });
     });
 
     it('mapea status=1 (pendiente) a PENDING', async () => {

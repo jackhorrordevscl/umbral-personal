@@ -65,6 +65,10 @@ const FLOW_MINIMUM_AMOUNT_CLP = 350;
 // letting a stalled connection hold a request handler or the sweep.
 const REQUEST_TIMEOUT_MS = 10_000;
 
+// Currency every charge is created in (PaymentsService.DEFAULT_CURRENCY);
+// getOrderStatus rejects a paid order reported in any other.
+const FLOW_CURRENCY = 'CLP';
+
 // Statuses request() maps to a definitive 'credentials' or 'rejected' error.
 const DEFINITIVE_REJECTION_STATUSES = [400, 401, 403, 404];
 
@@ -90,6 +94,7 @@ interface FlowPaymentStatusResponse {
   status: number;
   flowOrder?: number;
   amount?: number | string;
+  currency?: string;
 }
 
 @Injectable()
@@ -186,19 +191,44 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
       params,
     );
 
+    const status = this.mapStatus(response.status);
+    const amount = this.parseAmount(response.amount);
+    // Issue #494: markPaid se salta la comparación de monto cuando el adaptador
+    // no lo informa, así que un PAID sin monto válido o en otra moneda se
+    // marcaría pagado sin verificar. Para Flow eso es una anomalía: se rechaza
+    // y la reconciliación lo reintenta en el próximo barrido.
+    if (status === 'PAID') {
+      if (amount === undefined) {
+        throw new PaymentGatewayError(
+          'invalid_response',
+          'Flow informó la orden como pagada sin un monto válido; no se marca como pagada.',
+        );
+      }
+      if (
+        response.currency !== undefined &&
+        String(response.currency).toUpperCase() !== FLOW_CURRENCY
+      ) {
+        throw new PaymentGatewayError(
+          'invalid_response',
+          `Flow informó la orden como pagada en una moneda distinta de ${FLOW_CURRENCY}; no se marca como pagada.`,
+        );
+      }
+    }
+
     return {
-      status: this.mapStatus(response.status),
+      status,
       gatewayPaymentId:
         response.flowOrder !== undefined
           ? String(response.flowOrder)
           : undefined,
-      amount: this.parseAmount(response.amount),
+      amount,
     };
   }
 
   // issue #284: Flow returns amount as a number or numeric string; anything
-  // unparseable is treated as "not reported" so markPaid skips the check
-  // instead of rejecting a legitimate payment.
+  // unparseable is treated as "not reported". Issue #494: getOrderStatus
+  // rejects a PAID order without a valid amount, so markPaid never sees one
+  // from Flow.
   private parseAmount(raw: number | string | undefined): number | undefined {
     if (raw === undefined || raw === null || raw === '') return undefined;
     const value = Number(raw);
