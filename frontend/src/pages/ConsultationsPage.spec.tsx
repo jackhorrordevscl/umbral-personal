@@ -645,6 +645,19 @@ describe('ConsultationsPage', () => {
       orderOutcomeUncertain: true,
     }
 
+    // El aviso completo es largo y desbordaba la tarjeta: la etiqueta muestra un
+    // resumen y el texto completo queda en el title y en el diálogo.
+    it('muestra una etiqueta corta y deja el aviso completo en el title', async () => {
+      mockPayment(uncertain)
+      const user = userEvent.setup()
+
+      renderConsultationsPage()
+      await selectFirstPatient(user)
+
+      const label = await screen.findByText('Cobro no generado: resultado incierto en Flow')
+      expect(label).toHaveAttribute('title', uncertain.lastError)
+    })
+
     it('pide confirmación y no llama a la API hasta confirmar', async () => {
       mockPayment(uncertain)
       mockedApi.post.mockResolvedValue({ data: {} })

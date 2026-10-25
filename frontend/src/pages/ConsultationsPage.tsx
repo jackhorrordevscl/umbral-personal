@@ -773,9 +773,11 @@ export default function ConsultationsPage() {
                                 className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 max-w-full truncate"
                                 title={c.payment.lastError ?? undefined}
                               >
-                                {c.payment.lastError
-                                  ? `Cobro no generado: ${c.payment.lastError}`
-                                  : 'Cobro no generado'}
+                                {c.payment.orderOutcomeUncertain
+                                  ? 'Cobro no generado: resultado incierto en Flow'
+                                  : c.payment.lastError
+                                    ? `Cobro no generado: ${c.payment.lastError}`
+                                    : 'Cobro no generado'}
                               </span>
                               <RetryChargeButton
                                 groupId={c.payment.groupId}
