@@ -82,8 +82,11 @@ export class PaymentReconciliationService {
     this.sweeping = true;
     try {
       const contextCache = new Map<string, Promise<GatewayContext | null>>();
-      await this.transitionLatePayments();
+      // Issue #494: reconciliar primero. Si el callback de Flow se perdió, un
+      // cargo ya pagado sigue PENDING con el plazo vencido; pasarlo a LATE
+      // antes le avisaría de un atraso al paciente que ya pagó.
       await this.reconcilePendingPayments(contextCache);
+      await this.transitionLatePayments();
     } finally {
       this.sweeping = false;
     }

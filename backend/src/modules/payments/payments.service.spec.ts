@@ -18,6 +18,7 @@ import { PaymentGatewayRegistry } from './payment-gateway.registry';
 import { PaymentAccountService } from './payment-account.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ORDER_OUTCOME_UNCERTAIN_ERROR } from './payments.constants';
 
 interface ConsultationRow {
   id: string;
@@ -1435,6 +1436,33 @@ describe('PaymentsService', () => {
       });
     });
 
+    // Issue #494: cambiar el monto reemite la orden; con un createOrder
+    // incierto pendiente eso crearía una segunda orden. El monto se guarda y la
+    // emisión espera la confirmación vía retryCharge.
+    it('con un createOrder incierto pendiente guarda el monto pero no emite otra orden', async () => {
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.payment.findUniqueOrThrow.mockResolvedValue(
+        buildPayment({
+          amount: 45000,
+          paymentUrl: null,
+          gatewayToken: null,
+          lastError: ORDER_OUTCOME_UNCERTAIN_ERROR,
+        }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      prisma.patient.findUnique.mockResolvedValue(buildConsultation().patient);
+
+      await service.updateAmount('group-1', 45000);
+
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { groupId: 'group-1', status: { in: ['PENDING', 'LATE'] } },
+        data: { amount: 45000 },
+      });
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+    });
+
     it('un cargo sin orden previa no llama a voidOrder', async () => {
       prisma.payment.updateMany.mockResolvedValue({ count: 1 });
       prisma.payment.findUniqueOrThrow.mockResolvedValue(
@@ -1557,6 +1585,56 @@ describe('PaymentsService', () => {
         BadRequestException,
       );
       expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+    });
+
+    // Issue #494: si createOrder terminó con resultado incierto, Flow pudo
+    // haber creado la orden sin que llegue su token. Reintentar a ciegas puede
+    // dejar una segunda orden viva bajo el mismo commerceOrder, así que el
+    // reintento exige que el terapeuta confirme que no existe.
+    describe('tras un createOrder con resultado incierto', () => {
+      it('deja lastError con el aviso de verificación manual', async () => {
+        arrangeRetry();
+        gatewayAdapter.createOrder.mockRejectedValue(
+          new PaymentGatewayError(
+            'indeterminate',
+            'Flow no respondió a tiempo',
+          ),
+        );
+
+        await service.retryCharge('group-1');
+
+        expect(prisma.payment.update).toHaveBeenCalledWith({
+          where: { id: 'payment-1' },
+          data: { lastError: ORDER_OUTCOME_UNCERTAIN_ERROR },
+        });
+      });
+
+      it('rechaza con 409 el reintento sin confirmación y no llama a la pasarela', async () => {
+        arrangeRetry({ lastError: ORDER_OUTCOME_UNCERTAIN_ERROR });
+
+        await expect(service.retryCharge('group-1')).rejects.toThrow(
+          ConflictException,
+        );
+        expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+      });
+
+      it('con la confirmación del terapeuta emite la orden', async () => {
+        arrangeRetry({ lastError: ORDER_OUTCOME_UNCERTAIN_ERROR });
+
+        await service.retryCharge('group-1', true);
+
+        expect(gatewayAdapter.createOrder).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('confirmar sin que haya un resultado incierto no cambia el reintento', async () => {
+      arrangeRetry({
+        lastError: 'El monto mínimo para cobrar con Flow es $350.',
+      });
+
+      await service.retryCharge('group-1', true);
+
+      expect(gatewayAdapter.createOrder).toHaveBeenCalledTimes(1);
     });
 
     it('si la pasarela vuelve a fallar, devuelve el cargo con lastError en vez de lanzar', async () => {

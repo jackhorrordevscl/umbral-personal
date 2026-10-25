@@ -174,6 +174,9 @@ export interface PaymentSummary {
   // Motivo del último rechazo de la pasarela (ej. monto bajo el mínimo);
   // null si el cobro no ha fallado.
   lastError: string | null;
+  // Issue #494: Flow no confirmó si creó la orden; reintentar exige que el
+  // terapeuta confirme que verificó en su panel de Flow.
+  orderOutcomeUncertain?: boolean;
   amount: number;
 }
 

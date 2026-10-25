@@ -12,6 +12,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { PaymentsService } from '../payments/payments.service';
+import { ORDER_OUTCOME_UNCERTAIN_ERROR } from '../payments/payments.constants';
 import { AvailabilityService } from '../availability/availability.service';
 import { AuditService } from '../audit/audit.service';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
@@ -611,6 +612,37 @@ describe('ConsultationsService', () => {
         'El monto mínimo para cobrar con Flow es $350.',
       );
     });
+
+    // Issue #494: la UI pide una confirmación extra antes de reintentar un cobro
+    // cuyo createOrder terminó con resultado incierto.
+    it.each([
+      [ORDER_OUTCOME_UNCERTAIN_ERROR, true],
+      ['El monto mínimo para cobrar con Flow es $350.', false],
+      [null, false],
+    ])(
+      'payment.orderOutcomeUncertain refleja el aviso de resultado incierto (%s)',
+      async (lastError, expected) => {
+        prisma.consultation.findMany.mockResolvedValue([buildConsultation()]);
+        const groupId = (buildConsultation() as { groupId: string }).groupId;
+        prisma.payment.findMany.mockResolvedValue([
+          {
+            groupId,
+            status: 'PENDING',
+            linkDelivery: 'FAILED',
+            paymentUrl: null,
+            amount: 100,
+            lastError,
+          },
+        ]);
+
+        const [result] = (await service.findByPatient(
+          'patient-1',
+          'therapist-1',
+        )) as { payment: { orderOutcomeUncertain: boolean } }[];
+
+        expect(result.payment.orderOutcomeUncertain).toBe(expected);
+      },
+    );
 
     it('agrega el estado del ReminderDispatch EMAIL más reciente cuando existe (issue #163)', async () => {
       prisma.consultation.findMany.mockResolvedValue([buildConsultation()]);

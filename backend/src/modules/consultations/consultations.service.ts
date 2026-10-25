@@ -18,6 +18,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { CalendarSyncService } from '../calendar-integration/calendar-sync.service';
 import { PaymentsService } from '../payments/payments.service';
+import { ORDER_OUTCOME_UNCERTAIN_ERROR } from '../payments/payments.constants';
 import { AvailabilityService } from '../availability/availability.service';
 import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
 import {
@@ -389,6 +390,7 @@ export class ConsultationsService {
         paymentUrl: string | null;
         amount: number;
         lastError: string | null;
+        orderOutcomeUncertain: boolean;
       }
     >();
     if (groupIds.length === 0) return map;
@@ -412,6 +414,10 @@ export class ConsultationsService {
         paymentUrl: payment.paymentUrl,
         amount: payment.amount,
         lastError: payment.lastError,
+        // Issue #494: la UI pide confirmación antes de reintentar un cobro
+        // cuyo createOrder terminó con resultado incierto.
+        orderOutcomeUncertain:
+          payment.lastError === ORDER_OUTCOME_UNCERTAIN_ERROR,
       });
     }
     return map;

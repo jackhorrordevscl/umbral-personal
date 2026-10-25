@@ -136,6 +136,62 @@ describe('PaymentReconciliationService', () => {
       });
     });
 
+    // Issue #494: si el callback de Flow se perdió, un cargo pagado seguía
+    // PENDING con el plazo vencido. Pasarlo a LATE antes de reconciliar le
+    // enviaba al paciente un aviso de atraso por algo que ya había pagado.
+    it('reconcilia antes de pasar a LATE: un cargo vencido que Flow ya reporta pagado no avisa de atraso', async () => {
+      const paidAtGateway = buildPayment({
+        id: 'payment-paid-at-flow',
+        status: 'PENDING',
+        gatewayToken: 'tok-paid',
+        orderIssuedAt: new Date('2026-09-01T10:00:00.000Z'),
+      });
+      pass2Candidates = [paidAtGateway];
+      // La fila deja de ser candidata a LATE en cuanto markPaid la pasó a PAID.
+      prisma.payment.findMany.mockImplementation(
+        (args: { where: Record<string, unknown> }) =>
+          Promise.resolve(
+            'gatewayToken' in args.where
+              ? pass2Candidates
+              : paymentsService.markPaid.mock.calls.length > 0
+                ? []
+                : [paidAtGateway],
+          ),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.getOrderStatus.mockResolvedValue({
+        status: 'PAID',
+        gatewayPaymentId: 'flow-1',
+        amount: 30000,
+      });
+      prisma.payment.updateMany.mockImplementation(
+        (args: { where: { status?: string } }) =>
+          Promise.resolve({ count: args.where.status === 'PENDING' ? 1 : 0 }),
+      );
+      prisma.patient.findUnique.mockResolvedValue({
+        email: 'paciente@example.com',
+        fullName: 'Juan Soto',
+        birthDate: new Date('1990-01-01'),
+        guardians: [],
+      });
+
+      await service.sweep();
+
+      expect(paymentsService.markPaid).toHaveBeenCalledWith(
+        'payment-paid-at-flow',
+        'flow-1',
+        30000,
+      );
+      expect(prisma.payment.updateMany).not.toHaveBeenCalledWith({
+        where: { id: 'payment-paid-at-flow', status: 'PENDING' },
+        data: { status: 'LATE', lateNotifiedAt: expect.any(Date) as unknown },
+      });
+      expect(mailService.sendLatePaymentEmail).not.toHaveBeenCalled();
+      expect(notificationsService.create).not.toHaveBeenCalled();
+    });
+
     // T8.4 + spec.md "One-Shot Late-Payment Notification": la transición
     // ganadora (count-gated updateMany, count===1) dispara exactamente un
     // email y una notificación PAYMENT_LATE.
