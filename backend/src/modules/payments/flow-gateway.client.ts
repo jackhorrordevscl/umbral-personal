@@ -68,6 +68,18 @@ const REQUEST_TIMEOUT_MS = 10_000;
 // Statuses request() maps to a definitive 'credentials' or 'rejected' error.
 const DEFINITIVE_REJECTION_STATUSES = [400, 401, 403, 404];
 
+// Network error codes that can only happen before the request leaves this
+// process (DNS lookup, refused or unreachable connection), so Flow never saw
+// the call and repeating it is safe.
+const PRE_SEND_NETWORK_ERROR_CODES = [
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'UND_ERR_CONNECT_TIMEOUT',
+];
+
 interface FlowPaymentCreateResponse {
   flowOrder: number;
   url: string;
@@ -279,9 +291,9 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     }
   }
 
-  // A POST that timed out after being sent has an unknown outcome: Flow may
-  // have created or voided the order. GETs are read-only, so a timeout there
-  // stays an ordinary retryable transient failure.
+  // A POST that timed out or lost its connection after being sent has an
+  // unknown outcome: Flow may have created or voided the order. GETs are
+  // read-only, so a failure there stays an ordinary retryable transient one.
   private requestFailure(
     method: 'GET' | 'POST',
     path: string,
@@ -294,9 +306,18 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
       message?: string;
     };
     const detail = message ?? String(err);
+    // Issue #494: un corte de red tras enviar el POST (p. ej. ECONNRESET) deja
+    // el mismo resultado incierto que un timeout. Solo los errores que ocurren
+    // antes de que la solicitud salga (DNS, conexión rechazada) son seguros de
+    // reintentar; cualquier otro código en un POST se trata como incierto.
+    const code = (err as { cause?: { code?: unknown } } | null)?.cause?.code;
+    const neverSent =
+      typeof code === 'string' && PRE_SEND_NETWORK_ERROR_CODES.includes(code);
     if (
       method === 'POST' &&
-      (name === 'TimeoutError' || name === 'AbortError')
+      (name === 'TimeoutError' ||
+        name === 'AbortError' ||
+        (typeof code === 'string' && !neverSent))
     ) {
       return new PaymentGatewayError(
         'indeterminate',

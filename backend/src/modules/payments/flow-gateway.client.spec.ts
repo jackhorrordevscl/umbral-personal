@@ -238,6 +238,50 @@ describe('FlowPaymentGatewayClient', () => {
       } as Partial<PaymentGatewayError>);
     });
 
+    // Issue #494: un corte de red tras enviar el POST (reset, socket cerrado)
+    // deja el mismo resultado incierto que un timeout.
+    it.each(['ECONNRESET', 'UND_ERR_SOCKET', 'EPIPE'])(
+      'un %s en un POST (createOrder) es indeterminate: la conexión se cortó después de enviar',
+      async (code) => {
+        (globalThis.fetch as jest.Mock).mockRejectedValueOnce(
+          new TypeError('fetch failed', { cause: { code } }),
+        );
+
+        await expect(
+          client.createOrder(credentials, orderInput),
+        ).rejects.toMatchObject({
+          kind: 'indeterminate',
+        } as Partial<PaymentGatewayError>);
+      },
+    );
+
+    it.each(['ENOTFOUND', 'ECONNREFUSED', 'EAI_AGAIN'])(
+      'un %s en un POST sigue siendo transient: la solicitud nunca llegó a Flow',
+      async (code) => {
+        (globalThis.fetch as jest.Mock).mockRejectedValueOnce(
+          new TypeError('fetch failed', { cause: { code } }),
+        );
+
+        await expect(
+          client.createOrder(credentials, orderInput),
+        ).rejects.toMatchObject({
+          kind: 'transient',
+        } as Partial<PaymentGatewayError>);
+      },
+    );
+
+    it('un ECONNRESET en un GET sigue siendo transient: es de solo lectura', async () => {
+      (globalThis.fetch as jest.Mock).mockRejectedValueOnce(
+        new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } }),
+      );
+
+      await expect(
+        client.getOrderStatus(credentials, 'tok'),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<PaymentGatewayError>);
+    });
+
     it('un timeout al leer el cuerpo de un POST exitoso es indeterminate: la orden pudo crearse sin que llegue su token', async () => {
       (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
