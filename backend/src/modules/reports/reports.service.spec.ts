@@ -1,7 +1,10 @@
 import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
-import { NotFoundException } from '@nestjs/common';
+import {
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import PDFDocument from 'pdfkit';
-import { ReportsService } from './reports.service';
+import { MAX_REPORT_CONSULTATIONS, ReportsService } from './reports.service';
 import * as clinicalNotePdf from './clinical-note-pdf.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
@@ -218,6 +221,61 @@ describe('ReportsService', () => {
     // El tope es "ahora": las reservas futuras quedan fuera de la ficha.
     expect(where.sessionDate.lte.getTime()).toBeGreaterThanOrEqual(before);
     expect(where.sessionDate.lte.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  // Issue #504: la ficha es todo o nada; pasado el tope se rechaza el export en
+  // vez de recortar sesiones. La lectura pide una fila de más para detectarlo
+  // sin traer el historial completo.
+  describe('tope de sesiones', () => {
+    const withSessions = (count: number) => {
+      const patient = buildPatientWithConsultations();
+      patient.consultations = Array.from({ length: count }, (_, i) => ({
+        ...patient.consultations[0],
+        sessionDate: new Date(2026, 0, 1 + (i % 28)),
+      }));
+      return patient;
+    };
+
+    it('rechaza con 422 y no genera PDF si la ficha supera el tope', async () => {
+      prisma.patient.findFirst.mockResolvedValue(
+        withSessions(MAX_REPORT_CONSULTATIONS + 1),
+      );
+
+      const result = service.generatePatientReport('patient-1', 'therapist-1');
+
+      await expect(result).rejects.toBeInstanceOf(UnprocessableEntityException);
+      await expect(result).rejects.toThrow(
+        `La ficha supera el máximo de ${MAX_REPORT_CONSULTATIONS} sesiones por exportación`,
+      );
+    });
+
+    it('exporta una ficha con exactamente el tope de sesiones', async () => {
+      prisma.patient.findFirst.mockResolvedValue(
+        withSessions(MAX_REPORT_CONSULTATIONS),
+      );
+
+      const buffer = await service.generatePatientReport(
+        'patient-1',
+        'therapist-1',
+      );
+
+      expect(buffer.length).toBeGreaterThan(0);
+    });
+
+    it('lee a lo más una sesión por encima del tope', async () => {
+      prisma.patient.findFirst.mockResolvedValue(
+        buildPatientWithConsultations(),
+      );
+
+      await service.generatePatientReport('patient-1', 'therapist-1');
+
+      const args = prisma.patient.findFirst.mock.calls[0] as [
+        { include: { consultations: { take: number } } },
+      ];
+      expect(args[0].include.consultations.take).toBe(
+        MAX_REPORT_CONSULTATIONS + 1,
+      );
+    });
   });
 
   it('funciona también sin consultas registradas', async () => {
