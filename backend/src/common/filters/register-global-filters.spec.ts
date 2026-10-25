@@ -1,9 +1,11 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   INestApplication,
   Logger,
+  Post,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { Server } from 'http';
@@ -49,6 +51,11 @@ class ProbeController {
   @Get('crash')
   crash() {
     throw new Error('fallo interno');
+  }
+
+  @Post('echo')
+  echo(@Body() body: unknown) {
+    return body;
   }
 }
 
@@ -123,5 +130,33 @@ describe('registerGlobalFilters', () => {
 
     expect(res.status).toBe(500);
     expect(res.body).toMatchObject({ message: 'Internal server error' });
+  });
+
+  // body-parser rechaza con errores de http-errors (no HttpException): sin un
+  // tratamiento propio salían como 500 y se enviaban a Sentry.
+  it('responde 413 cuando el body supera el límite del parser', async () => {
+    const res = await request(app.getHttpServer() as Server)
+      .post('/probe/echo')
+      .send({ texto: 'x'.repeat(200 * 1024) });
+
+    expect(res.status).toBe(413);
+  });
+
+  it('responde 400 ante un JSON malformado', async () => {
+    const res = await request(app.getHttpServer() as Server)
+      .post('/probe/echo')
+      .set('Content-Type', 'application/json')
+      .send('{"texto":');
+
+    expect(res.status).toBe(400);
+  });
+
+  it('responde 415 ante un charset no soportado', async () => {
+    const res = await request(app.getHttpServer() as Server)
+      .post('/probe/echo')
+      .set('Content-Type', 'application/json; charset=foo')
+      .send('{"a":1}');
+
+    expect(res.status).toBe(415);
   });
 });
