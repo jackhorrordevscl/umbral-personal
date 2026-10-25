@@ -1196,7 +1196,7 @@ describe('Treatment discharges (e2e)', () => {
 
         expect(res.headers['content-type']).toContain('application/pdf');
         expect(res.headers['content-disposition']).toMatch(
-          /^attachment; filename="informe-alta-v1-\d{4}-\d{2}-\d{2}\.pdf"$/,
+          /^attachment; filename="informe-alta-v1-\d{4}-\d{2}-\d{2}\.pdf"; filename\*=UTF-8''informe-alta-v1-\d{4}-\d{2}-\d{2}\.pdf$/,
         );
         expect(Number(res.headers['content-length'])).toBe(bytes.length);
         expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');

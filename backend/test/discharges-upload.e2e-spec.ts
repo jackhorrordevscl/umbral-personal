@@ -345,7 +345,7 @@ describe('Treatment discharges: PDF propio (e2e)', () => {
       expect((res.body as Buffer).equals(bytes)).toBe(true);
       expect(res.headers['content-type']).toContain('application/pdf');
       expect(res.headers['content-disposition']).toBe(
-        `attachment; filename="${encodeURIComponent('mi epicrisis.pdf')}"`,
+        `attachment; filename="mi epicrisis.pdf"; filename*=UTF-8''mi%20epicrisis.pdf`,
       );
     });
 

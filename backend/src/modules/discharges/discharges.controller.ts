@@ -28,6 +28,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { SkipAudit } from '../../common/decorators/skip-audit.decorator';
 import { AuditRead } from '../../common/decorators/audit-read.decorator';
+import { contentDispositionAttachment } from '../../common/utils/attachment-file-name.util';
 import { getRequestClientIp } from '../../common/utils/client-ip.util';
 
 // Subida del PDF propio (T3b): en memoria (sin diskStorage), solo application/pdf
@@ -187,7 +188,7 @@ export class DischargesController {
     req.auditPatientId = patientId;
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+      'Content-Disposition': contentDispositionAttachment(fileName),
       'Content-Length': buffer.length,
     });
     res.end(buffer);

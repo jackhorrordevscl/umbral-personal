@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import PDFDocument from 'pdfkit';
@@ -16,6 +21,10 @@ const formatChileDate = (date: Date): string =>
   date.toLocaleDateString('es-CL', { timeZone: CHILE_TIMEZONE });
 const formatCalendarDate = (date: Date): string =>
   date.toLocaleDateString('es-CL', { timeZone: 'UTC' });
+
+// Tope de sesiones por exportación de ficha (~10 años de sesiones semanales).
+// Pasado el tope se rechaza el export: la ficha es todo o nada, nunca recortada.
+export const MAX_REPORT_CONSULTATIONS = 500;
 
 @Injectable()
 export class ReportsService {
@@ -55,6 +64,8 @@ export class ReportsService {
             sessionDate: { lte: new Date() },
           },
           orderBy: { sessionDate: 'asc' },
+          // Una fila de más basta para detectar que se pasó del tope.
+          take: MAX_REPORT_CONSULTATIONS + 1,
         },
         therapist: {
           select: { name: true },
@@ -64,6 +75,12 @@ export class ReportsService {
 
     if (!patient) {
       throw new NotFoundException('Paciente no encontrado');
+    }
+
+    if (patient.consultations.length > MAX_REPORT_CONSULTATIONS) {
+      throw new UnprocessableEntityException(
+        `La ficha supera el máximo de ${MAX_REPORT_CONSULTATIONS} sesiones por exportación`,
+      );
     }
 
     // T6.1 (issue #27): consentSigned/telemedConsentSigned ya no existen como
