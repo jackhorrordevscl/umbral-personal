@@ -27,6 +27,7 @@ import {
 import { ValidateCredentialsDto } from './dto/validate-credentials.dto';
 import { ConnectAccountDto } from './dto/connect-account.dto';
 import { UpdatePaymentAmountDto } from './dto/update-payment-amount.dto';
+import { RetryChargeDto } from './dto/retry-charge.dto';
 import { ConfirmPaymentDto } from './dto/confirm-payment.dto';
 import { ConfirmValidationLoggingInterceptor } from './confirm-validation-logging.interceptor';
 import type { GatewayOrderStatus } from './payment-gateway.client';
@@ -161,9 +162,13 @@ export class PaymentsController {
   async retryCharge(
     @Param('groupId') groupId: string,
     @CurrentUser() user: RequestUser,
+    @Body() dto?: RetryChargeDto,
   ) {
     await this.paymentsService.assertOwnership(groupId, user.id);
-    return this.paymentsService.retryCharge(groupId);
+    return this.paymentsService.retryCharge(
+      groupId,
+      dto?.confirmOrderNotCreated === true,
+    );
   }
 
   // T5.6/T7.9/T7.10 + design.md "Webhook — after": no JwtAuthGuard on

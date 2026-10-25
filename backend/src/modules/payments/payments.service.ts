@@ -22,6 +22,7 @@ import {
 import { isMinor } from '../../common/utils/age.util';
 import {
   CANCELLABLE_STATUSES,
+  ORDER_OUTCOME_UNCERTAIN_ERROR,
   PAYMENT_DUE_GRACE_MS,
   PAYMENT_CONFIRM_PATH,
   PAYMENT_RETURN_PATH,
@@ -460,7 +461,9 @@ export class PaymentsService {
     const context = await this.paymentAccountService.resolveGatewayContext(
       payment.therapistId,
     );
-    if (context) {
+    // Issue #494: con un createOrder incierto pendiente el monto queda guardado,
+    // pero la emisión espera la confirmación vía retryCharge.
+    if (context && payment.lastError !== ORDER_OUTCOME_UNCERTAIN_ERROR) {
       const patient = await this.prisma.patient.findUnique({
         where: { id: payment.patientId },
         select: PATIENT_RECIPIENT_SELECT,
@@ -508,7 +511,14 @@ export class PaymentsService {
   // nothing to copy/resend. This re-runs issueOrder + deliverPaymentLink with
   // the stored amount. A failed attempt still resolves with the fresh row
   // (lastError updated) instead of throwing.
-  async retryCharge(groupId: string): Promise<Payment> {
+  //
+  // Issue #494: si el intento anterior terminó con resultado incierto, el
+  // reintento exige `confirmOrderNotCreated`: el terapeuta verificó en Flow que
+  // no existe una orden con el identificador de la sesión.
+  async retryCharge(
+    groupId: string,
+    confirmOrderNotCreated = false,
+  ): Promise<Payment> {
     const payment = await this.prisma.payment.findUniqueOrThrow({
       where: { groupId },
     });
@@ -519,6 +529,12 @@ export class PaymentsService {
     }
     if (payment.paymentUrl) {
       throw new BadRequestException('El cobro ya tiene un link de pago.');
+    }
+    if (
+      payment.lastError === ORDER_OUTCOME_UNCERTAIN_ERROR &&
+      !confirmOrderNotCreated
+    ) {
+      throw new ConflictException(ORDER_OUTCOME_UNCERTAIN_ERROR);
     }
 
     const context = await this.paymentAccountService.resolveGatewayContext(
@@ -1197,8 +1213,19 @@ export class PaymentsService {
       this.logger.error(
         `Fallo al crear la orden de pago (paymentId=${paymentId}, groupId=${groupId}): ${message}`,
       );
+      // Issue #494: con un resultado incierto Flow pudo haber creado la orden
+      // sin que llegue su token. Se guarda el aviso de verificación manual en
+      // vez del mensaje técnico; retryCharge y updateAmount no reemiten hasta
+      // que el terapeuta confirme que no existe.
+      const uncertain =
+        err instanceof PaymentGatewayError && err.kind === 'indeterminate';
       await this.prisma.payment
-        .update({ where: { id: paymentId }, data: { lastError: message } })
+        .update({
+          where: { id: paymentId },
+          data: {
+            lastError: uncertain ? ORDER_OUTCOME_UNCERTAIN_ERROR : message,
+          },
+        })
         .catch(() => undefined);
       return null;
     }

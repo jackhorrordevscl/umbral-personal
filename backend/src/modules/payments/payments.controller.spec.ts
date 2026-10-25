@@ -381,7 +381,22 @@ describe('PaymentsController', () => {
         'group-1',
         'therapist-1',
       );
-      expect(paymentsService.retryCharge).toHaveBeenCalledWith('group-1');
+      expect(paymentsService.retryCharge).toHaveBeenCalledWith(
+        'group-1',
+        false,
+      );
+    });
+
+    it('pasa la confirmación del terapeuta cuando el cuerpo la trae', async () => {
+      paymentsService.assertOwnership.mockResolvedValue({ id: 'payment-1' });
+
+      await controller.retryCharge(
+        'group-1',
+        { id: 'therapist-1', email: '', role: '', name: '' },
+        { confirmOrderNotCreated: true },
+      );
+
+      expect(paymentsService.retryCharge).toHaveBeenCalledWith('group-1', true);
     });
 
     it('propaga el 404 de assertOwnership sin llamar a retryCharge (tenancy)', async () => {

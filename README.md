@@ -856,7 +856,11 @@ umbral-personal/
 - Reintento de cobro: si al crear la consulta no se pudo generar el cargo en
   Flow (por ejemplo, por un fallo transitorio), `POST
   /payments/:groupId/retry-charge` vuelve a intentar crear la orden para un
-  cargo que todavía no tiene link de pago (issue #271)
+  cargo que todavía no tiene link de pago (issue #271). Si Flow no confirmó
+  si creó la orden (timeout o corte de red tras enviar), el cobro queda con un
+  aviso de verificación manual y el reintento responde 409 hasta que el
+  terapeuta confirme con `{ "confirmOrderNotCreated": true }` que no existe
+  una orden con el identificador de la sesión en su panel de Flow (issue #494)
 - Wizard de 5 pasos conecta la cuenta Flow del terapeuta (pegar
   apiKey/secretKey, validar contra Flow antes de persistir, confirmación);
   reemplaza el flujo `onboard()`/`createMerchant` retirado
@@ -1139,7 +1143,7 @@ POST   /api/v1/payments/account                   🔒 (confirmación, persiste 
 DELETE /api/v1/payments/account                   🔒
 PATCH  /api/v1/payments/:groupId                  🔒 (corrige el monto de un cargo; 409 si la pasarela ya lo registra pagado)
 POST   /api/v1/payments/:groupId/resend-link       🔒
-POST   /api/v1/payments/:groupId/retry-charge      🔒 (reintenta crear el cargo cuando aún no tiene link de pago, issue #271)
+POST   /api/v1/payments/:groupId/retry-charge      🔒 (reintenta crear el cargo cuando aún no tiene link de pago, issue #271; 409 si el intento anterior quedó incierto y falta `confirmOrderNotCreated`)
 POST   /api/v1/payments/confirm                       (webhook de Flow, sin auth, firma verificada)
 GET    /api/v1/payments/return                        (redirect del paciente tras el checkout, sin auth)
 POST   /api/v1/payments/return                        (mismo caso, safety net de método HTTP)

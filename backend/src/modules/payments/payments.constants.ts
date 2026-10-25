@@ -71,3 +71,10 @@ export const CANCELLABLE_STATUSES = ['PENDING', 'LATE'] as const;
 // 2147483647); sin tope, un valor mayor rompía la escritura con un 500. 100
 // millones de CLP queda muy por encima de cualquier sesión real.
 export const MAX_AMOUNT_CLP = 100_000_000;
+
+// Issue #494: aviso que queda en Payment.lastError cuando createOrder terminó
+// sin que se sepa si Flow creó la orden (timeout o corte tras enviar). Sin
+// columna nueva, su texto exacto marca el estado: retryCharge y updateAmount
+// lo comparan para no emitir una segunda orden bajo el mismo commerceOrder.
+export const ORDER_OUTCOME_UNCERTAIN_ERROR =
+  'Flow no confirmó si creó la orden de este cobro. Antes de reintentar, revisa en tu panel de Flow que no exista una orden con el identificador de esta sesión.';
