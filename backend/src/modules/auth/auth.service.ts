@@ -28,6 +28,7 @@ import {
 } from '../../common/utils/slug.util';
 import { getDummyPasswordHash } from './dummy-password-hash.util';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
+import { hashInvitationCode } from './invitation-code.util';
 
 // Idem para el cambio de contraseña forzado (T4.4 / issue #22): el admin
 // semilla (y cualquier cuenta creada con mustChangePassword=true) no puede
@@ -102,7 +103,7 @@ export class AuthService {
     // mismo status y mensaje. Así, sin una invitación válida no hay forma de
     // enumerar qué emails tienen cuenta.
     const invitation = await this.prisma.invitationCode.findUnique({
-      where: { code: dto.inviteCode },
+      where: { codeHash: hashInvitationCode(dto.inviteCode) },
     });
     if (
       !invitation ||
@@ -770,7 +771,7 @@ export class AuthService {
 
     const invitation = await this.prisma.invitationCode.create({
       data: {
-        code,
+        codeHash: hashInvitationCode(code),
         createdById: user.id,
         expiresAt,
       },
@@ -783,6 +784,7 @@ export class AuthService {
       resourceId: invitation.id,
     });
 
-    return { code: invitation.code, expiresAt: invitation.expiresAt };
+    // Única vez que el código existe en claro: en la base solo queda su hash.
+    return { code, expiresAt: invitation.expiresAt };
   }
 }

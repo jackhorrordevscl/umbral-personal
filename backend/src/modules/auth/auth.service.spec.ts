@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { Prisma, Role, User } from '@prisma/client';
 import { AuthService } from './auth.service';
+import { hashInvitationCode } from './invitation-code.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { AuditService } from '../audit/audit.service';
@@ -125,7 +126,7 @@ describe('AuthService', () => {
   describe('signup', () => {
     const validInvitation = {
       id: 'invitation-1',
-      code: 'valid-code',
+      codeHash: hashInvitationCode('valid-code'),
       createdById: 'creator-1',
       usedById: null,
       expiresAt: new Date(Date.now() + 60_000),
@@ -229,6 +230,23 @@ describe('AuthService', () => {
         'Código de invitación inválido o expirado',
       );
       expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('busca la invitación por el hash del código, nunca por el código en claro (issue #487)', async () => {
+      prisma.invitationCode.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.signup({
+          email: 'user@example.com',
+          password: 'password1',
+          name: 'Test User',
+          inviteCode: 'valid-code',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(prisma.invitationCode.findUnique).toHaveBeenCalledWith({
+        where: { codeHash: hashInvitationCode('valid-code') },
+      });
     });
 
     it('guarda el email en forma canónica al crear la cuenta (issue #303)', async () => {
@@ -487,12 +505,12 @@ describe('AuthService', () => {
       );
       prisma.invitationCode.create.mockResolvedValue({
         id: 'invitation-1',
-        code: 'abc123',
+        codeHash: 'hash',
         expiresAt: new Date('2026-09-16T00:00:00.000Z'),
       });
 
       await expect(service.createInvitation(requestUser)).resolves.toEqual(
-        expect.objectContaining({ code: 'abc123' }),
+        expect.objectContaining({ code: expect.any(String) as unknown }),
       );
     });
 
@@ -502,15 +520,18 @@ describe('AuthService', () => {
       );
       prisma.invitationCode.create.mockResolvedValue({
         id: 'invitation-1',
-        code: 'abc123',
+        codeHash: 'hash',
         expiresAt: new Date('2026-09-16T00:00:00.000Z'),
       });
 
       const result = await service.createInvitation(requestUser);
 
+      // Issue #487: en la base solo queda el hash; el código en claro se
+      // devuelve una única vez.
+      expect(result.code).toMatch(/^[0-9a-f]{12}$/);
       expect(prisma.invitationCode.create).toHaveBeenCalledWith({
         data: {
-          code: expect.any(String) as unknown as string,
+          codeHash: hashInvitationCode(result.code),
           createdById: 'creator-1',
           expiresAt: expect.any(Date) as unknown as Date,
         },
@@ -522,7 +543,7 @@ describe('AuthService', () => {
         resourceId: 'invitation-1',
       });
       expect(result).toEqual({
-        code: 'abc123',
+        code: result.code,
         expiresAt: new Date('2026-09-16T00:00:00.000Z'),
       });
     });

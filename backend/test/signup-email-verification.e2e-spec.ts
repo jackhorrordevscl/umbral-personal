@@ -8,6 +8,7 @@ import * as argon2 from 'argon2';
 import * as crypto from 'crypto';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { hashInvitationCode } from '../src/modules/auth/invitation-code.util';
 
 /**
  * Issue #5: signup propio con verificación de email. Único componente
@@ -94,7 +95,7 @@ describe('Signup + verificación de email (e2e)', () => {
     const code = crypto.randomBytes(6).toString('hex');
     await prisma.invitationCode.create({
       data: {
-        code,
+        codeHash: hashInvitationCode(code),
         createdById: inviterId,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
