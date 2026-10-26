@@ -48,6 +48,18 @@ export class DischargeDeliveriesService {
         'Solo se puede registrar la entrega de un informe emitido.',
       );
     }
+    // Una versión reemplazada ya no es lo que hay que entregar, y la entrega no
+    // guarda versión ni hash: registrarla dejaría una constancia ambigua.
+    if (discharge.correctedBy) {
+      throw new ConflictException(
+        'Este informe fue reemplazado por una versión más reciente: entrega la versión vigente.',
+      );
+    }
+    if (discharge.document?.voidedAt) {
+      throw new ConflictException(
+        'El PDF de este informe fue anulado: no se puede registrar su entrega.',
+      );
+    }
 
     const recipient = await this.resolveRecipient(dto, discharge);
 
@@ -104,6 +116,8 @@ export class DischargeDeliveriesService {
         id: true,
         patientId: true,
         status: true,
+        correctedBy: { select: { id: true } },
+        document: { select: { voidedAt: true } },
         patient: { select: { fullName: true, birthDate: true } },
       },
     });
