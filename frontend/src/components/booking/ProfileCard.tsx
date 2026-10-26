@@ -18,17 +18,17 @@ export default function ProfileCard({ profile, avatarUrl }: ProfileCardProps) {
   const website = safeWebsite(profile.website);
 
   return (
-    <div className="card p-5 lg:p-6 flex flex-1 gap-4 lg:flex-col lg:items-stretch lg:gap-6">
+    <div className="card p-5 lg:p-6 short:lg:p-4 flex flex-1 gap-4 lg:flex-col lg:items-stretch lg:gap-6 short:lg:gap-3">
       {profile.hasAvatar ? (
         <img
           src={avatarUrl}
           alt={profile.name}
           width={288}
           height={288}
-          className="h-auto min-h-28 w-28 self-stretch lg:min-h-0 lg:w-full lg:self-auto lg:aspect-square rounded-xl object-cover shrink-0"
+          className="h-auto min-h-28 w-28 self-stretch lg:min-h-0 lg:w-full lg:self-auto lg:aspect-square short:lg:w-24 short:lg:self-start rounded-xl object-cover shrink-0"
         />
       ) : (
-        <div className="h-auto min-h-28 w-28 self-stretch lg:min-h-0 lg:w-full lg:self-auto lg:aspect-square rounded-xl bg-sage-100 text-sage-700 font-display text-2xl lg:text-7xl flex items-center justify-center shrink-0">
+        <div className="h-auto min-h-28 w-28 self-stretch lg:min-h-0 lg:w-full lg:self-auto lg:aspect-square short:lg:w-24 short:lg:self-start rounded-xl bg-sage-100 text-sage-700 font-display text-2xl lg:text-7xl short:lg:text-4xl flex items-center justify-center shrink-0">
           {initials(profile.name)}
         </div>
       )}

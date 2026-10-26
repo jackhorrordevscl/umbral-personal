@@ -56,6 +56,15 @@ describe('ProfileCard', () => {
     expect(bio).toHaveClass('whitespace-pre-line');
   });
 
+  it('compacta el avatar desde lg en alturas bajas, con o sin foto (#533)', () => {
+    const { unmount } = renderCard();
+    expect(screen.getByText('AP')).toHaveClass('short:lg:w-24', 'short:lg:text-4xl');
+    unmount();
+
+    renderCard({ hasAvatar: true });
+    expect(screen.getByRole('img', { name: 'Ana Pérez' })).toHaveClass('short:lg:w-24');
+  });
+
   it('no ofrece un boton para ver mas', () => {
     renderCard({ bio: 'Bio larga '.repeat(60) });
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
