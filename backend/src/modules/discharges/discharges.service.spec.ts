@@ -1045,6 +1045,34 @@ describe('DischargesService', () => {
       );
     });
 
+    it('toma los locks User y luego Patient antes de comprobar la corrección y crear', async () => {
+      prisma.treatmentDischarge.findFirst
+        .mockResolvedValueOnce(buildRow({ status: 'ISSUED', id: 'dis-2' }))
+        .mockResolvedValueOnce(null);
+      prisma.treatmentDischarge.create.mockImplementation(
+        ({ data }: { data: unknown }) => Promise.resolve(data),
+      );
+
+      await service.correct('dis-2', 'therapist-1');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      const sqls = (prisma.$queryRaw.mock.calls as unknown[][]).map((c) =>
+        (c[0] as string[]).join('?'),
+      );
+      expect(sqls).toHaveLength(2);
+      expect(sqls[0]).toContain('"User"');
+      expect(sqls[0]).toContain('FOR UPDATE');
+      expect(sqls[1]).toContain('"Patient"');
+      expect(sqls[1]).toContain('FOR UPDATE');
+      const [, patientLock] = prisma.$queryRaw.mock.invocationCallOrder;
+      const [, alreadyCorrectedCheck] =
+        prisma.treatmentDischarge.findFirst.mock.invocationCallOrder;
+      expect(patientLock).toBeLessThan(alreadyCorrectedCheck);
+      expect(patientLock).toBeLessThan(
+        prisma.treatmentDischarge.create.mock.invocationCallOrder[0],
+      );
+    });
+
     it('rechaza corregir un borrador (409)', async () => {
       prisma.treatmentDischarge.findFirst.mockResolvedValue(buildRow());
       await expect(service.correct('dis-1', 'therapist-1')).rejects.toThrow(

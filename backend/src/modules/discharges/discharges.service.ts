@@ -1175,48 +1175,55 @@ export class DischargesService {
       );
     }
 
-    const alreadyCorrected = await this.prisma.treatmentDischarge.findFirst({
-      where: { correctsId: id },
-      select: { id: true },
-    });
-    if (alreadyCorrected) {
-      throw new ConflictException(
-        'Esta versión ya fue corregida. Corrige la versión vigente en su lugar.',
-      );
-    }
-
     const newId = randomUUID();
     let created: TreatmentDischarge;
     try {
-      created = await this.prisma.treatmentDischarge.create({
-        data: {
-          id: newId,
-          groupId: original.groupId,
-          version: original.version + 1,
-          correctsId: original.id,
-          patientId: original.patientId,
-          therapistId,
-          source: original.source,
-          status: 'DRAFT',
-          closureReason: original.closureReason,
-          dropoutReason: original.dropoutReason,
-          admissionDate: original.admissionDate,
-          dischargeDate: original.dischargeDate,
-          sessionCount: original.sessionCount,
-          // `original` viene en claro (findOwned): la copia se vuelve a cifrar.
-          ...encryptDischargeTexts(
-            {
-              dropoutNote: original.dropoutNote,
-              referralDestination: original.referralDestination,
-              consultReason: original.consultReason,
-              diagnosis: original.diagnosis,
-              evolutionSummary: original.evolutionSummary,
-              statusAtDischarge: original.statusAtDischarge,
-              recommendations: original.recommendations,
-            },
-            this.clinicalCrypto,
-          ),
-        },
+      // Issue #502: el insert toma KEY SHARE sobre Patient y User por las FK; sin
+      // los locks de User y Patient (en ese orden) podía cruzarse con
+      // consultations.create, que toma User FOR UPDATE y luego Patient.
+      created = await this.prisma.$transaction(async (tx) => {
+        await this.lockTherapistAndPatient(tx, therapistId, original.patientId);
+
+        const alreadyCorrected = await tx.treatmentDischarge.findFirst({
+          where: { correctsId: id },
+          select: { id: true },
+        });
+        if (alreadyCorrected) {
+          throw new ConflictException(
+            'Esta versión ya fue corregida. Corrige la versión vigente en su lugar.',
+          );
+        }
+
+        return tx.treatmentDischarge.create({
+          data: {
+            id: newId,
+            groupId: original.groupId,
+            version: original.version + 1,
+            correctsId: original.id,
+            patientId: original.patientId,
+            therapistId,
+            source: original.source,
+            status: 'DRAFT',
+            closureReason: original.closureReason,
+            dropoutReason: original.dropoutReason,
+            admissionDate: original.admissionDate,
+            dischargeDate: original.dischargeDate,
+            sessionCount: original.sessionCount,
+            // `original` viene en claro (findOwned): la copia se vuelve a cifrar.
+            ...encryptDischargeTexts(
+              {
+                dropoutNote: original.dropoutNote,
+                referralDestination: original.referralDestination,
+                consultReason: original.consultReason,
+                diagnosis: original.diagnosis,
+                evolutionSummary: original.evolutionSummary,
+                statusAtDischarge: original.statusAtDischarge,
+                recommendations: original.recommendations,
+              },
+              this.clinicalCrypto,
+            ),
+          },
+        });
       });
     } catch (err) {
       // Dos correcciones concurrentes de la misma versión: el @unique de
