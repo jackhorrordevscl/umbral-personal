@@ -170,6 +170,80 @@ describe('MfaService', () => {
       );
     });
 
+    describe('setupToken emitido antes del último cambio de contraseña (issue #487)', () => {
+      const changedAt = new Date('2026-10-01T12:00:00.500Z');
+      const changedAtSec = Math.floor(changedAt.getTime() / 1000);
+      const expired = 'Token de configuración MFA inválido o expirado';
+
+      function mockPendingUser() {
+        prisma.user.findUnique.mockResolvedValue(
+          buildUser({
+            mfaEnabled: false,
+            mfaSecret: 'BASE32SECRET',
+            passwordChangedAt: changedAt,
+          } as Partial<User>),
+        );
+      }
+
+      it.each([['antes', changedAtSec - 60]])(
+        'beginMfaSetup y confirmMfaSetup lanzan 401 si el token se emitió %s del cambio',
+        async (_label, iat) => {
+          jwtService.verify.mockReturnValue({
+            sub: 'user-1',
+            purpose: 'mfa-setup',
+            iat,
+          });
+          mockPendingUser();
+          mockTotp(0);
+
+          await expect(service.beginMfaSetup(setupToken)).rejects.toThrow(
+            expired,
+          );
+          await expect(
+            service.confirmMfaSetup(setupToken, '123456'),
+          ).rejects.toThrow(expired);
+          expect(prisma.user.update).not.toHaveBeenCalled();
+          expect(prisma.session.create).not.toHaveBeenCalled();
+        },
+      );
+
+      it('lanza 401 si el token no trae iat y hay passwordChangedAt (fail-closed)', async () => {
+        jwtService.verify.mockReturnValue({
+          sub: 'user-1',
+          purpose: 'mfa-setup',
+        });
+        mockPendingUser();
+
+        await expect(service.beginMfaSetup(setupToken)).rejects.toThrow(
+          expired,
+        );
+      });
+
+      // El cambio forzado de contraseña emite el setupToken en el mismo
+      // segundo que passwordChangedAt: ese flujo no puede romperse.
+      it.each([
+        ['después del cambio', changedAtSec + 60],
+        ['en el mismo segundo del cambio', changedAtSec],
+      ])('acepta un token emitido %s', async (_label, iat) => {
+        jwtService.verify.mockReturnValue({
+          sub: 'user-1',
+          purpose: 'mfa-setup',
+          iat,
+        });
+        mockPendingUser();
+        mockSpeakeasy.generateSecret.mockReturnValue({
+          base32: 'BASE32SECRET',
+          otpauth_url: 'otpauth://totp/test',
+        } as never);
+        (mockQRCode.toDataURL as jest.Mock).mockResolvedValue('data:qr');
+
+        await expect(service.beginMfaSetup(setupToken)).resolves.toEqual({
+          secret: 'BASE32SECRET',
+          qrCode: 'data:qr',
+        });
+      });
+    });
+
     it('beginMfaSetup genera el secreto MFA en el camino feliz', async () => {
       jwtService.verify.mockReturnValue({
         sub: 'user-1',
@@ -326,6 +400,63 @@ describe('MfaService', () => {
       );
       expect(jwtService.sign).not.toHaveBeenCalled();
       expect(prisma.user.updateMany).not.toHaveBeenCalled();
+    });
+
+    describe('mfaToken emitido antes del último cambio de contraseña (issue #487)', () => {
+      const changedAt = new Date('2026-10-01T12:00:00.500Z');
+      const changedAtSec = Math.floor(changedAt.getTime() / 1000);
+
+      function mockUserWithPasswordChange() {
+        prisma.user.findUnique.mockResolvedValue(
+          buildUser({
+            mfaSecret: 'BASE32SECRET',
+            mfaEnabled: true,
+            passwordChangedAt: changedAt,
+          } as Partial<User>),
+        );
+        mockTotp(0);
+      }
+
+      it.each([['antes', changedAtSec - 60]])(
+        'lanza 401 si el token se emitió %s del cambio, aunque el TOTP sea válido',
+        async (_label, iat) => {
+          jwtService.verify.mockReturnValue({
+            sub: 'user-1',
+            purpose: 'mfa-verify',
+            iat,
+          });
+          mockUserWithPasswordChange();
+
+          await expect(service.verifyMfa(dto)).rejects.toThrow(
+            'Código MFA inválido',
+          );
+          expect(prisma.user.updateMany).not.toHaveBeenCalled();
+          expect(prisma.session.create).not.toHaveBeenCalled();
+        },
+      );
+
+      it('lanza 401 si el token no trae iat y hay passwordChangedAt (fail-closed)', async () => {
+        mockUserWithPasswordChange();
+
+        await expect(service.verifyMfa(dto)).rejects.toThrow(
+          'Código MFA inválido',
+        );
+        expect(prisma.user.updateMany).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['después del cambio', changedAtSec + 60],
+        ['en el mismo segundo del cambio', changedAtSec],
+      ])('acepta un token emitido %s', async (_label, iat) => {
+        jwtService.verify.mockReturnValue({
+          sub: 'user-1',
+          purpose: 'mfa-verify',
+          iat,
+        });
+        mockUserWithPasswordChange();
+
+        await expect(service.verifyMfa(dto)).resolves.toBeDefined();
+      });
     });
 
     it('lanza 401 si la cuenta está soft-deleted, aunque el TOTP sea válido', async () => {
