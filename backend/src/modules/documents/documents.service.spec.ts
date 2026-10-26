@@ -85,6 +85,7 @@ describe('DocumentsService', () => {
     };
     patientAssent: { create: jest.Mock };
     consultation: { findFirst: jest.Mock };
+    $queryRaw: jest.Mock;
     $transaction: jest.Mock;
   };
   let patientsService: {
@@ -112,6 +113,7 @@ describe('DocumentsService', () => {
       consultation: {
         findFirst: jest.fn().mockResolvedValue({ id: 'consultation-1' }),
       },
+      $queryRaw: jest.fn().mockResolvedValue([]),
       // Callback form only: the document and its assent share the tx client.
       $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
@@ -469,6 +471,28 @@ describe('DocumentsService', () => {
           },
         });
         expect(patientsService.recordConsent).not.toHaveBeenCalled();
+      });
+
+      it('issue #502: el asentimiento toma el lock del User antes de insertar el documento', async () => {
+        await service.uploadDocument(
+          'patient-1',
+          'therapist-1',
+          buildFile({ originalname: 'asentimiento.pdf' }),
+          'INFORMED_ASSENT',
+        );
+
+        expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+        const [[strings]] = prisma.$queryRaw.mock.calls as unknown[][];
+        const sql = (strings as string[]).join('?');
+        expect(sql).toContain('"User"');
+        expect(sql).toContain('FOR NO KEY UPDATE');
+        const [lock] = prisma.$queryRaw.mock.invocationCallOrder;
+        expect(lock).toBeLessThan(
+          prisma.patientDocument.create.mock.invocationCallOrder[0],
+        );
+        expect(lock).toBeLessThan(
+          prisma.patientAssent.create.mock.invocationCallOrder[0],
+        );
       });
 
       it('INFORMED_ASSENT (14 a 17): el tramo se calcula en el servidor', async () => {

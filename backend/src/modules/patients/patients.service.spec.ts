@@ -706,6 +706,31 @@ describe('PatientsService', () => {
       expect(prisma.patient.update).not.toHaveBeenCalled();
     });
 
+    it('issue #502: toma el lock del User antes de insertar el historial', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patient.update.mockResolvedValue(
+        buildPatient({ fullName: 'Nombre corregido' }),
+      );
+
+      await service.update(
+        'patient-1',
+        {
+          fullName: 'Nombre corregido',
+          reason: 'Corrección de datos',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+      const [[strings]] = prisma.$queryRaw.mock.calls as unknown[][];
+      const sql = (strings as string[]).join('?');
+      expect(sql).toContain('"User"');
+      expect(sql).toContain('FOR NO KEY UPDATE');
+      expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.patientHistory.create.mock.invocationCallOrder[0],
+      );
+    });
+
     it.each([
       ['campo nulo enviado como null', { occupation: null }],
       ['campo nulo enviado como cadena vacía', { phone: '' }],
@@ -1053,6 +1078,30 @@ describe('PatientsService', () => {
           recordedById: 'therapist-1',
         }) as unknown,
       });
+    });
+
+    it('issue #502: recordConsent toma el lock del User antes de insertar el evento', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patientConsent.create.mockResolvedValue({ id: 'consent-1' });
+
+      await service.recordConsent(
+        'patient-1',
+        {
+          purpose: 'TREATMENT',
+          action: 'GRANT',
+          evidence: 'Firmado en papel, escaneado y adjunto al expediente',
+        } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+      const [[strings]] = prisma.$queryRaw.mock.calls as unknown[][];
+      const sql = (strings as string[]).join('?');
+      expect(sql).toContain('"User"');
+      expect(sql).toContain('FOR NO KEY UPDATE');
+      expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.patientConsent.create.mock.invocationCallOrder[0],
+      );
     });
 
     it('bulkDeclareConsent crea el evento GRANT para cada paciente del lote (issue #131 T5)', async () => {
