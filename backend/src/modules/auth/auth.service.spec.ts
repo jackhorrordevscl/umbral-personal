@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Logger,
   UnauthorizedException,
@@ -802,6 +803,13 @@ describe('AuthService', () => {
   describe('changePassword', () => {
     const passwordChangeToken = 'password-change-token';
 
+    beforeEach(() => {
+      // clearAllMocks no resetea implementaciones: sin esto, el verify=true de
+      // los tests de login haría pasar la contraseña nueva por "igual a la
+      // actual".
+      mockArgon2.verify.mockResolvedValue(false as never);
+    });
+
     it('lanza 401 si el token es inválido o expiró', async () => {
       jwtService.verify.mockImplementation(() => {
         throw new Error('jwt expired');
@@ -862,6 +870,40 @@ describe('AuthService', () => {
           newPassword: 'newpassword1',
         }),
       ).rejects.toThrow('La contraseña ya fue actualizada anteriormente');
+    });
+
+    it('lanza 400 y no cambia nada si la contraseña nueva es la misma que la actual (issue #487: la del seed)', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'password-change',
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({
+          mustChangePassword: true,
+          passwordHash: 'current-hash',
+        }),
+      );
+      mockArgon2.verify.mockResolvedValue(true as never);
+
+      await expect(
+        service.changePassword({
+          passwordChangeToken,
+          newPassword: 'seedpassword1',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.changePassword({
+          passwordChangeToken,
+          newPassword: 'seedpassword1',
+        }),
+      ).rejects.toThrow('La nueva contraseña debe ser distinta de la actual');
+      expect(mockArgon2.verify).toHaveBeenCalledWith(
+        'current-hash',
+        'seedpassword1',
+      );
+      expect(mockArgon2.hash).not.toHaveBeenCalled();
+      expect(prisma.user.updateMany).not.toHaveBeenCalled();
+      expect(auditService.log).not.toHaveBeenCalled();
     });
 
     it('cambia la contraseña, limpia el flag, setea passwordChangedAt, audita PASSWORD_CHANGED y delega en completeLogin (MFA obligatorio: requiresMfaSetup)', async () => {

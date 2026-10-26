@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -447,6 +448,15 @@ export class AuthService {
     if (!user.mustChangePassword) {
       throw new UnauthorizedException(
         'La contraseña ya fue actualizada anteriormente',
+      );
+    }
+
+    // Issue #487: el cambio forzado existe porque la contraseña actual (la
+    // del seed) es conocida; aceptarla de nuevo dejaría la cuenta igual de
+    // expuesta. 400 y no 401: es un error de entrada, no de credenciales.
+    if (await argon2.verify(user.passwordHash, dto.newPassword)) {
+      throw new BadRequestException(
+        'La nueva contraseña debe ser distinta de la actual',
       );
     }
 
