@@ -19,9 +19,6 @@ import { Upload } from 'lucide-react';
 // servidor (con espera) y muestra a lo más esta cantidad de resultados.
 const PATIENT_OPTIONS_PAGE_SIZE = 20;
 const PATIENT_SEARCH_DEBOUNCE_MS = 300;
-// Filas de la lista abierta de resultados (incluye la opción vacía).
-const MAX_VISIBLE_RESULTS = 6;
-
 // Sugerencia de usuarios: muchos terapeutas ya llevan su propio registro de
 // sesión (Word/PDF) y quieren adjuntarlo tal cual, en vez de reescribir todo
 // en los campos de texto. Se sube atado a esta consulta (consultationGroupId,
@@ -73,9 +70,14 @@ export default function ConsultationForm({
   const {
     data: patientsPage,
     isLoading: patientsLoading,
+    isFetching: patientsFetching,
     isError: patientsError,
     refetch: refetchPatients,
   } = usePatients({ page: 1, pageSize: PATIENT_OPTIONS_PAGE_SIZE, search: debouncedPatientSearch });
+  // Con keepPreviousData, mientras llega la búsqueda nueva `patientsPage` aún
+  // trae la anterior: se atenúa en vez de mostrarla como si fuera definitiva.
+  const searchPending = patientSearch.trim() !== debouncedPatientSearch || patientsFetching;
+  const searchResults = patientsPage?.data ?? [];
   // El paciente elegido se conserva como opción aunque una búsqueda posterior
   // ya no lo incluya en los resultados (si no, el select perdería su valor).
   const patients = useMemo(() => {
@@ -88,6 +90,11 @@ export default function ConsultationForm({
   // Un refetch fallido conserva la lista ya cargada: solo se bloquea el select
   // cuando no hay pacientes que mostrar (issue #346).
   const patientsUnavailable = patientsError && patients.length === 0;
+  const choosePatient = (p: Patient) => {
+    setForm({ ...form, patientId: p.id });
+    setSelectedPatient(p);
+    setPatientSearch('');
+  };
   const createMutation = useCreateConsultation();
   const uploadMutation = useUploadPatientDocument(form.patientId || undefined);
 
@@ -204,20 +211,60 @@ export default function ConsultationForm({
     <form onSubmit={handleSubmit}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FormField id="consult-patientId" label="Paciente" required className="md:col-span-2">
-          <input
-            type="search"
-            className="input-field mb-2"
-            placeholder="Buscar por nombre o RUT..."
-            aria-label="Buscar paciente por nombre o RUT"
-            value={patientSearch}
-            disabled={patientsUnavailable}
-            onChange={e => setPatientSearch(e.target.value)}
-          />
           {/* Un select cerrado oculta los resultados de la búsqueda: mientras se
-              busca se muestra como lista abierta, y al elegir vuelve a ser un
-              desplegable (el paciente elegido se conserva en `patients`). */}
+              escribe, un panel bajo el buscador lista las coincidencias y al
+              elegir una vuelve el desplegable (el paciente elegido se conserva
+              en `patients`). */}
+          <div className="relative mb-2">
+            <input
+              type="search"
+              className="input-field"
+              placeholder="Buscar por nombre o RUT..."
+              aria-label="Buscar paciente por nombre o RUT"
+              value={patientSearch}
+              disabled={patientsUnavailable}
+              onChange={e => setPatientSearch(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setPatientSearch('');
+                } else if (e.key === 'Enter' && isSearching) {
+                  e.preventDefault();
+                  if (!searchPending && searchResults[0]) choosePatient(searchResults[0]);
+                }
+              }}
+            />
+            {isSearching && !patientsUnavailable && (
+              <div
+                role="listbox"
+                aria-label="Resultados de la búsqueda de pacientes"
+                className="absolute left-0 right-0 top-full z-20 mt-1.5 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
+              >
+                {searchResults.length > 0 ? (
+                  <div className={searchPending ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+                    {searchResults.map((p: Patient) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        role="option"
+                        aria-selected={p.id === form.patientId}
+                        className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-sage-50 focus-visible:bg-sage-50 focus-visible:outline-none"
+                        onClick={() => choosePatient(p)}
+                      >
+                        <span className="truncate font-medium text-slate-800">{p.fullName}</span>
+                        <span className="shrink-0 text-xs tabular-nums text-slate-500">{p.rut}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="px-3 py-3 text-sm text-slate-500">
+                    {searchPending ? 'Buscando...' : `Sin resultados para «${patientSearch.trim()}»`}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
           <select id="consult-patientId" className="input-field" value={form.patientId}
-            size={isSearching ? Math.min(patients.length + 1, MAX_VISIBLE_RESULTS) : undefined}
             disabled={patientsLoading || patientsUnavailable}
             onChange={e => {
               setForm({ ...form, patientId: e.target.value });
