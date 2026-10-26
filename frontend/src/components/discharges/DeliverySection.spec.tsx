@@ -100,6 +100,16 @@ describe('DeliverySection (T4c)', () => {
     expect(screen.getByRole('button', { name: /Registrar entrega/ })).toBeInTheDocument()
   })
 
+  it('la finalidad avisa que no admite datos clínicos y que el campo no se cifra', async () => {
+    const user = userEvent.setup()
+    setup()
+    const dialog = await openDialog(user)
+
+    expect(within(dialog).getByLabelText(/Finalidad/)).toHaveAccessibleDescription(
+      /No incluir datos clínicos ni detalles del caso: este campo no se cifra/,
+    )
+  })
+
   it('a un paciente adulto se le registra la entrega sin pedir datos del destinatario', async () => {
     const user = userEvent.setup()
     setup()

@@ -125,6 +125,23 @@ Se adopta la alternativa **B**, con esta secuencia:
   del backend no la descifra y mostraría `enc:v3:…` en la campanita. Revertir
   no deshace esas filas, así que ante un problema se corrige hacia adelante.
 
+## Fuera de alcance: entregas del informe (2026-10-26, issue #492)
+
+- **Qué queda en texto plano:** `DischargeDelivery.purpose` (hasta 200
+  caracteres) y `DischargeDelivery.recipientName` (hasta 120). Ninguna consulta
+  filtra ni busca por ellos.
+- **Por qué no se cifran en v1:** se definen como datos no clínicos. El registro
+  de actividades (fila 24) declara la finalidad "sin datos clínicos", y el
+  diálogo «Registrar entrega del informe» lo avisa junto al campo. Es una
+  convención y un aviso, no un control técnico: nada impide que el terapeuta
+  escriba un dato clínico o legal en la finalidad.
+- **Riesgo aceptado:** si lo hace, ese texto queda legible en la base y en los
+  respaldos descifrados.
+- **Revisar en v2:** cifrar ambos campos con `ClinicalTextCryptoService` (misma
+  clave y dataset `clinical`) si aparecen datos clínicos en la finalidad o si se
+  amplía el uso de estos campos. Exige migración y recifrado de las entregas ya
+  guardadas con `npm run crypto:reencrypt`.
+
 ## Por qué
 
 - Las notas clínicas son el contenido más sensible y el que menos usa la
