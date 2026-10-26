@@ -27,6 +27,9 @@ layer(base);
   --color-cream-200: #f5f0e4;
 }
 
+/* #533: viewports bajos (1366x768 con barras, o escala de Windows de 125 %). */
+@custom-variant short (@media (max-height: 760px));
+
 /*
   The default border color has changed to `currentcolor` in Tailwind CSS v4,
   so we've added these compatibility styles to make sure everything still
@@ -49,6 +52,10 @@ layer(base);
   @apply flex items-center gap-3 px-4 py-3 rounded-lg text-slate-300 
            hover:bg-slate-800 hover:text-white transition-all duration-200 
            text-sm font-medium;
+
+  @variant short {
+    @apply py-2;
+  }
 
   &.active {
     @apply bg-sage-600 text-white;
@@ -74,6 +81,10 @@ layer(base);
 
 @utility card {
   @apply bg-white rounded-xl border border-slate-100 shadow-xs p-6;
+
+  @variant short {
+    @apply p-4;
+  }
 }
 
 @layer base {

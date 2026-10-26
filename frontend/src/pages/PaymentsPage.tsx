@@ -346,7 +346,7 @@ export default function PaymentsPage() {
   };
 
   return (
-    <div className="p-4 md:p-8">
+    <div className="p-4 md:p-8 short:md:p-5">
       <div className="mb-8">
         <h2 className="font-display text-2xl md:text-3xl text-slate-900">Pagos</h2>
         <p className="text-slate-500 text-sm mt-1">

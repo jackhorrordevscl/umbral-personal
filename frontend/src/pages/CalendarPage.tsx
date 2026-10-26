@@ -45,7 +45,7 @@ export default function CalendarPage() {
   const sessionsByDay = useMemo(() => groupByChileDay(sessions ?? []), [sessions]);
 
   return (
-    <div className="p-4 md:p-8">
+    <div className="p-4 md:p-8 short:md:p-5">
       <div className="flex items-center justify-between mb-6 md:mb-8 flex-wrap gap-3">
         <div>
           <h2 className="font-display text-2xl md:text-3xl text-slate-900">Calendario</h2>

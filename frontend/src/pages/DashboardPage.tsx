@@ -130,7 +130,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="p-4 md:p-8">
+    <div className="p-4 md:p-8 short:md:p-5">
       <div className="mb-6 md:mb-8">
         <h2 className="font-display text-2xl md:text-3xl text-slate-900">
           Dashboard
@@ -151,7 +151,7 @@ export default function DashboardPage() {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5 mb-6 md:mb-8">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 md:gap-5 mb-6 md:mb-8">
             {stats.map((stat) => (
               <div
                 key={stat.label}
