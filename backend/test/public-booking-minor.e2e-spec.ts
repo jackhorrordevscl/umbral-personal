@@ -194,8 +194,8 @@ describe('Public booking for a minor (e2e)', () => {
       email: guardian.email.toLowerCase(),
       isPayer: true,
       receivesCommunications: true,
-      canAccessReports: true,
-      canConsent: true,
+      canAccessReports: false,
+      canConsent: false,
       custody: 'UNKNOWN',
       hasConflict: false,
     });
