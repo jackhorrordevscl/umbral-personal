@@ -256,7 +256,8 @@ export default function DeliveryDialog({
             onChange={(e) => setPurpose(e.target.value)}
           />
           <p id={`${ids.purpose}-hint`} className="text-xs text-slate-500 mt-1">
-            Para qué se entrega. No incluir datos clínicos.
+            Para qué se entrega, en una frase general (por ejemplo, «solicitud del colegio»). No
+            incluir datos clínicos ni detalles del caso: este campo no se cifra.
           </p>
         </FormField>
 
