@@ -123,9 +123,11 @@ describe('ConsultationForm — búsqueda de pacientes en el servidor (#290)', ()
 
     await user.type(screen.getByRole('searchbox', { name: /buscar paciente/i }), 'Otra')
 
-    expect(await screen.findByRole('option', { name: /Otra Persona/ })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /Paciente de Prueba/ })).toBeInTheDocument()
-    expect(screen.getByLabelText(/Paciente/, { selector: 'select' })).toHaveValue('patient-1')
+    // El select (no el panel de resultados) conserva al paciente elegido.
+    const select = screen.getByLabelText(/Paciente/, { selector: 'select' })
+    expect(await within(select).findByRole('option', { name: /Otra Persona/ })).toBeInTheDocument()
+    expect(within(select).getByRole('option', { name: /Paciente de Prueba/ })).toBeInTheDocument()
+    expect(select).toHaveValue('patient-1')
     await waitFor(() => {
       const searches = mockedApi.get.mock.calls
         .map(([, c]) => (c?.params as { search?: string } | undefined)?.search)
@@ -134,33 +136,81 @@ describe('ConsultationForm — búsqueda de pacientes en el servidor (#290)', ()
     })
   })
 
-  // El select cerrado ocultaba los resultados: al buscar, la lista se muestra
-  // abierta bajo el buscador y al elegir un paciente vuelve a ser un desplegable.
-  it('al buscar muestra los resultados como lista abierta y la cierra al elegir', async () => {
-    const user = userEvent.setup()
-    mockedApi.get.mockImplementation((_url, config) => {
-      const search = (config?.params as { search?: string } | undefined)?.search
-      return Promise.resolve({
-        data: search === 'Otra'
-          ? { data: [other], total: 1, page: 1, pageSize: 20 }
-          : { data: [patient, other], total: 2, page: 1, pageSize: 20 },
-      })
+  // El select cerrado ocultaba los resultados: al buscar, un panel bajo el
+  // buscador lista las coincidencias (nombre y RUT) y al elegir una se cierra.
+  describe('panel de resultados', () => {
+    const searchResults = (search?: string) => {
+      if (search === 'Otra') return { data: [other], total: 1, page: 1, pageSize: 20 }
+      if (search === 'zzz') return { data: [], total: 0, page: 1, pageSize: 20 }
+      return { data: [patient, other], total: 2, page: 1, pageSize: 20 }
+    }
+
+    beforeEach(() => {
+      mockedApi.get.mockImplementation((_url, config) =>
+        Promise.resolve({
+          data: searchResults((config?.params as { search?: string } | undefined)?.search),
+        }),
+      )
     })
 
-    renderForm()
-    await screen.findByRole('option', { name: /Paciente de Prueba/ })
-    expect(screen.getByRole('combobox', { name: /Paciente/ })).toBeInTheDocument()
+    const searchbox = () => screen.getByRole('searchbox', { name: /buscar paciente/i })
 
-    await user.type(screen.getByRole('searchbox', { name: /buscar paciente/i }), 'Otra')
+    it('muestra nombre y RUT de cada coincidencia y cierra el panel al elegir', async () => {
+      const user = userEvent.setup()
+      renderForm()
+      await screen.findByRole('option', { name: /Paciente de Prueba/ })
+      expect(screen.queryByRole('listbox', { name: /resultados/i })).not.toBeInTheDocument()
 
-    const results = await screen.findByRole('listbox', { name: /Paciente/ })
-    expect(within(results).getByRole('option', { name: /Otra Persona/ })).toBeInTheDocument()
+      await user.type(searchbox(), 'Otra')
 
-    await user.selectOptions(results, 'patient-2')
+      const panel = await screen.findByRole('listbox', { name: /resultados/i })
+      const option = await within(panel).findByRole('option', { name: /Otra Persona/ })
+      expect(option).toHaveTextContent('22222222-2')
 
-    const select = await screen.findByRole('combobox', { name: /Paciente/ })
-    expect(select).toHaveValue('patient-2')
-    expect(screen.getByRole('searchbox', { name: /buscar paciente/i })).toHaveValue('')
+      await user.click(option)
+
+      expect(screen.queryByRole('listbox', { name: /resultados/i })).not.toBeInTheDocument()
+      expect(screen.getByLabelText(/Paciente/, { selector: 'select' })).toHaveValue('patient-2')
+      expect(searchbox()).toHaveValue('')
+    })
+
+    it('avisa cuando la búsqueda no tiene resultados', async () => {
+      const user = userEvent.setup()
+      renderForm()
+      await screen.findByRole('option', { name: /Paciente de Prueba/ })
+
+      await user.type(searchbox(), 'zzz')
+
+      expect(await screen.findByText(/Sin resultados para/)).toBeInTheDocument()
+    })
+
+    it('Enter elige la primera coincidencia sin enviar el formulario', async () => {
+      const user = userEvent.setup()
+      renderForm()
+      await screen.findByRole('option', { name: /Paciente de Prueba/ })
+
+      await user.type(searchbox(), 'Otra')
+      const panel = await screen.findByRole('listbox', { name: /resultados/i })
+      // Los resultados se asientan cuando la búsqueda se acota a una sola fila.
+      await waitFor(() => expect(within(panel).getAllByRole('option')).toHaveLength(1))
+      await user.keyboard('{Enter}')
+
+      expect(screen.getByLabelText(/Paciente/, { selector: 'select' })).toHaveValue('patient-2')
+      expect(screen.queryByText('Selecciona un paciente')).not.toBeInTheDocument()
+    })
+
+    it('Escape cierra el panel y limpia la búsqueda', async () => {
+      const user = userEvent.setup()
+      renderForm()
+      await screen.findByRole('option', { name: /Paciente de Prueba/ })
+
+      await user.type(searchbox(), 'Otra')
+      await screen.findByRole('listbox', { name: /resultados/i })
+      await user.keyboard('{Escape}')
+
+      expect(screen.queryByRole('listbox', { name: /resultados/i })).not.toBeInTheDocument()
+      expect(searchbox()).toHaveValue('')
+    })
   })
 })
 
