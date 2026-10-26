@@ -309,8 +309,8 @@ describe('MfaService', () => {
 
       const result = await service.confirmMfaSetup(setupToken, '123456');
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-1', mfaEnabled: false },
         data: { mfaEnabled: true },
       });
       expect(result).toEqual({
@@ -522,6 +522,37 @@ describe('MfaService', () => {
       });
     });
 
+    // Issue #487: verificar el código y calcular el paso con relojes distintos
+    // en el borde de 30 s consumía un paso que no era el verificado.
+    it('verifica y consume el paso con una sola lectura del reloj', async () => {
+      const stepStart = 1_700_000_010; // segundo 10 dentro de su paso
+      const t1 = stepStart * 1000;
+      const t2 = (stepStart + 30) * 1000; // ya en el paso siguiente
+      const nowSpy = jest
+        .spyOn(Date, 'now')
+        .mockReturnValueOnce(t1)
+        .mockReturnValue(t2);
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
+      );
+      mockTotp(0);
+
+      await service.verifyMfa(dto);
+      nowSpy.mockRestore();
+
+      expect(mockSpeakeasy.totp.verifyDelta).toHaveBeenCalledWith(
+        expect.objectContaining({ time: stepStart }),
+      );
+      const step = Math.floor(stepStart / 30);
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'user-1',
+          OR: [{ lastUsedStep: null }, { lastUsedStep: { lt: step } }],
+        },
+        data: { lastUsedStep: step },
+      });
+    });
+
     it('lanza 401 sin emitir accessToken si mustChangePassword=true, aunque el TOTP sea válido', async () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({
@@ -591,6 +622,7 @@ describe('MfaService', () => {
         encoding: 'base32',
         token: '123456',
         window: 1,
+        time: expect.any(Number) as unknown as number,
       });
       expect(result).toEqual({
         accessToken: 'signed-token',
@@ -811,6 +843,24 @@ describe('MfaService', () => {
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
 
+    it('lanza 400 sin regenerar recovery codes si otra confirmación ya activó MFA (issue #487)', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET' }),
+      );
+      mockTotp(0);
+      prisma.user.updateMany
+        .mockResolvedValueOnce({ count: 1 }) // consumeTotp
+        .mockResolvedValueOnce({ count: 0 }); // activación: ya estaba activa
+
+      await expectBadRequest(
+        service.enableMfa('user-1', '123456'),
+        'MFA ya fue configurado para esta cuenta',
+      );
+      expect(prisma.mfaRecoveryCode.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.mfaRecoveryCode.createMany).not.toHaveBeenCalled();
+      expect(auditService.log).not.toHaveBeenCalled();
+    });
+
     it('activa MFA, genera 10 recovery codes y audita en el camino feliz', async () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ mfaSecret: 'BASE32SECRET' }),
@@ -820,8 +870,10 @@ describe('MfaService', () => {
 
       const result = await service.enableMfa('user-1', '123456');
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
+      // Issue #487: la activación es condicional (mfaEnabled: false) para que
+      // dos confirmaciones simultáneas no regeneren los códigos dos veces.
+      expect(prisma.user.updateMany).toHaveBeenLastCalledWith({
+        where: { id: 'user-1', mfaEnabled: false },
         data: { mfaEnabled: true },
       });
       expect(prisma.mfaRecoveryCode.deleteMany).toHaveBeenCalledWith({
