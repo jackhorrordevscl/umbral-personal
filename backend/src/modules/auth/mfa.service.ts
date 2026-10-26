@@ -106,7 +106,7 @@ export class MfaService {
    */
   async beginMfaSetup(setupToken: string) {
     const payload = this.verifySetupToken(setupToken);
-    await this.rejectIfAlreadyEnrolled(payload.sub);
+    await this.rejectIfAlreadyEnrolled(payload.sub, payload.iat);
     return this.generateMfaSecret(payload.sub);
   }
 
@@ -124,7 +124,7 @@ export class MfaService {
     userAgent?: string,
   ) {
     const payload = this.verifySetupToken(setupToken);
-    await this.rejectIfAlreadyEnrolled(payload.sub);
+    await this.rejectIfAlreadyEnrolled(payload.sub, payload.iat);
     const { recoveryCodes } = await this.enableMfa(
       payload.sub,
       token,
@@ -152,8 +152,9 @@ export class MfaService {
   private verifySetupToken(setupToken: string): {
     sub: string;
     purpose?: string;
+    iat?: number;
   } {
-    let payload: { sub: string; purpose?: string };
+    let payload: { sub: string; purpose?: string; iat?: number };
     try {
       payload = this.jwtService.verify(setupToken);
     } catch {
@@ -175,14 +176,41 @@ export class MfaService {
    * (logs, proxies, etc.) seguiría sirviendo para regenerar el secreto TOTP y
    * tomar la cuenta con generateToken aunque el enrolamiento legítimo ya
    * hubiera terminado. Cortamos ese replay apenas mfaEnabled pasa a true.
+   *
+   * Issue #487: tampoco sirve un setupToken emitido antes del último cambio
+   * de contraseña (reset): quien lo tenía no puede terminar el enrolamiento.
    */
-  private async rejectIfAlreadyEnrolled(userId: string) {
+  private async rejectIfAlreadyEnrolled(userId: string, iat?: number) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (user?.mfaEnabled) {
       throw new UnauthorizedException(
         'MFA ya fue configurado para esta cuenta',
       );
     }
+    if (
+      user &&
+      this.isIssuedBeforePasswordChange(iat, user.passwordChangedAt)
+    ) {
+      throw new UnauthorizedException(
+        'Token de configuración MFA inválido o expirado',
+      );
+    }
+  }
+
+  /**
+   * Issue #487: misma regla que JwtStrategy.validate (issue #76): `iat` son
+   * segundos enteros y passwordChangedAt tiene milisegundos, por eso se
+   * compara con `<=` contra el valor truncado a segundos. NULL desactiva el
+   * chequeo (cuentas que nunca cambiaron la contraseña). Si hay
+   * passwordChangedAt y el token no trae `iat`, se rechaza (fail-closed).
+   */
+  private isIssuedBeforePasswordChange(
+    iat: number | undefined,
+    passwordChangedAt: Date | null | undefined,
+  ): boolean {
+    if (!passwordChangedAt) return false;
+    if (typeof iat !== 'number') return true;
+    return iat <= Math.floor(passwordChangedAt.getTime() / 1000);
   }
 
   /**
@@ -190,8 +218,8 @@ export class MfaService {
    * expirado y purpose === 'mfa-verify'. Prueba que el paso de contraseña se
    * completó; sin él mfa/verify no acepta ningún TOTP.
    */
-  private verifyMfaToken(mfaToken: string): { sub: string } {
-    let payload: { sub: string; purpose?: string };
+  private verifyMfaToken(mfaToken: string): { sub: string; iat?: number } {
+    let payload: { sub: string; purpose?: string; iat?: number };
     try {
       payload = this.jwtService.verify(mfaToken);
     } catch {
@@ -239,7 +267,7 @@ export class MfaService {
   }
 
   async verifyMfa(dto: VerifyMfaDto, ipAddress?: string, userAgent?: string) {
-    const { sub: userId } = this.verifyMfaToken(dto.mfaToken);
+    const { sub: userId, iat } = this.verifyMfaToken(dto.mfaToken);
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
     });
@@ -250,7 +278,15 @@ export class MfaService {
     // Solo con mfaEnabled se acepta el TOTP -- un secreto pendiente de
     // enrolamiento (mfaEnabled=false) no debe servir para obtener sesión.
     // Mismo mensaje que un TOTP incorrecto para no revelar el estado.
-    if (!user || !user.mfaEnabled || !user.mfaSecret || user.deletedAt) {
+    // Issue #487: un mfaToken emitido antes del último cambio de contraseña
+    // (reset) tampoco sirve.
+    if (
+      !user ||
+      !user.mfaEnabled ||
+      !user.mfaSecret ||
+      user.deletedAt ||
+      this.isIssuedBeforePasswordChange(iat, user.passwordChangedAt)
+    ) {
       throw new UnauthorizedException('Código MFA inválido');
     }
 
