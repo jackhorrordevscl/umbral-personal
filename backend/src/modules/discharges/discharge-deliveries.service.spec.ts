@@ -18,6 +18,8 @@ function discharge(overrides: Record<string, unknown> = {}) {
     id: 'dis-1',
     patientId: 'patient-1',
     status: 'ISSUED',
+    correctedBy: null,
+    document: { voidedAt: null },
     patient: { fullName: 'Luis Soto', birthDate: ADULT_BIRTH },
     ...overrides,
   };
@@ -134,6 +136,49 @@ describe('DischargeDeliveriesService (T4)', () => {
         service.record('dis-1', dto(), 'therapist-1', ctx),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(prisma.dischargeDelivery.create).not.toHaveBeenCalled();
+    });
+
+    it('una versión ya reemplazada por una corrección no se puede entregar', async () => {
+      prisma.treatmentDischarge.findFirst.mockResolvedValue(
+        discharge({ correctedBy: { id: 'dis-2' } }),
+      );
+
+      await expect(
+        service.record('dis-1', dto(), 'therapist-1', ctx),
+      ).rejects.toThrow(
+        new ConflictException(
+          'Este informe fue reemplazado por una versión más reciente: entrega la versión vigente.',
+        ),
+      );
+      expect(prisma.dischargeDelivery.create).not.toHaveBeenCalled();
+      expect(audit.log).not.toHaveBeenCalled();
+    });
+
+    it('un informe con el PDF anulado no se puede entregar', async () => {
+      prisma.treatmentDischarge.findFirst.mockResolvedValue(
+        discharge({ document: { voidedAt: new Date('2026-10-01T00:00:00Z') } }),
+      );
+
+      await expect(
+        service.record('dis-1', dto(), 'therapist-1', ctx),
+      ).rejects.toThrow(
+        new ConflictException(
+          'El PDF de este informe fue anulado: no se puede registrar su entrega.',
+        ),
+      );
+      expect(prisma.dischargeDelivery.create).not.toHaveBeenCalled();
+      expect(audit.log).not.toHaveBeenCalled();
+    });
+
+    it('un informe vigente sin documento asociado sigue pudiendo entregarse', async () => {
+      prisma.treatmentDischarge.findFirst.mockResolvedValue(
+        discharge({ document: null }),
+      );
+
+      const result = await service.record('dis-1', dto(), 'therapist-1', ctx);
+
+      expect(result.id).toBe('del-1');
+      expect(prisma.dischargeDelivery.create).toHaveBeenCalledTimes(1);
     });
 
     it('rechaza entregar al paciente si tiene menos de 18 años', async () => {
@@ -375,6 +420,23 @@ describe('DischargeDeliveriesService (T4)', () => {
         orderBy: { deliveredAt: 'desc' },
         include: { authorizationDocument: { select: { voidedAt: true } } },
       });
+    });
+
+    // Judgment-day #492: bloquear nuevas entregas no esconde las ya hechas.
+    it('sigue listando las entregas de una versión reemplazada', async () => {
+      prisma.treatmentDischarge.findFirst.mockResolvedValue(
+        discharge({
+          correctedBy: { id: 'dis-2' },
+          document: { voidedAt: new Date('2026-10-01T00:00:00Z') },
+        }),
+      );
+      prisma.dischargeDelivery.findMany.mockResolvedValue([
+        { id: 'del-1', authorizationDocument: null },
+      ]);
+
+      const result = await service.list('dis-1', 'therapist-1');
+
+      expect(result).toHaveLength(1);
     });
 
     // Judgment-day #499: anular la autorización después de entregar no se
