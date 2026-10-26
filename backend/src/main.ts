@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import * as path from 'path';
 import { runMigrations } from './common/utils/run-migrations';
 import { registerGlobalFilters } from './common/filters/register-global-filters';
+import { getAllowedOrigins } from './common/utils/allowed-origins.util';
 
 async function bootstrap() {
   // rawBody: true (issue #163): además del body ya parseado por Express,
@@ -21,11 +22,7 @@ async function bootstrap() {
   registerGlobalFilters(app);
 
   app.enableCors({
-    origin: [
-      process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : null,
-      process.env.LAN_DEV_URL,
-      process.env.FRONTEND_URL,
-    ].filter(Boolean),
+    origin: getAllowedOrigins(process.env),
     // sdd/patient-self-scheduling PR 2 (tasks.md 2.4): PUT /availability/schedule
     // es el primer endpoint PUT del backend -- sin agregarlo aquí, un
     // navegador (preflight CORS) lo bloquearía en cualquier origen que no
