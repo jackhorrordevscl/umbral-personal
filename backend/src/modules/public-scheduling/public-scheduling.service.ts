@@ -14,6 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   AvailabilityService,
   AvailableSlot,
+  SlotReadClient,
 } from '../availability/availability.service';
 import { PatientsService } from '../patients/patients.service';
 import { ConsultationsService } from '../consultations/consultations.service';
@@ -135,13 +136,14 @@ export class PublicSchedulingService {
     therapistId: string,
     slotStart: Date,
     slotEnd: Date,
+    client?: SlotReadClient,
   ): Promise<void> {
     const freeSlots = await this.availabilityService.computeSlots(
       therapistId,
       slotStart,
       slotEnd,
       new Date(),
-      { bypassCache: true },
+      { bypassCache: true, ...(client && { client }) },
     );
     const isStillFree = freeSlots.some(
       (slot) =>
@@ -246,8 +248,10 @@ export class PublicSchedulingService {
         // Issue #502: con el lock tomado, los bloqueos y el horario semanal
         // confirmados antes quedan visibles, y los que se insertan después
         // esperan (su FK al User pide KEY SHARE) hasta que esta reserva
-        // confirme. Un 409 acá hace rollback sin haber escrito nada.
-        await this.assertSlotStillFree(therapistId, slotStart, slotEnd);
+        // confirme. Un 409 acá hace rollback sin haber escrito nada. Lee con la
+        // conexión de la transacción: pedir otra al pool mientras se sostiene
+        // el lock lo agotaría bajo una ráfaga de reservas del mismo terapeuta.
+        await this.assertSlotStillFree(therapistId, slotStart, slotEnd, tx);
         const resolved = await this.patientsService.resolveForPublicBooking(
           therapistId,
           dto.patient,

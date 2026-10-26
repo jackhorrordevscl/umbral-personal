@@ -795,6 +795,25 @@ describe('PublicSchedulingService', () => {
       await Promise.resolve();
 
       expect(availabilityService.computeSlots).toHaveBeenCalledTimes(2);
+      // El recheck previo lee con el pool; el definitivo, con la conexión de la
+      // transacción: pedir una segunda conexión mientras se sostiene el lock
+      // agota el pool bajo una ráfaga de reservas del mismo terapeuta.
+      expect(availabilityService.computeSlots).toHaveBeenNthCalledWith(
+        1,
+        'therapist-1',
+        expect.any(Date),
+        expect.any(Date),
+        expect.any(Date),
+        { bypassCache: true },
+      );
+      expect(availabilityService.computeSlots).toHaveBeenNthCalledWith(
+        2,
+        'therapist-1',
+        expect.any(Date),
+        expect.any(Date),
+        expect.any(Date),
+        { bypassCache: true, client: tx },
+      );
       const [, recheckAfterLock] =
         availabilityService.computeSlots.mock.invocationCallOrder;
       expect(
