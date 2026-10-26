@@ -79,9 +79,9 @@ export default function Layout() {
         lg:translate-x-0
       `}
       >
-        <div className="px-6 py-8 border-b border-slate-800 flex items-center justify-between">
+        <div className="px-6 py-8 short:py-3 border-b border-slate-800 flex items-center justify-between">
           <div className="flex-1 flex justify-center">
-            <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-[83px] w-auto" />
+            <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-[83px] short:h-12 w-auto" />
           </div>
           <button
             onClick={closeSidebar}
@@ -95,7 +95,7 @@ export default function Layout() {
             por debajo de su contenido -- con 8 links (tras sumar Pagos y
             Repositorio) el nav empujaba el footer de email/logout fuera de
             la caja del aside, dejando ver el bg-cream-100 del fondo detrás. */}
-        <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-6 space-y-1">
+        <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-6 short:py-3 space-y-1">
           {navLinks.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
@@ -110,8 +110,8 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-        <div className="px-3 py-4 border-t border-slate-800">
-          <div className="px-4 py-2 mb-2">
+        <div className="px-3 py-4 short:py-2 border-t border-slate-800">
+          <div className="px-4 py-2 mb-2 short:py-1 short:mb-1">
             <p className="text-white text-sm font-medium truncate">{user?.email}</p>
           </div>
           <button
