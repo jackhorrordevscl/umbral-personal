@@ -193,6 +193,30 @@ describe('Cambio de contraseña forzado del admin semilla (e2e)', () => {
       .expect(401);
   });
 
+  it('POST /auth/password/change con la misma contraseña del seed devuelve 400 y no cambia nada (issue #487)', async () => {
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/auth/password/change')
+      .send({
+        passwordChangeToken: (loginRes.body as Record<string, unknown>)
+          .passwordChangeToken,
+        newPassword: ADMIN_PASSWORD,
+      })
+      .expect(400);
+    expect((res.body as Record<string, unknown>).message).toBe(
+      'La nueva contraseña debe ser distinta de la actual',
+    );
+
+    const admin = await prisma.user.findUnique({
+      where: { email: ADMIN_EMAIL },
+    });
+    expect(admin?.mustChangePassword).toBe(true);
+  });
+
   it('cambio completo: nueva contraseña deja mustChangePassword=false y entrega requiresMfaSetup (ADMIN sin MFA)', async () => {
     const loginRes = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
