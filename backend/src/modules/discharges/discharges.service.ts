@@ -68,6 +68,11 @@ export interface DischargeVerification {
   // `valid` compara el SHA-256 de los bytes del archivo con contentHash.
   source: 'GENERATED' | 'UPLOADED';
   providedByTherapist: boolean;
+  // Qué cubre `valid`. CONTENT: el hash abarca el contenido del informe
+  // (generado). FILE_ONLY: solo los bytes del PDF subido; los datos del cierre
+  // (motivos, fechas, versión y firmante) no entran en ningún hash. Campo
+  // aditivo (issue #492).
+  hashScope: 'CONTENT' | 'FILE_ONLY';
 }
 
 // Descarga del PDF ya descifrado, lista para servir.
@@ -1320,6 +1325,8 @@ export class DischargesService {
       );
     }
 
+    const hashScope: DischargeVerification['hashScope'] =
+      row.source === 'UPLOADED' ? 'FILE_ONLY' : 'CONTENT';
     const base = {
       dischargeId: row.id,
       groupId: row.groupId,
@@ -1330,6 +1337,7 @@ export class DischargesService {
       isCurrent: row.correctedBy === null,
       source: row.source,
       providedByTherapist: row.source === 'UPLOADED',
+      hashScope,
     };
 
     if (row.source === 'UPLOADED') {

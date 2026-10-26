@@ -72,6 +72,8 @@ export default function VerifyDischargeDialog({
             <p className="bg-slate-50 rounded-lg p-3 text-xs text-slate-600">
               Documento aportado por el terapeuta. El sistema registra su huella para detectar
               cambios posteriores, pero no lo firma ni certifica su contenido.
+              {result.hashScope === "FILE_ONLY" &&
+                " La huella cubre solo el archivo: los datos del cierre (motivos, fechas, versión y firmante) no están cubiertos."}
             </p>
           ) : (
             <p className="bg-slate-50 rounded-lg p-3 text-xs text-slate-600">

@@ -603,6 +603,8 @@ describe('DischargesService T3b (PDF propio)', () => {
         valid: true,
         source: 'UPLOADED',
         providedByTherapist: true,
+        // Issue #492: el hash cubre solo el archivo, no los datos del cierre.
+        hashScope: 'FILE_ONLY',
         contentHash: PDF_SHA,
         pdf: { present: true, intact: true },
       });
