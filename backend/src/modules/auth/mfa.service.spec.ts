@@ -65,6 +65,7 @@ describe('MfaService', () => {
       deleteMany: jest.Mock;
       createMany: jest.Mock;
       update: jest.Mock;
+      updateMany: jest.Mock;
     };
     session: { create: jest.Mock; updateMany: jest.Mock };
     $transaction: jest.Mock;
@@ -86,15 +87,21 @@ describe('MfaService', () => {
         deleteMany: jest.fn(),
         createMany: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
-      // $transaction soporta la forma array (ops ya construidas de antemano,
-      // se resuelve con Promise.all) -- única forma que usa MfaService.
       session: {
         create: jest.fn().mockResolvedValue({}),
         updateMany: jest.fn().mockResolvedValue({ count: 2 }),
       },
-      $transaction: jest.fn((arg: Promise<unknown>[]) => Promise.all(arg)),
+      $transaction: jest.fn(),
     };
+    // Forma array (ops ya construidas, se resuelve con Promise.all) y forma
+    // interactiva (el callback recibe el propio mock como cliente de la tx).
+    prisma.$transaction.mockImplementation((arg: unknown) =>
+      Array.isArray(arg)
+        ? Promise.all(arg)
+        : (arg as (tx: typeof prisma) => Promise<unknown>)(prisma),
+    );
     jwtService = {
       sign: jest.fn().mockReturnValue('signed-token'),
       verify: jest.fn(),
@@ -1036,8 +1043,10 @@ describe('MfaService', () => {
 
       const result = await service.recoverMfa(dto, '203.0.113.7', 'jest-agent');
 
-      expect(prisma.mfaRecoveryCode.update).toHaveBeenCalledWith({
-        where: { id: 'code-2' },
+      // Issue #487: el consumo es condicional (usedAt: null) para que dos
+      // peticiones simultáneas no puedan usar el mismo código.
+      expect(prisma.mfaRecoveryCode.updateMany).toHaveBeenCalledWith({
+        where: { id: 'code-2', usedAt: null },
         data: { usedAt: expect.any(Date) as unknown as Date },
       });
       expect(prisma.user.update).toHaveBeenCalledWith({
@@ -1083,6 +1092,27 @@ describe('MfaService', () => {
       );
 
       await expect(service.recoverMfa(dto)).resolves.toHaveProperty('message');
+    });
+
+    // Issue #487: otra petición consumió el mismo código entre el findMany y el
+    // update. La perdedora debe fallar sin desactivar MFA ni revocar sesiones.
+    it('rechaza sin efectos si el código ya fue consumido por otra petición', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser({ mfaEnabled: true }));
+      mockArgon2.verify
+        .mockResolvedValueOnce(true as never)
+        .mockResolvedValueOnce(true as never);
+      prisma.mfaRecoveryCode.findMany.mockResolvedValue([
+        { id: 'code-1', codeHash: 'hash-1' },
+      ]);
+      prisma.mfaRecoveryCode.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.recoverMfa(dto)).rejects.toThrow(
+        'Código de recuperación inválido',
+      );
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(prisma.session.updateMany).not.toHaveBeenCalled();
+      expect(auditService.log).not.toHaveBeenCalled();
+      expect(mailService.sendMfaRecoveryNoticeEmail).not.toHaveBeenCalled();
     });
 
     it('no revoca sesiones ni envía aviso si el código de recuperación es inválido', async () => {

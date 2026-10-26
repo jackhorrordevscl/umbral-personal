@@ -500,23 +500,30 @@ export class MfaService {
       throw new UnauthorizedException('Código de recuperación inválido');
     }
 
-    await this.prisma.$transaction([
-      this.prisma.mfaRecoveryCode.update({
-        where: { id: matchedCodeId },
+    await this.prisma.$transaction(async (tx) => {
+      // Issue #487: el findMany de arriba no es atómico con este consumo. El
+      // updateMany condicional (usedAt: null) deja pasar a una sola de dos
+      // peticiones simultáneas con el mismo código; la otra falla sin tocar
+      // MFA ni sesiones (mismo patrón que consumeTotp).
+      const { count } = await tx.mfaRecoveryCode.updateMany({
+        where: { id: matchedCodeId, usedAt: null },
         data: { usedAt: new Date() },
-      }),
-      this.prisma.user.update({
+      });
+      if (count !== 1) {
+        throw new UnauthorizedException('Código de recuperación inválido');
+      }
+      await tx.user.update({
         where: { id: user.id },
         data: { mfaEnabled: false, mfaSecret: null, lastUsedStep: null },
-      }),
+      });
       // Issue #302: whoever holds the recovery code + password may not be the
       // owner, so every session opened before the recovery dies with it. In
       // the same transaction so MFA is never off while old sessions live.
-      this.prisma.session.updateMany({
+      await tx.session.updateMany({
         where: { userId: user.id, revokedAt: null },
         data: { revokedAt: new Date() },
-      }),
-    ]);
+      });
+    });
 
     await this.auditService.log({
       userId: user.id,
