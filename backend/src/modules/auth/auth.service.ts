@@ -71,6 +71,8 @@ const INVITATION_EXPIRES_IN_MS = 7 * 24 * 60 * 60 * 1000;
 // Issue #303: único rechazo de signup (invitación inválida/usada/expirada o
 // email ya registrado); mismo status y mensaje para no habilitar enumeración.
 const SIGNUP_REJECTED_MESSAGE = 'Código de invitación inválido o expirado';
+const SIGNUP_SUCCESS_MESSAGE =
+  'Cuenta creada. Revisa tu email para verificarla antes de iniciar sesión.';
 
 @Injectable()
 export class AuthService {
@@ -97,10 +99,12 @@ export class AuthService {
   // las dos operaciones no deje ni una invitación "gastada" sin cuenta ni
   // una cuenta creada con una invitación que sigue viéndose disponible.
   async signup(dto: SignupDto, ipAddress?: string, userAgent?: string) {
-    // Issue #303: la invitación se valida ANTES de mirar si el email existe, y
-    // ambos fallos (invitación inválida, email ya registrado) responden con el
-    // mismo status y mensaje. Así, sin una invitación válida no hay forma de
-    // enumerar qué emails tienen cuenta.
+    // Issue #303: la invitación se valida ANTES de mirar si el email existe,
+    // así que sin una invitación válida no hay forma de enumerar qué emails
+    // tienen cuenta.
+    // Issue #487: con una invitación válida tampoco: si el email ya existe se
+    // responde igual que un alta nueva (sin crear nada ni gastar la
+    // invitación) y el titular recibe un aviso por email.
     const invitation = await this.prisma.invitationCode.findUnique({
       where: { code: dto.inviteCode },
     });
@@ -120,7 +124,16 @@ export class AuthService {
       where: { email: normalizeEmail(dto.email) },
     });
     if (existing) {
-      this.rejectSignup('EMAIL_TAKEN', ipAddress, userAgent);
+      this.auditSignupRejection('EMAIL_TAKEN', ipAddress, userAgent);
+      if (!existing.deletedAt) {
+        this.runInBackground('aviso de alta duplicada', existing.id, () =>
+          this.mailService.sendSignupAttemptNoticeEmail(
+            existing.email,
+            existing.name,
+          ),
+        );
+      }
+      return { message: SIGNUP_SUCCESS_MESSAGE };
     }
 
     // Transacción interactiva (no el array-form usado en otros métodos de
@@ -141,8 +154,8 @@ export class AuthService {
     //
     // Issue #303: dos signups concurrentes con el mismo email pueden pasar
     // ambos el findUnique de arriba; el segundo cae en el unique de User.email
-    // (P2002) y debe responder igual que el resto de rechazos, no con un 409
-    // ni un 500 que delate que el email existe.
+    // (P2002) y debe responder igual que un alta normal (issue #487), no con
+    // un 409 ni un 500 que delate que el email existe.
     const user = await this.prisma
       .$transaction(async (tx) => {
         const createdUser = await tx.user.create({
@@ -171,13 +184,17 @@ export class AuthService {
           // un email repetido: se propaga como error real, no se enmascara.
           !isSlugConflict(err)
         ) {
-          this.rejectSignup('EMAIL_TAKEN_RACE', ipAddress, userAgent);
+          return null;
         }
         if (err instanceof UnauthorizedException) {
           this.rejectSignup('INVITATION_USED_RACE', ipAddress, userAgent);
         }
         throw err;
       });
+    if (!user) {
+      this.auditSignupRejection('EMAIL_TAKEN_RACE', ipAddress, userAgent);
+      return { message: SIGNUP_SUCCESS_MESSAGE };
+    }
 
     // issue #283: alta de cuenta e invitación consumida quedan en una sola
     // fila (la invitación vincula usedById en la misma transacción).
@@ -199,27 +216,33 @@ export class AuthService {
       this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
     const verifyUrl = `${frontendUrl}/verify-email?token=${token}`;
 
-    await this.mailService.sendVerificationEmail(
-      user.email,
-      user.name,
-      verifyUrl,
+    // En segundo plano, igual que el aviso de alta duplicada: el envío no debe
+    // volver distinguible por latencia la rama de éxito (issue #487).
+    this.runInBackground('email de verificación del alta', user.id, () =>
+      this.mailService.sendVerificationEmail(user.email, user.name, verifyUrl),
     );
 
-    return {
-      message:
-        'Cuenta creada. Revisa tu email para verificarla antes de iniciar sesión.',
-    };
+    return { message: SIGNUP_SUCCESS_MESSAGE };
   }
 
-  // Todo rechazo de signup responde igual (SIGNUP_REJECTED_MESSAGE, issue
-  // #303); el motivo real solo queda en AuditLog. Sin await a propósito: la
-  // escritura no debe volver distinguible por latencia ninguna rama. Sin
-  // email ni código en el detalle (issue #134).
+  // Rechazo de signup por invitación (SIGNUP_REJECTED_MESSAGE, issue #303); el
+  // motivo real solo queda en AuditLog.
   private rejectSignup(
     reason: string,
     ipAddress?: string,
     userAgent?: string,
   ): never {
+    this.auditSignupRejection(reason, ipAddress, userAgent);
+    throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
+  }
+
+  // Sin await a propósito: la escritura no debe volver distinguible por
+  // latencia ninguna rama. Sin email ni código en el detalle (issue #134).
+  private auditSignupRejection(
+    reason: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): void {
     void logAuditFailOpen(this.auditService, this.logger, {
       action: 'UNAUTHORIZED_ATTEMPT',
       resource: 'Signup',
@@ -228,7 +251,6 @@ export class AuthService {
       ipAddress,
       userAgent,
     });
-    throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
   }
 
   async verifyEmail(token: string) {
