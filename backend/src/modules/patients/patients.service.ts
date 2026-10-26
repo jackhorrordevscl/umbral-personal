@@ -1102,9 +1102,10 @@ export class PatientsService {
           acquisitionReferrer: origin?.referrer ?? null,
         },
       });
-      // The booking guardian is the only one so far: payer, contact and
-      // consent holder by default. The therapist records the consent itself
-      // later; no consent is captured publicly.
+      // The booking guardian is the only one so far: payer and contact. It
+      // is anonymous and unverified, so report access and consent stay off
+      // until the therapist verifies the person and enables them. No consent
+      // is captured publicly.
       await client.legalGuardian.create({
         data: {
           patientId: patient.id,
@@ -1115,8 +1116,8 @@ export class PatientsService {
           phone: guardian.phone || null,
           isPayer: true,
           receivesCommunications: true,
-          canAccessReports: true,
-          canConsent: true,
+          canAccessReports: false,
+          canConsent: false,
           custody: CustodyType.UNKNOWN,
           hasConflict: false,
         },
