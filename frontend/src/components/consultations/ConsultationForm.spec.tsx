@@ -133,6 +133,35 @@ describe('ConsultationForm — búsqueda de pacientes en el servidor (#290)', ()
       expect(searches).toEqual(['Otra'])
     })
   })
+
+  // El select cerrado ocultaba los resultados: al buscar, la lista se muestra
+  // abierta bajo el buscador y al elegir un paciente vuelve a ser un desplegable.
+  it('al buscar muestra los resultados como lista abierta y la cierra al elegir', async () => {
+    const user = userEvent.setup()
+    mockedApi.get.mockImplementation((_url, config) => {
+      const search = (config?.params as { search?: string } | undefined)?.search
+      return Promise.resolve({
+        data: search === 'Otra'
+          ? { data: [other], total: 1, page: 1, pageSize: 20 }
+          : { data: [patient, other], total: 2, page: 1, pageSize: 20 },
+      })
+    })
+
+    renderForm()
+    await screen.findByRole('option', { name: /Paciente de Prueba/ })
+    expect(screen.getByRole('combobox', { name: /Paciente/ })).toBeInTheDocument()
+
+    await user.type(screen.getByRole('searchbox', { name: /buscar paciente/i }), 'Otra')
+
+    const results = await screen.findByRole('listbox', { name: /Paciente/ })
+    expect(within(results).getByRole('option', { name: /Otra Persona/ })).toBeInTheDocument()
+
+    await user.selectOptions(results, 'patient-2')
+
+    const select = await screen.findByRole('combobox', { name: /Paciente/ })
+    expect(select).toHaveValue('patient-2')
+    expect(screen.getByRole('searchbox', { name: /buscar paciente/i })).toHaveValue('')
+  })
 })
 
 describe('ConsultationForm — validación de horas', () => {

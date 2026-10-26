@@ -19,6 +19,8 @@ import { Upload } from 'lucide-react';
 // servidor (con espera) y muestra a lo más esta cantidad de resultados.
 const PATIENT_OPTIONS_PAGE_SIZE = 20;
 const PATIENT_SEARCH_DEBOUNCE_MS = 300;
+// Filas de la lista abierta de resultados (incluye la opción vacía).
+const MAX_VISIBLE_RESULTS = 6;
 
 // Sugerencia de usuarios: muchos terapeutas ya llevan su propio registro de
 // sesión (Word/PDF) y quieren adjuntarlo tal cual, en vez de reescribir todo
@@ -67,6 +69,7 @@ export default function ConsultationForm({
   const [patientSearch, setPatientSearch] = useState('');
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const debouncedPatientSearch = useDebouncedValue(patientSearch.trim(), PATIENT_SEARCH_DEBOUNCE_MS);
+  const isSearching = patientSearch.trim() !== '';
   const {
     data: patientsPage,
     isLoading: patientsLoading,
@@ -210,11 +213,16 @@ export default function ConsultationForm({
             disabled={patientsUnavailable}
             onChange={e => setPatientSearch(e.target.value)}
           />
+          {/* Un select cerrado oculta los resultados de la búsqueda: mientras se
+              busca se muestra como lista abierta, y al elegir vuelve a ser un
+              desplegable (el paciente elegido se conserva en `patients`). */}
           <select id="consult-patientId" className="input-field" value={form.patientId}
+            size={isSearching ? Math.min(patients.length + 1, MAX_VISIBLE_RESULTS) : undefined}
             disabled={patientsLoading || patientsUnavailable}
             onChange={e => {
               setForm({ ...form, patientId: e.target.value });
               setSelectedPatient(patients.find((p: Patient) => p.id === e.target.value) ?? null);
+              setPatientSearch('');
             }}>
             <option value="">
               {patientsLoading
