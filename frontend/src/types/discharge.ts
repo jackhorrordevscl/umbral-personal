@@ -127,6 +127,9 @@ export interface DischargeVerification {
   pdf: { present: boolean; intact: boolean | null };
   source: DischargeSource;
   providedByTherapist: boolean;
+  // CONTENT: el hash cubre el contenido del informe. FILE_ONLY: solo los bytes
+  // del PDF subido (los datos del cierre quedan fuera).
+  hashScope: "CONTENT" | "FILE_ONLY";
 }
 
 // Entrega del informe de alta (T4c). Mirrors backend model DischargeDelivery.

@@ -358,6 +358,7 @@ describe('Treatment discharges: PDF propio (e2e)', () => {
         valid: true,
         source: 'UPLOADED',
         providedByTherapist: true,
+        hashScope: 'FILE_ONLY',
         isCurrent: true,
         contentHash: sha256(bytes),
         pdf: { present: true, intact: true },

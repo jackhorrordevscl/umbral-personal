@@ -69,6 +69,14 @@ El terapeuta puede aportar su propio PDF en lugar de generarlo. En ese caso:
   presenta como firmado por él.
 - La verificación y la interfaz indican que es un "documento aportado por el
   terapeuta" (`providedByTherapist`).
+- El hash cubre **solo el archivo**. El motivo de cierre, el motivo de abandono,
+  las fechas, la versión y el snapshot del firmante se guardan aparte y no
+  entran en ningún hash, así que `valid` no detecta un cambio en esos datos. La
+  verificación lo declara con `hashScope = FILE_ONLY` (`CONTENT` en un informe
+  generado) y la interfaz lo muestra. Un hash propio de esos datos se evaluó y
+  se descartó: viviría en la misma tabla que los datos, no probaría que
+  coincidan con el PDF y exigiría una migración con relleno de los informes ya
+  subidos (issue #492).
 - El archivo debe ser `application/pdf` y empezar con `%PDF-`.
 - Los campos de contenido (motivo, evolución, recomendaciones) quedan vacíos,
   porque el contenido vive en el archivo.

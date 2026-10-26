@@ -1138,6 +1138,8 @@ describe('DischargesService', () => {
       const result = await service.verify('dis-1', 'therapist-1');
       expect(result.valid).toBe(true);
       expect(result.isCurrent).toBe(true);
+      // Issue #492: en un informe generado el hash cubre todo el contenido.
+      expect(result.hashScope).toBe('CONTENT');
       expect(result).not.toHaveProperty('evolutionSummary');
       expect(result).not.toHaveProperty('consultReason');
     });

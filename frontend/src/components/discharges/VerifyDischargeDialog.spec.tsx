@@ -24,6 +24,7 @@ const base: DischargeVerification = {
   pdf: { present: true, intact: true },
   source: 'GENERATED',
   providedByTherapist: false,
+  hashScope: 'CONTENT',
 }
 
 function renderDialog() {
@@ -40,12 +41,14 @@ describe('VerifyDischargeDialog', () => {
 
   it('un PDF aportado por el terapeuta nunca se presenta como firmado por el sistema', async () => {
     mockedApi.get.mockResolvedValue({
-      data: { ...base, source: 'UPLOADED', providedByTherapist: true },
+      data: { ...base, source: 'UPLOADED', providedByTherapist: true, hashScope: 'FILE_ONLY' },
     })
     const { baseElement } = renderDialog()
 
     expect(await screen.findByText(/Documento aportado por el terapeuta/)).toBeInTheDocument()
     expect(screen.getByText(/no lo firma ni certifica/)).toBeInTheDocument()
+    // Issue #492: la huella cubre solo el archivo; los datos del cierre quedan fuera.
+    expect(screen.getByText(/La huella cubre solo el archivo/)).toBeInTheDocument()
     expect(screen.queryByText(/firmado por el sistema/i)).not.toBeInTheDocument()
     expect(screen.getByText(/El PDF guardado coincide/)).toBeInTheDocument()
     await expectNoA11yViolations(baseElement)
@@ -57,6 +60,7 @@ describe('VerifyDischargeDialog', () => {
 
     expect(await screen.findByText(/Informe generado por el sistema/)).toBeInTheDocument()
     expect(screen.queryByText(/Documento aportado por el terapeuta/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/La huella cubre solo el archivo/)).not.toBeInTheDocument()
     expect(screen.getByText(/2 \(vigente\)/)).toBeInTheDocument()
   })
 
