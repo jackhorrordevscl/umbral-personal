@@ -992,6 +992,73 @@ describe('AuthService', () => {
     });
   });
 
+  describe('claim pca de los tokens del flujo MFA (issue #487)', () => {
+    const changedAt = new Date('2026-10-01T12:00:00.500Z');
+
+    beforeEach(() => {
+      mockArgon2.verify.mockResolvedValue(true as never);
+    });
+
+    it('login emite el mfaToken con el passwordChangedAt en ms de la cuenta', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaEnabled: true, passwordChangedAt: changedAt }),
+      );
+
+      await service.login({ email: 'user@example.com', password: 'password1' });
+
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        { sub: 'user-1', purpose: 'mfa-verify', pca: changedAt.getTime() },
+        { expiresIn: '5m' },
+      );
+    });
+
+    it('login emite el setupToken con el passwordChangedAt en ms de la cuenta', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaEnabled: false, passwordChangedAt: changedAt }),
+      );
+
+      await service.login({ email: 'user@example.com', password: 'password1' });
+
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        { sub: 'user-1', purpose: 'mfa-setup', pca: changedAt.getTime() },
+        { expiresIn: '10m' },
+      );
+    });
+
+    it('el cambio forzado emite el setupToken con el passwordChangedAt recién fijado, no con el anterior', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'password-change',
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mustChangePassword: true, passwordChangedAt: changedAt }),
+      );
+      mockArgon2.verify.mockResolvedValue(false as never);
+      mockArgon2.hash.mockResolvedValue('new-hashed-password' as never);
+
+      await service.changePassword({
+        passwordChangeToken: 'password-change-token',
+        newPassword: 'newpassword1',
+      });
+
+      const [[args]] = prisma.user.updateMany.mock.calls as unknown as [
+        [{ data: { passwordChangedAt: Date } }],
+      ];
+      const { data } = args;
+      expect(data.passwordChangedAt.getTime()).toBeGreaterThan(
+        changedAt.getTime(),
+      );
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        {
+          sub: 'user-1',
+          purpose: 'mfa-setup',
+          pca: data.passwordChangedAt.getTime(),
+        },
+        { expiresIn: '10m' },
+      );
+    });
+  });
+
   describe('forgotPassword', () => {
     it('responde el mensaje genérico sin tocar prisma si el email no existe', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
