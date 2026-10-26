@@ -185,10 +185,7 @@ describe('MfaService', () => {
         );
       }
 
-      it.each([
-        ['antes', changedAtSec - 60],
-        ['en el mismo segundo', changedAtSec],
-      ])(
+      it.each([['antes', changedAtSec - 60]])(
         'beginMfaSetup y confirmMfaSetup lanzan 401 si el token se emitió %s del cambio',
         async (_label, iat) => {
           jwtService.verify.mockReturnValue({
@@ -222,11 +219,16 @@ describe('MfaService', () => {
         );
       });
 
-      it('acepta un token emitido después del cambio', async () => {
+      // El cambio forzado de contraseña emite el setupToken en el mismo
+      // segundo que passwordChangedAt: ese flujo no puede romperse.
+      it.each([
+        ['después del cambio', changedAtSec + 60],
+        ['en el mismo segundo del cambio', changedAtSec],
+      ])('acepta un token emitido %s', async (_label, iat) => {
         jwtService.verify.mockReturnValue({
           sub: 'user-1',
           purpose: 'mfa-setup',
-          iat: changedAtSec + 60,
+          iat,
         });
         mockPendingUser();
         mockSpeakeasy.generateSecret.mockReturnValue({
@@ -415,10 +417,7 @@ describe('MfaService', () => {
         mockTotp(0);
       }
 
-      it.each([
-        ['antes', changedAtSec - 60],
-        ['en el mismo segundo', changedAtSec],
-      ])(
+      it.each([['antes', changedAtSec - 60]])(
         'lanza 401 si el token se emitió %s del cambio, aunque el TOTP sea válido',
         async (_label, iat) => {
           jwtService.verify.mockReturnValue({
@@ -445,11 +444,14 @@ describe('MfaService', () => {
         expect(prisma.user.updateMany).not.toHaveBeenCalled();
       });
 
-      it('acepta un token emitido después del cambio', async () => {
+      it.each([
+        ['después del cambio', changedAtSec + 60],
+        ['en el mismo segundo del cambio', changedAtSec],
+      ])('acepta un token emitido %s', async (_label, iat) => {
         jwtService.verify.mockReturnValue({
           sub: 'user-1',
           purpose: 'mfa-verify',
-          iat: changedAtSec + 60,
+          iat,
         });
         mockUserWithPasswordChange();
 

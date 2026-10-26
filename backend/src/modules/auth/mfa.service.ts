@@ -198,10 +198,14 @@ export class MfaService {
   }
 
   /**
-   * Issue #487: misma regla que JwtStrategy.validate (issue #76): `iat` son
-   * segundos enteros y passwordChangedAt tiene milisegundos, por eso se
-   * compara con `<=` contra el valor truncado a segundos. NULL desactiva el
-   * chequeo (cuentas que nunca cambiaron la contraseña). Si hay
+   * Issue #487: `iat` son segundos enteros y passwordChangedAt tiene
+   * milisegundos, por eso se compara con `<` contra el valor truncado a
+   * segundos. A diferencia de JwtStrategy.validate (`<=`, issue #76), aquí el
+   * mismo segundo SÍ es válido: el cambio de contraseña forzado
+   * (AuthService.changePassword) fija passwordChangedAt y emite en seguida el
+   * setupToken/mfaToken del propio flujo, en ese mismo segundo. La ventana de
+   * un segundo que queda abierta es el costo de no romper ese flujo. NULL
+   * desactiva el chequeo (cuentas que nunca cambiaron la contraseña). Si hay
    * passwordChangedAt y el token no trae `iat`, se rechaza (fail-closed).
    */
   private isIssuedBeforePasswordChange(
@@ -210,7 +214,7 @@ export class MfaService {
   ): boolean {
     if (!passwordChangedAt) return false;
     if (typeof iat !== 'number') return true;
-    return iat <= Math.floor(passwordChangedAt.getTime() / 1000);
+    return iat < Math.floor(passwordChangedAt.getTime() / 1000);
   }
 
   /**

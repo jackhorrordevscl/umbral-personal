@@ -217,6 +217,16 @@ describe('Cambio de contraseña forzado del admin semilla (e2e)', () => {
       typeof (changeRes.body as Record<string, unknown>).setupToken as string,
     ).toBe('string');
 
+    // Issue #487: el setupToken se emite en el mismo segundo en que se fija
+    // passwordChangedAt; ese token del propio flujo debe seguir sirviendo.
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/mfa/setup/begin')
+      .send({
+        setupToken: (changeRes.body as Record<string, unknown>)
+          .setupToken as string,
+      })
+      .expect(201);
+
     const admin = await prisma.user.findUnique({
       where: { email: ADMIN_EMAIL },
     });
