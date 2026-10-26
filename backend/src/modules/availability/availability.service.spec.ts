@@ -612,6 +612,42 @@ describe('AvailabilityService (cache)', () => {
     expect(prisma.therapistAvailability.findMany).toHaveBeenCalledTimes(2);
   });
 
+  // issue #502: el recheck de book() corre dentro de su transacción y no puede
+  // pedir una segunda conexión al pool mientras sostiene el lock del terapeuta.
+  it('con options.client lee todo con ese cliente y no con el de la instancia', async () => {
+    const client = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ sessionDurationMinutes: 50 }),
+      },
+      therapistAvailability: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            { dayOfWeek: 1, startMinute: 9 * 60, endMinute: 13 * 60 },
+          ]),
+      },
+      availabilityBlockout: { findMany: jest.fn().mockResolvedValue([]) },
+      publicHoliday: { findMany: jest.fn().mockResolvedValue([]) },
+      consultation: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+
+    await service.computeSlots('therapist-1', from, to, now, {
+      bypassCache: true,
+      client: client as never,
+    });
+
+    expect(client.user.findUnique).toHaveBeenCalledTimes(1);
+    expect(client.therapistAvailability.findMany).toHaveBeenCalledTimes(1);
+    expect(client.availabilityBlockout.findMany).toHaveBeenCalledTimes(1);
+    expect(client.publicHoliday.findMany).toHaveBeenCalledTimes(1);
+    expect(client.consultation.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    expect(prisma.therapistAvailability.findMany).not.toHaveBeenCalled();
+    expect(prisma.availabilityBlockout.findMany).not.toHaveBeenCalled();
+    expect(prisma.publicHoliday.findMany).not.toHaveBeenCalled();
+    expect(prisma.consultation.findMany).not.toHaveBeenCalled();
+  });
+
   it('la lectura de ocupación se amplía MAX_SESSION_MINUTES antes de `from` para ver sesiones que lo solapan (cada consulta trae su duración)', async () => {
     await service.computeSlots('therapist-1', from, to, now);
 

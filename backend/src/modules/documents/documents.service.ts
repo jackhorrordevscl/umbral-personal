@@ -22,6 +22,7 @@ import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { getAgeBand } from '../../common/utils/age.util';
 import { sanitizeAttachmentFileName } from '../../common/utils/attachment-file-name.util';
 import { assertFileContentMatchesMimetype } from '../../common/utils/file-signature.util';
+import { lockTherapistForWrite } from '../../common/utils/lock-therapist.util';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
 import {
@@ -161,6 +162,7 @@ export class DocumentsService {
       doc =
         type === DocumentType.INFORMED_ASSENT && minorAgeBand
           ? await this.prisma.$transaction(async (tx) => {
+              await lockTherapistForWrite(tx, userId);
               const created = await createDocument(tx);
               await tx.patientAssent.create({
                 data: {

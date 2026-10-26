@@ -776,6 +776,59 @@ describe('PublicSchedulingService', () => {
       ).not.toHaveBeenCalled();
     });
 
+    it('issue #502: un bloqueo confirmado entre el recheck previo y el lock rechaza la reserva con 409 sin crear nada', async () => {
+      setUpFreeSlot();
+      // El recheck previo (fuera del lock) ve el horario libre; cuando esta
+      // reserva obtiene el lock del terapeuta, un bloqueo ya lo cubre.
+      availabilityService.computeSlots
+        .mockResolvedValueOnce([
+          {
+            start: '2026-09-05T13:00:00.000Z',
+            end: '2026-09-05T13:50:00.000Z',
+          },
+        ])
+        .mockResolvedValueOnce([]);
+
+      await expect(service.book('therapist-1', dto)).rejects.toThrow(
+        ConflictException,
+      );
+      await Promise.resolve();
+
+      expect(availabilityService.computeSlots).toHaveBeenCalledTimes(2);
+      // El recheck previo lee con el pool; el definitivo, con la conexión de la
+      // transacción: pedir una segunda conexión mientras se sostiene el lock
+      // agota el pool bajo una ráfaga de reservas del mismo terapeuta.
+      expect(availabilityService.computeSlots).toHaveBeenNthCalledWith(
+        1,
+        'therapist-1',
+        expect.any(Date),
+        expect.any(Date),
+        expect.any(Date),
+        { bypassCache: true },
+      );
+      expect(availabilityService.computeSlots).toHaveBeenNthCalledWith(
+        2,
+        'therapist-1',
+        expect.any(Date),
+        expect.any(Date),
+        expect.any(Date),
+        { bypassCache: true, client: tx },
+      );
+      const [, recheckAfterLock] =
+        availabilityService.computeSlots.mock.invocationCallOrder;
+      expect(
+        consultationsService.lockTherapistSchedule.mock.invocationCallOrder[0],
+      ).toBeLessThan(recheckAfterLock);
+      expect(patientsService.resolveForPublicBooking).not.toHaveBeenCalled();
+      expect(
+        consultationsService.createFromPublicBooking,
+      ).not.toHaveBeenCalled();
+      expect(notificationsService.create).not.toHaveBeenCalled();
+      expect(
+        consultationsService.afterPublicBookingCommit,
+      ).not.toHaveBeenCalled();
+    });
+
     it('cuenta solo las reservas del terapeuta pedido, en la ventana de 24h', async () => {
       jest.useFakeTimers().setSystemTime(new Date('2026-09-05T12:00:00.000Z'));
       try {

@@ -4,7 +4,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AvailabilityBlockout, CalendarBusyBlock } from '@prisma/client';
+import {
+  AvailabilityBlockout,
+  CalendarBusyBlock,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   DEFAULT_SESSION_MINUTES,
@@ -21,6 +25,19 @@ import {
 import { ScheduleEntryDto } from './dto/schedule-entry.dto';
 import { ScheduleUpdateDto } from './dto/schedule-update.dto';
 import { CreateBlockoutDto } from './dto/create-blockout.dto';
+
+// Delegados que lee computeSlots: lo que comparten PrismaService y el cliente
+// de una transacción interactiva.
+export type SlotReadClient = Pick<
+  Prisma.TransactionClient,
+  | 'user'
+  | 'therapistAvailability'
+  | 'availabilityBlockout'
+  | 'publicHoliday'
+  | 'consultation'
+  | 'googleCalendarConnection'
+  | 'calendarBusyBlock'
+>;
 
 // sdd/patient-self-scheduling PR 2 (design.md "Slot grid" + spec.md "Booking
 // Window Bounds"): fijos, no configurables por el MVP.
@@ -316,13 +333,17 @@ export class AvailabilityService {
 
   // issue #285: bypassCache fuerza el cómputo contra la DB (el recheck de
   // book() no puede leer la misma entrada de cache que sirvió el listado).
+  // issue #502: `client` hace que todas las lecturas usen la conexión de una
+  // transacción abierta; sin él, quien ya sostiene un lock pediría una segunda
+  // conexión al pool y, bajo una ráfaga, el pool se agotaría esperándose.
   async computeSlots(
     therapistId: string,
     from: Date,
     to: Date,
     now: Date = new Date(),
-    options: { bypassCache?: boolean } = {},
+    options: { bypassCache?: boolean; client?: SlotReadClient } = {},
   ): Promise<AvailableSlot[]> {
+    const db: SlotReadClient = options.client ?? this.prisma;
     const key = this.cacheKey(therapistId, from, to);
     const cached = this.cache.get(key);
     if (!options.bypassCache && cached && cached.expiresAt > now.getTime()) {
@@ -343,7 +364,7 @@ export class AvailabilityService {
       Pick<CalendarBusyBlock, 'startsAt' | 'endsAt'>[]
     > = Promise.resolve([]);
     if (this.overlayEnabled) {
-      const connection = await this.prisma.googleCalendarConnection.findUnique({
+      const connection = await db.googleCalendarConnection.findUnique({
         where: { therapistId },
         select: { busySyncedAt: true, status: true },
       });
@@ -355,7 +376,7 @@ export class AvailabilityService {
         now.getTime() - connection.busySyncedAt.getTime() <
           OVERLAY_STALENESS_MS;
       if (isFresh) {
-        busyBlocksQuery = this.prisma.calendarBusyBlock.findMany({
+        busyBlocksQuery = db.calendarBusyBlock.findMany({
           where: { therapistId, startsAt: { lt: to }, endsAt: { gt: from } },
           select: { startsAt: true, endsAt: true },
         });
@@ -364,7 +385,7 @@ export class AvailabilityService {
 
     // Duración vigente del terapeuta: solo define la grilla de slots nuevos
     // (la ocupación usa la duración guardada en cada consulta, issue #336).
-    const therapist = await this.prisma.user.findUnique({
+    const therapist = await db.user.findUnique({
       where: { id: therapistId },
       select: { sessionDurationMinutes: true },
     });
@@ -378,11 +399,11 @@ export class AvailabilityService {
       occupiedConsultations,
       busyBlocks,
     ] = await Promise.all([
-      this.prisma.therapistAvailability.findMany({
+      db.therapistAvailability.findMany({
         where: { therapistId },
         select: { dayOfWeek: true, startMinute: true, endMinute: true },
       }),
-      this.prisma.availabilityBlockout.findMany({
+      db.availabilityBlockout.findMany({
         where: { therapistId, startsAt: { lt: to }, endsAt: { gt: from } },
         select: { startsAt: true, endsAt: true },
       }),
@@ -390,11 +411,11 @@ export class AvailabilityService {
       // (design.md "Chile Public Holidays" -- un puñado de filas por año),
       // así que traerla completa evita tener que traducir el rango de
       // instantes a límites de columna @db.Date.
-      this.prisma.publicHoliday.findMany({ select: { date: true } }),
+      db.publicHoliday.findMany({ select: { date: true } }),
       // design.md Decision 2 "Occupancy read": mismo predicado que
       // consultations.service.ts findByRange (correctedBy: null, deletedAt:
       // null, sessionDate dentro del rango).
-      this.prisma.consultation.findMany({
+      db.consultation.findMany({
         where: {
           therapistId,
           correctedBy: null,

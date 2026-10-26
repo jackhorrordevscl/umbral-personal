@@ -171,9 +171,12 @@ export class ConsultationsService {
 
     // Issue #131 (Ley 20.584 Art. 14 / review R3-001): el chequeo de
     // consentimiento y la escritura de la Consultation viven en la misma
-    // transacción -- así una revocación concurrente entre el chequeo y el
-    // insert no puede colarse (antes eran dos queries separadas con una
-    // ventana de carrera). Cualquiera de las dos finalidades (presencial o
+    // transacción, con el lock FOR UPDATE del paciente tomado antes del
+    // chequeo. La garantía la da ese lock, no la transacción sola: el insert
+    // de una revocación (PatientsService.writeConsent, que no abre
+    // transacción ni lockea) pide KEY SHARE sobre Patient por la FK y espera a
+    // que esta transacción confirme, así que no puede colarse entre el chequeo
+    // y el insert. Cualquiera de las dos finalidades (presencial o
     // telemedicina) habilita la consulta, sin importar el sessionType de
     // esta sesión puntual.
     let reopenedFrom = null as string | null;

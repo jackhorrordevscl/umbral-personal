@@ -32,6 +32,7 @@ import { chileDayKeyFromInstant } from '../../common/utils/chile-time.util';
 import { MINOR_GUARDIAN_ENFORCEMENT_DATE } from './patients.constants';
 import { PublicBookingRejectedException } from './public-booking-rejected.exception';
 import { toJsonSnapshot } from '../../common/utils/json-clone.util';
+import { lockTherapistForWrite } from '../../common/utils/lock-therapist.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { DEFAULT_PATIENTS_PAGE_SIZE } from './dto/patients-query.dto';
 import { isValidRut, normalizeRut } from '../../common/utils/rut.util';
@@ -460,6 +461,7 @@ export class PatientsService {
 
     const updated = await this.prisma
       .$transaction(async (tx) => {
+        await lockTherapistForWrite(tx, userId);
         await tx.patientHistory.create({
           data: {
             patientId: id,
@@ -605,17 +607,20 @@ export class PatientsService {
     );
 
     try {
-      return await this.prisma.patientConsent.create({
-        data: {
-          patientId: id,
-          purpose: dto.purpose,
-          action: dto.action,
-          recordedById: userId,
-          evidence: dto.evidence,
-          documentId: documentId ?? null,
-          grantedBy,
-          guardianId,
-        },
+      return await this.prisma.$transaction(async (tx) => {
+        await lockTherapistForWrite(tx, userId);
+        return tx.patientConsent.create({
+          data: {
+            patientId: id,
+            purpose: dto.purpose,
+            action: dto.action,
+            recordedById: userId,
+            evidence: dto.evidence,
+            documentId: documentId ?? null,
+            grantedBy,
+            guardianId,
+          },
+        });
       });
     } catch (err) {
       // The guardian was deleted between the check and the INSERT (FK).

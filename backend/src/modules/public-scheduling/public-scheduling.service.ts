@@ -14,6 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   AvailabilityService,
   AvailableSlot,
+  SlotReadClient,
 } from '../availability/availability.service';
 import { PatientsService } from '../patients/patients.service';
 import { ConsultationsService } from '../consultations/consultations.service';
@@ -131,6 +132,31 @@ export class PublicSchedulingService {
     }
   }
 
+  private async assertSlotStillFree(
+    therapistId: string,
+    slotStart: Date,
+    slotEnd: Date,
+    client?: SlotReadClient,
+  ): Promise<void> {
+    const freeSlots = await this.availabilityService.computeSlots(
+      therapistId,
+      slotStart,
+      slotEnd,
+      new Date(),
+      { bypassCache: true, ...(client && { client }) },
+    );
+    const isStillFree = freeSlots.some(
+      (slot) =>
+        slot.start === slotStart.toISOString() &&
+        slot.end === slotEnd.toISOString(),
+    );
+    if (!isStillFree) {
+      throw new ConflictException(
+        'El horario seleccionado ya no está disponible.',
+      );
+    }
+  }
+
   async getAvailability(
     therapistRef: string,
     query: PublicAvailabilityQueryDto,
@@ -199,23 +225,10 @@ export class PublicSchedulingService {
     // está disponible", mismo 409. El guard real de concurrencia contra otra
     // reserva simultánea vive en ConsultationsService.createFromPublicBooking
     // (BookedSlot unique constraint, design.md Decision 1).
-    const freeSlots = await this.availabilityService.computeSlots(
-      therapistId,
-      slotStart,
-      slotEnd,
-      new Date(),
-      { bypassCache: true },
-    );
-    const isStillFree = freeSlots.some(
-      (slot) =>
-        slot.start === slotStart.toISOString() &&
-        slot.end === slotEnd.toISOString(),
-    );
-    if (!isStillFree) {
-      throw new ConflictException(
-        'El horario seleccionado ya no está disponible.',
-      );
-    }
+    // Este recheck previo también es solo un atajo: no toma el lock, así que
+    // un bloqueo o un cambio de horario confirmado después no lo invalida. Se
+    // repite dentro de la transacción con el lock tomado (issue #502).
+    await this.assertSlotStillFree(therapistId, slotStart, slotEnd);
 
     // Issue #299: paciente (si es nuevo) + consulta en UNA transacción -- si el
     // slot ya no está libre (409) no queda un paciente huérfano. La
@@ -232,6 +245,13 @@ export class PublicSchedulingService {
         // anteriores; sin esto el conteo previo permitía pasar el tope. Un 429
         // acá hace rollback sin haber escrito nada.
         await this.assertWithinDailyLimit(tx, therapistId);
+        // Issue #502: con el lock tomado, los bloqueos y el horario semanal
+        // confirmados antes quedan visibles, y los que se insertan después
+        // esperan (su FK al User pide KEY SHARE) hasta que esta reserva
+        // confirme. Un 409 acá hace rollback sin haber escrito nada. Lee con la
+        // conexión de la transacción: pedir otra al pool mientras se sostiene
+        // el lock lo agotaría bajo una ráfaga de reservas del mismo terapeuta.
+        await this.assertSlotStillFree(therapistId, slotStart, slotEnd, tx);
         const resolved = await this.patientsService.resolveForPublicBooking(
           therapistId,
           dto.patient,
