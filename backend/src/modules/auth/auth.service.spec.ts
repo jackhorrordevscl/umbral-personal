@@ -63,6 +63,7 @@ describe('AuthService', () => {
   let mailService: {
     sendVerificationEmail: jest.Mock;
     sendPasswordResetEmail: jest.Mock;
+    sendSignupAttemptNoticeEmail: jest.Mock;
   };
   let auditService: { log: jest.Mock };
 
@@ -103,6 +104,7 @@ describe('AuthService', () => {
     mailService = {
       sendVerificationEmail: jest.fn().mockResolvedValue(undefined),
       sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
+      sendSignupAttemptNoticeEmail: jest.fn().mockResolvedValue(undefined),
     };
     auditService = {
       log: jest.fn().mockResolvedValue(undefined),
@@ -188,9 +190,7 @@ describe('AuthService', () => {
         prisma.user.findUnique.mockResolvedValue(buildUser());
         mockArgon2.hash.mockResolvedValue('hashed-password' as never);
 
-        await expect(service.signup(dto)).rejects.toThrow(
-          UnauthorizedException,
-        );
+        await expect(service.signup(dto)).resolves.toHaveProperty('message');
 
         expect(auditService.log).toHaveBeenCalledWith(
           expect.objectContaining({ detail: 'EMAIL_TAKEN' }) as unknown,
@@ -211,24 +211,74 @@ describe('AuthService', () => {
       });
     });
 
-    // Issue #303: email ya registrado + invitación válida responde igual que
-    // una invitación inválida (mismo status y mensaje), sin crear nada.
-    it('lanza 401 con el mismo mensaje genérico si el email ya está registrado', async () => {
-      prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
-      prisma.user.findUnique.mockResolvedValue(buildUser());
-      mockArgon2.hash.mockResolvedValue('hashed-password' as never);
-
+    // Issue #487: email ya registrado + invitación válida responde igual que un
+    // alta nueva, sin crear nada ni gastar la invitación; el titular recibe
+    // un aviso y no el email de verificación.
+    describe('email ya registrado (issue #487)', () => {
       const dto = {
         email: 'user@example.com',
         password: 'password1',
         name: 'Nueva Cuenta',
         inviteCode: 'valid-code',
       };
-      await expect(service.signup(dto)).rejects.toThrow(UnauthorizedException);
-      await expect(service.signup(dto)).rejects.toThrow(
-        'Código de invitación inválido o expirado',
-      );
-      expect(prisma.user.create).not.toHaveBeenCalled();
+
+      beforeEach(() => {
+        prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
+        mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+      });
+
+      it('responde el mismo mensaje que un alta nueva y no crea cuenta ni gasta la invitación', async () => {
+        prisma.user.findUnique.mockResolvedValue(buildUser());
+
+        const result = await service.signup(dto);
+
+        expect(result).toEqual({
+          message:
+            'Cuenta creada. Revisa tu email para verificarla antes de iniciar sesión.',
+        });
+        expect(prisma.user.create).not.toHaveBeenCalled();
+        expect(prisma.invitationCode.updateMany).not.toHaveBeenCalled();
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+      });
+
+      it('avisa al titular y no manda el email de verificación', async () => {
+        prisma.user.findUnique.mockResolvedValue(buildUser());
+
+        await service.signup(dto);
+        await flushBackground();
+
+        expect(mailService.sendSignupAttemptNoticeEmail).toHaveBeenCalledWith(
+          'user@example.com',
+          'Test User',
+        );
+        expect(mailService.sendVerificationEmail).not.toHaveBeenCalled();
+      });
+
+      it('no avisa si la cuenta existente está dada de baja', async () => {
+        prisma.user.findUnique.mockResolvedValue(
+          buildUser({ deletedAt: new Date() }),
+        );
+
+        await expect(service.signup(dto)).resolves.toHaveProperty('message');
+        await flushBackground();
+
+        expect(mailService.sendSignupAttemptNoticeEmail).not.toHaveBeenCalled();
+      });
+
+      it('un fallo del aviso no rompe la respuesta', async () => {
+        prisma.user.findUnique.mockResolvedValue(buildUser());
+        mailService.sendSignupAttemptNoticeEmail.mockRejectedValue(
+          new Error('resend down'),
+        );
+        const loggerError = jest
+          .spyOn(Logger.prototype, 'error')
+          .mockImplementation(() => undefined);
+
+        await expect(service.signup(dto)).resolves.toHaveProperty('message');
+        await flushBackground();
+
+        loggerError.mockRestore();
+      });
     });
 
     it('guarda el email en forma canónica al crear la cuenta (issue #303)', async () => {
@@ -293,7 +343,7 @@ describe('AuthService', () => {
       expect(prisma.user.findUnique).not.toHaveBeenCalled();
     });
 
-    it('lanza el mismo 401 genérico si el unique de email salta dentro de la transacción (signups concurrentes)', async () => {
+    it('responde igual que un alta normal si el unique de email salta dentro de la transacción (signups concurrentes)', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
       prisma.invitationCode.findUnique.mockResolvedValue(validInvitation);
       mockArgon2.hash.mockResolvedValue('hashed-password' as never);
@@ -304,16 +354,21 @@ describe('AuthService', () => {
         }),
       );
 
-      const attempt = service.signup({
+      const result = await service.signup({
         email: 'user@example.com',
         password: 'password1',
         name: 'Test User',
         inviteCode: 'valid-code',
       });
-      await expect(attempt).rejects.toThrow(UnauthorizedException);
-      await expect(attempt).rejects.toThrow(
-        'Código de invitación inválido o expirado',
+
+      expect(result).toEqual({
+        message:
+          'Cuenta creada. Revisa tu email para verificarla antes de iniciar sesión.',
+      });
+      expect(auditService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ detail: 'EMAIL_TAKEN_RACE' }) as unknown,
       );
+      expect(mailService.sendVerificationEmail).not.toHaveBeenCalled();
     });
 
     it('no enmascara otros errores de la transacción', async () => {
@@ -402,6 +457,7 @@ describe('AuthService', () => {
         name: 'Test User',
         inviteCode: 'valid-code',
       });
+      await flushBackground();
 
       expect(prisma.user.create).toHaveBeenCalledWith({
         data: {

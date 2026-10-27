@@ -485,6 +485,52 @@ describe('MailService: destinatario representante legal (NNA)', () => {
   });
 });
 
+// Issue #487: aviso al titular cuando alguien intenta registrar su email.
+describe('MailService.sendSignupAttemptNoticeEmail', () => {
+  beforeEach(() => {
+    sendMock.mockReset();
+  });
+
+  it('envía el aviso al titular, con el nombre escapado y sin datos de quien lo intentó', async () => {
+    sendMock.mockResolvedValue({ data: { id: 'email-1' }, error: null });
+    const service = new MailService(
+      buildConfig({ RESEND_API_KEY: 'test-key' }),
+    );
+
+    await service.sendSignupAttemptNoticeEmail(
+      'titular@example.com',
+      '<b>Ana</b>',
+    );
+
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    const payload = sendMock.mock.calls[0][0];
+    expect(payload.to).toBe('titular@example.com');
+    expect(payload.subject).toContain('cuenta');
+    expect(payload.html).toContain('&lt;b&gt;Ana&lt;/b&gt;');
+    expect(payload.html).not.toContain('<b>Ana</b>');
+  });
+
+  it('no lanza ni intenta enviar si RESEND_API_KEY no está configurada', async () => {
+    const service = new MailService(buildConfig({}));
+
+    await expect(
+      service.sendSignupAttemptNoticeEmail('titular@example.com', 'Ana'),
+    ).resolves.toBeUndefined();
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('no lanza si el proveedor responde con error', async () => {
+    sendMock.mockResolvedValue({ data: null, error: { message: 'boom' } });
+    const service = new MailService(
+      buildConfig({ RESEND_API_KEY: 'test-key' }),
+    );
+
+    await expect(
+      service.sendSignupAttemptNoticeEmail('titular@example.com', 'Ana'),
+    ).resolves.toBeUndefined();
+  });
+});
+
 // Issue #502: aviso al titular cuando una reserva pública colisiona con su
 // ficha. No debe nombrar al terapeuta ni dar pistas de qué dato falló.
 describe('MailService.sendPublicBookingAttemptNoticeEmail', () => {
