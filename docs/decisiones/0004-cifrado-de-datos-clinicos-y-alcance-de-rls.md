@@ -159,13 +159,26 @@ Se adopta la alternativa **B**, con esta secuencia:
   guardado antes del despliegue sigue en claro hasta ejecutar el recifrado. Los
   respaldos además salen cifrados (`backup.yml`, AES-256).
 - El cifrado en reposo del disco de Supabase no está verificado.
-- Límite del AAD: el formato `enc:v3` liga el texto al dataset y a la clave, no a
-  la fila ni al campo. Quien tenga escritura directa en la base puede mover un
-  texto cifrado a otro paciente o campo y se descifra sin error. El cifrado
-  protege la confidencialidad ante una filtración, no la integridad ante
-  escritura directa en la base. Seguimiento en el issue #486 (formato `enc:v4`).
-- Un texto heredado en claro que empiece con `enc:v1:`, `enc:v2:` o `enc:v3:` se
-  trata como cifrado y falla al descifrar. Riesgo bajo; también en el issue #486.
+- Límite del AAD (cerrado por el issue #486): el formato `enc:v3` liga el texto
+  al dataset y a la clave, no a la fila ni al campo, de modo que quien tenga
+  escritura directa en la base podía mover un texto cifrado a otro paciente o
+  campo y se descifraba sin error. Los textos clínicos ahora se escriben en
+  `enc:v4:<keyId>:<base64>`, con un AAD que además incluye el dueño y el campo:
+  `patient/<patientId>/<registro>.<campo>` (consulta, snapshot del historial e
+  informe de alta) o `user/<userId>/notification.<campo>` (notificaciones). El
+  tipo de registro va dentro del campo, así que el `consultReason` de una
+  consulta no se puede intercambiar con el de un informe de alta. Un texto movido
+  falla al descifrar y se aísla como cualquier texto ilegible (nota siguiente).
+  Los `enc:v1`, `enc:v2` y `enc:v3` existentes siguen leyéndose sin contexto
+  hasta que se ejecute `npm run crypto:reencrypt -- --only clinical --apply`, que
+  los pasa a `enc:v4`. Quien conserve la clave y escriba directo en la base sigue
+  pudiendo cifrar texto nuevo válido: el AAD detecta mover o copiar, no falsificar.
+  Una versión anterior del backend no lee `enc:v4`: el piso de rollback es este
+  cambio.
+- Un texto heredado en claro que empiece con `enc:v1:`, `enc:v2:`, `enc:v3:` o
+  `enc:v4:` se trata como cifrado y falla al descifrar. Riesgo bajo; en el issue
+  #486 se decidió no tratarlo: la base de producción se limpió antes de tener
+  datos reales y evitarlo exigiría un marcador que se superpone con el formato.
 - Nota (2026-10-27, issue #486, punto 3): un texto que no se puede descifrar ya no
   tumba la respuesta completa. En la lista de consultas, su historial y el detalle
   del paciente sale en `null` con `unreadableFields` (y se registra el id y el
