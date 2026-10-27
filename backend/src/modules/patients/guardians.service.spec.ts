@@ -233,6 +233,53 @@ describe('GuardiansService', () => {
 
       expect(prisma.legalGuardian.updateMany).not.toHaveBeenCalled();
     });
+
+    describe('RUT repetido (issue #488)', () => {
+      it('rechaza con 409 un representante con el mismo RUT que el paciente', async () => {
+        patientsService.assertAccess.mockResolvedValue({
+          id: 'patient-1',
+          rut: '12345678-5',
+        });
+
+        await expect(
+          service.create('patient-1', dto, 'therapist-1'),
+        ).rejects.toThrow(
+          new ConflictException(
+            'El RUT del representante debe ser distinto al del paciente.',
+          ),
+        );
+        expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
+      });
+
+      it('rechaza con 409 un RUT que ya tiene otro representante del mismo paciente', async () => {
+        prisma.legalGuardian.findMany.mockResolvedValue([
+          { id: 'guardian-2', rut: '12345678-5' },
+        ]);
+
+        await expect(
+          service.create('patient-1', dto, 'therapist-1'),
+        ).rejects.toThrow(
+          new ConflictException(
+            'Ya existe un representante con ese RUT para este paciente.',
+          ),
+        );
+        expect(prisma.legalGuardian.create).not.toHaveBeenCalled();
+      });
+
+      it('acepta un RUT distinto al del paciente y al del otro representante', async () => {
+        prisma.legalGuardian.findMany.mockResolvedValue([
+          { id: 'guardian-2', rut: '9876543-3' },
+        ]);
+
+        await service.create('patient-1', dto, 'therapist-1');
+
+        expect(prisma.legalGuardian.findMany).toHaveBeenCalledWith({
+          where: { patientId: 'patient-1' },
+          select: { rut: true },
+        });
+        expect(prisma.legalGuardian.create).toHaveBeenCalled();
+      });
+    });
   });
 
   describe('update', () => {
@@ -263,6 +310,81 @@ describe('GuardiansService', () => {
       expect(prisma.legalGuardian.update).toHaveBeenCalledWith({
         where: { id: 'guardian-1' },
         data: { rut: '9876543-3', canConsent: false },
+      });
+    });
+
+    describe('RUT repetido (issue #488)', () => {
+      it('rechaza con 409 cambiar el RUT al del paciente', async () => {
+        patientsService.assertAccess.mockResolvedValue({
+          id: 'patient-1',
+          rut: '9876543-3',
+        });
+
+        await expect(
+          service.update(
+            'patient-1',
+            'guardian-1',
+            { rut: '9.876.543-3' },
+            'therapist-1',
+          ),
+        ).rejects.toThrow(
+          new ConflictException(
+            'El RUT del representante debe ser distinto al del paciente.',
+          ),
+        );
+        expect(prisma.legalGuardian.update).not.toHaveBeenCalled();
+      });
+
+      it('rechaza con 409 cambiar el RUT al de otro representante, sin contarse a sí mismo', async () => {
+        prisma.legalGuardian.findMany.mockResolvedValue([{ rut: '9876543-3' }]);
+
+        await expect(
+          service.update(
+            'patient-1',
+            'guardian-1',
+            { rut: '9.876.543-3' },
+            'therapist-1',
+          ),
+        ).rejects.toThrow(
+          new ConflictException(
+            'Ya existe un representante con ese RUT para este paciente.',
+          ),
+        );
+        expect(prisma.legalGuardian.findMany).toHaveBeenCalledWith({
+          where: { patientId: 'patient-1', id: { not: 'guardian-1' } },
+          select: { rut: true },
+        });
+        expect(prisma.legalGuardian.update).not.toHaveBeenCalled();
+      });
+
+      it('reenviar el mismo RUT que ya tiene guardado no bloquea la edición (ficha previa)', async () => {
+        patientsService.assertAccess.mockResolvedValue({
+          id: 'patient-1',
+          rut: '12345678-5',
+        });
+        prisma.legalGuardian.findMany.mockResolvedValue([
+          { rut: '12345678-5' },
+        ]);
+
+        await service.update(
+          'patient-1',
+          'guardian-1',
+          { rut: '12.345.678-5', canConsent: false },
+          'therapist-1',
+        );
+
+        expect(prisma.legalGuardian.update).toHaveBeenCalled();
+      });
+
+      it('sin RUT en el cuerpo no consulta a los demás representantes', async () => {
+        await service.update(
+          'patient-1',
+          'guardian-1',
+          { canConsent: false },
+          'therapist-1',
+        );
+
+        expect(prisma.legalGuardian.findMany).not.toHaveBeenCalled();
       });
     });
 
