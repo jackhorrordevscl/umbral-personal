@@ -203,14 +203,27 @@ export class PatientsService {
       throw new ConflictException('Ya existe un paciente con ese RUT');
     }
 
-    const patient = await this.prisma.patient.create({
-      data: {
-        ...dto,
-        rut,
-        birthDate: new Date(dto.birthDate),
-        therapistId,
-      },
-    });
+    // issue #488: dos altas simultáneas con el mismo RUT pasan el chequeo de
+    // arriba; la perdedora choca con el índice único parcial y recibe el mismo
+    // 409 que si hubiera llegado después.
+    const patient = await this.prisma.patient
+      .create({
+        data: {
+          ...dto,
+          rut,
+          birthDate: new Date(dto.birthDate),
+          therapistId,
+        },
+      })
+      .catch((err: unknown) => {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          throw new ConflictException('Ya existe un paciente con ese RUT');
+        }
+        throw err;
+      });
     this.logger.log(
       `Paciente creado: id=${patient.id} therapistId=${therapistId}`,
     );
