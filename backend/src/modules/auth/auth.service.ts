@@ -68,6 +68,17 @@ const RESEND_VERIFICATION_GENERIC_MESSAGE = {
 // email con ForbiddenException.
 const INVITATION_EXPIRES_IN_MS = 7 * 24 * 60 * 60 * 1000;
 
+// Issue #487: el setupToken y el mfaToken llevan el passwordChangedAt (ms) con
+// que se emitieron; MfaService los rechaza si la contraseña cambió después.
+// Sin cambio de contraseña previo no se agrega nada (el chequeo no aplica).
+function passwordChangeClaim(user: Pick<User, 'passwordChangedAt'>): {
+  pca?: number;
+} {
+  return user.passwordChangedAt
+    ? { pca: user.passwordChangedAt.getTime() }
+    : {};
+}
+
 // Issue #303: único rechazo de signup (invitación inválida/usada/expirada o
 // email ya registrado); mismo status y mensaje para no habilitar enumeración.
 const SIGNUP_REJECTED_MESSAGE = 'Código de invitación inválido o expirado';
@@ -393,7 +404,11 @@ export class AuthService {
       // proves the password step was completed and is the only accepted input
       // for POST /auth/mfa/verify.
       const mfaToken = this.jwtService.sign(
-        { sub: user.id, purpose: MFA_VERIFY_PURPOSE },
+        {
+          sub: user.id,
+          purpose: MFA_VERIFY_PURPOSE,
+          ...passwordChangeClaim(user),
+        },
         { expiresIn: '5m' },
       );
       return {
@@ -412,7 +427,11 @@ export class AuthService {
     // este token firmado cualquiera podría iniciar el enrolamiento MFA de
     // otra cuenta sin conocer su contraseña.
     const setupToken = this.jwtService.sign(
-      { sub: user.id, purpose: MFA_SETUP_PURPOSE },
+      {
+        sub: user.id,
+        purpose: MFA_SETUP_PURPOSE,
+        ...passwordChangeClaim(user),
+      },
       { expiresIn: '10m' },
     );
     return {
@@ -473,12 +492,13 @@ export class AuthService {
     // El update es condicional (mustChangePassword: true) y se verifica el
     // count: dos requests concurrentes con el mismo token pasan el chequeo de
     // arriba, pero solo uno encuentra la fila aún marcada (issue #302).
+    const changedAt = new Date();
     const { count } = await this.prisma.user.updateMany({
       where: { id: user.id, mustChangePassword: true },
       data: {
         passwordHash: newPasswordHash,
         mustChangePassword: false,
-        passwordChangedAt: new Date(),
+        passwordChangedAt: changedAt,
         pendingEmail: null,
         pendingEmailTokenIssuedAt: null,
       },
@@ -488,7 +508,11 @@ export class AuthService {
         'La contraseña ya fue actualizada anteriormente',
       );
     }
-    const updated = { ...user, mustChangePassword: false };
+    const updated = {
+      ...user,
+      mustChangePassword: false,
+      passwordChangedAt: changedAt,
+    };
 
     await this.auditService.log({
       userId: user.id,

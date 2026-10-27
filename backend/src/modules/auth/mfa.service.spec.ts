@@ -172,7 +172,7 @@ describe('MfaService', () => {
 
     describe('setupToken emitido antes del último cambio de contraseña (issue #487)', () => {
       const changedAt = new Date('2026-10-01T12:00:00.500Z');
-      const changedAtSec = Math.floor(changedAt.getTime() / 1000);
+      const changedAtMs = changedAt.getTime();
       const expired = 'Token de configuración MFA inválido o expirado';
 
       function mockPendingUser() {
@@ -185,13 +185,17 @@ describe('MfaService', () => {
         );
       }
 
-      it.each([['antes', changedAtSec - 60]])(
+      // pca = passwordChangedAt (ms) que la cuenta tenía al emitir el token.
+      it.each([
+        ['un minuto antes', changedAtMs - 60_000],
+        ['400 ms antes, dentro del mismo segundo', changedAtMs - 400],
+      ])(
         'beginMfaSetup y confirmMfaSetup lanzan 401 si el token se emitió %s del cambio',
-        async (_label, iat) => {
+        async (_label, pca) => {
           jwtService.verify.mockReturnValue({
             sub: 'user-1',
             purpose: 'mfa-setup',
-            iat,
+            pca,
           });
           mockPendingUser();
           mockTotp(0);
@@ -207,10 +211,11 @@ describe('MfaService', () => {
         },
       );
 
-      it('lanza 401 si el token no trae iat y hay passwordChangedAt (fail-closed)', async () => {
+      it('lanza 401 si el token no trae pca y hay passwordChangedAt (fail-closed)', async () => {
         jwtService.verify.mockReturnValue({
           sub: 'user-1',
           purpose: 'mfa-setup',
+          iat: Math.floor(changedAtMs / 1000) + 60,
         });
         mockPendingUser();
 
@@ -219,16 +224,16 @@ describe('MfaService', () => {
         );
       });
 
-      // El cambio forzado de contraseña emite el setupToken en el mismo
-      // segundo que passwordChangedAt: ese flujo no puede romperse.
+      // El cambio forzado de contraseña emite el setupToken con el pca recién
+      // fijado: ese flujo no puede romperse.
       it.each([
-        ['después del cambio', changedAtSec + 60],
-        ['en el mismo segundo del cambio', changedAtSec],
-      ])('acepta un token emitido %s', async (_label, iat) => {
+        ['con el pca vigente', changedAtMs],
+        ['con un pca posterior', changedAtMs + 1_000],
+      ])('acepta un token emitido %s', async (_label, pca) => {
         jwtService.verify.mockReturnValue({
           sub: 'user-1',
           purpose: 'mfa-setup',
-          iat,
+          pca,
         });
         mockPendingUser();
         mockSpeakeasy.generateSecret.mockReturnValue({
@@ -404,7 +409,7 @@ describe('MfaService', () => {
 
     describe('mfaToken emitido antes del último cambio de contraseña (issue #487)', () => {
       const changedAt = new Date('2026-10-01T12:00:00.500Z');
-      const changedAtSec = Math.floor(changedAt.getTime() / 1000);
+      const changedAtMs = changedAt.getTime();
 
       function mockUserWithPasswordChange() {
         prisma.user.findUnique.mockResolvedValue(
@@ -417,13 +422,16 @@ describe('MfaService', () => {
         mockTotp(0);
       }
 
-      it.each([['antes', changedAtSec - 60]])(
+      it.each([
+        ['un minuto antes', changedAtMs - 60_000],
+        ['400 ms antes, dentro del mismo segundo', changedAtMs - 400],
+      ])(
         'lanza 401 si el token se emitió %s del cambio, aunque el TOTP sea válido',
-        async (_label, iat) => {
+        async (_label, pca) => {
           jwtService.verify.mockReturnValue({
             sub: 'user-1',
             purpose: 'mfa-verify',
-            iat,
+            pca,
           });
           mockUserWithPasswordChange();
 
@@ -435,7 +443,7 @@ describe('MfaService', () => {
         },
       );
 
-      it('lanza 401 si el token no trae iat y hay passwordChangedAt (fail-closed)', async () => {
+      it('lanza 401 si el token no trae pca y hay passwordChangedAt (fail-closed)', async () => {
         mockUserWithPasswordChange();
 
         await expect(service.verifyMfa(dto)).rejects.toThrow(
@@ -445,13 +453,13 @@ describe('MfaService', () => {
       });
 
       it.each([
-        ['después del cambio', changedAtSec + 60],
-        ['en el mismo segundo del cambio', changedAtSec],
-      ])('acepta un token emitido %s', async (_label, iat) => {
+        ['con el pca vigente', changedAtMs],
+        ['con un pca posterior', changedAtMs + 1_000],
+      ])('acepta un token emitido %s', async (_label, pca) => {
         jwtService.verify.mockReturnValue({
           sub: 'user-1',
           purpose: 'mfa-verify',
-          iat,
+          pca,
         });
         mockUserWithPasswordChange();
 
