@@ -6,6 +6,7 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
   ValidateIf,
 } from 'class-validator';
 
@@ -18,6 +19,7 @@ import { MAX_AMOUNT_CLP } from '../../payments/payments.constants';
 
 export class CreatePatientDto {
   @PersonName(200)
+  @MinLength(1)
   fullName: string;
 
   @IsRut()
