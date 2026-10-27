@@ -573,6 +573,9 @@ export class PatientsService {
         changedBy: { select: { id: true, name: true, role: true } },
       },
       orderBy: { changedAt: 'desc' },
+      // issue #488: cota de seguridad (las ediciones más recientes primero);
+      // el libro de consentimientos, un registro legal, no se acota.
+      take: UNPAGINATED_SAFETY_LIMIT,
     });
   }
 

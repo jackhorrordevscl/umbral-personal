@@ -1053,9 +1053,36 @@ describe('PatientsService', () => {
       );
       expect(result).toEqual([{ id: 'history-1' }]);
     });
+
+    it('issue #488: acota el historial con el tope de seguridad, de lo más reciente hacia atrás', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patientHistory.findMany.mockResolvedValue([]);
+
+      await service.getHistory('patient-1', 'therapist-1');
+
+      expect(prisma.patientHistory.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { changedAt: 'desc' },
+          take: UNPAGINATED_SAFETY_LIMIT,
+        }),
+      );
+    });
   });
 
   describe('recordConsent / getConsentLedger / getCurrentConsentStatus', () => {
+    // issue #488: el libro de consentimientos es un registro legal; a
+    // diferencia del historial de ediciones no se trunca en silencio.
+    it('getConsentLedger devuelve el libro completo, sin tope', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patientConsent.findMany.mockResolvedValue([]);
+
+      await service.getConsentLedger('patient-1', 'therapist-1');
+
+      expect(prisma.patientConsent.findMany).toHaveBeenCalledWith(
+        expect.not.objectContaining({ take: expect.anything() as unknown }),
+      );
+    });
+
     it('recordConsent valida acceso y crea el evento en el ledger', async () => {
       prisma.patient.findFirst.mockResolvedValue(buildPatient());
       prisma.patientConsent.create.mockResolvedValue({ id: 'consent-1' });
