@@ -1,4 +1,6 @@
 import {
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -25,6 +27,10 @@ export const BILLING_FRONTEND_RETURN_PATH = '/suscripcion/retorno';
 const SWEEP_MIN_AGE_MS = 15 * 60 * 1000;
 const SWEEP_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 const SWEEP_BATCH_LIMIT = 200;
+// Tope de checkouts abiertos por cuenta: una cuenta que abandona pagos no puede
+// llenar el lote del barrido ni gastar llamadas a Flow con la clave de la
+// plataforma. Solo cuentan los de la ventana del barrido.
+const MAX_OPEN_CHECKOUTS = 5;
 
 export type ConfirmOutcome =
   | 'unknown'
@@ -80,6 +86,19 @@ export class BillingService {
       userId,
       now,
     );
+    const openCheckouts = await this.prisma.subscriptionPayment.count({
+      where: {
+        subscriptionId: subscription.id,
+        status: 'PENDING',
+        createdAt: { gte: new Date(now.getTime() - SWEEP_MAX_AGE_MS) },
+      },
+    });
+    if (openCheckouts >= MAX_OPEN_CHECKOUTS) {
+      throw new HttpException(
+        'Tienes varios pagos iniciados sin completar. Termina uno o espera unas horas antes de intentar de nuevo.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
     const payment = await this.prisma.subscriptionPayment.create({
       data: {
         subscriptionId: subscription.id,
@@ -175,7 +194,9 @@ export class BillingService {
           },
         },
         select: { flowToken: true },
-        orderBy: { createdAt: 'asc' },
+        // Los más recientes primero: un backlog de abandonados no desplaza a un
+        // pago real cuyo webhook se perdió.
+        orderBy: { createdAt: 'desc' },
         take: SWEEP_BATCH_LIMIT,
       });
       for (const { flowToken } of candidates) {

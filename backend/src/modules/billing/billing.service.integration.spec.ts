@@ -1,5 +1,5 @@
 import * as argon2 from 'argon2';
-import { ServiceUnavailableException } from '@nestjs/common';
+import { HttpException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FlowPaymentGatewayClient } from '../payments/flow-gateway.client';
@@ -218,6 +218,66 @@ describe('BillingService (integration, real Prisma, Flow simulado)', () => {
 
     await expect(service.confirmByToken(token)).rejects.toThrow('timeout');
     expect((await subscriptions.getAccess(userId)).state).toBe('READ_ONLY');
+  }, 30000);
+
+  it('tope de checkouts abiertos: el sexto de la misma cuenta responde 429 y no crea nada', async () => {
+    const userId = await createUser('cap');
+    for (let i = 0; i < 5; i++) {
+      flow.createOrder.mockResolvedValueOnce({
+        token: `tok-cap-${i}-${runId}`,
+        paymentUrl: 'https://flow.test/pay',
+      });
+      await service.createCheckout(userId);
+    }
+
+    const sixth = await service.createCheckout(userId).catch((e: unknown) => e);
+
+    expect(sixth).toBeInstanceOf(HttpException);
+    expect((sixth as HttpException).getStatus()).toBe(429);
+    expect(flow.createOrder).toHaveBeenCalledTimes(5);
+    expect(
+      await prisma.subscriptionPayment.count({
+        where: { subscription: { userId } },
+      }),
+    ).toBe(5);
+  }, 30000);
+
+  it('el tope no cuenta los pagos fallidos (Flow caído al crear la orden)', async () => {
+    const userId = await createUser('cap-failed');
+    for (let i = 0; i < 6; i++) {
+      flow.createOrder.mockRejectedValueOnce(new Error('Flow caído'));
+      await service.createCheckout(userId).catch(() => undefined);
+    }
+    flow.createOrder.mockResolvedValueOnce({
+      token: `tok-capfail-ok-${runId}`,
+      paymentUrl: 'https://flow.test/pay',
+    });
+
+    await expect(service.createCheckout(userId)).resolves.toBeDefined();
+  }, 30000);
+
+  it('el barrido consulta primero los pagos más recientes', async () => {
+    const older = await checkout('order-older');
+    const newer = await checkout('order-newer');
+    await prisma.subscriptionPayment.update({
+      where: { flowToken: older.token },
+      data: { createdAt: new Date(Date.now() - 3 * HOUR_MS) },
+    });
+    await prisma.subscriptionPayment.update({
+      where: { flowToken: newer.token },
+      data: { createdAt: new Date(Date.now() - 2 * HOUR_MS) },
+    });
+    flow.getOrderStatus.mockResolvedValue(flowStatus('PENDING', undefined));
+
+    await service.sweep();
+
+    const queried = flow.getOrderStatus.mock.calls.map(
+      (c: unknown[]) => c[1] as string,
+    );
+    expect(queried.indexOf(newer.token)).toBeGreaterThanOrEqual(0);
+    expect(queried.indexOf(newer.token)).toBeLessThan(
+      queried.indexOf(older.token),
+    );
   }, 30000);
 
   it('el barrido recupera un pago cuyo webhook se perdió, y deja los recientes', async () => {
