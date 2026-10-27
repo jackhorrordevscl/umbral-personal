@@ -31,6 +31,20 @@ export class SubscriptionsService {
       : DEFAULT_SUBSCRIPTION_PRICE_CLP;
   }
 
+  // Crea la suscripción de la cuenta si aún no existe, congelando el precio
+  // vigente; si ya existe la devuelve sin tocarla.
+  async ensureSubscription(userId: string, now: Date = new Date()) {
+    return this.prisma.subscription.upsert({
+      where: { userId },
+      create: {
+        userId,
+        priceClp: this.currentPriceClp(),
+        priceStartedAt: now,
+      },
+      update: {},
+    });
+  }
+
   async getAccess(
     userId: string,
     now: Date = new Date(),

@@ -181,6 +181,9 @@ model SubscriptionPayment {
   subscriptionId String
   subscription   Subscription              @relation(fields: [subscriptionId], references: [id])
   commerceOrder  String                    @unique
+  // Token de la orden en Flow: el webhook solo trae el token, con él se ubica
+  // el pago. Se guarda al crear la orden.
+  flowToken      String?                   @unique
   flowOrder      Int?                      @unique
   amountClp      Int
   status         SubscriptionPaymentStatus @default(PENDING)
