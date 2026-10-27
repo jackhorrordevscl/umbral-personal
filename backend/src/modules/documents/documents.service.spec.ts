@@ -452,7 +452,7 @@ describe('DocumentsService', () => {
         expect(patientsService.assertGuardianCanSign).not.toHaveBeenCalled();
       });
 
-      it('INFORMED_ASSENT (NNA con menos de 14 años): guarda el documento y un asentimiento GRANTED en la misma transaccion', async () => {
+      it('issue #488: INFORMED_ASSENT (NNA con menos de 14 años): guarda el documento y un asentimiento INFORMED_AND_HEARD en la misma transaccion', async () => {
         await service.uploadDocument(
           'patient-1',
           'therapist-1',
@@ -465,7 +465,7 @@ describe('DocumentsService', () => {
           data: {
             patientId: 'patient-1',
             ageBand: 'UNDER_14',
-            action: 'GRANTED',
+            action: 'INFORMED_AND_HEARD',
             documentId: 'doc-1',
             recordedById: 'therapist-1',
           },
@@ -509,7 +509,10 @@ describe('DocumentsService', () => {
         );
 
         expect(prisma.patientAssent.create).toHaveBeenCalledWith({
-          data: expect.objectContaining({ ageBand: 'AGE_14_17' }) as unknown,
+          data: expect.objectContaining({
+            ageBand: 'AGE_14_17',
+            action: 'GRANTED',
+          }) as unknown,
         });
       });
     });

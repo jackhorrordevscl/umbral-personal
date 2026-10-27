@@ -168,7 +168,12 @@ export class DocumentsService {
                 data: {
                   patientId,
                   ageBand: minorAgeBand,
-                  action: AssentAction.GRANTED,
+                  // issue #488: el asentimiento expreso empieza a los 14;
+                  // bajo esa edad el NNA solo es informado y oído.
+                  action:
+                    minorAgeBand === 'UNDER_14'
+                      ? AssentAction.INFORMED_AND_HEARD
+                      : AssentAction.GRANTED,
                   documentId: created.id,
                   recordedById: userId,
                 },
