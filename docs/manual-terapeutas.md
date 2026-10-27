@@ -229,6 +229,8 @@ Esto es lo más importante de entender de este módulo: **corregir NO sobrescrib
 
 En la práctica: si te equivocaste en algo, corrígelo con confianza: no se "pierde" nada, solo se agrega una versión nueva encima. No se pueden corregir sesiones futuras de un paciente cuyo tratamiento ya se cerró.
 
+**Textos que no se pueden leer.** Si el texto clínico de una sesión no se puede descifrar, la lista de Consultas no se cae: ese texto aparece como "Texto no disponible" y el botón de corregir de esa sesión queda deshabilitado ("No se puede corregir: hay textos que no se pueden leer"). Las demás sesiones se ven con normalidad.
+
 > 📝 Observaciones UX: (¿es intuitivo distinguir "esta es la versión vigente" vs. "esta es una versión corregida" al mirar el historial?)
 >
 >
@@ -396,7 +398,7 @@ Es **privada por cuenta**: nada de lo que subes ahí se comparte con otros profe
 
 ## 8. Reportes en PDF
 
-Desde la ficha de un paciente (ícono "Descargar PDF" de la lista, o el botón "Descargar PDF" del detalle) se puede exportar un PDF con la ficha clínica completa, incluyendo el historial de consultas (con sus correcciones): no es solo un snapshot del estado actual. El PDF incluye una referencia a la Ley 20.584 y la obligación de custodia de 15 años. Cada exportación queda registrada en la bitácora de auditoría (si ese registro no se puede guardar, el PDF no se entrega). La exportación admite, por defecto, hasta 5 por minuto por terapeuta y se rechaza si la ficha supera las 500 sesiones: el PDF es la ficha completa o no se genera, nunca una versión recortada.
+Desde la ficha de un paciente (ícono "Descargar PDF" de la lista, o el botón "Descargar PDF" del detalle) se puede exportar un PDF con la ficha clínica completa, incluyendo el historial de consultas (con sus correcciones): no es solo un snapshot del estado actual. El PDF incluye una referencia a la Ley 20.584 y la obligación de custodia de 15 años. Cada exportación queda registrada en la bitácora de auditoría (si ese registro no se puede guardar, el PDF no se entrega). La exportación admite, por defecto, hasta 5 por minuto por terapeuta y se rechaza si la ficha supera las 500 sesiones: el PDF es la ficha completa o no se genera, nunca una versión recortada. Lo mismo ocurre si el texto de alguna sesión no se puede descifrar: la exportación se rechaza con un mensaje que indica el número y la fecha de esa sesión.
 
 > 📝 Observaciones UX:
 >

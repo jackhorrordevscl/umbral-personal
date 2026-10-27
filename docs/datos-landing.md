@@ -1,6 +1,6 @@
 # Datos verificados para la landing page
 
-Fecha de verificación: 2026-10-27. Fuente: código del repositorio (`main` en `733181a`, posterior a `959a5a8`, etiquetado como `v1.0.0` el 2026-10-16), README y estado de GitHub. Las cifras cambian con cada PR; vuelve a contarlas antes de publicar.
+Fecha de verificación: 2026-10-27. Fuente: código del repositorio (`main` en `3514277`, posterior a `959a5a8`, etiquetado como `v1.0.0` el 2026-10-16), README y estado de GitHub. Las cifras cambian con cada PR; vuelve a contarlas antes de publicar.
 
 Nota del 2026-10-17: el cifrado de los textos clínicos libres quedó activo en producción ese día con el recifrado de los datos existentes terminado (ADR 0004, `docs/evaluacion-v1.md` A3).
 
@@ -117,9 +117,9 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 | Tests e2e backend | 33 specs | archivos `*.e2e-spec.ts` en `backend/test` |
 | Tests frontend | 84 specs + 4 e2e Playwright (corren en el job `e2e` de CI) | `frontend/src` y `frontend/e2e` |
 | Páginas del frontend | 17 | archivos de página (sin contar specs) en `frontend/src/pages/` |
-| Commits | 816 | `git rev-list --count HEAD` |
-| Pull requests mergeados | 361 | `gh pr list --state merged` |
-| Issues | 239 cerrados, 6 abiertos | `gh issue list` |
+| Commits | 819 | `git rev-list --count HEAD` |
+| Pull requests mergeados | 364 | `gh pr list --state merged` |
+| Issues | 240 cerrados, 5 abiertos | `gh issue list` |
 | Días de desarrollo | 86 | desde el primer commit, 2026-08-02, hasta 2026-10-27 |
 | Vulnerabilidades de producción | Sin hallazgos de nivel high o critical | `npm audit --omit=dev --audit-level=high` en CI; el CI de `main` pasó el 2026-10-27. Con `npm audit --omit=dev` el backend tiene 1 moderate (`sanitize-html`) y el frontend 0 |
 
@@ -190,4 +190,4 @@ Reglas:
 | #161 | Recordatorios de sesión por WhatsApp | Pospuesto |
 | #162 | Transcriptor de sesiones a notas automáticas | Pospuesto |
 
-Los otros dos issues son de infraestructura y seguridad interna (#63, plan de Render, y #486, ligar el cifrado de textos clínicos al paciente y al campo, resuelto en el código) y no deben presentarse como funcionalidades. El issue #123 (verificación de la app OAuth de Google) está cerrado.
+El otro issue abierto es de infraestructura (#63, plan de Render) y no debe presentarse como funcionalidad. Los issues #486 (ligar el cifrado de textos clínicos al paciente y al campo, resuelto y desplegado) y #123 (verificación de la app OAuth de Google) están cerrados.
