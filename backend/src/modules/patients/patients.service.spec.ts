@@ -421,6 +421,46 @@ describe('PatientsService', () => {
       );
     });
 
+    // issue #486: una consulta corrupta no tumba el detalle del paciente.
+    it('deja en null el texto ilegible de una consulta e informa unreadableFields sin tumbar la ficha', async () => {
+      const crypto = buildTestClinicalCrypto();
+      prisma.patient.findFirst.mockResolvedValue({
+        ...buildPatient(),
+        consultations: [
+          {
+            id: 'c-ok',
+            consultReason: crypto.encrypt('Motivo legible'),
+            intervention: crypto.encrypt('Intervención legible'),
+            agreements: null,
+          },
+          {
+            id: 'c-bad',
+            consultReason: 'enc:v3:0:AAAA',
+            intervention: crypto.encrypt('Intervención legible'),
+            agreements: null,
+          },
+        ],
+      });
+
+      const result = await service.findOne('patient-1', 'therapist-1');
+
+      expect(result.consultations).toEqual([
+        {
+          id: 'c-ok',
+          consultReason: 'Motivo legible',
+          intervention: 'Intervención legible',
+          agreements: null,
+        },
+        {
+          id: 'c-bad',
+          consultReason: null,
+          intervention: 'Intervención legible',
+          agreements: null,
+          unreadableFields: ['consultReason'],
+        },
+      ]);
+    });
+
     it('descifra los textos clínicos de las consultas incluidas (ADR 0004)', async () => {
       const crypto = buildTestClinicalCrypto();
       prisma.patient.findFirst.mockResolvedValue({

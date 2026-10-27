@@ -22,8 +22,10 @@ import { ORDER_OUTCOME_UNCERTAIN_ERROR } from '../payments/payments.constants';
 import { AvailabilityService } from '../availability/availability.service';
 import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
 import {
+  ConsultationTexts,
   decryptConsultationRow,
-  decryptHistoryEntry,
+  decryptConsultationRowLenient,
+  decryptHistoryEntryLenient,
   encryptConsultationTexts,
   encryptSnapshotTexts,
 } from './util/consultation-text.util';
@@ -296,9 +298,40 @@ export class ConsultationsService {
       orderBy: { editedAt: 'desc' },
       include: { editedBy: { select: { name: true, email: true } } },
     });
-    return entries.map((entry) =>
-      decryptHistoryEntry(entry, this.clinicalCrypto),
+    return entries.map((entry) => this.decryptHistoryLenient(entry));
+  }
+
+  // issue #486: solo para respuestas que no reescriben el texto (listado e
+  // historial). Un texto ilegible no tumba la respuesta: sale en null con
+  // `unreadableFields` (solo si hay alguno) y se registra qué campos fallaron,
+  // nunca su contenido. Escribir (create/correct) sigue usando la lectura
+  // estricta: re-cifrar un texto a medias pisaría el original.
+  private decryptHistoryLenient<
+    T extends { id: string; snapshot: Prisma.JsonValue | null },
+  >(entry: T) {
+    const { entry: readable, unreadableFields } = decryptHistoryEntryLenient(
+      entry,
+      this.clinicalCrypto,
     );
+    if (unreadableFields.length === 0) return readable;
+    this.logger.error(
+      `No se pudo descifrar el historial de la consulta (historyId=${entry.id}): campos ${unreadableFields.join(', ')}`,
+    );
+    return { ...readable, unreadableFields };
+  }
+
+  private decryptConsultationLenient<
+    T extends ConsultationTexts & { id: string },
+  >(row: T) {
+    const { row: readable, unreadableFields } = decryptConsultationRowLenient(
+      row,
+      this.clinicalCrypto,
+    );
+    if (unreadableFields.length === 0) return readable;
+    this.logger.error(
+      `No se pudo descifrar la consulta (consultationId=${row.id}): campos ${unreadableFields.join(', ')}`,
+    );
+    return { ...readable, unreadableFields };
   }
 
   // Sin page/pageSize devuelve la lista completa (retrocompatible); con
@@ -352,7 +385,7 @@ export class ConsultationsService {
       for (const entry of allHistory) {
         historyMap
           .get(entry.consultationId)
-          ?.push(decryptHistoryEntry(entry, this.clinicalCrypto));
+          ?.push(this.decryptHistoryLenient(entry));
       }
     }
 
@@ -374,7 +407,7 @@ export class ConsultationsService {
     );
 
     const data = consultations.map((c) => ({
-      ...decryptConsultationRow(c, this.clinicalCrypto),
+      ...this.decryptConsultationLenient(c),
       history: historyMap.get(c.groupId) ?? [],
       payment: paymentMap.get(c.groupId) ?? null,
       reminderEmailStatus: reminderEmailStatusMap.get(c.groupId) ?? null,

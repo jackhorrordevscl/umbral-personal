@@ -194,6 +194,39 @@ describe('ReportsService', () => {
     render.mockRestore();
   });
 
+  // issue #486: la ficha es un registro legal; un texto ilegible rechaza el
+  // export nombrando la sesión, en vez de imprimir un hueco.
+  it('rechaza con 422 nombrando la sesión si un texto clínico no se puede descifrar', async () => {
+    const crypto = buildTestClinicalCrypto();
+    const patient = buildPatientWithConsultations();
+    patient.consultations = [
+      {
+        sessionDate: new Date('2026-01-10T12:00:00'),
+        sessionType: 'IN_PERSON',
+        consultReason: crypto.encrypt('<p>Motivo legible</p>'),
+        intervention: crypto.encrypt('<p>Intervención legible</p>'),
+        agreements: null,
+        nextSessionDate: null,
+      },
+      {
+        sessionDate: new Date('2026-01-17T12:00:00'),
+        sessionType: 'IN_PERSON',
+        consultReason: crypto.encrypt('<p>Motivo legible</p>'),
+        intervention: 'enc:v3:0:AAAA',
+        agreements: null,
+        nextSessionDate: null,
+      },
+    ];
+    prisma.patient.findFirst.mockResolvedValue(patient);
+
+    const error: unknown = await service
+      .generatePatientReport('patient-1', 'therapist-1')
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(UnprocessableEntityException);
+    expect((error as Error).message).toContain('sesión 2');
+  });
+
   it('consulta solo sesiones ya ocurridas, ordenadas por sessionDate y no por createdAt (issue #288)', async () => {
     prisma.patient.findFirst.mockResolvedValue(buildPatientWithConsultations());
     const before = Date.now();

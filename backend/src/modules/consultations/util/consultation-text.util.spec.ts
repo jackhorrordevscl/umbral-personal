@@ -1,7 +1,9 @@
 import { buildTestClinicalCrypto } from '../../../common/crypto/clinical-text-crypto.testing';
 import {
   decryptConsultationRow,
+  decryptConsultationRowLenient,
   decryptHistoryEntry,
+  decryptHistoryEntryLenient,
   encryptConsultationTexts,
   encryptSnapshotTexts,
 } from './consultation-text.util';
@@ -91,5 +93,56 @@ describe('consultation-text util', () => {
       decryptHistoryEntry({ snapshot: withNull }, crypto).snapshot,
     ).toEqual({ ...texts, agreements: null });
     expect(decryptHistoryEntry({ snapshot: null }, crypto).snapshot).toBeNull();
+  });
+
+  describe('lectura tolerante (issue #486)', () => {
+    const corrupt = 'enc:v3:0:AAAA';
+
+    it('decryptConsultationRowLenient deja en null solo el texto ilegible y lo informa', () => {
+      const encrypted = encryptConsultationTexts(texts, crypto);
+      const row = { id: 'c1', ...encrypted, intervention: corrupt };
+
+      const result = decryptConsultationRowLenient(row, crypto);
+
+      expect(result.unreadableFields).toEqual(['intervention']);
+      expect(result.row).toEqual({
+        id: 'c1',
+        consultReason: texts.consultReason,
+        intervention: null,
+        agreements: texts.agreements,
+      });
+    });
+
+    it('decryptConsultationRowLenient no marca como ilegible un agreements null ni el texto plano heredado', () => {
+      const result = decryptConsultationRowLenient(
+        { ...texts, agreements: null },
+        crypto,
+      );
+
+      expect(result.unreadableFields).toEqual([]);
+      expect(result.row).toEqual({ ...texts, agreements: null });
+    });
+
+    it('decryptHistoryEntryLenient deja en null el texto ilegible del snapshot y conserva el resto', () => {
+      const snapshot = {
+        ...encryptSnapshotTexts({ sessionType: 'ONLINE', ...texts }, crypto),
+        consultReason: corrupt,
+      };
+
+      const result = decryptHistoryEntryLenient({ id: 'h1', snapshot }, crypto);
+
+      expect(result.unreadableFields).toEqual(['consultReason']);
+      expect(result.entry).toEqual({
+        id: 'h1',
+        snapshot: { sessionType: 'ONLINE', ...texts, consultReason: null },
+      });
+    });
+
+    it('decryptHistoryEntryLenient respeta un snapshot que no es objeto', () => {
+      const result = decryptHistoryEntryLenient({ snapshot: null }, crypto);
+
+      expect(result.unreadableFields).toEqual([]);
+      expect(result.entry.snapshot).toBeNull();
+    });
   });
 });

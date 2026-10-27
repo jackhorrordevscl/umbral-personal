@@ -140,15 +140,19 @@ export interface PatientDocument {
   voidReason?: string | null;
 }
 
+// Issue #486: textos clínicos que el backend no pudo descifrar (llegan en null).
+export type ConsultationTextKey = "consultReason" | "intervention" | "agreements";
+
 export interface ConsultationHistory {
   id: string;
   editedAt: string;
   editedBy: { name: string; email: string };
+  unreadableFields?: ConsultationTextKey[];
   snapshot: {
     sessionDate: string;
-    consultReason: string;
-    intervention: string;
-    agreements?: string;
+    consultReason: string | null;
+    intervention: string | null;
+    agreements?: string | null;
     nextSessionDate?: string;
     sessionType: string;
   };
@@ -198,9 +202,10 @@ export interface Consultation {
   groupId: string;
   patientId: string;
   sessionDate: string;
-  consultReason: string;
-  intervention: string;
-  agreements: string;
+  consultReason: string | null;
+  intervention: string | null;
+  agreements: string | null;
+  unreadableFields?: ConsultationTextKey[];
   nextSessionDate: string;
   sessionType: string;
   therapist: { name: string; email: string };

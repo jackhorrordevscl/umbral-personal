@@ -39,7 +39,7 @@ import { isValidRut, normalizeRut } from '../../common/utils/rut.util';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 import { rejectNullFields } from '../../common/utils/reject-null-fields.util';
 import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
-import { decryptConsultationRow } from '../consultations/util/consultation-text.util';
+import { decryptConsultationRowLenient } from '../consultations/util/consultation-text.util';
 
 // issue #157: origen de adquisición capturado en el frontend (referrer +
 // utm_source) y pasado por PublicSchedulingService.book() ->
@@ -442,10 +442,19 @@ export class PatientsService {
       buildConsentStatusMap([id], latestEvents).get(id) ?? emptyConsentStatus();
     return {
       ...patient,
-      // ADR 0004 (opción B): los textos clínicos salen en claro.
-      consultations: patient.consultations.map((c) =>
-        decryptConsultationRow(c, this.clinicalCrypto),
-      ),
+      // ADR 0004 (opción B): los textos clínicos salen en claro. issue #486:
+      // un texto ilegible no tumba la ficha; sale en null con `unreadableFields`.
+      consultations: patient.consultations.map((c) => {
+        const { row, unreadableFields } = decryptConsultationRowLenient(
+          c,
+          this.clinicalCrypto,
+        );
+        if (unreadableFields.length === 0) return row;
+        this.logger.error(
+          `No se pudo descifrar la consulta (consultationId=${c.id}): campos ${unreadableFields.join(', ')}`,
+        );
+        return { ...row, unreadableFields };
+      }),
       consents,
       ...minorFields(patient.birthDate, patient.guardians, latestEvents),
     };

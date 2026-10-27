@@ -8,7 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import PDFDocument from 'pdfkit';
 import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
-import { decryptConsultationRow } from '../consultations/util/consultation-text.util';
+import { decryptConsultationRowLenient } from '../consultations/util/consultation-text.util';
 import { renderClinicalNoteToPdf } from './clinical-note-pdf.util';
 import { CHILE_TIMEZONE } from '../../common/utils/chile-time.util';
 import { sanitizePdfText } from '../../common/utils/pdf-text.util';
@@ -95,6 +95,26 @@ export class ReportsService {
     this.logger.log(
       `Generando reporte PDF: patientId=${patientId} userId=${userId}`,
     );
+
+    // ADR 0004 (opción B): los textos clínicos se descifran para el PDF.
+    // issue #486: la ficha es un registro legal, así que un texto ilegible
+    // rechaza la exportación (nombrando la sesión) en vez de imprimir un hueco
+    // que podría entregarse como ficha completa.
+    const consultations = patient.consultations.map((c, index) => {
+      const { row, unreadableFields } = decryptConsultationRowLenient(
+        c,
+        this.clinicalCrypto,
+      );
+      if (unreadableFields.length > 0) {
+        this.logger.error(
+          `No se pudo descifrar la consulta para la ficha (consultationId=${c.id}): campos ${unreadableFields.join(', ')}`,
+        );
+        throw new UnprocessableEntityException(
+          `No se puede exportar la ficha: el texto de la sesión ${index + 1} (${formatChileDate(c.sessionDate)}) no se puede descifrar`,
+        );
+      }
+      return row;
+    });
 
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 50 });
@@ -193,10 +213,6 @@ export class ReportsService {
       doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
       doc.moveDown(0.5);
 
-      // ADR 0004 (opción B): los textos clínicos se descifran para el PDF.
-      const consultations = patient.consultations.map((c) =>
-        decryptConsultationRow(c, this.clinicalCrypto),
-      );
       if (consultations.length === 0) {
         doc.fontSize(10).font('Helvetica').text('Sin consultas registradas.');
       } else {

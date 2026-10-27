@@ -263,6 +263,28 @@ describe('ConsultationsPage', () => {
     expect((window as unknown as { __xss?: boolean }).__xss).not.toBe(true)
   })
 
+  // Issue #486: el backend manda null + unreadableFields cuando un texto no se
+  // puede descifrar; la pantalla muestra un aviso, conserva el resto de la
+  // sesión y no deja corregirla (re-guardar pisaría el texto original).
+  it('muestra "Texto no disponible" para un texto ilegible y deshabilita Corregir sesión', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
+      if (url.startsWith('/consultations/patient/'))
+        return Promise.resolve({
+          data: [buildConsultation({ intervention: null, unreadableFields: ['intervention'] })],
+        })
+      return Promise.resolve({ data: [] })
+    })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    expect(await screen.findByText('Motivo de la sesión')).toBeInTheDocument()
+    expect(screen.getByText('Texto no disponible')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Corregir sesión del/ })).toBeDisabled()
+  })
+
   it('con ?patientId y consultationId en la URL, preselecciona el paciente y abre el modal de Corregir sesión (deep link desde una notificación)', async () => {
     mockedApi.get.mockImplementation((url: string) => {
       if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })

@@ -549,6 +549,62 @@ describe('ConsultationsService', () => {
       expect((result as { history: unknown[] }[])[0].history).toHaveLength(1);
     });
 
+    // issue #486: una fila corrupta no tumba la lista ni el historial.
+    it('aísla el texto ilegible de una consulta y de su historial sin tumbar las demás filas', async () => {
+      const crypto = buildTestClinicalCrypto();
+      const corrupt = 'enc:v3:0:AAAA';
+      prisma.consultation.findMany.mockResolvedValue([
+        buildConsultation({
+          id: 'c-ok',
+          groupId: 'g-ok',
+          consultReason: crypto.encrypt('Motivo legible'),
+          intervention: crypto.encrypt('Intervención legible'),
+        }),
+        buildConsultation({
+          id: 'c-bad',
+          groupId: 'g-bad',
+          consultReason: crypto.encrypt('Motivo legible'),
+          intervention: corrupt,
+        }),
+      ]);
+      prisma.consultationHistory.findMany.mockResolvedValue([
+        {
+          id: 'h-bad',
+          consultationId: 'g-ok',
+          snapshot: {
+            consultReason: corrupt,
+            intervention: crypto.encrypt('Intervención previa'),
+          },
+        },
+      ]);
+
+      const result = (await service.findByPatient(
+        'patient-1',
+        'therapist-1',
+      )) as (Record<string, unknown> & {
+        history: Record<string, unknown>[];
+      })[];
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toMatchObject({
+        consultReason: 'Motivo legible',
+        intervention: 'Intervención legible',
+      });
+      expect(result[0]).not.toHaveProperty('unreadableFields');
+      expect(result[0].history[0]).toMatchObject({
+        unreadableFields: ['consultReason'],
+        snapshot: {
+          consultReason: null,
+          intervention: 'Intervención previa',
+        },
+      });
+      expect(result[1]).toMatchObject({
+        consultReason: 'Motivo legible',
+        intervention: null,
+        unreadableFields: ['intervention'],
+      });
+    });
+
     // issue #140: mismo cap de seguridad que PatientsService.findAll.
     it('sin pagination aplica el cap de seguridad en vez de un findMany() sin límite', async () => {
       prisma.consultation.findMany.mockResolvedValue([]);
