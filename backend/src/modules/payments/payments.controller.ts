@@ -40,7 +40,7 @@ const CONFIRM_REJECTED_ERROR = 'Confirmación de pago rechazada.';
 // public-scheduling.controller.ts (ThrottlerModule es @Global(), así que
 // cualquier throttler nombrado en cualquier módulo aplica acá salvo que se
 // saltee explícitamente).
-const PAYMENT_CONFIRM_SKIP = {
+export const PAYMENT_CONFIRM_SKIP = {
   login: true,
   'mfa-verify': true,
   signup: true,
@@ -57,7 +57,7 @@ const PAYMENT_CONFIRM_SKIP = {
   'payment-return': true,
 } as const;
 
-const PAYMENT_RETURN_SKIP = {
+export const PAYMENT_RETURN_SKIP = {
   login: true,
   'mfa-verify': true,
   signup: true,

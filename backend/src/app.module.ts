@@ -23,6 +23,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
 import { ProfileModule } from './modules/profile/profile.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { BillingModule } from './modules/billing/billing.module';
 import { RemindersModule } from './modules/reminders/reminders.module';
 import { CalendarIntegrationModule } from './modules/calendar-integration/calendar-integration.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -68,6 +69,7 @@ import { HealthController } from './health/health.controller';
     DocumentsModule,
     NotificationsModule,
     SubscriptionsModule,
+    BillingModule,
     RemindersModule,
     CalendarIntegrationModule,
     PaymentsModule,

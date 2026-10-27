@@ -154,6 +154,6 @@ export function buildPaymentsThrottlerOptions(
       inject: [FlowPaymentGatewayClient],
     },
   ],
-  exports: [PaymentsService, PaymentAccountService],
+  exports: [PaymentsService, PaymentAccountService, FlowPaymentGatewayClient],
 })
 export class PaymentsModule {}
