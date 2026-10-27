@@ -452,6 +452,24 @@ describe('Minor consent and assent (e2e)', () => {
       ).toBe(0);
     });
 
+    it('issue #488: INFORMED_ASSENT de un menor de 14 registra INFORMED_AND_HEARD', async () => {
+      const under14Id = await createPatient(yearsAgoDate(10));
+
+      const uploaded = await upload(under14Id, 'INFORMED_ASSENT').expect(201);
+
+      const assents = await prisma.patientAssent.findMany({
+        where: { patientId: under14Id },
+      });
+      expect(assents).toHaveLength(1);
+      expect(assents[0]).toEqual(
+        expect.objectContaining({
+          action: 'INFORMED_AND_HEARD',
+          ageBand: 'UNDER_14',
+          documentId: (uploaded.body as Body).id as string,
+        }),
+      );
+    });
+
     it('INFORMED_ASSENT de un adulto solo guarda el documento', async () => {
       const adultId = await createPatient(yearsAgoDate(30));
 
