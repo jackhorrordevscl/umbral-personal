@@ -67,6 +67,7 @@ describe('PatientsService', () => {
     $queryRaw: jest.Mock;
     $transaction: jest.Mock;
   };
+  let audit: { log: jest.Mock };
   let calendarSync: { deletePatientEvents: jest.Mock };
   let paymentsService: { cancelUnpaidForPatient: jest.Mock };
   let availabilityService: { invalidate: jest.Mock };
@@ -109,7 +110,8 @@ describe('PatientsService', () => {
       }),
     };
 
-    const auditService = { log: jest.fn() } as unknown as AuditService;
+    audit = { log: jest.fn().mockResolvedValue(undefined) };
+    const auditService = audit as unknown as AuditService;
     calendarSync = {
       deletePatientEvents: jest.fn().mockResolvedValue(undefined),
     };
@@ -1400,6 +1402,121 @@ describe('PatientsService', () => {
           error: 'No se pudo registrar el consentimiento para este paciente.',
         },
       ]);
+    });
+
+    describe('bulkDeclareConsent: auditoría por paciente (issue #488)', () => {
+      const ctx = { ipAddress: '10.0.0.1', userAgent: 'jest-agent' };
+      const dto = (patientIds: string[]) =>
+        ({
+          patientIds,
+          purpose: 'TREATMENT',
+          evidence: 'Consentimiento en papel del expediente físico previo',
+        }) as never;
+      const row = (resourceId: string, action: string, result: string) =>
+        expect.objectContaining({
+          userId: 'therapist-1',
+          action,
+          resource: 'PatientConsent',
+          resourceId,
+          detail: `POST /patients/consents/bulk-declare purpose=TREATMENT result=${result}`,
+          ipAddress: '10.0.0.1',
+          userAgent: 'jest-agent',
+        }) as unknown;
+
+      it('deja una fila por paciente declarado, con su id como recurso', async () => {
+        prisma.patient.findFirst.mockResolvedValue(buildPatient());
+        prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+
+        await service.bulkDeclareConsent(
+          dto(['patient-1', 'patient-2']),
+          'therapist-1',
+          ctx,
+        );
+
+        expect(audit.log).toHaveBeenCalledTimes(2);
+        expect(audit.log).toHaveBeenNthCalledWith(
+          1,
+          row('patient-1', 'CREATE', 'granted'),
+        );
+        expect(audit.log).toHaveBeenNthCalledWith(
+          2,
+          row('patient-2', 'CREATE', 'granted'),
+        );
+      });
+
+      it('registra los que fallan: revocado, ya vigente, ajeno e inesperado', async () => {
+        prisma.patient.findFirst
+          .mockResolvedValueOnce(buildPatient({ id: 'revocado' }))
+          .mockResolvedValueOnce(buildPatient({ id: 'vigente' }))
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce(buildPatient({ id: 'roto' }));
+        prisma.patientConsent.findMany
+          .mockResolvedValueOnce([
+            { patientId: 'revocado', purpose: 'TREATMENT', action: 'REVOKE' },
+          ])
+          .mockResolvedValueOnce([
+            {
+              patientId: 'vigente',
+              purpose: 'TREATMENT',
+              action: 'GRANT',
+              grantedBy: 'PATIENT',
+            },
+          ])
+          .mockResolvedValueOnce([]);
+        prisma.patientConsent.create.mockRejectedValue(
+          new Error('connection terminated unexpectedly'),
+        );
+
+        await service.bulkDeclareConsent(
+          dto(['revocado', 'vigente', 'ajeno-1', 'roto']),
+          'therapist-1',
+          ctx,
+        );
+
+        expect(
+          (audit.log.mock.calls as unknown[][]).map(([entry]) => entry),
+        ).toEqual([
+          row('revocado', 'CREATE', 'revoked'),
+          row('vigente', 'CREATE', 'already_granted'),
+          row('ajeno-1', 'UNAUTHORIZED_ATTEMPT', 'denied'),
+          row('roto', 'CREATE', 'failed'),
+        ]);
+        const details = audit.log.mock.calls.map(
+          ([entry]) => (entry as { detail: string }).detail,
+        );
+        expect(details.join(' ')).not.toContain('connection terminated');
+      });
+
+      it('un id repetido en el lote deja una sola fila', async () => {
+        prisma.patient.findFirst.mockResolvedValue(buildPatient());
+        prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+
+        await service.bulkDeclareConsent(
+          dto(['patient-1', 'patient-1']),
+          'therapist-1',
+          ctx,
+        );
+
+        expect(audit.log).toHaveBeenCalledTimes(1);
+      });
+
+      it('si la auditoría falla, el lote igual responde y sigue con el resto', async () => {
+        prisma.patient.findFirst.mockResolvedValue(buildPatient());
+        prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+        audit.log.mockRejectedValueOnce(new Error('audit db down'));
+
+        const results = await service.bulkDeclareConsent(
+          dto(['patient-1', 'patient-2']),
+          'therapist-1',
+          ctx,
+        );
+
+        expect(results).toEqual([
+          { patientId: 'patient-1', ok: true },
+          { patientId: 'patient-2', ok: true },
+        ]);
+        expect(audit.log).toHaveBeenCalledTimes(2);
+      });
     });
 
     it('getConsentLedger valida acceso antes de devolver el ledger completo', async () => {
