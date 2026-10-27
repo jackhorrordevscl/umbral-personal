@@ -818,6 +818,7 @@ describe('PatientsService', () => {
           ),
         ).rejects.toThrow(BadRequestException);
         expect(prisma.patientHistory.create).not.toHaveBeenCalled();
+        expect(prisma.patient.update).not.toHaveBeenCalled();
       });
     });
 
