@@ -7,12 +7,26 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { normalizeRut } from '../../common/utils/rut.util';
+import { rejectNullFields } from '../../common/utils/reject-null-fields.util';
 import { PatientsService } from './patients.service';
 import { CreateGuardianDto } from './dto/create-guardian.dto';
 import { UpdateGuardianDto } from './dto/update-guardian.dto';
 import { MAX_GUARDIANS_PER_PATIENT } from './patients.constants';
 
 const GUARDIAN_NOT_FOUND = 'Representante no encontrado';
+
+// Columnas no nulables de LegalGuardian que el DTO de edición deja pasar con null.
+const NON_NULLABLE_GUARDIAN_FIELDS = [
+  'fullName',
+  'rut',
+  'relationship',
+  'isPayer',
+  'receivesCommunications',
+  'canAccessReports',
+  'canConsent',
+  'custody',
+  'hasConflict',
+] as const;
 
 // Normalizes what the DTO lets through: canonical RUT, and blank email/phone
 // stored as null (the form sends "" for an empty field).
@@ -87,6 +101,7 @@ export class GuardiansService {
     dto: UpdateGuardianDto,
     therapistId: string,
   ) {
+    rejectNullFields(dto, NON_NULLABLE_GUARDIAN_FIELDS);
     await this.patientsService.assertAccess(patientId, therapistId);
 
     return this.prisma.$transaction(async (tx) => {

@@ -36,6 +36,7 @@ import { lockTherapistForWrite } from '../../common/utils/lock-therapist.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { DEFAULT_PATIENTS_PAGE_SIZE } from './dto/patients-query.dto';
 import { isValidRut, normalizeRut } from '../../common/utils/rut.util';
+import { rejectNullFields } from '../../common/utils/reject-null-fields.util';
 import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
 import { decryptConsultationRow } from '../consultations/util/consultation-text.util';
 
@@ -420,6 +421,10 @@ export class PatientsService {
   }
 
   async update(id: string, dto: UpdatePatientDto, userId: string) {
+    // issue #488: el DTO de edición deja pasar null (IsOptional); estas
+    // columnas no son nulables y null terminaba en 500.
+    rejectNullFields(dto, ['fullName', 'rut', 'birthDate']);
+
     // issue #290: solo columnas escalares de Patient (no consultas,
     // documentos ni consentimientos); el filtro de ownership es el mismo de
     // assertAccess/findOne y lanza el mismo 404 uniforme.

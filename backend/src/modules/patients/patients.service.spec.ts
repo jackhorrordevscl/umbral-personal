@@ -676,6 +676,23 @@ describe('PatientsService', () => {
       expect(prisma.patientConsent.findMany).not.toHaveBeenCalled();
     });
 
+    it.each(['fullName', 'rut', 'birthDate'])(
+      'issue #488: responde 400 y no toca la DB si %s viene null',
+      async (field) => {
+        prisma.patient.findFirst.mockResolvedValue(buildPatient());
+
+        await expect(
+          service.update(
+            'patient-1',
+            { [field]: null, reason: 'Motivo cualquiera' } as never,
+            'therapist-1',
+          ),
+        ).rejects.toThrow(BadRequestException);
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        expect(prisma.patient.update).not.toHaveBeenCalled();
+      },
+    );
+
     it('lanza 404 si el paciente no existe o es de otro terapeuta', async () => {
       prisma.patient.findFirst.mockResolvedValue(null);
 
