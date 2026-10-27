@@ -16,8 +16,9 @@ import { WebhooksService, type ResendWebhookPayload } from './webhooks.service';
 // issue #163: público a propósito -- sin JwtAuthGuard, Resend no manda
 // credenciales de la app, solo la firma Svix (verificada en
 // WebhooksService.verifySignature contra RESEND_WEBHOOK_SECRET). No hay
-// @UseGuards en este controller ni un APP_GUARD global en app.module.ts, así
-// que esta ruta queda pública por diseño.
+// @UseGuards en este controller, y el único APP_GUARD global
+// (SessionOriginGuard, issue #487) solo actúa si la petición trae la cookie de
+// sesión, que un webhook nunca lleva; la ruta queda pública por diseño.
 @Controller('webhooks')
 export class WebhooksController {
   constructor(private webhooksService: WebhooksService) {}

@@ -150,6 +150,51 @@ describe('Sesión en cookie HttpOnly (e2e)', () => {
     await request(app.getHttpServer()).get('/api/v1/profile').expect(401);
   });
 
+  // Issue #487: SameSite=Strict no separa subdominios hermanos; una petición
+  // que cambia estado y trae la cookie debe venir del frontend.
+  it('una petición con cookie y Origin ajeno se rechaza con 403 y no toca la sesión', async () => {
+    const { accessToken } = await createUserAndEnroll(
+      `cookie.origin.${runId}@umbral.cl`,
+    );
+    const cookie = `${SESSION_COOKIE_NAME}=${accessToken}`;
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/logout')
+      .set('Cookie', cookie)
+      .set('Origin', 'https://otro-subdominio.example.com')
+      .expect(403);
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/logout')
+      .set('Cookie', cookie)
+      .set('Sec-Fetch-Site', 'same-site')
+      .expect(403);
+
+    // La sesión sigue viva: el rechazo ocurre antes de cualquier efecto.
+    await request(app.getHttpServer())
+      .get('/api/v1/profile')
+      .set('Cookie', cookie)
+      .expect(200);
+
+    // Con el Origin del frontend la misma petición sí procede.
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/logout')
+      .set('Cookie', cookie)
+      .set('Origin', 'http://localhost:5173')
+      .expect(201);
+  });
+
+  it('un Bearer sin cookie no se ve afectado por el Origin', async () => {
+    const { accessToken } = await createUserAndEnroll(
+      `cookie.bearer.origin.${runId}@umbral.cl`,
+    );
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/logout')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .set('Origin', 'https://otro-subdominio.example.com')
+      .expect(201);
+  });
+
   it('logout revoca la sesión en el servidor y limpia la cookie', async () => {
     const { accessToken } = await createUserAndEnroll(
       `cookie.logout.${runId}@umbral.cl`,
