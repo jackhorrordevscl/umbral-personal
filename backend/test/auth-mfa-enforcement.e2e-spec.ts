@@ -116,9 +116,10 @@ describe('MFA enforcement obligatorio (e2e)', () => {
   });
 
   // auth-force-password-change cambia la contraseña de este mismo admin seed
-  // en paralelo y fija passwordChangedAt. Un setupToken emitido antes de ese
-  // cambio se rechaza por diseño (issue #487), así que se limpia el campo
-  // antes de cada test para que esta suite no dependa del orden de ejecución.
+  // y fija passwordChangedAt (hoy lo limpia en su afterAll). Un setupToken
+  // emitido antes de un cambio se rechaza por diseño (issue #487), así que
+  // además se limpia el campo antes de cada test para que esta suite no
+  // dependa del orden de ejecución ni de que otra deje el seed limpio.
   beforeEach(async () => {
     await prisma.user.updateMany({
       where: { email: ADMIN_EMAIL },
