@@ -19,8 +19,12 @@ implementado en el código; ver "Retirar la clave id 0" más abajo. La quinta
 clave (`CLINICAL_TEXT_ENCRYPTION_KEY`, dataset `clinical`) se agregó después
 (ADR 0004). Su recifrado inicial con `--apply` se hizo el 2026-10-17 (ver
 `docs/evaluacion-v1.md`, A3); los textos de `Notification` se cifran desde el
-2026-10-22. El formato `enc:v4` del issue #486 no existe: hoy se escribe solo
-`0x02` (binario) y `enc:v3` (texto).
+2026-10-22. Hoy se escribe `0x02` (binario), `enc:v3` (texto de MFA) y `enc:v4`
+(textos clínicos, issue #486: el AAD incluye el paciente o usuario dueño y el
+campo). Los textos clínicos anteriores siguen en `enc:v3` hasta correr
+`npm run crypto:reencrypt -- --only clinical --apply`. Desplegar el backend con
+`enc:v4` y escribir con él fija el piso de rollback: una versión anterior no lee
+`enc:v4`.
 
 ## 1. Qué se cifra y qué pasa si falta la clave
 
@@ -143,9 +147,13 @@ lectura de `0x02` no puede leer lo que escribió T3b-U2.
 - **Texto clínico heredado.** En `clinical` cada columna de texto (y cada texto
   dentro de un snapshot) cuenta como una fila (`<tabla>/<id>/<campo>`), y un
   texto sin prefijo `enc:` se cuenta como `plaintext` y se cifra con `--apply`.
-  Un texto en claro que empiece con `enc:v1:`, `enc:v2:` o `enc:v3:` se
-  interpreta como cifrado, no descifra y se informa como `decrypt-failed` (ADR
-  0004, issue #486). Las filas borradas o canceladas también se recorren.
+  Un texto en claro que empiece con `enc:v1:`, `enc:v2:`, `enc:v3:` o `enc:v4:`
+  se interpreta como cifrado, no descifra y se informa como `decrypt-failed`
+  (ADR 0004, issue #486: se decidió no tratarlo). Cada texto se recifra en
+  `enc:v4` con el contexto de su fila (paciente o usuario y campo); una fila sin
+  dueño se informa como falla (`decrypt-failed` si ya es `enc:v4`,
+  `encrypt-failed` en los demás casos). Las filas borradas o canceladas también se
+  recorren.
 - **Documentos con objeto faltante.** Si una fila de `PatientDocument` apunta a
   un objeto que ya no existe en B2, se informa como falla `missing-object`, no
   detiene la corrida y deja el código de salida en `1`. Mientras haya filas así,

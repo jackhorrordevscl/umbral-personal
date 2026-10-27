@@ -1148,6 +1148,7 @@ describe('DischargesService', () => {
       const good = encryptDischargeTexts(
         { consultReason: 'Motivo reservado' },
         buildTestClinicalCrypto(),
+        'patient-1',
       ).consultReason;
       prisma.treatmentDischarge.findFirst.mockResolvedValue(
         issuedRow({ consultReason: `${good.slice(0, -4)}AAAA` }),
@@ -1285,6 +1286,7 @@ describe('DischargesService', () => {
       const good = encryptDischargeTexts(
         { diagnosis: 'Diagnóstico reservado' },
         buildTestClinicalCrypto(),
+        'patient-1',
       ).diagnosis;
       const tampered = `${good.slice(0, -4)}AAAA`;
 

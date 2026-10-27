@@ -1,7 +1,19 @@
 import { Prisma, PrismaClient } from '@prisma/client';
-import { CONSULTATION_TEXT_KEYS } from '../../modules/consultations/util/consultation-text.util';
-import { DISCHARGE_TEXT_FIELDS } from '../../modules/discharges/util/discharge-text.util';
-import { NOTIFICATION_TEXT_FIELDS } from '../../modules/notifications/util/notification-text.util';
+import {
+  CONSULTATION_TEXT_KEYS,
+  ConsultationTextKey,
+  consultationTextContext,
+} from '../../modules/consultations/util/consultation-text.util';
+import {
+  DISCHARGE_TEXT_FIELDS,
+  DischargeTextField,
+  dischargeTextContext,
+} from '../../modules/discharges/util/discharge-text.util';
+import {
+  NOTIFICATION_TEXT_FIELDS,
+  NotificationTextField,
+  notificationTextContext,
+} from '../../modules/notifications/util/notification-text.util';
 import { DatasetPort, Row, Stored, textCodec } from './reencrypt';
 import { Keyring } from './keyring';
 
@@ -44,25 +56,39 @@ interface ColumnDelegate {
 
 type ColumnModel = 'consultation' | 'treatmentDischarge' | 'notification';
 
+// issue #486: cada texto se recifra en enc:v4 ligado a su dueño (`ownerColumn`:
+// el paciente, o el usuario en las notificaciones) y a su campo. `context` es
+// la misma función que usan los servicios al escribir y leer.
 const COLUMN_TABLES: {
   table: string;
   model: ColumnModel;
   fields: readonly string[];
+  ownerColumn: 'patientId' | 'userId';
+  context: (ownerId: string, field: string) => string;
 }[] = [
   {
     table: 'consultation',
     model: 'consultation',
     fields: CONSULTATION_TEXT_KEYS,
+    ownerColumn: 'patientId',
+    context: (ownerId, field) =>
+      consultationTextContext(ownerId, field as ConsultationTextKey),
   },
   {
     table: 'discharge',
     model: 'treatmentDischarge',
     fields: DISCHARGE_TEXT_FIELDS,
+    ownerColumn: 'patientId',
+    context: (ownerId, field) =>
+      dischargeTextContext(ownerId, field as DischargeTextField),
   },
   {
     table: 'notification',
     model: 'notification',
     fields: NOTIFICATION_TEXT_FIELDS,
+    ownerColumn: 'userId',
+    context: (ownerId, field) =>
+      notificationTextContext(ownerId, field as NotificationTextField),
   },
 ];
 
@@ -88,9 +114,15 @@ export function buildClinicalPort(
     prisma[model] as unknown as ColumnDelegate;
 
   async function* listColumns(): AsyncGenerator<Row> {
-    for (const { table, model, fields } of COLUMN_TABLES) {
+    for (const {
+      table,
+      model,
+      fields,
+      ownerColumn,
+      context,
+    } of COLUMN_TABLES) {
       const delegate = delegateOf(model);
-      const select: Record<string, boolean> = { id: true };
+      const select: Record<string, boolean> = { id: true, [ownerColumn]: true };
       for (const f of fields) select[f] = true;
       const records = paged(
         async (cursor) =>
@@ -100,9 +132,18 @@ export function buildClinicalPort(
           }),
       );
       for await (const record of records) {
+        const ownerId = record[ownerColumn];
         for (const field of fields) {
           const value = record[field];
-          if (typeof value === 'string') {
+          if (typeof value === 'string' && typeof ownerId === 'string') {
+            yield {
+              id: rowId(table, record.id, field),
+              value,
+              context: context(ownerId, field),
+            };
+          } else if (typeof value === 'string') {
+            // Sin dueño no hay contexto: se informa como falla en vez de
+            // recifrar sin ligar.
             yield { id: rowId(table, record.id, field), value };
           }
         }
@@ -113,7 +154,12 @@ export function buildClinicalPort(
   async function* listSnapshots(): AsyncGenerator<Row> {
     const records = paged(async (cursor) =>
       prisma.consultationHistory.findMany({
-        select: { id: true, snapshot: true },
+        select: {
+          id: true,
+          snapshot: true,
+          // El snapshot no trae paciente: es el de su consulta.
+          consultation: { select: { patientId: true } },
+        },
         ...pageArgs(cursor),
       }),
     );
@@ -122,7 +168,14 @@ export function buildClinicalPort(
       for (const field of CONSULTATION_TEXT_KEYS) {
         const value = record.snapshot[field];
         if (typeof value === 'string') {
-          yield { id: rowId(SNAPSHOT_TABLE, record.id, field), value };
+          yield {
+            id: rowId(SNAPSHOT_TABLE, record.id, field),
+            value,
+            context: consultationTextContext(
+              record.consultation.patientId,
+              field,
+            ),
+          };
         }
       }
     }
@@ -130,7 +183,7 @@ export function buildClinicalPort(
 
   return {
     dataset: 'clinical',
-    codec: textCodec(keyring),
+    codec: textCodec(keyring, true),
     async *list() {
       yield* listColumns();
       yield* listSnapshots();

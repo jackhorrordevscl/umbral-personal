@@ -163,7 +163,7 @@ Reglas:
 - Nunca escribir "certificado", "certificación" ni "cumple plenamente" respecto de ninguna ley o norma. El proyecto no tiene certificaciones ni validación legal; el RAT mantiene pendientes de revisión legal (transferencia internacional de datos, bases habilitantes).
 - No afirmar aislamiento "a nivel de base de datos" ni por RLS: la separación entre profesionales la hace el código de la aplicación.
 - No afirmar que todos los datos personales están cifrados: se cifran los textos clínicos libres de consultas e informes de alta, el título y el cuerpo de las notificaciones internas, los documentos subidos (incluido el PDF del informe de alta), los tokens de Google, las credenciales de pago y el secreto MFA. El nombre, el RUT y los datos de contacto del paciente se guardan en texto plano en la base (paso 3 del ADR 0004).
-- No afirmar cifrado "de extremo a extremo" ni que la plataforma no puede leer las notas: Umbral las descifra para mostrarlas y la clave está en el servidor. Tampoco afirmar que el cifrado impide alterar los textos con acceso de escritura a la base: no liga cada texto a su fila (ADR 0004, issue #486).
+- No afirmar cifrado "de extremo a extremo" ni que la plataforma no puede leer las notas: Umbral las descifra para mostrarlas y la clave está en el servidor. Tampoco afirmar que el cifrado impide alterar los textos con acceso de escritura a la base: el formato `enc:v4` liga cada texto a su paciente y campo, lo que detecta que se mueva o copie, pero no impide escribir texto nuevo con la clave (ADR 0004, issue #486).
 - No afirmar ubicación de datos solo en Chile: la base está en São Paulo, los archivos y respaldos en Estados Unidos, el backend en Render (Oregón) y el tráfico pasa por Cloudflare y Vercel.
 - No afirmar firma electrónica avanzada ni validez legal del informe de alta: lleva firma simple y un hash de integridad (ADR 0006).
 - No afirmar que el sistema valida la autorización para entregar un informe de alta a un tercero: solo registra el documento cargado y la declaración del terapeuta.
@@ -190,4 +190,4 @@ Reglas:
 | #161 | Recordatorios de sesión por WhatsApp | Pospuesto |
 | #162 | Transcriptor de sesiones a notas automáticas | Pospuesto |
 
-Los otros dos issues abiertos son de infraestructura y seguridad interna (#63, plan de Render, y #486, ligar el cifrado de textos clínicos al paciente y al campo) y no deben presentarse como funcionalidades. El issue #123 (verificación de la app OAuth de Google) está cerrado.
+Los otros dos issues son de infraestructura y seguridad interna (#63, plan de Render, y #486, ligar el cifrado de textos clínicos al paciente y al campo, resuelto en el código) y no deben presentarse como funcionalidades. El issue #123 (verificación de la app OAuth de Google) está cerrado.

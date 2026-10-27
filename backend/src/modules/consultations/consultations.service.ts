@@ -245,6 +245,7 @@ export class ConsultationsService {
               agreements: sanitizeClinicalNote(dto.agreements),
             },
             this.clinicalCrypto,
+            dto.patientId,
           ),
           nextSessionDate: dto.nextSessionDate
             ? parseDate(dto.nextSessionDate)
@@ -291,6 +292,7 @@ export class ConsultationsService {
    */
   private async getHistory(
     groupId: string,
+    patientId: string,
     client: PrismaService | Prisma.TransactionClient = this.prisma,
   ) {
     const entries = await client.consultationHistory.findMany({
@@ -298,7 +300,7 @@ export class ConsultationsService {
       orderBy: { editedAt: 'desc' },
       include: { editedBy: { select: { name: true, email: true } } },
     });
-    return entries.map((entry) => this.decryptHistoryLenient(entry));
+    return entries.map((entry) => this.decryptHistoryLenient(entry, patientId));
   }
 
   // issue #486: solo para respuestas que no reescriben el texto (listado e
@@ -308,10 +310,11 @@ export class ConsultationsService {
   // estricta: re-cifrar un texto a medias pisaría el original.
   private decryptHistoryLenient<
     T extends { id: string; snapshot: Prisma.JsonValue | null },
-  >(entry: T) {
+  >(entry: T, patientId: string) {
     const { entry: readable, unreadableFields } = decryptHistoryEntryLenient(
       entry,
       this.clinicalCrypto,
+      patientId,
     );
     if (unreadableFields.length === 0) return readable;
     this.logger.error(
@@ -321,7 +324,7 @@ export class ConsultationsService {
   }
 
   private decryptConsultationLenient<
-    T extends ConsultationTexts & { id: string },
+    T extends ConsultationTexts & { id: string; patientId: string },
   >(row: T) {
     const { row: readable, unreadableFields } = decryptConsultationRowLenient(
       row,
@@ -385,7 +388,7 @@ export class ConsultationsService {
       for (const entry of allHistory) {
         historyMap
           .get(entry.consultationId)
-          ?.push(this.decryptHistoryLenient(entry));
+          ?.push(this.decryptHistoryLenient(entry, patientId));
       }
     }
 
@@ -487,7 +490,10 @@ export class ConsultationsService {
     // Lanza NotFoundException si el usuario no tiene acceso al paciente dueño de esta consulta
     await this.patientsService.assertAccess(consultation.patientId, userId);
 
-    const history = await this.getHistory(consultation.groupId);
+    const history = await this.getHistory(
+      consultation.groupId,
+      consultation.patientId,
+    );
 
     return {
       ...decryptConsultationRow(consultation, this.clinicalCrypto),
@@ -525,6 +531,7 @@ export class ConsultationsService {
         sessionType: original.sessionType,
       }),
       this.clinicalCrypto,
+      original.patientId,
     );
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -630,6 +637,7 @@ export class ConsultationsService {
                   : original.agreements,
             },
             this.clinicalCrypto,
+            original.patientId,
           ),
           nextSessionDate:
             dto.nextSessionDate === null
@@ -673,7 +681,11 @@ export class ConsultationsService {
 
       return {
         ...decryptConsultationRow(corrected, this.clinicalCrypto),
-        history: await this.getHistory(original.groupId, tx),
+        history: await this.getHistory(
+          original.groupId,
+          original.patientId,
+          tx,
+        ),
       };
     });
     this.logger.log(
@@ -863,6 +875,7 @@ export class ConsultationsService {
               agreements: null,
             },
             this.clinicalCrypto,
+            patientId,
           ),
           sessionType: 'IN_PERSON',
           scheduledAt: slotStart,

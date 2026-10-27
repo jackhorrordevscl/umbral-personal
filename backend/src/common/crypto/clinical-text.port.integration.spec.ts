@@ -1,7 +1,12 @@
 import * as argon2 from 'argon2';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildClinicalPort } from './clinical-text.port';
-import { buildKeyring } from './keyring';
+import { consultationTextContext } from '../../modules/consultations/util/consultation-text.util';
+import {
+  buildKeyring,
+  decryptTextWithKeyring,
+  encryptTextWithKeyring,
+} from './keyring';
 import { DatasetPort, runReencrypt } from './reencrypt';
 
 // ADR 0004 + ADR 0005: el recifrado manual cubre las columnas de texto clínico
@@ -148,16 +153,16 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
     const consultation = await prisma.consultation.findUniqueOrThrow({
       where: { id: consultationId },
     });
-    expect(consultation.consultReason).toMatch(/^enc:v3:0:/);
-    expect(consultation.intervention).toMatch(/^enc:v3:0:/);
+    expect(consultation.consultReason).toMatch(/^enc:v4:0:/);
+    expect(consultation.intervention).toMatch(/^enc:v4:0:/);
     expect(consultation.agreements).toBeNull();
 
     const history = await prisma.consultationHistory.findUniqueOrThrow({
       where: { id: historyId },
     });
     const snapshot = history.snapshot as Record<string, unknown>;
-    expect(snapshot.consultReason).toMatch(/^enc:v3:0:/);
-    expect(snapshot.intervention).toMatch(/^enc:v3:0:/);
+    expect(snapshot.consultReason).toMatch(/^enc:v4:0:/);
+    expect(snapshot.intervention).toMatch(/^enc:v4:0:/);
     expect(snapshot.agreements).toBeNull();
     expect(snapshot.sessionType).toBe('IN_PERSON');
 
@@ -171,7 +176,7 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
       'recommendations',
       'dropoutNote',
     ] as const) {
-      expect(discharge[field]).toMatch(/^enc:v3:0:/);
+      expect(discharge[field]).toMatch(/^enc:v4:0:/);
     }
     expect(discharge.diagnosis).toBeNull();
     expect(JSON.stringify([consultation, snapshot, discharge])).not.toContain(
@@ -181,8 +186,8 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
     const notification = await prisma.notification.findUniqueOrThrow({
       where: { id: notificationId },
     });
-    expect(notification.title).toMatch(/^enc:v3:0:/);
-    expect(notification.body).toMatch(/^enc:v3:0:/);
+    expect(notification.title).toMatch(/^enc:v4:0:/);
+    expect(notification.body).toMatch(/^enc:v4:0:/);
     expect(JSON.stringify(notification)).not.toContain('Paciente Recifrado');
 
     const lines: string[] = [];
@@ -195,6 +200,58 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
     expect(again.datasets[0].upToDate).toBe(11);
     expect(again.datasets[0].reencrypted).toBe(0);
     expect(lines).toEqual([]);
+  }, 30000);
+
+  // issue #486: migración real enc:v3 -> enc:v4 contra Postgres.
+  it('migra un enc:v3 a enc:v4 ligado al paciente y al campo, y queda ilegible con otro contexto', async () => {
+    const legacy = encryptTextWithKeyring(Buffer.from('Motivo en v3'), keyring);
+    expect(legacy).toMatch(/^enc:v3:0:/);
+    await prisma.consultation.update({
+      where: { id: consultationId },
+      data: { consultReason: legacy },
+    });
+    const only = (port: DatasetPort): DatasetPort => ({
+      ...port,
+      async *list() {
+        for await (const row of port.list()) {
+          if (row.id === `consultation/${consultationId}/consultReason`) {
+            yield row;
+          }
+        }
+      },
+    });
+
+    const result = await runReencrypt(
+      [only(buildClinicalPort(prisma, keyring))],
+      { apply: true },
+    );
+
+    expect(result.datasets[0].failed).toBe(0);
+    expect(result.datasets[0].reencrypted).toBe(1);
+    const stored = (
+      await prisma.consultation.findUniqueOrThrow({
+        where: { id: consultationId },
+      })
+    ).consultReason;
+    expect(stored).toMatch(/^enc:v4:0:/);
+    const right = consultationTextContext(patientId, 'consultReason');
+    expect(decryptTextWithKeyring(stored, keyring, right).toString()).toBe(
+      'Motivo en v3',
+    );
+    expect(() =>
+      decryptTextWithKeyring(
+        stored,
+        keyring,
+        consultationTextContext('otro-paciente', 'consultReason'),
+      ),
+    ).toThrow();
+    expect(() =>
+      decryptTextWithKeyring(
+        stored,
+        keyring,
+        consultationTextContext(patientId, 'intervention'),
+      ),
+    ).toThrow();
   }, 30000);
 
   it('writeIfUnchanged rechaza la escritura si el valor cambió en paralelo (columna y snapshot)', async () => {

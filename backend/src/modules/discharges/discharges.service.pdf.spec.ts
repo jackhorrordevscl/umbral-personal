@@ -1,4 +1,5 @@
 import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
+import { encryptDischargeTexts } from './util/discharge-text.util';
 import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { TreatmentDischarge } from '@prisma/client';
@@ -204,10 +205,16 @@ describe('DischargesService PDF (T3)', () => {
       prisma.treatmentDischarge.findFirst
         .mockResolvedValueOnce(
           issuedRow({
-            consultReason: crypto.encrypt('Motivo reservado'),
-            evolutionSummary: crypto.encrypt('Evolución reservada'),
-            statusAtDischarge: crypto.encrypt('Estado reservado'),
-            recommendations: crypto.encrypt('Recomendaciones reservadas'),
+            ...encryptDischargeTexts(
+              {
+                consultReason: 'Motivo reservado',
+                evolutionSummary: 'Evolución reservada',
+                statusAtDischarge: 'Estado reservado',
+                recommendations: 'Recomendaciones reservadas',
+              },
+              crypto,
+              'patient-1',
+            ),
             contentHash: 'x',
           }),
         )

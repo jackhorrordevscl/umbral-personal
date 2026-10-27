@@ -1,4 +1,7 @@
-import { buildTestClinicalCrypto } from '../../../common/crypto/clinical-text-crypto.testing';
+import {
+  buildTestClinicalCrypto,
+  buildTestLegacyV3Text,
+} from '../../../common/crypto/clinical-text-crypto.testing';
 import {
   decryptDischargeRow,
   decryptDischargeRowLenient,
@@ -7,9 +10,11 @@ import {
 } from './discharge-text.util';
 
 // ADR 0004 (opción B): los textos libres del informe de alta se guardan
-// cifrados; hacia fuera (API, PDF, hash) siempre salen en claro.
+// cifrados; hacia fuera (API, PDF, hash) siempre salen en claro. issue #486:
+// cada texto queda ligado al paciente y al campo (enc:v4).
 describe('discharge-text util', () => {
   const crypto = buildTestClinicalCrypto();
+  const patientId = 'patient-1';
 
   const allTexts = {
     consultReason: 'Motivo reservado',
@@ -31,10 +36,11 @@ describe('discharge-text util', () => {
     const encrypted = encryptDischargeTexts(
       { ...allTexts, closureReason: 'DISCHARGED', sessionCount: 4 },
       crypto,
+      patientId,
     );
 
     for (const field of DISCHARGE_TEXT_FIELDS) {
-      expect(String(encrypted[field]).startsWith('enc:v3:')).toBe(true);
+      expect(String(encrypted[field]).startsWith('enc:v4:')).toBe(true);
     }
     expect(JSON.stringify(encrypted)).not.toContain('reservad');
     expect(encrypted.closureReason).toBe('DISCHARGED');
@@ -45,6 +51,7 @@ describe('discharge-text util', () => {
     const encrypted = encryptDischargeTexts(
       { consultReason: 'Motivo', dropoutNote: null },
       crypto,
+      patientId,
     );
 
     expect(Object.keys(encrypted).sort()).toEqual([
@@ -52,26 +59,34 @@ describe('discharge-text util', () => {
       'dropoutNote',
     ]);
     expect(encrypted.dropoutNote).toBeNull();
-    expect(String(encrypted.consultReason).startsWith('enc:v3:')).toBe(true);
+    expect(String(encrypted.consultReason).startsWith('enc:v4:')).toBe(true);
   });
 
   it('encryptDischargeTexts cifra también la cadena vacía', () => {
-    const encrypted = encryptDischargeTexts({ diagnosis: '' }, crypto);
+    const encrypted = encryptDischargeTexts(
+      { diagnosis: '' },
+      crypto,
+      patientId,
+    );
 
-    expect(String(encrypted.diagnosis).startsWith('enc:v3:')).toBe(true);
-    expect(decryptDischargeRow(encrypted, crypto).diagnosis).toBe('');
+    expect(String(encrypted.diagnosis).startsWith('enc:v4:')).toBe(true);
+    expect(
+      decryptDischargeRow({ patientId, ...encrypted }, crypto).diagnosis,
+    ).toBe('');
   });
 
   it('decryptDischargeRow devuelve los textos en claro y conserva el resto de la fila', () => {
     const row = {
       id: 'd1',
+      patientId,
       version: 2,
       correctedBy: { id: 'd2' },
-      ...encryptDischargeTexts(allTexts, crypto),
+      ...encryptDischargeTexts(allTexts, crypto, patientId),
     };
 
     expect(decryptDischargeRow(row, crypto)).toEqual({
       id: 'd1',
+      patientId,
       version: 2,
       correctedBy: { id: 'd2' },
       ...allTexts,
@@ -80,6 +95,7 @@ describe('discharge-text util', () => {
 
   it('decryptDischargeRow deja pasar el texto plano heredado y el valor vacío por defecto', () => {
     const row = {
+      patientId,
       consultReason: '',
       diagnosis: null,
       recommendations: 'Plano',
@@ -88,22 +104,54 @@ describe('discharge-text util', () => {
     expect(decryptDischargeRow(row, crypto)).toEqual(row);
   });
 
+  it('decryptDischargeRow lee un enc:v3 heredado sin ligar al paciente', () => {
+    const row = { patientId, diagnosis: buildTestLegacyV3Text('Heredado') };
+
+    expect(decryptDischargeRow(row, crypto).diagnosis).toBe('Heredado');
+  });
+
+  // issue #486: copiar un texto cifrado a otro paciente o campo lo invalida.
+  it('decryptDischargeRow no descifra un informe movido a otro paciente', () => {
+    const row = {
+      patientId: 'patient-2',
+      ...encryptDischargeTexts(allTexts, crypto, patientId),
+    };
+
+    expect(() => decryptDischargeRow(row, crypto)).toThrow();
+  });
+
+  it('decryptDischargeRow no descifra un texto copiado a otro campo', () => {
+    const encrypted = encryptDischargeTexts(allTexts, crypto, patientId);
+
+    expect(() =>
+      decryptDischargeRow(
+        { patientId, ...encrypted, diagnosis: encrypted.consultReason },
+        crypto,
+      ),
+    ).toThrow();
+  });
+
   describe('decryptDischargeRowLenient', () => {
     const tampered = (value: string) => `${value.slice(0, -4)}AAAA`;
 
     it('descifra todo y no informa campos ilegibles cuando la fila está sana', () => {
-      const row = { id: 'd1', ...encryptDischargeTexts(allTexts, crypto) };
+      const row = {
+        id: 'd1',
+        patientId,
+        ...encryptDischargeTexts(allTexts, crypto, patientId),
+      };
 
       expect(decryptDischargeRowLenient(row, crypto)).toEqual({
-        row: { id: 'd1', ...allTexts },
+        row: { id: 'd1', patientId, ...allTexts },
         unreadableFields: [],
       });
     });
 
     it('deja en null solo el campo alterado, informa su nombre y descifra el resto', () => {
-      const encrypted = encryptDischargeTexts(allTexts, crypto);
+      const encrypted = encryptDischargeTexts(allTexts, crypto, patientId);
       const row = {
         id: 'd1',
+        patientId,
         ...encrypted,
         diagnosis: tampered(encrypted.diagnosis),
       };
@@ -111,11 +159,37 @@ describe('discharge-text util', () => {
       const result = decryptDischargeRowLenient(row, crypto);
 
       expect(result.unreadableFields).toEqual(['diagnosis']);
-      expect(result.row).toEqual({ id: 'd1', ...allTexts, diagnosis: null });
+      expect(result.row).toEqual({
+        id: 'd1',
+        patientId,
+        ...allTexts,
+        diagnosis: null,
+      });
+    });
+
+    it('aísla un texto copiado de otro paciente sin tumbar el resto de la fila', () => {
+      const foreign = encryptDischargeTexts(
+        { diagnosis: 'De otro paciente' },
+        crypto,
+        'patient-2',
+      );
+      const row = {
+        patientId,
+        ...encryptDischargeTexts(allTexts, crypto, patientId),
+        diagnosis: foreign.diagnosis,
+      };
+
+      const result = decryptDischargeRowLenient(row, crypto);
+
+      expect(result.unreadableFields).toEqual(['diagnosis']);
+      expect(result.row.consultReason).toBe(allTexts.consultReason);
     });
 
     it('trata como ilegible un valor enc:v3 con una clave ausente del llavero', () => {
-      const row = { consultReason: 'enc:v3:99:AAAAAAAAAAAAAAAAAAAAAAAA' };
+      const row = {
+        patientId,
+        consultReason: 'enc:v3:99:AAAAAAAAAAAAAAAAAAAAAAAA',
+      };
 
       const result = decryptDischargeRowLenient(row, crypto);
 
@@ -124,11 +198,11 @@ describe('discharge-text util', () => {
     });
 
     it('decryptDischargeRow estricto sigue lanzando ante un campo alterado', () => {
-      const encrypted = encryptDischargeTexts(allTexts, crypto);
+      const encrypted = encryptDischargeTexts(allTexts, crypto, patientId);
 
       expect(() =>
         decryptDischargeRow(
-          { ...encrypted, diagnosis: tampered(encrypted.diagnosis) },
+          { patientId, ...encrypted, diagnosis: tampered(encrypted.diagnosis) },
           crypto,
         ),
       ).toThrow();

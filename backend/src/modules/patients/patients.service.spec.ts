@@ -1,4 +1,5 @@
 import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
+import { consultationTextContext } from '../consultations/util/consultation-text.util';
 import {
   BadRequestException,
   ConflictException,
@@ -429,14 +430,25 @@ describe('PatientsService', () => {
         consultations: [
           {
             id: 'c-ok',
-            consultReason: crypto.encrypt('Motivo legible'),
-            intervention: crypto.encrypt('Intervención legible'),
+            patientId: 'patient-1',
+            consultReason: crypto.encrypt(
+              'Motivo legible',
+              consultationTextContext('patient-1', 'consultReason'),
+            ),
+            intervention: crypto.encrypt(
+              'Intervención legible',
+              consultationTextContext('patient-1', 'intervention'),
+            ),
             agreements: null,
           },
           {
             id: 'c-bad',
+            patientId: 'patient-1',
             consultReason: 'enc:v3:0:AAAA',
-            intervention: crypto.encrypt('Intervención legible'),
+            intervention: crypto.encrypt(
+              'Intervención legible',
+              consultationTextContext('patient-1', 'intervention'),
+            ),
             agreements: null,
           },
         ],
@@ -447,12 +459,14 @@ describe('PatientsService', () => {
       expect(result.consultations).toEqual([
         {
           id: 'c-ok',
+          patientId: 'patient-1',
           consultReason: 'Motivo legible',
           intervention: 'Intervención legible',
           agreements: null,
         },
         {
           id: 'c-bad',
+          patientId: 'patient-1',
           consultReason: null,
           intervention: 'Intervención legible',
           agreements: null,
@@ -468,8 +482,15 @@ describe('PatientsService', () => {
         consultations: [
           {
             id: 'c-1',
-            consultReason: crypto.encrypt('<p>Motivo reservado</p>'),
-            intervention: crypto.encrypt('<p>Intervención reservada</p>'),
+            patientId: 'patient-1',
+            consultReason: crypto.encrypt(
+              '<p>Motivo reservado</p>',
+              consultationTextContext('patient-1', 'consultReason'),
+            ),
+            intervention: crypto.encrypt(
+              '<p>Intervención reservada</p>',
+              consultationTextContext('patient-1', 'intervention'),
+            ),
             agreements: null,
           },
         ],
@@ -480,6 +501,7 @@ describe('PatientsService', () => {
       expect(result.consultations).toEqual([
         {
           id: 'c-1',
+          patientId: 'patient-1',
           consultReason: '<p>Motivo reservado</p>',
           intervention: '<p>Intervención reservada</p>',
           agreements: null,

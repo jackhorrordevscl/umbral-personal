@@ -6,6 +6,7 @@ import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
 import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import {
+  notificationTextContext,
   UNREADABLE_NOTIFICATION_BODY,
   UNREADABLE_NOTIFICATION_TITLE,
 } from './util/notification-text.util';
@@ -60,9 +61,16 @@ describe('NotificationsService', () => {
 
   // Fila tal como queda en la base: title y body cifrados.
   function storedNotification(overrides: Partial<Notification> = {}) {
+    const userId = overrides.userId ?? 'therapist-a';
     return buildNotification({
-      title: crypto.encrypt('Sesión próxima'),
-      body: crypto.encrypt('Tu sesión con Juan Soto es en 24 horas'),
+      title: crypto.encrypt(
+        'Sesión próxima',
+        notificationTextContext(userId, 'title'),
+      ),
+      body: crypto.encrypt(
+        'Tu sesión con Juan Soto es en 24 horas',
+        notificationTextContext(userId, 'body'),
+      ),
       ...overrides,
     });
   }
@@ -110,12 +118,22 @@ describe('NotificationsService', () => {
         data: { title: string; body: string };
       }[][];
       const stored = calls[0][0].data;
-      expect(stored.title).toMatch(/^enc:v3:/);
-      expect(stored.body).toMatch(/^enc:v3:/);
+      expect(stored.title).toMatch(/^enc:v4:/);
+      expect(stored.body).toMatch(/^enc:v4:/);
       expect(JSON.stringify(stored)).not.toContain('Juan Soto');
-      expect(crypto.decrypt(stored.body)).toBe(
-        'Tu sesión con Juan Soto está programada para mañana.',
-      );
+      // Ligado al usuario destinatario y al campo (issue #486).
+      expect(
+        crypto.decrypt(
+          stored.body,
+          notificationTextContext('therapist-a', 'body'),
+        ),
+      ).toBe('Tu sesión con Juan Soto está programada para mañana.');
+      expect(() =>
+        crypto.decrypt(
+          stored.body,
+          notificationTextContext('therapist-b', 'body'),
+        ),
+      ).toThrow();
       expect(result.title).toBe('Recordatorio de sesión en 24 horas');
       expect(result.body).toBe(
         'Tu sesión con Juan Soto está programada para mañana.',
@@ -154,7 +172,10 @@ describe('NotificationsService', () => {
 
     it('una fila que no se puede descifrar muestra un texto neutro y no tumba al resto de la lista', async () => {
       // Cambia un carácter del medio del base64: la autenticación de GCM falla.
-      const valid = crypto.encrypt('Tu sesión con Ana Pérez');
+      const valid = crypto.encrypt(
+        'Tu sesión con Ana Pérez',
+        notificationTextContext('therapist-a', 'body'),
+      );
       const at = valid.length - 8;
       const tampered = storedNotification({
         id: 'notification-bad',

@@ -614,6 +614,7 @@ describe('DischargesService T3b (PDF propio)', () => {
       const good = encryptDischargeTexts(
         { consultReason: 'Motivo' },
         buildTestClinicalCrypto(),
+        'patient-1',
       ).consultReason;
       prisma.treatmentDischarge.findFirst.mockResolvedValue({
         ...uploadedRow({ consultReason: `${good.slice(0, -4)}AAAA` }),
