@@ -5,6 +5,7 @@
 - **Issue:** #384
 - **Nota de estado (2026-10-13):** la Content-Security-Policy del punto 2 de la decisión ya está en `frontend/vercel.json` (issue #386, PR #389 y #390), por lo que la afirmación "hoy no hay Content-Security-Policy" de la sección Contexto describe el estado del 2026-10-07. La migración a cookie `HttpOnly` sigue abierta en el issue #387.
 - **Nota de estado (2026-10-14):** la migración a cookie `HttpOnly` del issue #387 está implementada; ver la sección "Implementación de #387" al final. Las secciones anteriores describen el estado y el razonamiento a la fecha de la decisión.
+- **Nota de estado (2026-10-27):** el `Bearer` sigue siendo aceptado junto a la cookie (`JwtStrategy`); no se ha retirado. El CSRF ya no depende solo de `SameSite=Strict`: ver la nota en "Implementación de #387".
 
 ## Contexto
 
@@ -12,7 +13,8 @@ El frontend guarda el JWT de sesión y los datos del usuario en `localStorage`
 (claves `token` y `user`; ver `frontend/src/context/AuthContext.tsx` y
 `frontend/src/api/client.ts`). El cliente adjunta el token como
 `Authorization: Bearer` en cada petición, y el backend lo extrae con
-`ExtractJwt.fromAuthHeaderAsBearerToken()` (`jwt.strategy.ts`).
+`ExtractJwt.fromAuthHeaderAsBearerToken()` (`jwt.strategy.ts`, hoy en
+`backend/src/modules/auth/strategies/`).
 
 El riesgo es que cualquier script que se ejecute en el origen del frontend
 (XSS, dependencia comprometida) puede leer el token y usarlo desde fuera. La
@@ -128,6 +130,13 @@ anti-CSRF.
   pestañas y el cierre por inactividad dependen de ese marcador. El `token` de
   versiones anteriores se descarta al arrancar.
 - **CSRF:** solo `SameSite=Strict`. No se agregó token anti-CSRF.
+  - *Nota (2026-10-27):* desde el issue #487 (PR #590) se sumó defensa en
+    profundidad sin token anti-CSRF: `SessionOriginGuard`
+    (`backend/src/common/guards/session-origin.guard.ts`, registrado en
+    `app.module.ts`) rechaza con `403` las peticiones `POST`, `PUT`, `PATCH` y
+    `DELETE` que llegan con la cookie de sesión y cuyo `Origin` (o, si falta,
+    `Sec-Fetch-Site` `same-site`/`cross-site`) no corresponde al frontend. Sin
+    cookie de sesión, o sin ninguna de esas cabeceras, la petición pasa.
 - **Cookie sin `Domain`:** queda atada al host exacto de la API (*host-only*), de
   modo que cambiar de dominio no exige reconfigurar nada en el código.
 

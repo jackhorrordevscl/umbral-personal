@@ -4,6 +4,7 @@
 - **Fecha:** 2026-09-25
 - **Issue:** #210
 - **Nota de estado (2026-10-16):** NestJS `^11.0.1` y Vite `^7.3.1` siguen congelados. La parte de Tailwind se reabrió y se resolvió: el frontend migró a Tailwind `^4.3.3` (issue #458, PR #479) para resolver 7 vulnerabilidades de desarrollo. Prisma, que la decisión dejaba aparte en el issue #75, también migró: el backend usa `prisma` y `@prisma/client` `^7.10.0` (PR #471). Los issues #210, #75 y #458 están cerrados y la etiqueta `v1.0.0` ya existe; la tabla de la sección Contexto describe las versiones del 2026-09-25.
+- **Nota de estado (2026-10-27):** verificado contra `backend/package.json` y `frontend/package.json`: `@nestjs/core` y `@nestjs/common` `^11.0.1`, `vite` `^7.3.1`, `tailwindcss` `^4.3.3` (con `@tailwindcss/postcss` `^4.3.3`), `prisma` y `@prisma/client` `^7.10.0`. NestJS y Vite siguen en el major congelado; el título y la fila de Tailwind de la tabla describen el estado del 2026-09-25. En la sección "Qué no significa", el punto 2 aplica hoy a 11.x, 7.x y 4.x. Las columnas "Última versión" de la tabla no se actualizaron (requieren consultar el registro npm). La línea base de `npm audit` de `docs/evidencia-compliance/npm-audit/` sigue siendo la del 2026-09-24.
 
 ## Contexto
 

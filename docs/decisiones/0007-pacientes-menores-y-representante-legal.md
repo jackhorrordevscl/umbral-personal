@@ -12,6 +12,13 @@
 - El issue #376 (nota de privacidad de la agenda pública) está cerrado desde el 2026-10-08; el estado y la ubicación de los textos para revisión legal están en ese issue.
 - La base de producción pasó por un clean total el 2026-10-14 (ver `docs/incident-log.md`). Tras ese clean no queda ningún paciente NNA en producción (solo existe la cuenta de administración); el caso del NNA real citado en el Contexto es histórico. La constante `MINOR_GUARDIAN_ENFORCEMENT_DATE = '2026-12-01'` y las reglas de transición siguen vigentes en el código.
 
+**Nota de estado (2026-10-27):** verificada contra el código. Cambios posteriores a la decisión que modifican lo escrito abajo:
+
+- **Representante de la reserva pública (sección 4).** El PR #578 (issue #496) lo crea solo como pagador y contacto: `isPayer` y `receivesCommunications` en verdadero, pero `canAccessReports` y `canConsent` en falso, porque la persona es anónima y no está verificada (`backend/src/modules/patients/patients.service.ts`, alta desde la reserva pública). El terapeuta habilita ambos permisos al verificarla. Hasta entonces ese representante no cuenta para `minorStatus` ni puede otorgar el consentimiento.
+- **Asentimiento por tramo (sección 1).** Desde el issue #488 (PR #603), `AssentsService.record` rechaza con 400 la acción `GRANTED` en un paciente `UNDER_14`: el asentimiento expreso empieza a los 14 años y por debajo de esa edad solo se registra `INFORMED_AND_HEARD`; `REFUSED` y `WITHDRAWN` se siguen aceptando. Al subir un documento `INFORMED_ASSENT` de un NNA, `DocumentsService` registra en la misma transacción `INFORMED_AND_HEARD` (menor de 14, PR #605) o `GRANTED` (14 a 17). El formulario oculta la opción «Otorgado» para menores de 14 (PR #606).
+- **RUT del representante (sección 1).** Desde el PR #602 (issue #488), alta y edición rechazan con 409 un RUT igual al del paciente o repetido en otro representante del mismo paciente (`GuardiansService.assertGuardianRutIsFree`).
+- **Sin cambios:** `MINOR_GUARDIAN_ENFORCEMENT_DATE = '2026-12-01'` (`patients.constants.ts`), el tope de 2 representantes (`MAX_GUARDIANS_PER_PATIENT`), los valores de `minorStatus` y la validación de `canConsent` fuera de la transacción de `recordConsent`. En los seguimientos, la baja de un representante sigue auditándose como `SOFT_DELETE` (mapeo fijo de `AuditInterceptor`) y el pagador único lo sigue garantizando el servicio (`GuardiansService`) y no una restricción de base de datos; las revisiones legales y del Boletín 18.623-07 no se pudieron comprobar desde el código.
+
 ## Contexto
 
 Hasta este cambio el sistema no distinguía a un niño, niña o adolescente (NNA): no calculaba la

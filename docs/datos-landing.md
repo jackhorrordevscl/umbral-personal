@@ -1,8 +1,8 @@
 # Datos verificados para la landing page
 
-Fecha de verificación: 2026-10-16. Fuente: código del repositorio (`main` en `959a5a8`, etiquetado como `v1.0.0`), README y estado de GitHub. Las cifras cambian con cada PR; vuelve a contarlas antes de publicar.
+Fecha de verificación: 2026-10-27. Fuente: código del repositorio (`main` en `733181a`, posterior a `959a5a8`, etiquetado como `v1.0.0` el 2026-10-16), README y estado de GitHub. Las cifras cambian con cada PR; vuelve a contarlas antes de publicar.
 
-Actualización del 2026-10-17: solo lo relativo al cifrado de los textos clínicos libres (`main` en `c671a75`), que quedó activo en producción ese día con el recifrado de los datos existentes terminado (ADR 0004, `docs/evaluacion-v1.md` A3). El resto del documento conserva la verificación del 2026-10-16.
+Nota del 2026-10-17: el cifrado de los textos clínicos libres quedó activo en producción ese día con el recifrado de los datos existentes terminado (ADR 0004, `docs/evaluacion-v1.md` A3).
 
 Regla general: afirma solo lo que está en la sección "Funcionalidades reales". Todo lo de "Qué NO afirmar" queda fuera del texto público.
 
@@ -47,7 +47,8 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 
 - Registro de hasta 2 representantes legales por paciente (nombre, RUT, relación, contacto, custodia y roles: pagador, avisos, informes, consentimiento).
 - El consentimiento de un NNA lo otorga un representante. Hasta el 2026-12-01 el sistema aún acepta el consentimiento legado otorgado por el propio NNA; desde esa fecha lo exige otorgado por un representante.
-- Registro del asentimiento del niño, niña o adolescente (informado y oído, otorgado, rechazado o retirado) como ledger que no se borra. Nunca reemplaza el consentimiento del representante.
+- Registro del asentimiento del niño, niña o adolescente (informado y oído, otorgado, rechazado o retirado) como ledger que no se borra. El asentimiento expreso (otorgado) se registra desde los 14 años; en un menor de 14 solo se registra "informado y oído". Nunca reemplaza el consentimiento del representante.
+- No se admite repetir el RUT de un representante ni usar el del propio paciente.
 - Los cobros de sesión y los avisos de cobro vencido y de cancelación de un NNA se dirigen a sus representantes, no a su email.
 
 ### Cierre de tratamiento e informe de alta
@@ -62,7 +63,7 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 ### Calendario y Google Calendar
 
 - Calendario de sesiones.
-- Conexión opcional con Google Calendar, de una sola vía (Umbral hacia Google). El evento solo lleva iniciales del paciente, un código corto y un enlace a Umbral; no incluye nombre completo, RUT ni texto clínico.
+- Conexión opcional con Google Calendar, de una sola vía (Umbral hacia Google). El evento solo lleva iniciales del paciente, un código corto y una descripción genérica que remite a la cuenta de Umbral; no incluye nombre completo, RUT, texto clínico, identificadores ni enlaces en el título ni en la descripción (el identificador interno del grupo de consultas va solo en una propiedad privada del evento).
 - Opcional: los horarios ocupados de tu Google Calendar pueden descontarse de la disponibilidad pública (depende de una opción de configuración del servidor).
 
 ### Agenda pública por enlace propio
@@ -88,7 +89,7 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 ### Recordatorios y notificaciones
 
 - Recordatorios de sesión 24 horas y 2 horas antes, por notificación en la app y por email al terapeuta.
-- Notificaciones en la app con contador de no leídas y marcado como leídas; las leídas se purgan a los 30 días y las no leídas a los 90 días de generadas.
+- Notificaciones en la app con contador de no leídas y marcado como leídas; las leídas se purgan a los 30 días y las no leídas a los 90 días de generadas; el título y el cuerpo se guardan cifrados.
 - Avisos de Google Calendar desconectado, cobro vencido, anomalías de cobro y paciente autoagendado sin monto de sesión.
 
 ### Seguridad de la cuenta
@@ -96,30 +97,31 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 - MFA (TOTP) obligatorio para toda cuenta, con 10 códigos de recuperación de un solo uso.
 - Recuperación de contraseña y de acceso por email y códigos, sin intervención manual.
 - Sesión en cookie `HttpOnly` (no legible por scripts), contraseñas con Argon2, sesiones revocables, cierre de todas las sesiones al cambiar la contraseña, cierre por inactividad a los 8 minutos (corregido en móvil, issue #367).
-- Límite de intentos por ruta sensible.
+- Límite de intentos por ruta sensible y, además, por cuenta para el código del segundo factor (bloqueo temporal tras 5 intentos fallidos).
+- Los códigos de invitación se guardan con hash.
 
 ### Auditoría y reportes
 
 - Bitácora de auditoría append-only (la base impide modificarla o borrarla).
 - Exportación en PDF de la ficha clínica completa con historial y pie de página con referencia a la Ley 20.584.
 
-## Cifras (verificadas el 2026-10-16)
+## Cifras (verificadas el 2026-10-27)
 
 | Dato | Valor | Cómo se verificó |
 |---|---|---|
 | Módulos de backend | 16 | carpetas de `backend/src/modules/` (además de `health` y `shared-files` en `backend/src/`) |
 | Modelos de base de datos | 27 | `model` en `backend/prisma/schema.prisma` |
-| Migraciones | 74 | carpetas de `backend/prisma/migrations/` |
+| Migraciones | 77 | carpetas de `backend/prisma/migrations/` |
 | Endpoints HTTP | unos 104 | conteo de decoradores de ruta en `backend/src` |
-| Tests unitarios backend | 116 specs | archivos `*.spec.ts` en `backend/src` |
-| Tests e2e backend | 32 specs | archivos `*.e2e-spec.ts` en `backend/test` |
+| Tests unitarios backend | 140 specs | archivos `*.spec.ts` en `backend/src` |
+| Tests e2e backend | 33 specs | archivos `*.e2e-spec.ts` en `backend/test` |
 | Tests frontend | 84 specs + 4 e2e Playwright (corren en el job `e2e` de CI) | `frontend/src` y `frontend/e2e` |
 | Páginas del frontend | 17 | archivos de página (sin contar specs) en `frontend/src/pages/` |
-| Commits | 565 | `git rev-list --count HEAD` |
-| Pull requests mergeados | 249 | `gh pr list --state merged` |
-| Issues | 227 cerrados, 6 abiertos | `gh issue list` |
-| Días de desarrollo | 75 | desde el primer commit, 2026-08-02, hasta 2026-10-16 |
-| Vulnerabilidades de producción | Sin hallazgos de nivel high o critical | `npm audit --omit=dev --audit-level=high` en CI; el CI de `main` pasó el 2026-10-16 |
+| Commits | 816 | `git rev-list --count HEAD` |
+| Pull requests mergeados | 361 | `gh pr list --state merged` |
+| Issues | 239 cerrados, 6 abiertos | `gh issue list` |
+| Días de desarrollo | 86 | desde el primer commit, 2026-08-02, hasta 2026-10-27 |
+| Vulnerabilidades de producción | Sin hallazgos de nivel high o critical | `npm audit --omit=dev --audit-level=high` en CI; el CI de `main` pasó el 2026-10-27. Con `npm audit --omit=dev` el backend tiene 1 moderate (`sanitize-html`) y el frontend 0 |
 
 ## Stack
 
@@ -160,7 +162,7 @@ Reglas:
 
 - Nunca escribir "certificado", "certificación" ni "cumple plenamente" respecto de ninguna ley o norma. El proyecto no tiene certificaciones ni validación legal; el RAT mantiene pendientes de revisión legal (transferencia internacional de datos, bases habilitantes).
 - No afirmar aislamiento "a nivel de base de datos" ni por RLS: la separación entre profesionales la hace el código de la aplicación.
-- No afirmar que todos los datos personales están cifrados: se cifran los textos clínicos libres de consultas e informes de alta, los documentos subidos (incluido el PDF del informe de alta), los tokens de Google, las credenciales de pago y el secreto MFA. El nombre, el RUT y los datos de contacto del paciente se guardan en texto plano en la base (paso 3 del ADR 0004).
+- No afirmar que todos los datos personales están cifrados: se cifran los textos clínicos libres de consultas e informes de alta, el título y el cuerpo de las notificaciones internas, los documentos subidos (incluido el PDF del informe de alta), los tokens de Google, las credenciales de pago y el secreto MFA. El nombre, el RUT y los datos de contacto del paciente se guardan en texto plano en la base (paso 3 del ADR 0004).
 - No afirmar cifrado "de extremo a extremo" ni que la plataforma no puede leer las notas: Umbral las descifra para mostrarlas y la clave está en el servidor. Tampoco afirmar que el cifrado impide alterar los textos con acceso de escritura a la base: no liga cada texto a su fila (ADR 0004, issue #486).
 - No afirmar ubicación de datos solo en Chile: la base está en São Paulo, los archivos y respaldos en Estados Unidos, el backend en Render (Oregón) y el tráfico pasa por Cloudflare y Vercel.
 - No afirmar firma electrónica avanzada ni validez legal del informe de alta: lleva firma simple y un hash de integridad (ADR 0006).
@@ -188,4 +190,4 @@ Reglas:
 | #161 | Recordatorios de sesión por WhatsApp | Pospuesto |
 | #162 | Transcriptor de sesiones a notas automáticas | Pospuesto |
 
-Los otros dos issues abiertos son de infraestructura (#63, plan de Render, y #123, verificación de la app OAuth de Google) y no deben presentarse como funcionalidades.
+Los otros dos issues abiertos son de infraestructura y seguridad interna (#63, plan de Render, y #486, ligar el cifrado de textos clínicos al paciente y al campo) y no deben presentarse como funcionalidades. El issue #123 (verificación de la app OAuth de Google) está cerrado.

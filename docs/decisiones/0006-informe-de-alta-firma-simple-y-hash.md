@@ -145,6 +145,10 @@ email, correo postal u otro), finalidad y fecha fijada por el servidor.
   valor de `authorizationAttested`.
 - El sistema **no envía** el informe por correo. Se descarga y se registra la
   entrega.
+- *Nota (2026-10-27):* desde el PR #580 (issue #492) el registro de una
+  entrega se rechaza con 409 si el informe no está emitido, si fue reemplazado
+  por una versión más reciente o si el PDF del informe fue anulado
+  (`DischargeDeliveriesService.record`).
 
 ### 8. Aviso de cancelación
 
@@ -230,9 +234,25 @@ Esta sección es un resumen de trabajo, no una validación legal.
   recomendaciones) junto con las notas clínicas, según el ADR 0004 y el ADR
   0005. Hoy el PDF se guarda cifrado en el almacenamiento, pero los textos del
   informe se guardan en columnas de la base sin cifrado a nivel de columna.
+  - *Nota (2026-10-27):* resuelto desde el 2026-10-17 (ADR 0004,
+    «Implementación del paso 2»). Los siete textos libres de
+    `TreatmentDischarge` (`DISCHARGE_TEXT_FIELDS` en
+    `backend/src/modules/discharges/util/discharge-text.util.ts`) se guardan
+    cifrados con `CLINICAL_TEXT_ENCRYPTION_KEY`; el hash de integridad se
+    calcula y se verifica sobre el texto en claro, así que los informes ya
+    emitidos siguen siendo válidos. Los textos de la entrega (`purpose` y
+    `recipientName` de `DischargeDelivery`) quedan en claro por decisión (ADR
+    0004, issue #492). Una lectura que no calcula hashes tolera un campo
+    ilegible (`decryptDischargeRowLenient`).
 - Auditar la lectura de la lista de entregas (`GET /discharges/:id/deliveries`).
 - Pre-chequeo de consentimiento y estado antes de subir un PDF propio: hoy un
   rechazo posterior puede dejar un objeto huérfano en el almacenamiento.
+  - *Nota (2026-10-27):* sigue sin pre-chequeo: `uploadReport` valida el PDF,
+    guarda el documento y recién después comprueba el estado del tratamiento y
+    el consentimiento dentro de la transacción. Si la transacción falla, el
+    código intenta descartar el documento guardado (`discardSurplusDocument`);
+    si ese descarte también falla, solo se registra un error en el log y el
+    objeto queda huérfano.
 - Validar que el documento de un tribunal sea un oficio, si se resuelve el
   punto legal anterior.
 - Umbral de "deserción presunta" configurable (fuera de v1).
