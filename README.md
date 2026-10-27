@@ -662,7 +662,8 @@ umbral-personal/
   heredado se acepta y se marca como `LEGACY_CONSENT`
 - Asentimiento del NNA (`PatientAssent`, ledger append-only): el paciente
   con menos de 14 años es informado y escuchado, y de 14 a 17 años se registra su
-  asentimiento (`GRANTED`, `REFUSED`, `WITHDRAWN` o `INFORMED_AND_HEARD`).
+  asentimiento (`GRANTED`, `REFUSED`, `WITHDRAWN` o `INFORMED_AND_HEARD`);
+  bajo 14 años el registro manual no admite `GRANTED` (responde 400).
   Nunca reemplaza el consentimiento del representante, y un rechazo no
   bloquea nada: alerta al terapeuta (`/patients/:patientId/assents`)
 - Al subir un documento de consentimiento de un NNA se exige indicar el
