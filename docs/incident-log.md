@@ -138,6 +138,8 @@ nota `backend/prisma/migrations/` tiene 66 migraciones y `schema.prisma` define
 verificación de restauración no se ha repetido desde entonces; conviene
 repetirla contra el esquema actual antes de la salida a v1. La verificación se
 repitió el 2026-10-14; ver la entrada de restauración al final de este registro.
+A 2026-10-27 `backend/prisma/migrations/` tiene 77 migraciones y
+`schema.prisma` define 27 modelos.
 
 ---
 

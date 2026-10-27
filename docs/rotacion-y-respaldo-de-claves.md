@@ -21,10 +21,12 @@ clave (`CLINICAL_TEXT_ENCRYPTION_KEY`, dataset `clinical`) se agregó después
 `docs/evaluacion-v1.md`, A3); los textos de `Notification` se cifran desde el
 2026-10-22. Hoy se escribe `0x02` (binario), `enc:v3` (texto de MFA) y `enc:v4`
 (textos clínicos, issue #486: el AAD incluye el paciente o usuario dueño y el
-campo). Los textos clínicos anteriores siguen en `enc:v3` hasta correr
-`npm run crypto:reencrypt -- --only clinical --apply`. Desplegar el backend con
-`enc:v4` y escribir con él fija el piso de rollback: una versión anterior no lee
-`enc:v4`.
+campo). El issue #486 está cerrado y desplegado: el 2026-10-27 se recifraron en
+producción los textos clínicos con
+`npm run crypto:reencrypt -- --only clinical --apply` (42 de 42 en `enc:v4`,
+según informó el responsable del proyecto; este documento no guarda el informe
+de esa corrida). Escribir con `enc:v4` fija el piso de rollback: una versión
+anterior no lee `enc:v4`, y el piso es el build `3514277` (#609).
 
 ## 1. Qué se cifra y qué pasa si falta la clave
 
@@ -85,8 +87,10 @@ Reglas:
 ## 2.1 Migrar los datos existentes al formato con AAD (T3b)
 
 Desde el release de T3b-U2 el backend **escribe** el formato `0x02` (binario) y
-`enc:v3` (texto: secreto MFA y textos clínicos), que autentican la cabecera y la etiqueta del dataset (ADR 0005,
-sección 1.1). Lo que ya existe sigue legible en su formato anterior (legacy,
+`enc:v3` (texto: secreto MFA), que autentican la cabecera y la etiqueta del dataset (ADR 0005,
+sección 1.1). Los textos clínicos se escriben en `enc:v4` desde #486, con el
+paciente o usuario dueño y el campo dentro del AAD (ver "Texto clínico
+heredado"). Lo que ya existe sigue legible en su formato anterior (legacy,
 `0x01`, `enc:v1`, `enc:v2`, o texto plano en el caso de `mfa` y `clinical`)
 hasta que se re-cifre. Esta migración se hace **una
 sola vez** y es independiente de rotar claves: se re-cifra con la clave activa
@@ -133,7 +137,9 @@ Orden:
 Piso de rollback: una vez desplegado el release que **lee** `0x02`/`enc:v3`
 (T3b-U1) no se vuelve a un build anterior; tras T3b-U2 tampoco se baja de
 T3b-U1. Antes de T3b-U1 el piso es #395 (lectura por llavero). Un build sin
-lectura de `0x02` no puede leer lo que escribió T3b-U2.
+lectura de `0x02` no puede leer lo que escribió T3b-U2. Para los textos
+clínicos en `enc:v4` el piso es el build `3514277` (#609): un build anterior
+no los lee.
 
 ### Limitaciones conocidas del script
 
@@ -267,7 +273,8 @@ Los ejemplos de abajo usan documentos.
 - No retirar nunca una clave con filas pendientes ni con filas que fallaron.
 - No volver a un build anterior al release que lee `0x02`/`enc:v3` (T3b-U1):
   no puede leer datos con esa cabecera. Tras escribir con T3b-U2 el piso es
-  T3b-U1; antes de T3b-U1 el piso es #395 (lectura por llavero).
+  T3b-U1; antes de T3b-U1 el piso es #395 (lectura por llavero). Con los textos
+  clínicos en `enc:v4` (#486) el piso es el build `3514277`.
 
 ### Retirar la clave id 0
 

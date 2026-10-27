@@ -164,7 +164,6 @@ DATABASE_URL="postgresql://umbral_user:tu_password_seguro@localhost:5432/umbral_
 DIRECT_URL="postgresql://umbral_user:tu_password_seguro@localhost:5432/umbral_db"
 JWT_SECRET="cambia-este-secreto-en-produccion"
 JWT_EXPIRES_IN="8h"
-MFA_APP_NAME="Umbral - RCE"
 FRONTEND_URL="http://localhost:5173"
 # Clave de cifrado de documentos (T8.1) -- genera la tuya con:
 # openssl rand -base64 32
@@ -1486,7 +1485,6 @@ proveedor definido (Backblaze B2 + `rclone`); ver
 | `DIRECT_URL` | Conexión directa (sin pooler) para `prisma migrate` | Igual a `DATABASE_URL` en local |
 | `JWT_SECRET` | Clave secreta para firmar tokens | Cadena aleatoria larga |
 | `JWT_EXPIRES_IN` | Tiempo de expiración del token | `8h` |
-| `MFA_APP_NAME` | Nombre que aparece en la app autenticadora | `Umbral - RCE` |
 | `FRONTEND_URL` | URL del frontend (para CORS) | `http://localhost:5173` |
 | `DOCUMENT_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar documentos de pacientes en reposo (T8.1) | Generar con `openssl rand -base64 32` |
 | `PORT` | Puerto del backend | `3001` (default) |
@@ -1526,7 +1524,7 @@ proveedor definido (Backblaze B2 + `rclone`); ver
 | `FLOW_API_BASE_URL` | Base URL de la API de Flow que usa el cliente de pagos. Fuera de producción es opcional (sin definir usa el sandbox). En producción es obligatoria, con esquema `https://`, salvo con `PAYMENTS_ENABLED=false`: sin ella el backend no arranca | `https://www.flow.cl/api` (producción); `https://sandbox.flow.cl/api` (sandbox) |
 | `LAN_DEV_URL` | Origen adicional permitido por CORS para probar el frontend desde otro dispositivo de la red local. Opcional; si se define, debe ser una URL válida (se valida al arrancar) | `http://192.168.1.10:5173` |
 | `VITE_API_URL` (frontend) | URL base del backend (incluye `/api/v1`) que usa el frontend. Variable de build de Vite; en Vercel se define en el proyecto. Sin definir, en desarrollo cae a `http://localhost:3001/api/v1`; en un build de producción es un error de configuración | `http://localhost:3001/api/v1` |
-| `*_THROTTLE_LIMIT` / `*_THROTTLE_TTL_MS` (throttlers de auth, perfil y pagos) | Límite (peticiones) y ventana (ms) de cada throttler nombrado. Prefijos: `LOGIN_`, `SIGNUP_`, `MFA_` (verificación en login), `MFA_SETUP_`, `MFA_RECOVER_`, `PASSWORD_CHANGE_`, `PASSWORD_RESET_`, `VERIFY_EMAIL_`, `RESEND_VERIFICATION_`, `EMAIL_CHANGE_CONFIRM_`, `PROFILE_UPDATE_`, `REPORTS_EXPORT_` (exportación de la ficha PDF, por terapeuta), `PAYMENT_CONFIRM_`, `PAYMENT_RETURN_`. Un valor que no sea un entero positivo se ignora con un warning en el arranque | Límite por defecto `5` peticiones, salvo `EMAIL_CHANGE_CONFIRM_` (`10`), `PAYMENT_CONFIRM_` (`30`) y `PAYMENT_RETURN_` (`20`); ventana por defecto `60000` ms, salvo `PROFILE_UPDATE_` (`900000` ms). En `NODE_ENV=test` el límite por defecto es `1000` |
+| `*_THROTTLE_LIMIT` / `*_THROTTLE_TTL_MS` (throttlers de auth, perfil y pagos) | Límite (peticiones) y ventana (ms) de cada throttler nombrado. Prefijos: `LOGIN_`, `SIGNUP_`, `MFA_` (verificación en login), `MFA_SETUP_`, `MFA_RECOVER_`, `PASSWORD_CHANGE_`, `PASSWORD_RESET_`, `VERIFY_EMAIL_`, `RESEND_VERIFICATION_`, `EMAIL_CHANGE_CONFIRM_`, `PROFILE_UPDATE_`, `REPORTS_EXPORT_` (exportación de la ficha PDF, por terapeuta), `PAYMENT_CONFIRM_`, `PAYMENT_RETURN_`. Un valor que no sea un entero positivo se ignora con un warning en el arranque | Límite por defecto `5` peticiones, salvo `EMAIL_CHANGE_CONFIRM_` (`10`), `PAYMENT_CONFIRM_` (`300`) y `PAYMENT_RETURN_` (`20`); ventana por defecto `60000` ms, salvo `PROFILE_UPDATE_` (`900000` ms). En `NODE_ENV=test` el límite por defecto es `1000` |
 | `PUBLIC_AVAILABILITY_THROTTLE_LIMIT` / `PUBLIC_AVAILABILITY_THROTTLE_TTL_MS` | Límite del throttler `public-availability` (lectura de horarios libres, sin auth) | `20` req / `60000` ms (default) |
 | `PUBLIC_BOOKING_THROTTLE_LIMIT` / `PUBLIC_BOOKING_THROTTLE_TTL_MS` | Límite del throttler `public-booking` (crea `Patient` + `Consultation`, mismo presupuesto conservador que login/signup) | `5` req / `60000` ms (default) |
 | `PUBLIC_BOOKING_IP_THROTTLE_LIMIT` / `PUBLIC_BOOKING_IP_THROTTLE_TTL_MS` | Límite extra de la reserva pública por `ip:therapistId`, independiente del email enviado (el bucket por email se reabre con cada email distinto) | `10` req / `3600000` ms (default); `1000` en `NODE_ENV=test` |
