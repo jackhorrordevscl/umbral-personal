@@ -22,6 +22,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { ProfileModule } from './modules/profile/profile.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { RemindersModule } from './modules/reminders/reminders.module';
 import { CalendarIntegrationModule } from './modules/calendar-integration/calendar-integration.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -66,6 +67,7 @@ import { HealthController } from './health/health.controller';
     ReportsModule,
     DocumentsModule,
     NotificationsModule,
+    SubscriptionsModule,
     RemindersModule,
     CalendarIntegrationModule,
     PaymentsModule,

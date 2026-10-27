@@ -144,6 +144,83 @@ model User {
   // ocupados leídos de Google Calendar (CalendarBusyService, PR 2).
   calendarBusyBlocks    CalendarBusyBlock[]
   discharges            TreatmentDischarge[]
+  // Issue #611: suscripción mensual de la plataforma y canje de código
+  // promocional (a lo más uno por cuenta).
+  subscription          Subscription?
+  promoRedemption       PromoRedemption?
+}
+
+// Issue #611: suscripción mensual del terapeuta a Umbral. currentPeriodEnd es
+// la única fuente del acceso: el estado (activa, gracia, solo lectura) se
+// calcula al leer, nunca lo escribe un cron. null = aún sin período pagado ni
+// de prueba. priceClp/priceStartedAt congelan el precio con el que se cobra a
+// esta cuenta, para que un cambio de precio solo afecte a las nuevas.
+model Subscription {
+  id               String                @id @default(uuid())
+  userId           String                @unique
+  user             User                  @relation(fields: [userId], references: [id])
+  currentPeriodEnd DateTime?
+  priceClp         Int
+  priceStartedAt   DateTime
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  payments         SubscriptionPayment[]
+}
+
+enum SubscriptionPaymentStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+// Un intento de cobro con Flow. commerceOrder es nuestro identificador
+// (único); flowOrder lo asigna Flow y es único: un webhook repetido no suma
+// el período dos veces. amountClp es el monto con el que se cobró.
+model SubscriptionPayment {
+  id             String                    @id @default(uuid())
+  subscriptionId String
+  subscription   Subscription              @relation(fields: [subscriptionId], references: [id])
+  commerceOrder  String                    @unique
+  flowOrder      Int?                      @unique
+  amountClp      Int
+  status         SubscriptionPaymentStatus @default(PENDING)
+  paidAt         DateTime?
+  createdAt      DateTime                  @default(now())
+}
+
+// Issue #611: cuenta exenta de cobro, por email normalizado (minúsculas). Si
+// la cuenta aún no existe queda esperando y se aplica al verificar el email.
+// expiresAt null = permanente; al vencer una temporal la cuenta pasa al flujo
+// normal de cobro. Se carga con scripts/grant-subscription.ts, sin rol ADMIN.
+model SubscriptionGrant {
+  id        String    @id @default(uuid())
+  email     String    @unique
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+}
+
+// Issue #611: código promocional COMPARTIDO (uno por canal: flyer, QR). Se
+// guarda hasheado igual que InvitationCode. maxRedemptions acota el ingreso
+// no cobrado; redemptionCount se incrementa de forma condicional en el canje.
+model PromoCode {
+  id              String            @id @default(uuid())
+  codeHash        String            @unique
+  channel         String
+  trialDays       Int               @default(30)
+  maxRedemptions  Int               @default(30)
+  redemptionCount Int               @default(0)
+  expiresAt       DateTime
+  createdAt       DateTime          @default(now())
+  redemptions     PromoRedemption[]
+}
+
+model PromoRedemption {
+  id          String    @id @default(uuid())
+  promoCodeId String
+  promoCode   PromoCode @relation(fields: [promoCodeId], references: [id])
+  userId      String    @unique
+  user        User      @relation(fields: [userId], references: [id])
+  redeemedAt  DateTime  @default(now())
 }
 
 // Issue #124: signup público sin invitación. Código de un solo uso,
