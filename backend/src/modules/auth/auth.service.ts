@@ -44,6 +44,7 @@ const EMAIL_VERIFY_EXPIRES_IN = '24h';
 // manual en la base de datos.
 const PASSWORD_RESET_PURPOSE = 'password-reset';
 const PASSWORD_RESET_EXPIRES_IN = '30m';
+const PASSWORD_RESET_EXPIRES_IN_MS = 30 * 60 * 1000;
 
 // Mensaje de forgotPassword: siempre el mismo exista o no la cuenta, para no
 // filtrar (vía diferencia de respuesta) qué emails están registrados.
@@ -578,13 +579,25 @@ export class AuthService {
     // es un JWT sin estado, válido hasta que expira (30 min). Sin este
     // replay guard, un link filtrado (logs, bandeja compartida) seguiría
     // sirviendo para resetear la contraseña después de que el usuario ya
-    // hubiera cambiado la suya. También invalida cualquier link previo sin
-    // usar: pedir un reset nuevo pisa el timestamp anterior.
-    const issuedAt = new Date();
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { passwordResetTokenIssuedAt: issuedAt },
-    });
+    // hubiera cambiado la suya.
+    // Issue #487: mientras haya un enlace vigente no se pisa el timestamp (si
+    // no, cualquiera que conozca el email dejaría inservible el enlace que la
+    // persona real ya recibió): el correo nuevo trae un enlace con el mismo
+    // timestamp y el mismo vencimiento original. Usar cualquiera consume el
+    // timestamp y cierra a todos.
+    const now = Date.now();
+    const previous = user.passwordResetTokenIssuedAt;
+    const remainingMs = previous
+      ? PASSWORD_RESET_EXPIRES_IN_MS - (now - previous.getTime())
+      : 0;
+    const reuse = previous !== null && remainingMs > 0;
+    const issuedAt = reuse ? previous : new Date(now);
+    if (!reuse) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordResetTokenIssuedAt: issuedAt },
+      });
+    }
 
     const resetToken = this.jwtService.sign(
       {
@@ -592,7 +605,11 @@ export class AuthService {
         purpose: PASSWORD_RESET_PURPOSE,
         resetIssuedAt: issuedAt.getTime(),
       },
-      { expiresIn: PASSWORD_RESET_EXPIRES_IN },
+      {
+        expiresIn: reuse
+          ? Math.floor(remainingMs / 1000)
+          : PASSWORD_RESET_EXPIRES_IN,
+      },
     );
     const frontendUrl =
       this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';

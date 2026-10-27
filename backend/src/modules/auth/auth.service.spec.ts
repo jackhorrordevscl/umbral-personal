@@ -1126,6 +1126,64 @@ describe('AuthService', () => {
           'Si el email está registrado, vas a recibir un enlace para restablecer tu contraseña.',
       });
     });
+
+    // Issue #487: pedir otro enlace no debe dejar inservible el que la persona
+    // real ya recibió (cualquiera que conozca el email podría repetirlo).
+    describe('con un enlace anterior todavía vigente (issue #487)', () => {
+      const now = new Date('2026-10-26T12:00:00.000Z');
+      const issuedAt = new Date(now.getTime() - 10 * 60 * 1000);
+
+      beforeEach(() => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+        jest.setSystemTime(now);
+      });
+
+      afterEach(() => {
+        jest.useRealTimers();
+      });
+
+      it('no pisa el timestamp: firma con el mismo y el vencimiento original', async () => {
+        prisma.user.findUnique.mockResolvedValue(
+          buildUser({ passwordResetTokenIssuedAt: issuedAt }),
+        );
+
+        await service.forgotPassword({ email: 'user@example.com' });
+        await flushBackground();
+
+        expect(prisma.user.update).not.toHaveBeenCalled();
+        expect(jwtService.sign).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sub: 'user-1',
+            purpose: 'password-reset',
+            resetIssuedAt: issuedAt.getTime(),
+          }),
+          { expiresIn: 20 * 60 },
+        );
+        expect(mailService.sendPasswordResetEmail).toHaveBeenCalledTimes(1);
+      });
+
+      it('si el anterior ya venció emite uno nuevo con el vencimiento completo', async () => {
+        prisma.user.findUnique.mockResolvedValue(
+          buildUser({
+            passwordResetTokenIssuedAt: new Date(
+              now.getTime() - 30 * 60 * 1000,
+            ),
+          }),
+        );
+
+        await service.forgotPassword({ email: 'user@example.com' });
+        await flushBackground();
+
+        expect(prisma.user.update).toHaveBeenCalledWith({
+          where: { id: 'user-1' },
+          data: { passwordResetTokenIssuedAt: now },
+        });
+        expect(jwtService.sign).toHaveBeenCalledWith(
+          expect.objectContaining({ resetIssuedAt: now.getTime() }),
+          { expiresIn: '30m' },
+        );
+      });
+    });
   });
 
   // Issue #303: el trabajo posterior a la respuesta corre en segundo plano.

@@ -247,7 +247,9 @@ describe('Forgot/reset password (e2e)', () => {
         .expect(401);
     });
 
-    it('pedir un segundo forgot-password invalida el link del primero', async () => {
+    // Issue #487: pedir otro enlace no invalida el vigente (cualquiera que
+    // conozca el email podría repetirlo para inutilizar el de la persona real).
+    it('pedir un segundo forgot-password mientras el enlace sigue vigente no lo invalida', async () => {
       const { email, id } = await createVerifiedUser('reset.superseded');
 
       await request(app.getHttpServer())
@@ -255,23 +257,42 @@ describe('Forgot/reset password (e2e)', () => {
         .send({ email })
         .expect(201);
       const firstIssuedAt = await waitForResetIssuedAt(id);
-      const staleToken = signResetToken(id, firstIssuedAt);
-
-      // Simula que pasa tiempo real entre ambos pedidos, para que el segundo
-      // timestamp sea estrictamente distinto al primero.
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      const firstToken = signResetToken(id, firstIssuedAt);
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/password/forgot')
         .send({ email })
         .expect(201);
-      // El segundo forgot también persiste en segundo plano: esperar a que el
-      // timestamp cambie antes de usar el link viejo.
-      await waitForResetIssuedAt(id, firstIssuedAt);
+      // El segundo forgot corre en segundo plano: se le da tiempo a que
+      // (no) pise el timestamp antes de usar el primer enlace.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const user = await prisma.user.findUniqueOrThrow({ where: { id } });
+      expect(user.passwordResetTokenIssuedAt?.getTime()).toBe(firstIssuedAt);
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/password/reset')
+        .send({ resetToken: firstToken, newPassword: NEW_PASSWORD })
+        .expect(201);
+    });
+
+    it('si el enlace anterior ya venció, un nuevo forgot-password emite uno distinto', async () => {
+      const { email, id } = await createVerifiedUser('reset.expired');
+      const expiredIssuedAt = new Date(Date.now() - 31 * 60 * 1000);
+      await prisma.user.update({
+        where: { id },
+        data: { passwordResetTokenIssuedAt: expiredIssuedAt },
+      });
+      const expiredToken = signResetToken(id, expiredIssuedAt);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/password/forgot')
+        .send({ email })
+        .expect(201);
+      await waitForResetIssuedAt(id, expiredIssuedAt);
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/password/reset')
-        .send({ resetToken: staleToken, newPassword: NEW_PASSWORD })
+        .send({ resetToken: expiredToken, newPassword: NEW_PASSWORD })
         .expect(401);
     });
 
