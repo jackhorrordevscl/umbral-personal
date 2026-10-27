@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { GuardiansService } from './guardians.service';
 import { PatientsService } from './patients.service';
@@ -238,6 +242,45 @@ describe('GuardiansService', () => {
   describe('update', () => {
     beforeEach(() => {
       prisma.legalGuardian.findFirst.mockResolvedValue(buildGuardian());
+    });
+
+    it.each([
+      'fullName',
+      'rut',
+      'relationship',
+      'isPayer',
+      'receivesCommunications',
+      'canAccessReports',
+      'canConsent',
+      'custody',
+      'hasConflict',
+    ])(
+      'issue #488: responde 400 y no escribe si %s viene null',
+      async (field) => {
+        await expect(
+          service.update(
+            'patient-1',
+            'guardian-1',
+            { [field]: null } as never,
+            'therapist-1',
+          ),
+        ).rejects.toThrow(BadRequestException);
+        expect(prisma.legalGuardian.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it('permite null en email y teléfono (columnas nulables: borran el valor)', async () => {
+      await service.update(
+        'patient-1',
+        'guardian-1',
+        { email: null, phone: null } as never,
+        'therapist-1',
+      );
+
+      expect(prisma.legalGuardian.update).toHaveBeenCalledWith({
+        where: { id: 'guardian-1' },
+        data: { email: null, phone: null },
+      });
     });
 
     it('devuelve 404 si el representante no es de ese paciente', async () => {
