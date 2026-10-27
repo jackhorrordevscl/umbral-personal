@@ -151,7 +151,8 @@ lectura de `0x02` no puede leer lo que escribió T3b-U2.
   se interpreta como cifrado, no descifra y se informa como `decrypt-failed`
   (ADR 0004, issue #486: se decidió no tratarlo). Cada texto se recifra en
   `enc:v4` con el contexto de su fila (paciente o usuario y campo); una fila sin
-  dueño se informa como falla. Las filas borradas o canceladas también se
+  dueño se informa como falla (`decrypt-failed` si ya es `enc:v4`,
+  `encrypt-failed` en los demás casos). Las filas borradas o canceladas también se
   recorren.
 - **Documentos con objeto faltante.** Si una fila de `PatientDocument` apunta a
   un objeto que ya no existe en B2, se informa como falla `missing-object`, no
