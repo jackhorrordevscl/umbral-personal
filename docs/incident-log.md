@@ -187,6 +187,13 @@ migraciones y falla si alguna tabla creada con `CREATE TABLE` no tiene su
 `ENABLE ROW LEVEL SECURITY`. Una tabla nueva sin RLS rompe la integración
 continua antes de llegar a producción.
 
+**Nota (2026-10-27).** Verificado contra el repositorio: la migración
+`20261014120000_enable_rls_treatment_discharge` y la prueba
+`migrations-rls.spec.ts` siguen en `main`, y las migraciones siguen sin
+`CREATE POLICY`. Los textos clínicos de `TreatmentDischarge` mencionados en
+"Qué pasó" ("sin cifrar a nivel de columna") se guardan cifrados desde el
+2026-10-17 (ADR 0004); el incidente es de RLS y su resolución no cambia.
+
 ---
 
 ## 2026-10-14: Verificación de restauración contra el esquema actual (R3 de la evaluación de v1)

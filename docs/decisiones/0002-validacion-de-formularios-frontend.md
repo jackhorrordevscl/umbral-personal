@@ -3,6 +3,7 @@
 - **Estado:** aceptada
 - **Fecha:** 2026-09-25
 - **Issue:** #201
+- **Nota de estado (2026-10-27):** verificado contra `frontend/src`: la convención sigue vigente y el reparto del Contexto no cambió. Usan `react-hook-form` + `zod` `LoginPage`, `SignupPage`, `ForgotPasswordPage`, `ResetPasswordPage`, `MfaRecoverPage`, `PublicBookingForm` y los editores de disponibilidad (`WeeklyScheduleEditor`, `BlockoutEditor`); `PatientsPage`, `PaymentsPage`, `SharedFilesPage` y `ProfilePage` siguen validando a mano. `validateRut` (`src/utils/rut.ts`) ahora también lo usan `GuardianForm`, `PatientsPage`, `ProfilePage` y `PublicBookingForm`, y el formato de las credenciales de Flow sigue siendo la constante local `CREDENTIAL_FORMAT` de `PaymentsPage`.
 
 ## Contexto
 

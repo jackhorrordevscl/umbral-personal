@@ -49,8 +49,9 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
   parte de Tailwind se resolvió al migrar a la versión 4), la validación de
   formularios del frontend (0002), el almacenamiento de la sesión en el frontend (0003), el cifrado de
   datos clínicos (0004), el versionado y la rotación de claves (0005), el
-  informe de alta con firma simple y hash (0006) y los pacientes niños, niñas y adolescentes (NNA) y su
-  representante legal (0007).
+  informe de alta con firma simple y hash (0006), los pacientes niños, niñas y adolescentes (NNA) y su
+  representante legal (0007) y la respuesta uniforme de la reserva pública ante
+  una colisión de identidad (0008).
 
 ---
 
@@ -504,10 +505,10 @@ umbral-personal/
 │   │   ├── config/               # Validación de variables de entorno al arrancar (env.validation.ts)
 │   │   ├── health/               # GET /health (SELECT 1 contra la base, usado por Render y el monitor externo)
 │   │   ├── common/
-│   │   │   ├── guards/           # JwtAuthGuard (sin guard de roles -- ownership por therapistId)
+│   │   │   ├── guards/           # JwtAuthGuard (sin guard de roles -- ownership por therapistId) y SessionOriginGuard (exige un Origin del frontend en peticiones que cambian estado con la cookie de sesión)
 │   │   │   ├── decorators/       # CurrentUser, AuditRead (auditoría de lecturas/descargas), SkipAudit
 │   │   │   ├── interceptors/     # Audit Interceptor
-│   │   │   ├── middleware/       # IP real del cliente (TRUSTED_PROXY_HOPS)
+│   │   │   ├── middleware/       # IP real del cliente (TRUSTED_PROXY_HOPS) y NoStore (cabeceras de no cachear)
 │   │   │   ├── filters/          # Filtros de excepciones (AllExceptions, Prisma)
 │   │   │   ├── crypto/           # AES-256-GCM compartido, llaveros versionados y recifrado (issue #382)
 │   │   │   ├── dto/              # DTOs compartidos (paginación)
@@ -604,11 +605,25 @@ umbral-personal/
   Authenticator y Authy): se enrola forzosamente en el primer login exitoso,
   no es opcional ni depende de un rol. El secreto TOTP se guarda cifrado en
   reposo (`MFA_SECRET_ENCRYPTION_KEY`, issue #302) y cada código solo puede
-  usarse una vez (`lastUsedStep`)
+  usarse una vez (`lastUsedStep`). Además del límite por IP, cada cuenta
+  admite 5 intentos de segundo factor (TOTP o código de recuperación) por
+  hora antes de bloquearse con esperas crecientes de 1, 5, 15 y 60 minutos
+  (responde 429; acertar el código limpia el contador, issue #487)
 - Cifrado en reposo con AES-256-GCM y llaveros versionados: documentos de
-  pacientes, refresh token de Google, credenciales de Flow y secreto TOTP
-  usan cada uno su propia clave, y pueden rotarse sin perder datos (issue
-  #382, ver [`docs/rotacion-y-respaldo-de-claves.md`](docs/rotacion-y-respaldo-de-claves.md))
+  pacientes, refresh token de Google, credenciales de Flow, secreto TOTP y
+  textos clínicos libres (notas de consulta, informe de alta, y el título y
+  cuerpo de las notificaciones internas) usan cada uno su propia clave, y
+  pueden rotarse sin perder datos (issue #382, ver
+  [`docs/rotacion-y-respaldo-de-claves.md`](docs/rotacion-y-respaldo-de-claves.md))
+- Defensa contra CSRF en profundidad: una petición `POST`/`PUT`/`PATCH`/
+  `DELETE` que viaja con la cookie de sesión debe venir de un origen
+  permitido (`FRONTEND_URL`, `LAN_DEV_URL`); si no, responde 403
+  (`SessionOriginGuard`, issue #487). Toda respuesta de la API lleva
+  `Cache-Control: no-store`
+- Los códigos de invitación se guardan como hash SHA-256 (`codeHash`), no en
+  claro, y un alta con un email que ya tiene cuenta responde igual que una
+  alta nueva (el titular recibe un aviso por email), para no revelar quién
+  usa Umbral (issue #487)
 - Recuperación de cuenta self-service sin intervención manual en la base de
   datos: contraseña olvidada por email, y 10 códigos de recuperación de un
   solo uso para desactivar MFA si se pierde el dispositivo (issue #50, ver
@@ -618,8 +633,9 @@ umbral-personal/
 - Rate limiting con throttlers independientes por endpoint sensible (login,
   mfa/verify, signup, mfa/setup, mfa/enable, mfa/disable, password/change, password/reset,
   mfa/recover, verificación y reenvío de email, confirmación de cambio de
-  email, `PATCH /profile`, y los endpoints públicos de pagos y de
-  auto-agenda; `@nestjs/throttler`). La IP del cliente se resuelve con
+  email, `PATCH /profile`, la exportación de la ficha en PDF y los
+  endpoints públicos de pagos y de auto-agenda; `@nestjs/throttler`). La IP
+  del cliente se resuelve con
   `TRUSTED_PROXY_HOPS`
 - Headers HTTP seguros con Helmet.js; en el frontend, Content-Security-Policy
   y demás headers definidos en `frontend/vercel.json` (ADR 0003)
@@ -631,7 +647,8 @@ umbral-personal/
 - Consentimiento granular por finalidad (`TREATMENT`, `TELEMEDICINE`) como
   ledger append-only (Ley 21.719): otorgar o revocar no borra el historial.
   La declaración retroactiva en bloque (issue #131) permite registrar el
-  consentimiento de pacientes ya existentes
+  consentimiento de pacientes ya existentes; se audita una fila por cada
+  paciente del lote (issue #488)
 - Acceso a fichas siempre restringido al profesional dueño (`therapistId`),
   sin excepciones ni accesos de terceros. El RUT del paciente es único por
   terapeuta, no global (issue #314)
@@ -652,7 +669,9 @@ umbral-personal/
   relación, email, teléfono, tutela `SOLE`/`SHARED`/`UNKNOWN`, conflicto entre
   representantes y permisos de consentir, acceder a reportes, recibir
   comunicaciones y pagar), con alta, edición y baja desde la ficha
-  (`/patients/:patientId/guardians`)
+  (`/patients/:patientId/guardians`). El RUT de un representante debe ser
+  distinto al del paciente y al de otro representante del mismo paciente
+  (responde 409, issue #488)
 - Para un NNA, otorgar el consentimiento de tratamiento exige un
   representante con permiso de consentir; revocarlo nunca se bloquea. El
   ledger de consentimientos registra quién lo otorgó (`grantedBy`:
@@ -667,10 +686,13 @@ umbral-personal/
   Nunca reemplaza el consentimiento del representante, y un rechazo no
   bloquea nada: alerta al terapeuta (`/patients/:patientId/assents`)
 - Al subir un documento de consentimiento de un NNA se exige indicar el
-  representante que lo firma
+  representante que lo firma. Al subir un documento de asentimiento se
+  registra el asentimiento del NNA junto con el documento: `GRANTED` desde los
+  14 años e `INFORMED_AND_HEARD` bajo esa edad
 - Auto-agenda pública de NNA: la reserva identifica al paciente por su
-  RUT y el del representante, que es el contacto de pago y comunicaciones
-  (ver Auto-agenda pública)
+  RUT y el del representante, que es el contacto de pago y comunicaciones.
+  Ese representante se crea sin permiso de consentir ni de acceder a reportes
+  (el terapeuta los habilita al verificarlo; ver Auto-agenda pública)
 
 ### Registro Clínico
 - Registro cronológico de sesiones con fecha y hora automática
@@ -701,7 +723,9 @@ umbral-personal/
   snapshot del firmante (nombre, RUT y registro profesional del perfil). Para
   un informe generado, el RUT del terapeuta en el perfil es obligatorio.
   `GET /discharges/:id/verify` recalcula el hash y comprueba la integridad
-  del PDF guardado; el PDF se cifra y se guarda como documento de ficha
+  del PDF guardado (la respuesta trae `hashScope`: `CONTENT` en un informe
+  generado y `FILE_ONLY` en uno aportado, donde la huella cubre solo el
+  archivo y no los datos del cierre); el PDF se cifra y se guarda como documento de ficha
   (`DISCHARGE_REPORT`) y no se puede subir por la vía de documentos comunes
 - Un informe emitido nunca se edita: `POST /discharges/:id/correct` (o
   `correct-upload` para uno aportado) crea una versión nueva que hereda el
@@ -717,7 +741,9 @@ umbral-personal/
   qué canal (`IN_PERSON`, `EMAIL`, `POSTAL`, `OTHER`). La entrega a un tercero
   exige un documento de autorización del mismo paciente (`DELIVERY_AUTHORIZATION`)
   y una declaración del terapeuta de que lo revisó; Umbral solo deja
-  constancia de esa declaración y no valida el documento. Se audita como
+  constancia de esa declaración y no valida el documento. No se puede
+  registrar la entrega de un informe reemplazado por una versión posterior ni
+  de uno con el PDF anulado (responde 409). Se audita como
   `DISCHARGE_DELIVER`; la descarga del PDF se audita como lectura
 
 ### Documentos y Archivos
@@ -771,7 +797,9 @@ umbral-personal/
 
 ### Recordatorios y notificaciones (sdd/session-reminders)
 - Modelo genérico de notificaciones in-app (`GET /notifications`, contador
-  de no leídas, marcar una o todas como leídas)
+  de no leídas, marcar una o todas como leídas). El título y el cuerpo se
+  guardan cifrados con `CLINICAL_TEXT_ENCRYPTION_KEY` (pueden nombrar al
+  paciente) y la API los devuelve en claro
 - Recordatorio automático de sesión 24h y 2h antes de cada consulta
   agendada, por dos canales independientes (in-app + email) con garantía
   de envío exactamente una vez por (consulta, offset, canal); un fallo en
@@ -813,6 +841,9 @@ umbral-personal/
   completo, el RUT, el tipo de sesión ni texto clínico
 - Backfill acotado a una ventana al conectar; reconciliador periódico que
   repara links fallidos y eventos desincronizados
+- El `state` del OAuth va atado al navegador que inició la conexión mediante
+  una cookie propia (`umbral_calendar_oauth`, `SameSite=Lax`): sin ella el
+  callback no completa el flujo (issue #497)
 - Ante un token revocado o expirado (401/`invalid_grant`), la conexión se
   marca desconectada y se notifica una sola vez, sin reintentar en loop
 - Toda falla de sincronización es un efecto secundario no bloqueante: la
@@ -902,13 +933,14 @@ umbral-personal/
 - Ventana de reserva de 24h de anticipación mínima y 60 días de horizonte
   máximo (constantes fijas, no configurables por env)
 - Identidad del paciente resuelta por `(email, therapistId)`: si ya existe
-  como paciente de ese terapeuta, la reserva se liga a su ficha completa;
+  como paciente de ese terapeuta y el RUT enviado coincide con el guardado,
+  la reserva se liga a su ficha completa;
   si no, se crea un `Patient` nuevo con un formulario público reducido
   (nombre, RUT, fecha de nacimiento, email), sin monto por defecto de
   cobro ni documentos de consentimiento, que siguen siendo manejados por
   el terapeuta. Sin OTP ni ningún paso de autenticación para el paciente.
   Si el paciente es adulto y su ficha ya existe, pero tiene el tratamiento
-  cerrado, la reserva se rechaza con el mismo `409` genérico
+  cerrado, la reserva no se crea (ver la respuesta uniforme más abajo)
 - Reserva de un NNA: el formulario pide además los datos de un
   representante legal (nombre, RUT, relación y email obligatorio, teléfono
   opcional). El NNA se identifica por su RUT dentro del terapeuta y el
@@ -918,8 +950,16 @@ umbral-personal/
 - Concurrencia real garantizada por `BookedSlot` (`(therapistId, slotStart)`
   único) dentro de una transacción: un doble booking simultáneo
   devuelve `409 Conflict` limpio en vez de duplicar la sesión
-- Un RUT o email ambiguo entre terapeutas responde siempre el mismo `409`
-  genérico, sin revelar si el dato ya existe en otro lado (privacidad)
+- Respuesta uniforme ante colisión de identidad (ADR 0008, issue #502): si el
+  email o el RUT ya pertenecen a una ficha del terapeuta y no coinciden entre
+  sí, el email es ambiguo, la ficha es de un NNA o el tratamiento está
+  cerrado, el endpoint responde `201` con la misma forma que una reserva nueva
+  (ids inventados), sin crear consulta, paciente, representante ni
+  notificación, para no revelar quién se atiende con el terapeuta. Si la ficha
+  tiene email, se le envía un aviso de que la solicitud no pudo completarse.
+  Los rechazos que dependen solo del request (horario ya no disponible, `409`;
+  tope diario, `429`; representante ausente, `400`; dígito verificador del RUT
+  del representante inválido, `409`) siguen siendo errores
 - La reserva creada dispara los mismos efectos secundarios no bloqueantes
   que una consulta agendada por el terapeuta (sync a Google Calendar,
   cargo Flow pendiente). No se envía email de confirmación al paciente
@@ -949,7 +989,11 @@ umbral-personal/
 
 ### Exportación PDF
 - Generación de ficha clínica completa en PDF (`GET /reports/patient/:patientId`)
-- Incluye datos del paciente e historial clínico completo
+- Incluye datos del paciente e historial clínico completo. Una ficha con más
+  de 500 sesiones no se exporta (responde 422)
+- Limitada a 5 exportaciones por minuto por terapeuta (`REPORTS_EXPORT_*`) y
+  auditada como `EXPORT_PDF` antes de entregar el archivo: si la fila de
+  auditoría no se puede escribir, la ficha no se entrega
 - Pie de página con referencia a Ley 20.584 y custodia obligatoria de 15 años
 - El informe de alta tiene su propio PDF (`GET /discharges/:id/pdf`), ver
   Informe de alta
@@ -1336,7 +1380,7 @@ SELECT relname, n_live_tup FROM pg_stat_user_tables WHERE schemaname = 'public';
 | Disponibilidad de la ficha ante pérdida de credenciales (Ley 20.584 art. 12, Ley 21.719) | Recuperación de cuenta self-service, ver abajo |
 | Cierre del tratamiento e integridad del informe de alta | Informe de alta versionado e inmutable con hash SHA-256 y registro de entregas (ADR 0006); ver [Informe de alta](#informe-de-alta-adr-0006) |
 | Pacientes NNA | Representantes legales, consentimiento otorgado por el representante y asentimiento del NNA (ADR 0007); ver [Pacientes NNA y representante legal](#pacientes-nna-y-representante-legal-adr-0007) |
-| Cifrado de datos en reposo | AES-256-GCM con llaveros versionados para documentos, token de Google, credenciales de Flow y secreto TOTP (ADR 0005) |
+| Cifrado de datos en reposo | AES-256-GCM con llaveros versionados para documentos, token de Google, credenciales de Flow, secreto TOTP y textos clínicos libres, incluidas las notificaciones internas (ADR 0004 y 0005) |
 
 ### Subprocesadores y ubicación de los datos (issue #177)
 
@@ -1367,7 +1411,9 @@ hasta que pueda volver a entrar. Tres mecanismos, del menos al más invasivo:
 
 1. **Contraseña olvidada**: `POST /api/v1/auth/password/forgot` con el
    email envía un link de un solo uso (30 min) vía Resend. `POST
-   /api/v1/auth/password/reset` con ese token cambia la contraseña. No
+   /api/v1/auth/password/reset` con ese token cambia la contraseña. Mientras
+   haya un enlace vigente, pedir otro envía un correo con el mismo vencimiento
+   original (no invalida el enlace anterior). No
    bypasea MFA: si la cuenta lo tiene habilitado, el siguiente login lo
    sigue exigiendo igual.
 2. **MFA perdido (dispositivo extraviado)**: al habilitar MFA (`POST
@@ -1375,7 +1421,8 @@ hasta que pueda volver a entrar. Tres mecanismos, del menos al más invasivo:
    /api/v1/auth/mfa/setup/confirm`) se generan 10 códigos de recuperación de
    un solo uso, mostrados una única vez en la respuesta. `POST
    /api/v1/auth/mfa/recover` con email + contraseña + uno de esos códigos
-   desactiva MFA sin necesitar el TOTP; el siguiente login vuelve a exigir
+   desactiva MFA sin necesitar el TOTP (el código se acepta sin importar
+   mayúsculas ni guiones); el siguiente login vuelve a exigir
    enrolarlo. **Guardar esos 10 códigos en un gestor de contraseñas o
    impresos en un lugar seguro apenas se generan**: no hay forma de volver
    a verlos después.
@@ -1479,7 +1526,7 @@ proveedor definido (Backblaze B2 + `rclone`); ver
 | `FLOW_API_BASE_URL` | Base URL de la API de Flow que usa el cliente de pagos. Fuera de producción es opcional (sin definir usa el sandbox). En producción es obligatoria, con esquema `https://`, salvo con `PAYMENTS_ENABLED=false`: sin ella el backend no arranca | `https://www.flow.cl/api` (producción); `https://sandbox.flow.cl/api` (sandbox) |
 | `LAN_DEV_URL` | Origen adicional permitido por CORS para probar el frontend desde otro dispositivo de la red local. Opcional; si se define, debe ser una URL válida (se valida al arrancar) | `http://192.168.1.10:5173` |
 | `VITE_API_URL` (frontend) | URL base del backend (incluye `/api/v1`) que usa el frontend. Variable de build de Vite; en Vercel se define en el proyecto. Sin definir, en desarrollo cae a `http://localhost:3001/api/v1`; en un build de producción es un error de configuración | `http://localhost:3001/api/v1` |
-| `*_THROTTLE_LIMIT` / `*_THROTTLE_TTL_MS` (throttlers de auth, perfil y pagos) | Límite (peticiones) y ventana (ms) de cada throttler nombrado. Prefijos: `LOGIN_`, `SIGNUP_`, `MFA_` (verificación en login), `MFA_SETUP_`, `MFA_RECOVER_`, `PASSWORD_CHANGE_`, `PASSWORD_RESET_`, `VERIFY_EMAIL_`, `RESEND_VERIFICATION_`, `EMAIL_CHANGE_CONFIRM_`, `PROFILE_UPDATE_`, `PAYMENT_CONFIRM_`, `PAYMENT_RETURN_`. Un valor que no sea un entero positivo se ignora con un warning en el arranque | Límite por defecto `5` peticiones, salvo `EMAIL_CHANGE_CONFIRM_` (`10`), `PAYMENT_CONFIRM_` (`30`) y `PAYMENT_RETURN_` (`20`); ventana por defecto `60000` ms, salvo `PROFILE_UPDATE_` (`900000` ms). En `NODE_ENV=test` el límite por defecto es `1000` |
+| `*_THROTTLE_LIMIT` / `*_THROTTLE_TTL_MS` (throttlers de auth, perfil y pagos) | Límite (peticiones) y ventana (ms) de cada throttler nombrado. Prefijos: `LOGIN_`, `SIGNUP_`, `MFA_` (verificación en login), `MFA_SETUP_`, `MFA_RECOVER_`, `PASSWORD_CHANGE_`, `PASSWORD_RESET_`, `VERIFY_EMAIL_`, `RESEND_VERIFICATION_`, `EMAIL_CHANGE_CONFIRM_`, `PROFILE_UPDATE_`, `REPORTS_EXPORT_` (exportación de la ficha PDF, por terapeuta), `PAYMENT_CONFIRM_`, `PAYMENT_RETURN_`. Un valor que no sea un entero positivo se ignora con un warning en el arranque | Límite por defecto `5` peticiones, salvo `EMAIL_CHANGE_CONFIRM_` (`10`), `PAYMENT_CONFIRM_` (`30`) y `PAYMENT_RETURN_` (`20`); ventana por defecto `60000` ms, salvo `PROFILE_UPDATE_` (`900000` ms). En `NODE_ENV=test` el límite por defecto es `1000` |
 | `PUBLIC_AVAILABILITY_THROTTLE_LIMIT` / `PUBLIC_AVAILABILITY_THROTTLE_TTL_MS` | Límite del throttler `public-availability` (lectura de horarios libres, sin auth) | `20` req / `60000` ms (default) |
 | `PUBLIC_BOOKING_THROTTLE_LIMIT` / `PUBLIC_BOOKING_THROTTLE_TTL_MS` | Límite del throttler `public-booking` (crea `Patient` + `Consultation`, mismo presupuesto conservador que login/signup) | `5` req / `60000` ms (default) |
 | `PUBLIC_BOOKING_IP_THROTTLE_LIMIT` / `PUBLIC_BOOKING_IP_THROTTLE_TTL_MS` | Límite extra de la reserva pública por `ip:therapistId`, independiente del email enviado (el bucket por email se reabre con cada email distinto) | `10` req / `3600000` ms (default); `1000` en `NODE_ENV=test` |

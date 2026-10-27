@@ -24,7 +24,10 @@ comparte contigo por fuera de la app (email, mensaje, etc.).
    completo, email, contraseña (mínimo 8 caracteres), confirmación de la
    contraseña y el **código de invitación** recibido. Un código inválido, ya
    usado, o expirado (vence a los 7 días de generado) rechaza el registro.
-   La cuenta queda creada pero **no puedes loguear todavía**.
+   La cuenta queda creada pero **no puedes loguear todavía**. Si el email ya
+   tenía una cuenta, la pantalla responde igual que en un registro nuevo (para
+   no revelar qué emails están registrados), no se gasta el código y el titular
+   de ese email recibe un aviso de que alguien intentó registrarse con él.
 2. **Verificación de email**: te llega un correo con un enlace (válido 24
    horas). Haz clic ahí para activar la cuenta. Sin esto, un intento de login
    rechaza con "Debes verificar tu email antes de iniciar sesión", aunque la
@@ -76,7 +79,8 @@ cuenta lo tiene activo, lo va a seguir pidiendo en el próximo login.
 Desde el login, en la pantalla donde te pide el código de 6 dígitos, hay un
 link "¿Perdiste el dispositivo MFA?". Ahí ingresas tu email, tu contraseña
 **y uno de los 10 códigos de recuperación** que guardaste al activar MFA
-(paso 4 de la sección anterior). Si es válido, MFA queda desactivado, se
+(paso 4 de la sección anterior); el código se acepta sin importar mayúsculas
+ni guiones. Si es válido, MFA queda desactivado, se
 cierran todas tus sesiones abiertas y te llega un correo avisando de que el
 MFA se desactivó con un código de recuperación. Después puedes volver a
 loguear con email + contraseña; en ese login vas a tener que enrolar MFA de
@@ -109,7 +113,7 @@ pestañas: **Detalle**, **Editar** e **Historial**.
 
 Campos obligatorios: **nombre completo, RUT, fecha de nacimiento**. Todo lo demás es opcional al crear (ocupación, dirección, teléfono, email, contacto de emergencia con su teléfono, psiquiatra y médico tratante, **monto de sesión por defecto en CLP**), y se puede completar después. Si dejas vacío el monto de sesión ("Sin cobro automático") o lo dejas en 0, esa ficha no genera cobros (ver sección 5).
 
-El RUT se normaliza automáticamente en el servidor (saca puntos, pasa a mayúsculas): no hace falta que lo escribas con un formato exacto, pero sí tiene que ser un RUT válido.
+El nombre no puede quedar vacío ni solo con espacios. El RUT se normaliza automáticamente en el servidor (saca puntos, pasa a mayúsculas): no hace falta que lo escribas con un formato exacto, pero sí tiene que ser un RUT válido. No puede haber dos fichas activas con el mismo RUT en tu cuenta: si lo intentas (incluso con dos altas simultáneas), la app responde "Ya existe un paciente con ese RUT".
 
 Al crear la ficha de un adulto puedes marcar los consentimientos **Presencial** y **Telemedicina** y adjuntar documentos legales; el consentimiento queda registrado con la evidencia automática "Otorgado durante la creación de la ficha". En un NNA esto no es posible hasta cargar a su representante (ver más abajo).
 
@@ -127,26 +131,26 @@ Cada una se otorga o revoca por separado, desde la pestaña **Editar** de la fic
 
 Para poder registrar consultas basta con que exista **cualquiera** de los dos consentimientos vigentes: el de telemedicina habilita las consultas presenciales y viceversa. El sistema no exige el consentimiento de telemedicina para registrar una consulta de tipo "Telemedicina".
 
-Importante: revocar un consentimiento **no borra el evento anterior**. El historial completo (otorgamientos y revocaciones) se conserva siempre en el sistema; es un registro tipo bitácora, no un simple check on/off. La ficha muestra el estado vigente de cada finalidad, y la pestaña **Historial** solo lista cambios de datos de la ficha (un cambio que solo toca consentimientos no genera una entrada ahí).
+Importante: revocar un consentimiento **no borra el evento anterior**. El historial completo (otorgamientos y revocaciones) se conserva siempre en el sistema; es un registro tipo bitácora, no un simple check on/off. La ficha muestra el estado vigente de cada finalidad, y la pestaña **Historial** solo lista cambios de datos de la ficha (un cambio que solo toca consentimientos no genera una entrada ahí) y muestra como máximo las 500 ediciones más recientes.
 
-**Consentimiento retroactivo.** Si un paciente ya estaba en tratamiento antes de que el consentimiento fuera obligatorio, o llegó por la agenda pública (que no registra consentimiento), la lista muestra "Sin consentimiento" y una casilla de **Declarar consentimiento retroactivo**. Puedes marcar varias fichas, elegir la finalidad, escribir la evidencia (mínimo 10 caracteres, por ejemplo dónde está el consentimiento en papel) y pulsar **Declarar**. Esta acción no reemplaza el consentimiento en papel: deja constancia en el sistema de que ya fue obtenido, y tú quedas como responsable de esa declaración. Si el documento está digitalizado, súbelo desde la ficha del paciente en vez de declararlo ahí.
+**Consentimiento retroactivo.** Si un paciente ya estaba en tratamiento antes de que el consentimiento fuera obligatorio, o llegó por la agenda pública (que no registra consentimiento), la lista muestra "Sin consentimiento" y una casilla de **Declarar consentimiento retroactivo**. Puedes marcar varias fichas, elegir la finalidad, escribir la evidencia (mínimo 10 caracteres, por ejemplo dónde está el consentimiento en papel) y pulsar **Declarar**. Esta acción no reemplaza el consentimiento en papel: deja constancia en el sistema de que ya fue obtenido, y tú quedas como responsable de esa declaración. Si el paciente ya revocó esa finalidad, la declaración en bloque lo rechaza para esa ficha (no deshace una revocación): debe registrarse de forma individual. Cada ficha del lote deja su propio registro en la bitácora de auditoría. Si el documento está digitalizado, súbelo desde la ficha del paciente en vez de declararlo ahí.
 
 ### Pacientes NNA y representante legal
 
 Si la fecha de nacimiento indica que el paciente tiene menos de 18 años, la ficha lo marca con su tramo de edad (menos de 14 años, o de 14 a 17 años) y cambia la forma de registrar el consentimiento. El detalle de la decisión está en `docs/decisiones/0007-pacientes-menores-y-representante-legal.md`.
 
-**Cargar al representante.** Al crear la ficha de un NNA, esta se guarda primero; el representante se agrega después, desde el detalle de la ficha, en la sección **Representantes legales** con el botón **Agregar representante** (hasta 2 por paciente). Cada representante tiene nombre, RUT, relación con el paciente (madre, padre, tutor legal, curador, cuidador u otro), cuidado personal (exclusivo, compartido o no informado), email y teléfono, y estas marcas en "Permisos y avisos":
+**Cargar al representante.** Al crear la ficha de un NNA, esta se guarda primero; el representante se agrega después, desde el detalle de la ficha, en la sección **Representantes legales** con el botón **Agregar representante** (hasta 2 por paciente). El nombre del representante no puede quedar vacío, y su RUT debe ser distinto al del paciente y al del otro representante. Cada representante tiene nombre, RUT, relación con el paciente (madre, padre, tutor legal, curador, cuidador u otro), cuidado personal (exclusivo, compartido o no informado), email y teléfono, y estas marcas en "Permisos y avisos":
 - **Puede otorgar consentimiento** (en la lista: "Consiente"): puede otorgar el consentimiento del tratamiento.
 - **Es el pagador** (en la lista: "Pagador"): recibe el cobro. Solo uno a la vez: marcar a otro quita la marca al anterior.
 - **Recibe comunicaciones** (en la lista: "Recibe avisos"): se le envían los correos de cobro del paciente.
 - **Puede acceder a informes** (en la lista: "Accede a informes"): es el único representante al que se puede entregar el informe de alta del NNA (ver "Cerrar el tratamiento e informe de alta").
 - **Hay conflicto entre los representantes** (en la lista: "Conflicto entre representantes").
 
-Un representante que ya firmó un consentimiento no se puede quitar; si cambió la situación, edítalo o desmarca "Puede otorgar consentimiento".
+Un representante que ya firmó un consentimiento, o que recibió la entrega de un informe de alta, no se puede quitar; si cambió la situación, edítalo o desmarca "Puede otorgar consentimiento".
 
 **Consentimiento de un NNA.** Lo otorga el representante, no el paciente. Al registrar el consentimiento de un NNA (o al subir el documento de consentimiento informado o de telemedicina) debes elegir qué representante lo otorga; el sistema rechaza el consentimiento de un NNA sin representante con la marca "Puede otorgar consentimiento". Revocar un consentimiento sigue siendo posible siempre.
 
-**Asentimiento del paciente.** El documento "Asentimiento informado" y la sección "Asentimiento del NNA" dejan constancia de que el niño, niña o adolescente fue informado y oído (menos de 14 años) o de que dio su asentimiento expreso (14 a 17 años). Las acciones son: informado y oído, asentimiento otorgado, rechazado y retirado. El asentimiento **no reemplaza** el consentimiento del representante, y un rechazo muestra un aviso en la ficha pero no impide registrar ni agendar. Es un registro de bitácora: no se edita ni se borra.
+**Asentimiento del paciente.** El documento "Asentimiento informado" y la sección "Asentimiento del NNA" dejan constancia de que el niño, niña o adolescente fue informado y oído (menos de 14 años) o de que dio su asentimiento expreso (14 a 17 años). Las acciones son: informado y oído, asentimiento otorgado, rechazado y retirado. El asentimiento expreso ("Otorgado") solo se registra desde los 14 años: bajo esa edad esa opción no aparece y el sistema la rechaza; se registra "Informado y oído". Si subes un documento "Asentimiento informado" de un NNA, el sistema registra en el mismo paso "Informado y oído" (menos de 14 años) o "Otorgado" (14 a 17 años). El asentimiento **no reemplaza** el consentimiento del representante, y un rechazo muestra un aviso en la ficha pero no impide registrar ni agendar. Es un registro de bitácora: no se edita ni se borra.
 
 **Aviso de regularización y plazo.** Si el NNA no tiene un representante con "Puede otorgar consentimiento", o su consentimiento vigente lo otorgó él mismo (como se hacía antes), la ficha muestra un aviso ámbar con la fecha límite: **1 de diciembre de 2026**. Hasta esa fecha el consentimiento antiguo sigue sirviendo para crear consultas; desde entonces el sistema pedirá que el consentimiento vigente lo haya otorgado un representante y rechazará crear o corregir consultas de ese NNA (y emitir o corregir su informe de alta) hasta que se regularice. Para regularizar: carga al representante y registra un nuevo consentimiento otorgado por él.
 
@@ -154,7 +158,7 @@ Un representante que ya firmó un consentimiento no se puede quitar; si cambió 
 
 **Cobros y correos van al representante.** Para un NNA, el link de pago y el aviso de cobro vencido se envían al representante con "Recibe comunicaciones" y email (se prefiere el marcado como pagador), con el nombre del paciente en el texto y sin datos clínicos. El correo del propio NNA no se usa. Si no hay ningún representante con email, el correo no se envía y el cobro queda como "sin email"; al reenviar el link la app avisa que el NNA no tiene representante con email. En ese caso el cobro queda creado pero sin link de pago, porque Flow necesita el email del pagador para emitirlo y el sistema no usa el tuyo en su lugar; el cobro muestra el motivo. Carga el email de un representante y usa "Reintentar cobro" para generar el link. Los recordatorios de sesión siguen llegando a ti.
 
-**Reserva pública de un NNA.** En la agenda pública (sección 13), quien reserva marca "Reservo para un NNA" e ingresa los datos del paciente y del representante (nombre, RUT, correo y teléfono opcional). El sistema valida que el paciente tenga menos de 18 años y que el RUT del representante sea distinto al del paciente. Un NNA se identifica por **su propio RUT** (no por el email del representante, porque un mismo representante puede reservar para dos hijos); si ya existe una ficha con ese RUT, solo se reutiliza si el RUT del representante coincide con uno ya registrado. En cualquier otro caso no se crea nada y quien reservó ve la misma confirmación que una reserva nueva (ver sección 13). Al crear una ficha nueva, el representante queda con todas las marcas activas (consiente, pagador, avisos e informes) y cuidado personal no informado. La reserva no registra consentimiento: debes cargarlo tú después.
+**Reserva pública de un NNA.** En la agenda pública (sección 13), quien reserva marca "Reservo para un NNA" e ingresa los datos del paciente y del representante (nombre, RUT, correo y teléfono opcional). El sistema valida que el paciente tenga menos de 18 años y que el RUT del representante sea distinto al del paciente. Un NNA se identifica por **su propio RUT** (no por el email del representante, porque un mismo representante puede reservar para dos hijos); si ya existe una ficha con ese RUT, solo se reutiliza si el RUT del representante coincide con uno ya registrado. En cualquier otro caso no se crea nada y quien reservó ve la misma confirmación que una reserva nueva (ver sección 13). Al crear una ficha nueva, el representante queda solo como pagador y con "Recibe comunicaciones" (contacto), y cuidado personal no informado; como es una persona anónima y no verificada, "Puede otorgar consentimiento" y "Puede acceder a informes" quedan apagados hasta que, tras verificarla, tú los habilites. La reserva no registra consentimiento: debes cargarlo tú después.
 
 **Deber de denuncia y secreto profesional (guía, sin funcionalidad).** Esta guía requiere revisión legal y no está implementada en la app. Como orientación general, el Código Procesal Penal (art. 175) establece quiénes están obligados a denunciar ciertos delitos de los que toman conocimiento, y el secreto profesional tiene excepciones y tensiones con esa obligación y con el derecho de los padres a ser informados sobre un adolescente. La app no avisa ni decide por ti: ante sospecha de vulneración de derechos o de un delito contra un niño, niña o adolescente, consulta con asesoría legal o con tu colegio profesional antes de actuar, y deja constancia de tu decisión en la ficha.
 
@@ -326,6 +330,8 @@ fija al crearlo: cambiar después el monto de sesión del paciente no modifica
 los cobros ya creados, así que un cobro bajo el mínimo vuelve a ser rechazado
 al reintentar.
 
+Si Flow no llegó a confirmar si creó la orden (por ejemplo, por un corte de red al crearla), el chip dice "Cobro no generado: resultado incierto en Flow" y, antes de reintentar, la app pide confirmar que verificaste en tu panel de Flow que no existe una orden con el identificador de esa sesión; si existiera y se emite otra, el paciente podría recibir dos links de pago.
+
 ### Qué ve el paciente al pagar
 
 Tras pagar en Flow, el paciente vuelve a una página pública de Umbral que le
@@ -390,7 +396,7 @@ Es **privada por cuenta**: nada de lo que subes ahí se comparte con otros profe
 
 ## 8. Reportes en PDF
 
-Desde la ficha de un paciente (ícono "Descargar PDF" de la lista, o el botón "Descargar PDF" del detalle) se puede exportar un PDF con la ficha clínica completa, incluyendo el historial de consultas (con sus correcciones): no es solo un snapshot del estado actual. El PDF incluye una referencia a la Ley 20.584 y la obligación de custodia de 15 años. Cada exportación queda registrada en la bitácora de auditoría.
+Desde la ficha de un paciente (ícono "Descargar PDF" de la lista, o el botón "Descargar PDF" del detalle) se puede exportar un PDF con la ficha clínica completa, incluyendo el historial de consultas (con sus correcciones): no es solo un snapshot del estado actual. El PDF incluye una referencia a la Ley 20.584 y la obligación de custodia de 15 años. Cada exportación queda registrada en la bitácora de auditoría (si ese registro no se puede guardar, el PDF no se entrega). La exportación admite, por defecto, hasta 5 por minuto por terapeuta y se rechaza si la ficha supera las 500 sesiones: el PDF es la ficha completa o no se genera, nunca una versión recortada.
 
 > 📝 Observaciones UX:
 >
@@ -404,9 +410,9 @@ Desde la ficha de un paciente (ícono "Descargar PDF" de la lista, o el botón "
 - **En el celular o con la pestaña en segundo plano**: los navegadores móviles congelan los temporizadores cuando bloqueas la pantalla o cambias de app, así que al volver la app compara la hora real con tu última actividad. Si pasaron menos de 8 minutos, no ocurre nada. Si pasaron entre 8 y 10 minutos, aparece el aviso con su cuenta regresiva de 2 minutos. Si pasaron más de 10 minutos, la sesión se cierra directamente, sin aviso.
 - **Duración máxima de la sesión**: además de la inactividad, la sesión caduca en el servidor pasado un máximo (8 horas por defecto, configurable por quien administra la instancia). Si caduca mientras trabajas, la app te lleva al login y, al volver a iniciar sesión, te devuelve a la pantalla en la que estabas. Esto no ocurre cuando cierras sesión tú mismo ni cuando la sesión se cierra por inactividad: en esos casos entras al Dashboard.
 - **Cierre de sesión real**: al cerrar sesión (botón de salir, cierre por inactividad), la sesión también se invalida en el servidor: el token de ese dispositivo deja de funcionar aunque alguien lo hubiera copiado.
-- **Límite de intentos de login**: después de varios intentos fallidos seguidos, el sistema bloquea temporalmente nuevos intentos (rate limiting). Es intencional, no un error, y se libera solo pasado un tiempo. Aplica también a los intentos de código MFA, de restablecimiento de contraseña y de recuperación con código MFA.
+- **Límite de intentos de login**: después de varios intentos fallidos seguidos, el sistema bloquea temporalmente nuevos intentos (rate limiting). Es intencional, no un error, y se libera solo pasado un tiempo. Aplica también a los intentos de código MFA, de restablecimiento de contraseña y de recuperación con código MFA. Además, el segundo factor (código de la app o código de recuperación) tiene un límite por cuenta, sin importar desde qué dispositivo o IP se intente: tras 5 intentos fallidos en una hora, la cuenta espera 1, 5, 15 y luego 60 minutos entre intentos.
 - **Bitácora de auditoría**: toda acción relevante (login, creación, lectura y edición de fichas, descarga de documentos y de informes, exportación de PDF, cierre de tratamientos, entre otras) queda registrada de forma inmutable en el servidor, y los accesos denegados a datos clínicos también. No hay una pantalla para verla dentro de la app (no hay panel administrativo), pero existe y no se puede alterar ni borrar.
-- **Generar invitación**: si tu cuenta es la autorizada a invitar (configurada por quien administra la instancia), en la pantalla "Seguridad" aparece una sección "Generar invitación" para crear un código de un solo uso, válido 7 días, que le compartes a la persona que quieres invitar a registrarse. Si tu cuenta no está autorizada, esta sección directamente no aparece.
+- **Generar invitación**: si tu cuenta es la autorizada a invitar (configurada por quien administra la instancia), en la pantalla "Seguridad" aparece una sección "Generar invitación" para crear un código de un solo uso, válido 7 días, que le compartes a la persona que quieres invitar a registrarse. El código se muestra una única vez al generarlo (en el servidor solo se guarda su huella), así que cópialo antes de salir de la pantalla. Si tu cuenta no está autorizada, esta sección directamente no aparece.
 
 > 📝 Observaciones UX: (¿el aviso de sesión por expirar se nota a tiempo, o es fácil perderlo de vista y que la sesión se cierre sin querer?)
 >

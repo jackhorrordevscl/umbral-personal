@@ -4,17 +4,23 @@ Procedimiento operativo del [ADR 0005](decisiones/0005-versionado-y-rotacion-de-
 (issue #382). Cubre el respaldo de las claves, la rotación sin pérdida de datos
 y qué hacer si una clave se pierde.
 
-Estado (2026-10-13): el llavero versionado y el formato con AAD están
+Estado (2026-10-27): el llavero versionado y el formato con AAD están
 implementados y desplegados (T3a, T3b-U1 y T3b-U2). El código vive en
-`backend/src/common/crypto/` (`keyring.ts`, `aes-gcm.ts`, `reencrypt.ts`) y el
-script en `backend/scripts/reencrypt-keys.ts` (`npm run crypto:reencrypt`). La
+`backend/src/common/crypto/` (`keyring.ts`, `aes-gcm.ts`, `reencrypt.ts`,
+`clinical-text.port.ts`) y el script en `backend/scripts/reencrypt-keys.ts`
+(`npm run crypto:reencrypt`, definido en `backend/package.json`). La
 migración de la sección 2.1 ya se aplicó en producción, según informó el
 responsable del proyecto; este documento no guarda un registro de esa corrida.
-El issue #382 está cerrado. El 2026-10-14 las cuatro claves de producción se
-reemplazaron por completo al reiniciar la base de datos, así que el
+El issue #382 está cerrado. El 2026-10-14 las cuatro claves de producción de
+entonces se reemplazaron por completo al reiniciar la base de datos, así que el
 procedimiento de rotación con datos existentes (sección 3) no se ha ejercitado
 en producción. El #398 (retirar la clave id 0 del entorno) está
-implementado en el código; ver "Retirar la clave id 0" más abajo.
+implementado en el código; ver "Retirar la clave id 0" más abajo. La quinta
+clave (`CLINICAL_TEXT_ENCRYPTION_KEY`, dataset `clinical`) se agregó después
+(ADR 0004). Su recifrado inicial con `--apply` se hizo el 2026-10-17 (ver
+`docs/evaluacion-v1.md`, A3); los textos de `Notification` se cifran desde el
+2026-10-22. El formato `enc:v4` del issue #486 no existe: hoy se escribe solo
+`0x02` (binario) y `enc:v3` (texto).
 
 ## 1. Qué se cifra y qué pasa si falta la clave
 
@@ -24,7 +30,7 @@ implementado en el código; ver "Retirar la clave id 0" más abajo.
 | Secreto MFA | `MFA_SECRET_ENCRYPTION_KEY` | `User.mfaSecret` | Nadie valida el MFA. `recoverMfa` borra el secreto para volver a enrolar |
 | Tokens de Google | `GOOGLE_TOKEN_ENCRYPTION_KEY` | `GoogleCalendarConnection.refreshTokenEncrypted` | Hay que reconectar Google (no probado en producción) |
 | Credenciales de pago | `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | `PaymentAccount.credentialEncrypted` | Hay que volver a cargar las credenciales de Flow (no probado en producción) |
-| Textos clínicos | `CLINICAL_TEXT_ENCRYPTION_KEY` | `Consultation` (motivo, intervención, acuerdos), `TreatmentDischarge` (siete textos libres) y los snapshots de `ConsultationHistory` | **Irrecuperables.** Las notas y los textos del informe quedan ilegibles, también en los respaldos. Solo sirve recuperar la clave desde el gestor de contraseñas |
+| Textos clínicos | `CLINICAL_TEXT_ENCRYPTION_KEY` | `Consultation` (motivo, intervención, acuerdos), `TreatmentDischarge` (siete textos libres), los textos de `ConsultationHistory.snapshot` y `Notification` (título y cuerpo) | **Irrecuperables.** Las notas y los textos del informe quedan ilegibles, también en los respaldos. Solo sirve recuperar la clave desde el gestor de contraseñas |
 
 Un documento solo se puede leer con **dos cosas juntas**: la clave de cifrado y
 las credenciales del bucket (`B2_PATIENT_DOCUMENTS_ENDPOINT`, `_REGION`,
@@ -75,9 +81,10 @@ Reglas:
 ## 2.1 Migrar los datos existentes al formato con AAD (T3b)
 
 Desde el release de T3b-U2 el backend **escribe** el formato `0x02` (binario) y
-`enc:v3` (MFA), que autentican la cabecera y la etiqueta del dataset (ADR 0005,
+`enc:v3` (texto: secreto MFA y textos clínicos), que autentican la cabecera y la etiqueta del dataset (ADR 0005,
 sección 1.1). Lo que ya existe sigue legible en su formato anterior (legacy,
-`0x01`, `enc:v1`, `enc:v2`) hasta que se re-cifre. Esta migración se hace **una
+`0x01`, `enc:v1`, `enc:v2`, o texto plano en el caso de `mfa` y `clinical`)
+hasta que se re-cifre. Esta migración se hace **una
 sola vez** y es independiente de rotar claves: se re-cifra con la clave activa
 actual (id 0 si no se configuró otra).
 
@@ -133,6 +140,12 @@ lectura de `0x02` no puede leer lo que escribió T3b-U2.
 - **Fila MFA en texto plano.** Un `User.mfaSecret` sin prefijo `enc:` (previo al
   cifrado en reposo) se cuenta en el grupo `plaintext` del informe y `--apply`
   lo cifra. Revisar que ese conteo sea el esperado antes de aplicar.
+- **Texto clínico heredado.** En `clinical` cada columna de texto (y cada texto
+  dentro de un snapshot) cuenta como una fila (`<tabla>/<id>/<campo>`), y un
+  texto sin prefijo `enc:` se cuenta como `plaintext` y se cifra con `--apply`.
+  Un texto en claro que empiece con `enc:v1:`, `enc:v2:` o `enc:v3:` se
+  interpreta como cifrado, no descifra y se informa como `decrypt-failed` (ADR
+  0004, issue #486). Las filas borradas o canceladas también se recorren.
 - **Documentos con objeto faltante.** Si una fila de `PatientDocument` apunta a
   un objeto que ya no existe en B2, se informa como falla `missing-object`, no
   detiene la corrida y deja el código de salida en `1`. Mientras haya filas así,
@@ -225,8 +238,9 @@ Los ejemplos de abajo usan documentos.
 
    Sale con error si queda algo cifrado con esa clave, **o** si alguna fila no
    se pudo leer. Solo con resultado limpio se puede retirar. Revisa siempre
-   todas las filas: no acepta `--limit`, porque un escaneo parcial podría dar
-   una falsa señal de retiro seguro.
+   todas las filas: no acepta `--limit` ni `--apply`, porque un escaneo parcial
+   podría dar una falsa señal de retiro seguro. Revisa solo el dataset de la
+   variable indicada (si se pasa `--only` debe incluirlo).
 
 8. **Retirar la clave vieja** (ids 1 o superiores: quitarla de
    `<NOMBRE>_KEYRING`; la id 0 se retira distinto, ver "Retirar la clave id 0"
@@ -289,5 +303,6 @@ Todos desde `backend/`:
 | `npm run crypto:reencrypt -- --apply` | Re-cifra con la clave activa (y migra al formato con AAD) |
 | `npm run crypto:reencrypt -- --check-retire NOMBRE=id` | Verifica que una clave ya no se usa (no se combina con `--apply` ni `--limit`) |
 
-Códigos de salida: `0` sin fallas, `1` si alguna fila falló o hubo un error
+Códigos de salida: `0` sin fallas, `1` si alguna fila falló, si con
+`--check-retire` todavía hay filas que usan la clave o si hubo un error
 inesperado, `2` si los argumentos son inválidos.
