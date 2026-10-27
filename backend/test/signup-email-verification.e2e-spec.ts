@@ -165,7 +165,7 @@ describe('Signup + verificación de email (e2e)', () => {
       expect(second.body).toEqual(first.body);
       expect(await prisma.user.count({ where: { email } })).toBe(1);
       const invitation = await prisma.invitationCode.findUniqueOrThrow({
-        where: { code: secondCode },
+        where: { codeHash: hashInvitationCode(secondCode) },
       });
       expect(invitation.usedById).toBeNull();
     });
