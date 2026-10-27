@@ -20,6 +20,7 @@ import * as crypto from 'crypto';
 import { randomUUID } from 'crypto';
 import { getDummyPasswordHash } from './dummy-password-hash.util';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
+import { MfaAttemptLimiter } from './mfa-attempt-limiter.service';
 
 // Purpose que llevan los JWT de corta duración emitidos para forzar el
 // enrolamiento MFA. Nunca deben aceptarse como sesión (ver jwt.strategy.ts).
@@ -41,6 +42,21 @@ const TOTP_STEP_SECONDS = 30;
 // seguridad de tenerlos impresos/guardados.
 const MFA_RECOVERY_CODES_COUNT = 10;
 
+// Issue #487: generateRecoveryCode emite 20 hex en grupos de 4 y se hashea esa
+// forma exacta. Para no rechazar un código bien copiado pero tipeado en
+// mayúsculas, sin guiones o con espacios, se lleva a la forma canónica antes
+// de verificar. Lo que no tiene la forma de un código emitido pasa tal cual:
+// no puede matchear ningún hash.
+const RECOVERY_CODE_HEX_LENGTH = 20;
+
+function canonicalizeRecoveryCode(input: string): string {
+  const compact = input.replace(/[\s-]/g, '').toLowerCase();
+  if (!new RegExp(`^[0-9a-f]{${RECOVERY_CODE_HEX_LENGTH}}$`).test(compact)) {
+    return input;
+  }
+  return compact.match(/.{4}/g)!.join('-');
+}
+
 @Injectable()
 export class MfaService {
   private readonly logger = new Logger(MfaService.name);
@@ -51,6 +67,7 @@ export class MfaService {
     private auditService: AuditService,
     private mfaSecretCrypto: MfaSecretCryptoService,
     private mailService: MailService,
+    private attemptLimiter: MfaAttemptLimiter,
   ) {}
 
   /**
@@ -106,7 +123,7 @@ export class MfaService {
    */
   async beginMfaSetup(setupToken: string) {
     const payload = this.verifySetupToken(setupToken);
-    await this.rejectIfAlreadyEnrolled(payload.sub, payload.iat);
+    await this.rejectIfAlreadyEnrolled(payload.sub, payload.pca);
     return this.generateMfaSecret(payload.sub);
   }
 
@@ -124,7 +141,7 @@ export class MfaService {
     userAgent?: string,
   ) {
     const payload = this.verifySetupToken(setupToken);
-    await this.rejectIfAlreadyEnrolled(payload.sub, payload.iat);
+    await this.rejectIfAlreadyEnrolled(payload.sub, payload.pca);
     const { recoveryCodes } = await this.enableMfa(
       payload.sub,
       token,
@@ -152,9 +169,9 @@ export class MfaService {
   private verifySetupToken(setupToken: string): {
     sub: string;
     purpose?: string;
-    iat?: number;
+    pca?: number;
   } {
-    let payload: { sub: string; purpose?: string; iat?: number };
+    let payload: { sub: string; purpose?: string; pca?: number };
     try {
       payload = this.jwtService.verify(setupToken);
     } catch {
@@ -180,7 +197,7 @@ export class MfaService {
    * Issue #487: tampoco sirve un setupToken emitido antes del último cambio
    * de contraseña (reset): quien lo tenía no puede terminar el enrolamiento.
    */
-  private async rejectIfAlreadyEnrolled(userId: string, iat?: number) {
+  private async rejectIfAlreadyEnrolled(userId: string, pca?: number) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (user?.mfaEnabled) {
       throw new UnauthorizedException(
@@ -189,7 +206,7 @@ export class MfaService {
     }
     if (
       user &&
-      this.isIssuedBeforePasswordChange(iat, user.passwordChangedAt)
+      this.isIssuedBeforePasswordChange(pca, user.passwordChangedAt)
     ) {
       throw new UnauthorizedException(
         'Token de configuración MFA inválido o expirado',
@@ -198,23 +215,22 @@ export class MfaService {
   }
 
   /**
-   * Issue #487: `iat` son segundos enteros y passwordChangedAt tiene
-   * milisegundos, por eso se compara con `<` contra el valor truncado a
-   * segundos. A diferencia de JwtStrategy.validate (`<=`, issue #76), aquí el
-   * mismo segundo SÍ es válido: el cambio de contraseña forzado
-   * (AuthService.changePassword) fija passwordChangedAt y emite en seguida el
-   * setupToken/mfaToken del propio flujo, en ese mismo segundo. La ventana de
-   * un segundo que queda abierta es el costo de no romper ese flujo. NULL
-   * desactiva el chequeo (cuentas que nunca cambiaron la contraseña). Si hay
-   * passwordChangedAt y el token no trae `iat`, se rechaza (fail-closed).
+   * Issue #487: el setupToken/mfaToken lleva `pca`, el passwordChangedAt (en
+   * ms) que la cuenta tenía al emitirlo (AuthService.completeLogin). Es válido
+   * mientras `pca` no sea anterior al passwordChangedAt actual: un reset
+   * posterior lo deja viejo, sin la ventana de un segundo que tenía la
+   * comparación contra `iat` (segundos enteros), y el cambio de contraseña
+   * forzado sigue funcionando porque emite el token con el pca recién fijado.
+   * NULL desactiva el chequeo (cuentas que nunca cambiaron la contraseña). Si
+   * hay passwordChangedAt y el token no trae `pca`, se rechaza (fail-closed).
    */
   private isIssuedBeforePasswordChange(
-    iat: number | undefined,
+    pca: number | undefined,
     passwordChangedAt: Date | null | undefined,
   ): boolean {
     if (!passwordChangedAt) return false;
-    if (typeof iat !== 'number') return true;
-    return iat < Math.floor(passwordChangedAt.getTime() / 1000);
+    if (typeof pca !== 'number') return true;
+    return pca < passwordChangedAt.getTime();
   }
 
   /**
@@ -222,8 +238,8 @@ export class MfaService {
    * expirado y purpose === 'mfa-verify'. Prueba que el paso de contraseña se
    * completó; sin él mfa/verify no acepta ningún TOTP.
    */
-  private verifyMfaToken(mfaToken: string): { sub: string; iat?: number } {
-    let payload: { sub: string; purpose?: string; iat?: number };
+  private verifyMfaToken(mfaToken: string): { sub: string; pca?: number } {
+    let payload: { sub: string; purpose?: string; pca?: number };
     try {
       payload = this.jwtService.verify(mfaToken);
     } catch {
@@ -248,16 +264,20 @@ export class MfaService {
     secret: string,
     token: string,
   ): Promise<boolean> {
+    // Issue #487: una sola lectura del reloj para verificar y para calcular el
+    // paso. Con dos lecturas, en el borde de 30 s el paso consumido podía no
+    // ser el verificado y rechazar el siguiente código legítimo.
+    const nowSeconds = Math.floor(Date.now() / 1000);
     const delta = speakeasy.totp.verifyDelta({
       secret,
       encoding: 'base32',
       token,
       window: 1,
+      time: nowSeconds,
     });
     if (!delta) return false;
 
-    const step =
-      Math.floor(Date.now() / 1000 / TOTP_STEP_SECONDS) + delta.delta;
+    const step = Math.floor(nowSeconds / TOTP_STEP_SECONDS) + delta.delta;
 
     const { count } = await this.prisma.user.updateMany({
       where: {
@@ -271,7 +291,7 @@ export class MfaService {
   }
 
   async verifyMfa(dto: VerifyMfaDto, ipAddress?: string, userAgent?: string) {
-    const { sub: userId, iat } = this.verifyMfaToken(dto.mfaToken);
+    const { sub: userId, pca } = this.verifyMfaToken(dto.mfaToken);
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
     });
@@ -289,7 +309,7 @@ export class MfaService {
       !user.mfaEnabled ||
       !user.mfaSecret ||
       user.deletedAt ||
-      this.isIssuedBeforePasswordChange(iat, user.passwordChangedAt)
+      this.isIssuedBeforePasswordChange(pca, user.passwordChangedAt)
     ) {
       throw new UnauthorizedException('Código MFA inválido');
     }
@@ -299,6 +319,8 @@ export class MfaService {
       throw new UnauthorizedException('Código MFA inválido');
     }
 
+    // Issue #487: límite por cuenta; reserva el intento antes de verificar.
+    await this.attemptLimiter.reserve(user, ipAddress, userAgent);
     const isValid = await this.consumeTotp(user.id, secret, dto.token);
 
     if (!isValid) {
@@ -315,6 +337,7 @@ export class MfaService {
       throw new UnauthorizedException('Código MFA inválido');
     }
 
+    await this.attemptLimiter.clear(user.id);
     await this.reencryptLegacySecret(user.id, user.mfaSecret, secret);
 
     // Mismo criterio que login(): ningún accessToken se emite mientras la
@@ -387,16 +410,25 @@ export class MfaService {
       throw new BadRequestException('Primero genera el secreto MFA');
     }
 
+    await this.attemptLimiter.reserve(user, ipAddress, userAgent);
     const isValid = await this.consumeTotp(userId, secret, token);
 
     if (!isValid) {
       throw new BadRequestException('Código inválido, intenta de nuevo');
     }
+    await this.attemptLimiter.clear(userId);
 
-    await this.prisma.user.update({
-      where: { id: userId },
+    // Issue #487: activación condicional. Dos confirmaciones simultáneas con
+    // pasos TOTP distintos pasan ambas consumeTotp; sin esta condición las
+    // dos regenerarían los recovery codes y la primera tanda mostrada
+    // quedaría invalidada sin aviso.
+    const { count } = await this.prisma.user.updateMany({
+      where: { id: userId, mfaEnabled: false },
       data: { mfaEnabled: true },
     });
+    if (count === 0) {
+      throw new BadRequestException('MFA ya fue configurado para esta cuenta');
+    }
 
     // Issue #50: se generan acá (no en un endpoint separado) porque este es
     // el único momento en que sabemos que el usuario probó control real del
@@ -444,11 +476,13 @@ export class MfaService {
       throw new BadRequestException('Código inválido');
     }
 
+    await this.attemptLimiter.reserve(user, ipAddress, userAgent);
     const isValid = await this.consumeTotp(userId, secret, token);
 
     if (!isValid) {
       throw new BadRequestException('Código inválido');
     }
+    await this.attemptLimiter.clear(userId);
 
     await this.prisma.user.update({
       where: { id: userId },
@@ -515,13 +549,16 @@ export class MfaService {
     // forma de buscarlos por igualdad directa, así que se recorren los no
     // usados y se verifica cada hash contra el código recibido. La tanda es
     // acotada (MFA_RECOVERY_CODES_COUNT), sin impacto de performance real.
+    // Issue #487: límite por cuenta, compartido con el TOTP.
+    await this.attemptLimiter.reserve(user, ipAddress, userAgent);
     const unusedCodes = await this.prisma.mfaRecoveryCode.findMany({
       where: { userId: user.id, usedAt: null },
     });
 
+    const recoveryCode = canonicalizeRecoveryCode(dto.recoveryCode);
     let matchedCodeId: string | null = null;
     for (const candidate of unusedCodes) {
-      if (await argon2.verify(candidate.codeHash, dto.recoveryCode)) {
+      if (await argon2.verify(candidate.codeHash, recoveryCode)) {
         matchedCodeId = candidate.id;
         break;
       }
@@ -565,6 +602,7 @@ export class MfaService {
       });
     });
 
+    await this.attemptLimiter.clear(user.id);
     await this.auditService.log({
       userId: user.id,
       action: 'MFA_DISABLED_VIA_RECOVERY',

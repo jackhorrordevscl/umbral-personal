@@ -274,6 +274,36 @@ export class MailService {
     }
   }
 
+  // Issue #487: alguien usó este email en un alta con invitación válida. El
+  // registro responde igual exista o no la cuenta (para no revelar quién usa
+  // Umbral), así que este correo es la única señal para el titular. No lleva
+  // IP ni datos de quien lo intentó.
+  async sendSignupAttemptNoticeEmail(to: string, name: string): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn(
+        `RESEND_API_KEY no configurada: se salteó el aviso de alta duplicada a ${maskEmail(to)}.`,
+      );
+      return;
+    }
+
+    const { error } = await this.resend.emails.send({
+      from: this.from,
+      to,
+      subject: 'Intentaron crear una cuenta con tu email en Umbral - RCE',
+      html: `
+        <p>Hola ${escapeHtml(name)},</p>
+        <p>Alguien intentó crear una cuenta en Umbral - RCE con este email, que ya tiene una cuenta registrada. No se creó nada.</p>
+        <p>Si fuiste tú, inicia sesión con tu cuenta o restablece tu contraseña desde la pantalla de acceso. Si no fuiste tú, puedes ignorar este mensaje.</p>
+      `,
+    });
+
+    if (error) {
+      this.logger.error(
+        `Falló el envío del aviso de alta duplicada a ${maskEmail(to)}: ${error.message}`,
+      );
+    }
+  }
+
   // sdd/session-reminders PR 2 (T5.1): llamado por RemindersService por cada
   // (consultation, offset) despachado por el canal EMAIL. Mismo contrato
   // "nunca lanza" que el resto de esta clase -- design.md "Email Channel

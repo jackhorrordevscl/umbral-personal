@@ -6,6 +6,7 @@ import { ThrottlerModuleOptions } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { MfaService } from './mfa.service';
 import { MfaSecretCryptoService } from './mfa-secret-crypto.service';
+import { MfaAttemptLimiter } from './mfa-attempt-limiter.service';
 import { SessionPurgeService } from './session-purge.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -334,6 +335,7 @@ export function buildAuthThrottlerOptions(
     AuthService,
     MfaService,
     MfaSecretCryptoService,
+    MfaAttemptLimiter,
     SessionPurgeService,
     JwtStrategy,
   ],

@@ -134,10 +134,45 @@ describe('Signup + verificación de email (e2e)', () => {
       expect(user!.role).toBe('PROFESSIONAL');
     });
 
-    it('rechaza un email ya registrado con el mismo 401 genérico que una invitación inválida (issue #303)', async () => {
+    // Issue #487: con una invitación válida, un email ya registrado responde
+    // exactamente igual que un alta nueva (sin oráculo de emails), no crea
+    // nada y deja la invitación sin gastar.
+    it('un email ya registrado responde igual que un alta nueva y no gasta la invitación (issue #487)', async () => {
       const email = `signup.dup.${runId}@umbral.cl`;
       createdEmails.push(email);
 
+      const first = await request(app.getHttpServer())
+        .post('/api/v1/auth/signup')
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          name: 'Primera Vez',
+          inviteCode: await createInviteCode(),
+        })
+        .expect(201);
+
+      const secondCode = await createInviteCode();
+      const second = await request(app.getHttpServer())
+        .post('/api/v1/auth/signup')
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          name: 'Segunda Vez',
+          inviteCode: secondCode,
+        })
+        .expect(201);
+
+      expect(second.body).toEqual(first.body);
+      expect(await prisma.user.count({ where: { email } })).toBe(1);
+      const invitation = await prisma.invitationCode.findUniqueOrThrow({
+        where: { code: secondCode },
+      });
+      expect(invitation.usedById).toBeNull();
+    });
+
+    it('una invitación inválida sigue rechazándose con 401 aunque el email exista', async () => {
+      const email = `signup.dup2.${runId}@umbral.cl`;
+      createdEmails.push(email);
       await request(app.getHttpServer())
         .post('/api/v1/auth/signup')
         .send({
@@ -148,15 +183,13 @@ describe('Signup + verificación de email (e2e)', () => {
         })
         .expect(201);
 
-      // La invitación se valida antes que el email (ver AuthService.signup) y
-      // ambos rechazos responden igual (401, mismo mensaje).
       await request(app.getHttpServer())
         .post('/api/v1/auth/signup')
         .send({
           email,
           password: TEST_PASSWORD,
           name: 'Segunda Vez',
-          inviteCode: await createInviteCode(),
+          inviteCode: 'no-existe',
         })
         .expect(401)
         .expect((res) => {

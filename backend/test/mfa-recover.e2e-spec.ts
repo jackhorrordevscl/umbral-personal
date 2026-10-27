@@ -122,6 +122,59 @@ describe('MFA recovery codes (e2e)', () => {
       expect(new Set(recoveryCodes).size).toBe(10);
     });
 
+    it('dos confirmaciones simultáneas con pasos TOTP distintos activan MFA una sola vez (issue #487)', async () => {
+      const email = `confirm.race.${runId}@umbral.cl`;
+      const user = await prisma.user.create({
+        data: {
+          email,
+          passwordHash: await argon2.hash(TEST_PASSWORD),
+          name: 'MFA Confirm Race',
+        },
+      });
+      createdUserIds.push(user.id);
+
+      const login = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email, password: TEST_PASSWORD })
+        .expect(201);
+      const setupToken = (login.body as Record<string, unknown>)
+        .setupToken as string;
+
+      const begin = await request(app.getHttpServer())
+        .post('/api/v1/auth/mfa/setup/begin')
+        .send({ setupToken })
+        .expect(201);
+      const secret = (begin.body as Record<string, unknown>).secret as string;
+
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const currentStep = speakeasy.totp({
+        secret,
+        encoding: 'base32',
+        time: nowSeconds,
+      });
+      const previousStep = speakeasy.totp({
+        secret,
+        encoding: 'base32',
+        time: nowSeconds - 30,
+      });
+
+      const responses = await Promise.all(
+        [currentStep, previousStep].map((token) =>
+          request(app.getHttpServer())
+            .post('/api/v1/auth/mfa/setup/confirm')
+            .send({ setupToken, token }),
+        ),
+      );
+
+      expect(responses.filter((res) => res.status === 201)).toHaveLength(1);
+      for (const res of responses.filter((r) => r.status !== 201)) {
+        expect([400, 401]).toContain(res.status);
+      }
+      expect(
+        await prisma.mfaRecoveryCode.count({ where: { userId: user.id } }),
+      ).toBe(10);
+    });
+
     it('guarda el mfaSecret cifrado en reposo (issue #302)', async () => {
       const { id } = await createUserWithMfaEnabled('confirm.encrypted');
 
@@ -239,6 +292,20 @@ describe('MFA recovery codes (e2e)', () => {
       expect((loginRes.body as Record<string, unknown>).requiresMfaSetup).toBe(
         true,
       );
+    });
+
+    it('acepta el código tipeado en mayúsculas y sin guiones (issue #487)', async () => {
+      const { email, recoveryCodes } =
+        await createUserWithMfaEnabled('recover.format');
+
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/mfa/recover')
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          recoveryCode: recoveryCodes[0].replace(/-/g, '').toUpperCase(),
+        })
+        .expect(201);
     });
 
     it('reusar el mismo código ya consumido rechaza con 401 (replay guard)', async () => {

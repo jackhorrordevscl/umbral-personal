@@ -31,6 +31,15 @@ model User {
   // A code is only accepted if its step is greater than this value, so the
   // same TOTP cannot be replayed. Reset when the secret changes.
   lastUsedStep               Int?
+  // Issue #487: límite de intentos del segundo factor por cuenta (además del
+  // límite por IP). Cada intento de TOTP o de código de recuperación reserva
+  // un lugar antes de verificarse (MfaAttemptLimiter): pasado el tope, la
+  // cuenta queda bloqueada hasta mfaLockedUntil con espera creciente. Se
+  // limpian al acertar el código; mfaFailedAt permite descartar intentos
+  // viejos.
+  mfaFailedAttempts          Int       @default(0)
+  mfaFailedAt                DateTime?
+  mfaLockedUntil             DateTime?
   mustChangePassword         Boolean   @default(false)
   // Issue #5: signup propio. Default true (no false) para que las cuentas ya
   // existentes -- seedeadas o creadas directo vía Prisma, nunca vía

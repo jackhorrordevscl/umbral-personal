@@ -63,8 +63,10 @@ describe('Cambio de contraseña forzado del admin semilla (e2e)', () => {
       data: {
         passwordHash,
         mustChangePassword: true,
+        passwordChangedAt: null,
         mfaEnabled: false,
         mfaSecret: null,
+        lastUsedStep: null,
       },
     });
   });
@@ -75,10 +77,22 @@ describe('Cambio de contraseña forzado del admin semilla (e2e)', () => {
     // asumen ADMIN_PASSWORD). Sin restaurar el hash acá, cualquier suite que
     // corra después de esta se rompe con 401 al intentar loguear con la
     // contraseña original.
+    //
+    // Issue #487: también se devuelve el resto del estado que el cambio forzado
+    // y el enrolamiento MFA de esta suite dejan escrito (passwordChangedAt y
+    // MFA), para que la suite siguiente arranque desde el admin seed limpio y
+    // no dependa de que cada una lo limpie por su cuenta.
     const originalPasswordHash = await argon2.hash(ADMIN_PASSWORD);
     await prisma.user.updateMany({
       where: { email: ADMIN_EMAIL },
-      data: { passwordHash: originalPasswordHash, mustChangePassword: false },
+      data: {
+        passwordHash: originalPasswordHash,
+        mustChangePassword: false,
+        passwordChangedAt: null,
+        mfaEnabled: false,
+        mfaSecret: null,
+        lastUsedStep: null,
+      },
     });
     await app.close();
   });

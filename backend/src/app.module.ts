@@ -8,7 +8,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { buildAppThrottlerOptions } from './config/throttler.config';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { SessionOriginGuard } from './common/guards/session-origin.guard';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { ClinicalTextCryptoModule } from './common/crypto/clinical-text-crypto.module';
@@ -82,6 +83,11 @@ import { HealthController } from './health/health.controller';
   controllers: [AppController, HealthController],
   providers: [
     AppService,
+    // Issue #487: defensa en profundidad contra CSRF sobre la cookie de sesión.
+    {
+      provide: APP_GUARD,
+      useClass: SessionOriginGuard,
+    },
     {
       provide: APP_INTERCEPTOR,
       useClass: AuditInterceptor,

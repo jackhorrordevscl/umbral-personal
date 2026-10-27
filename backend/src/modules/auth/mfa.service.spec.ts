@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ThrottlerException } from '@nestjs/throttler';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import * as QRCode from 'qrcode';
@@ -14,6 +15,7 @@ import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
 import { ConfigService } from '@nestjs/config';
 import { MfaSecretCryptoService } from './mfa-secret-crypto.service';
+import { MfaAttemptLimiter } from './mfa-attempt-limiter.service';
 
 jest.mock('argon2');
 jest.mock('speakeasy');
@@ -58,6 +60,7 @@ async function expectBadRequest(promise: Promise<unknown>, message: string) {
 
 describe('MfaService', () => {
   let service: MfaService;
+  let attemptLimiter: { reserve: jest.Mock; clear: jest.Mock };
   let prisma: {
     user: { findUnique: jest.Mock; update: jest.Mock; updateMany: jest.Mock };
     mfaRecoveryCode: {
@@ -114,6 +117,10 @@ describe('MfaService', () => {
     mailService = {
       sendMfaRecoveryNoticeEmail: jest.fn().mockResolvedValue(undefined),
     };
+    attemptLimiter = {
+      reserve: jest.fn().mockResolvedValue(undefined),
+      clear: jest.fn().mockResolvedValue(undefined),
+    };
     // Real crypto on purpose: the round trip is what these specs verify.
     crypto = new MfaSecretCryptoService({
       get: (name: string) =>
@@ -129,6 +136,7 @@ describe('MfaService', () => {
       auditService as unknown as AuditService,
       crypto,
       mailService as unknown as MailService,
+      attemptLimiter as unknown as MfaAttemptLimiter,
     );
 
     // clearAllMocks() solo limpia historial de llamadas (calls/instances/
@@ -172,7 +180,7 @@ describe('MfaService', () => {
 
     describe('setupToken emitido antes del último cambio de contraseña (issue #487)', () => {
       const changedAt = new Date('2026-10-01T12:00:00.500Z');
-      const changedAtSec = Math.floor(changedAt.getTime() / 1000);
+      const changedAtMs = changedAt.getTime();
       const expired = 'Token de configuración MFA inválido o expirado';
 
       function mockPendingUser() {
@@ -185,13 +193,17 @@ describe('MfaService', () => {
         );
       }
 
-      it.each([['antes', changedAtSec - 60]])(
+      // pca = passwordChangedAt (ms) que la cuenta tenía al emitir el token.
+      it.each([
+        ['un minuto antes', changedAtMs - 60_000],
+        ['400 ms antes, dentro del mismo segundo', changedAtMs - 400],
+      ])(
         'beginMfaSetup y confirmMfaSetup lanzan 401 si el token se emitió %s del cambio',
-        async (_label, iat) => {
+        async (_label, pca) => {
           jwtService.verify.mockReturnValue({
             sub: 'user-1',
             purpose: 'mfa-setup',
-            iat,
+            pca,
           });
           mockPendingUser();
           mockTotp(0);
@@ -207,10 +219,11 @@ describe('MfaService', () => {
         },
       );
 
-      it('lanza 401 si el token no trae iat y hay passwordChangedAt (fail-closed)', async () => {
+      it('lanza 401 si el token no trae pca y hay passwordChangedAt (fail-closed)', async () => {
         jwtService.verify.mockReturnValue({
           sub: 'user-1',
           purpose: 'mfa-setup',
+          iat: Math.floor(changedAtMs / 1000) + 60,
         });
         mockPendingUser();
 
@@ -219,16 +232,16 @@ describe('MfaService', () => {
         );
       });
 
-      // El cambio forzado de contraseña emite el setupToken en el mismo
-      // segundo que passwordChangedAt: ese flujo no puede romperse.
+      // El cambio forzado de contraseña emite el setupToken con el pca recién
+      // fijado: ese flujo no puede romperse.
       it.each([
-        ['después del cambio', changedAtSec + 60],
-        ['en el mismo segundo del cambio', changedAtSec],
-      ])('acepta un token emitido %s', async (_label, iat) => {
+        ['con el pca vigente', changedAtMs],
+        ['con un pca posterior', changedAtMs + 1_000],
+      ])('acepta un token emitido %s', async (_label, pca) => {
         jwtService.verify.mockReturnValue({
           sub: 'user-1',
           purpose: 'mfa-setup',
-          iat,
+          pca,
         });
         mockPendingUser();
         mockSpeakeasy.generateSecret.mockReturnValue({
@@ -309,8 +322,8 @@ describe('MfaService', () => {
 
       const result = await service.confirmMfaSetup(setupToken, '123456');
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-1', mfaEnabled: false },
         data: { mfaEnabled: true },
       });
       expect(result).toEqual({
@@ -404,7 +417,7 @@ describe('MfaService', () => {
 
     describe('mfaToken emitido antes del último cambio de contraseña (issue #487)', () => {
       const changedAt = new Date('2026-10-01T12:00:00.500Z');
-      const changedAtSec = Math.floor(changedAt.getTime() / 1000);
+      const changedAtMs = changedAt.getTime();
 
       function mockUserWithPasswordChange() {
         prisma.user.findUnique.mockResolvedValue(
@@ -417,13 +430,16 @@ describe('MfaService', () => {
         mockTotp(0);
       }
 
-      it.each([['antes', changedAtSec - 60]])(
+      it.each([
+        ['un minuto antes', changedAtMs - 60_000],
+        ['400 ms antes, dentro del mismo segundo', changedAtMs - 400],
+      ])(
         'lanza 401 si el token se emitió %s del cambio, aunque el TOTP sea válido',
-        async (_label, iat) => {
+        async (_label, pca) => {
           jwtService.verify.mockReturnValue({
             sub: 'user-1',
             purpose: 'mfa-verify',
-            iat,
+            pca,
           });
           mockUserWithPasswordChange();
 
@@ -435,7 +451,7 @@ describe('MfaService', () => {
         },
       );
 
-      it('lanza 401 si el token no trae iat y hay passwordChangedAt (fail-closed)', async () => {
+      it('lanza 401 si el token no trae pca y hay passwordChangedAt (fail-closed)', async () => {
         mockUserWithPasswordChange();
 
         await expect(service.verifyMfa(dto)).rejects.toThrow(
@@ -445,13 +461,13 @@ describe('MfaService', () => {
       });
 
       it.each([
-        ['después del cambio', changedAtSec + 60],
-        ['en el mismo segundo del cambio', changedAtSec],
-      ])('acepta un token emitido %s', async (_label, iat) => {
+        ['con el pca vigente', changedAtMs],
+        ['con un pca posterior', changedAtMs + 1_000],
+      ])('acepta un token emitido %s', async (_label, pca) => {
         jwtService.verify.mockReturnValue({
           sub: 'user-1',
           purpose: 'mfa-verify',
-          iat,
+          pca,
         });
         mockUserWithPasswordChange();
 
@@ -513,6 +529,37 @@ describe('MfaService', () => {
       nowSpy.mockRestore();
 
       const step = Math.floor(now / 1000 / 30) - 1;
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'user-1',
+          OR: [{ lastUsedStep: null }, { lastUsedStep: { lt: step } }],
+        },
+        data: { lastUsedStep: step },
+      });
+    });
+
+    // Issue #487: verificar el código y calcular el paso con relojes distintos
+    // en el borde de 30 s consumía un paso que no era el verificado.
+    it('verifica y consume el paso con una sola lectura del reloj', async () => {
+      const stepStart = 1_700_000_010; // segundo 10 dentro de su paso
+      const t1 = stepStart * 1000;
+      const t2 = (stepStart + 30) * 1000; // ya en el paso siguiente
+      const nowSpy = jest
+        .spyOn(Date, 'now')
+        .mockReturnValueOnce(t1)
+        .mockReturnValue(t2);
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
+      );
+      mockTotp(0);
+
+      await service.verifyMfa(dto);
+      nowSpy.mockRestore();
+
+      expect(mockSpeakeasy.totp.verifyDelta).toHaveBeenCalledWith(
+        expect.objectContaining({ time: stepStart }),
+      );
+      const step = Math.floor(stepStart / 30);
       expect(prisma.user.updateMany).toHaveBeenCalledWith({
         where: {
           id: 'user-1',
@@ -591,6 +638,7 @@ describe('MfaService', () => {
         encoding: 'base32',
         token: '123456',
         window: 1,
+        time: expect.any(Number) as unknown as number,
       });
       expect(result).toEqual({
         accessToken: 'signed-token',
@@ -600,6 +648,55 @@ describe('MfaService', () => {
           role: Role.PROFESSIONAL,
           name: 'Test User',
         },
+      });
+    });
+
+    describe('límite de intentos por cuenta (issue #487)', () => {
+      beforeEach(() => {
+        prisma.user.findUnique.mockResolvedValue(
+          buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
+        );
+      });
+
+      it('reserva el intento antes de verificar y limpia el contador al acertar', async () => {
+        mockTotp(0);
+
+        await service.verifyMfa(dto, '203.0.113.7', 'jest-agent');
+
+        expect(attemptLimiter.reserve).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 'user-1' }),
+          '203.0.113.7',
+          'jest-agent',
+        );
+        expect(attemptLimiter.reserve.mock.invocationCallOrder[0]).toBeLessThan(
+          (mockSpeakeasy.totp.verifyDelta as jest.Mock).mock
+            .invocationCallOrder[0],
+        );
+        expect(attemptLimiter.clear).toHaveBeenCalledWith('user-1');
+      });
+
+      it('con un TOTP incorrecto no limpia el contador', async () => {
+        mockTotp(null);
+
+        await expect(service.verifyMfa(dto)).rejects.toThrow(
+          'Código MFA inválido',
+        );
+
+        expect(attemptLimiter.reserve).toHaveBeenCalledTimes(1);
+        expect(attemptLimiter.clear).not.toHaveBeenCalled();
+      });
+
+      it('si la cuenta está bloqueada propaga el 429 sin verificar el código', async () => {
+        attemptLimiter.reserve.mockRejectedValue(new ThrottlerException());
+        mockTotp(0);
+
+        await expect(service.verifyMfa(dto)).rejects.toBeInstanceOf(
+          ThrottlerException,
+        );
+
+        expect(mockSpeakeasy.totp.verifyDelta).not.toHaveBeenCalled();
+        expect(jwtService.sign).not.toHaveBeenCalled();
+        expect(attemptLimiter.clear).not.toHaveBeenCalled();
       });
     });
   });
@@ -811,6 +908,24 @@ describe('MfaService', () => {
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
 
+    it('lanza 400 sin regenerar recovery codes si otra confirmación ya activó MFA (issue #487)', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ mfaSecret: 'BASE32SECRET' }),
+      );
+      mockTotp(0);
+      prisma.user.updateMany
+        .mockResolvedValueOnce({ count: 1 }) // consumeTotp
+        .mockResolvedValueOnce({ count: 0 }); // activación: ya estaba activa
+
+      await expectBadRequest(
+        service.enableMfa('user-1', '123456'),
+        'MFA ya fue configurado para esta cuenta',
+      );
+      expect(prisma.mfaRecoveryCode.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.mfaRecoveryCode.createMany).not.toHaveBeenCalled();
+      expect(auditService.log).not.toHaveBeenCalled();
+    });
+
     it('activa MFA, genera 10 recovery codes y audita en el camino feliz', async () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ mfaSecret: 'BASE32SECRET' }),
@@ -820,8 +935,10 @@ describe('MfaService', () => {
 
       const result = await service.enableMfa('user-1', '123456');
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
+      // Issue #487: la activación es condicional (mfaEnabled: false) para que
+      // dos confirmaciones simultáneas no regeneren los códigos dos veces.
+      expect(prisma.user.updateMany).toHaveBeenLastCalledWith({
+        where: { id: 'user-1', mfaEnabled: false },
         data: { mfaEnabled: true },
       });
       expect(prisma.mfaRecoveryCode.deleteMany).toHaveBeenCalledWith({
@@ -1159,6 +1276,51 @@ describe('MfaService', () => {
       expect(prisma.mfaRecoveryCode.findMany).toHaveBeenCalledWith({
         where: { userId: 'user-1', usedAt: null },
       });
+    });
+
+    // Issue #487: el código se muestra como a1b2-c3d4-e5f6-a7b8-c9d0 y se
+    // guarda el hash de esa forma exacta; quien lo tipea en mayúsculas, sin
+    // guiones o con espacios no debe quedar rechazado por el formato.
+    it.each([
+      ['mayúsculas', 'A1B2-C3D4-E5F6-A7B8-C9D0'],
+      ['sin guiones', 'a1b2c3d4e5f6a7b8c9d0'],
+      ['con espacios en vez de guiones', ' a1b2 c3d4 e5f6 a7b8 c9d0 '],
+    ])(
+      'verifica la forma canónica del código de recuperación (%s)',
+      async (_label, recoveryCode) => {
+        prisma.user.findUnique.mockResolvedValue(
+          buildUser({ mfaEnabled: true }),
+        );
+        mockArgon2.verify
+          .mockResolvedValueOnce(true as never) // password
+          .mockResolvedValueOnce(true as never); // recovery code
+        prisma.mfaRecoveryCode.findMany.mockResolvedValue([
+          { id: 'code-1', codeHash: 'hash-1' },
+        ]);
+
+        await service.recoverMfa({ ...dto, recoveryCode });
+
+        expect(mockArgon2.verify).toHaveBeenLastCalledWith(
+          'hash-1',
+          'a1b2-c3d4-e5f6-a7b8-c9d0',
+        );
+      },
+    );
+
+    it('deja pasar tal cual un código que no tiene la forma de los emitidos (no matchea ningún hash)', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser({ mfaEnabled: true }));
+      mockArgon2.verify
+        .mockResolvedValueOnce(true as never) // password
+        .mockResolvedValueOnce(false as never); // recovery code
+      prisma.mfaRecoveryCode.findMany.mockResolvedValue([
+        { id: 'code-1', codeHash: 'hash-1' },
+      ]);
+
+      await expect(service.recoverMfa(dto)).rejects.toThrow(
+        'Código de recuperación inválido',
+      );
+
+      expect(mockArgon2.verify).toHaveBeenLastCalledWith('hash-1', 'a1b2-c3d4');
     });
 
     it('camino feliz: consume el código, desactiva MFA y audita', async () => {
