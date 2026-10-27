@@ -20,6 +20,7 @@ import * as crypto from 'crypto';
 import { randomUUID } from 'crypto';
 import { getDummyPasswordHash } from './dummy-password-hash.util';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
+import { MfaAttemptLimiter } from './mfa-attempt-limiter.service';
 
 // Purpose que llevan los JWT de corta duración emitidos para forzar el
 // enrolamiento MFA. Nunca deben aceptarse como sesión (ver jwt.strategy.ts).
@@ -66,6 +67,7 @@ export class MfaService {
     private auditService: AuditService,
     private mfaSecretCrypto: MfaSecretCryptoService,
     private mailService: MailService,
+    private attemptLimiter: MfaAttemptLimiter,
   ) {}
 
   /**
@@ -317,6 +319,8 @@ export class MfaService {
       throw new UnauthorizedException('Código MFA inválido');
     }
 
+    // Issue #487: límite por cuenta; reserva el intento antes de verificar.
+    await this.attemptLimiter.reserve(user, ipAddress, userAgent);
     const isValid = await this.consumeTotp(user.id, secret, dto.token);
 
     if (!isValid) {
@@ -333,6 +337,7 @@ export class MfaService {
       throw new UnauthorizedException('Código MFA inválido');
     }
 
+    await this.attemptLimiter.clear(user.id);
     await this.reencryptLegacySecret(user.id, user.mfaSecret, secret);
 
     // Mismo criterio que login(): ningún accessToken se emite mientras la
@@ -405,11 +410,13 @@ export class MfaService {
       throw new BadRequestException('Primero genera el secreto MFA');
     }
 
+    await this.attemptLimiter.reserve(user, ipAddress, userAgent);
     const isValid = await this.consumeTotp(userId, secret, token);
 
     if (!isValid) {
       throw new BadRequestException('Código inválido, intenta de nuevo');
     }
+    await this.attemptLimiter.clear(userId);
 
     // Issue #487: activación condicional. Dos confirmaciones simultáneas con
     // pasos TOTP distintos pasan ambas consumeTotp; sin esta condición las
@@ -469,11 +476,13 @@ export class MfaService {
       throw new BadRequestException('Código inválido');
     }
 
+    await this.attemptLimiter.reserve(user, ipAddress, userAgent);
     const isValid = await this.consumeTotp(userId, secret, token);
 
     if (!isValid) {
       throw new BadRequestException('Código inválido');
     }
+    await this.attemptLimiter.clear(userId);
 
     await this.prisma.user.update({
       where: { id: userId },
@@ -540,6 +549,8 @@ export class MfaService {
     // forma de buscarlos por igualdad directa, así que se recorren los no
     // usados y se verifica cada hash contra el código recibido. La tanda es
     // acotada (MFA_RECOVERY_CODES_COUNT), sin impacto de performance real.
+    // Issue #487: límite por cuenta, compartido con el TOTP.
+    await this.attemptLimiter.reserve(user, ipAddress, userAgent);
     const unusedCodes = await this.prisma.mfaRecoveryCode.findMany({
       where: { userId: user.id, usedAt: null },
     });
@@ -591,6 +602,7 @@ export class MfaService {
       });
     });
 
+    await this.attemptLimiter.clear(user.id);
     await this.auditService.log({
       userId: user.id,
       action: 'MFA_DISABLED_VIA_RECOVERY',

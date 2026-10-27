@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ThrottlerException } from '@nestjs/throttler';
 import * as argon2 from 'argon2';
 import * as speakeasy from 'speakeasy';
 import * as QRCode from 'qrcode';
@@ -14,6 +15,7 @@ import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
 import { ConfigService } from '@nestjs/config';
 import { MfaSecretCryptoService } from './mfa-secret-crypto.service';
+import { MfaAttemptLimiter } from './mfa-attempt-limiter.service';
 
 jest.mock('argon2');
 jest.mock('speakeasy');
@@ -58,6 +60,7 @@ async function expectBadRequest(promise: Promise<unknown>, message: string) {
 
 describe('MfaService', () => {
   let service: MfaService;
+  let attemptLimiter: { reserve: jest.Mock; clear: jest.Mock };
   let prisma: {
     user: { findUnique: jest.Mock; update: jest.Mock; updateMany: jest.Mock };
     mfaRecoveryCode: {
@@ -114,6 +117,10 @@ describe('MfaService', () => {
     mailService = {
       sendMfaRecoveryNoticeEmail: jest.fn().mockResolvedValue(undefined),
     };
+    attemptLimiter = {
+      reserve: jest.fn().mockResolvedValue(undefined),
+      clear: jest.fn().mockResolvedValue(undefined),
+    };
     // Real crypto on purpose: the round trip is what these specs verify.
     crypto = new MfaSecretCryptoService({
       get: (name: string) =>
@@ -129,6 +136,7 @@ describe('MfaService', () => {
       auditService as unknown as AuditService,
       crypto,
       mailService as unknown as MailService,
+      attemptLimiter as unknown as MfaAttemptLimiter,
     );
 
     // clearAllMocks() solo limpia historial de llamadas (calls/instances/
@@ -640,6 +648,55 @@ describe('MfaService', () => {
           role: Role.PROFESSIONAL,
           name: 'Test User',
         },
+      });
+    });
+
+    describe('límite de intentos por cuenta (issue #487)', () => {
+      beforeEach(() => {
+        prisma.user.findUnique.mockResolvedValue(
+          buildUser({ mfaSecret: 'BASE32SECRET', mfaEnabled: true }),
+        );
+      });
+
+      it('reserva el intento antes de verificar y limpia el contador al acertar', async () => {
+        mockTotp(0);
+
+        await service.verifyMfa(dto, '203.0.113.7', 'jest-agent');
+
+        expect(attemptLimiter.reserve).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 'user-1' }),
+          '203.0.113.7',
+          'jest-agent',
+        );
+        expect(attemptLimiter.reserve.mock.invocationCallOrder[0]).toBeLessThan(
+          (mockSpeakeasy.totp.verifyDelta as jest.Mock).mock
+            .invocationCallOrder[0],
+        );
+        expect(attemptLimiter.clear).toHaveBeenCalledWith('user-1');
+      });
+
+      it('con un TOTP incorrecto no limpia el contador', async () => {
+        mockTotp(null);
+
+        await expect(service.verifyMfa(dto)).rejects.toThrow(
+          'Código MFA inválido',
+        );
+
+        expect(attemptLimiter.reserve).toHaveBeenCalledTimes(1);
+        expect(attemptLimiter.clear).not.toHaveBeenCalled();
+      });
+
+      it('si la cuenta está bloqueada propaga el 429 sin verificar el código', async () => {
+        attemptLimiter.reserve.mockRejectedValue(new ThrottlerException());
+        mockTotp(0);
+
+        await expect(service.verifyMfa(dto)).rejects.toBeInstanceOf(
+          ThrottlerException,
+        );
+
+        expect(mockSpeakeasy.totp.verifyDelta).not.toHaveBeenCalled();
+        expect(jwtService.sign).not.toHaveBeenCalled();
+        expect(attemptLimiter.clear).not.toHaveBeenCalled();
       });
     });
   });
