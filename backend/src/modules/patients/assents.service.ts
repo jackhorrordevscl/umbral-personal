@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { AssentAction } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { getAgeBand } from '../../common/utils/age.util';
@@ -47,6 +48,15 @@ export class AssentsService {
     if (ageBand === 'ADULT') {
       throw new BadRequestException(
         'El asentimiento solo se registra para pacientes con menos de 18 años.',
+      );
+    }
+
+    // issue #488: express assent starts at 14; under that age the child is only
+    // informed and heard. A refusal or withdrawal is still recorded (it alerts
+    // the therapist).
+    if (ageBand === 'UNDER_14' && dto.action === AssentAction.GRANTED) {
+      throw new BadRequestException(
+        'El asentimiento expreso (Otorgado) se registra desde los 14 años; para un menor de 14 registra "Informado y oído".',
       );
     }
 
