@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  MinLength,
   ValidateIf,
 } from 'class-validator';
 import { CustodyType, GuardianRelationship } from '@prisma/client';
@@ -13,6 +14,7 @@ import { IsRut } from '../../../common/validators/is-rut.decorator';
 
 export class CreateGuardianDto {
   @PersonName(200)
+  @MinLength(1)
   fullName: string;
 
   @IsRut()

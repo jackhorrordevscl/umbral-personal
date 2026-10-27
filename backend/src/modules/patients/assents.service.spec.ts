@@ -119,6 +119,59 @@ describe('AssentsService', () => {
       });
     });
 
+    // issue #488: el asentimiento expreso empieza a los 14; bajo esa edad solo
+    // se informa y oye (un rechazo o retiro sí se registra: alerta al terapeuta).
+    describe('Otorgado y el tramo etario (issue #488)', () => {
+      it('menor de 14: GRANTED responde 400 con un mensaje claro y no escribe nada', async () => {
+        await expect(
+          service.record('patient-1', { action: 'GRANTED' }, 'therapist-1'),
+        ).rejects.toThrow(
+          new BadRequestException(
+            'El asentimiento expreso (Otorgado) se registra desde los 14 años; para un menor de 14 registra "Informado y oído".',
+          ),
+        );
+        expect(prisma.patientAssent.create).not.toHaveBeenCalled();
+      });
+
+      it('menor de 14: GRANTED con documento también se rechaza antes de consultar el documento', async () => {
+        await expect(
+          service.record(
+            'patient-1',
+            { action: 'GRANTED', documentId: 'doc-1' },
+            'therapist-1',
+          ),
+        ).rejects.toThrow(BadRequestException);
+        expect(prisma.patientDocument.findFirst).not.toHaveBeenCalled();
+      });
+
+      it.each(['INFORMED_AND_HEARD', 'REFUSED', 'WITHDRAWN'] as const)(
+        'menor de 14: %s se sigue registrando',
+        async (action) => {
+          await service.record('patient-1', { action }, 'therapist-1');
+
+          expect(prisma.patientAssent.create).toHaveBeenCalledWith({
+            data: expect.objectContaining({
+              ageBand: 'UNDER_14',
+              action,
+            }) as unknown,
+          });
+        },
+      );
+
+      it('14 a 17: GRANTED se sigue registrando', async () => {
+        patientsService.assertAccess.mockResolvedValue(minor('2010-01-01'));
+
+        await service.record('patient-1', { action: 'GRANTED' }, 'therapist-1');
+
+        expect(prisma.patientAssent.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            ageBand: 'AGE_14_17',
+            action: 'GRANTED',
+          }) as unknown,
+        });
+      });
+    });
+
     it('un adulto: 400 y no escribe nada', async () => {
       patientsService.assertAccess.mockResolvedValue(minor('1990-01-01'));
 
@@ -145,7 +198,7 @@ describe('AssentsService', () => {
 
       await service.record(
         'patient-1',
-        { action: 'GRANTED', documentId: 'doc-1' },
+        { action: 'INFORMED_AND_HEARD', documentId: 'doc-1' },
         'therapist-1',
       );
 
@@ -164,7 +217,7 @@ describe('AssentsService', () => {
       await expect(
         service.record(
           'patient-1',
-          { action: 'GRANTED', documentId: 'doc-x' },
+          { action: 'INFORMED_AND_HEARD', documentId: 'doc-x' },
           'therapist-1',
         ),
       ).rejects.toThrow(BadRequestException);
@@ -180,7 +233,7 @@ describe('AssentsService', () => {
       await expect(
         service.record(
           'patient-1',
-          { action: 'GRANTED', documentId: 'doc-2' },
+          { action: 'INFORMED_AND_HEARD', documentId: 'doc-2' },
           'therapist-1',
         ),
       ).rejects.toThrow('no es un asentimiento informado');

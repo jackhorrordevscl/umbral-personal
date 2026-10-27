@@ -37,6 +37,7 @@ import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { DEFAULT_PATIENTS_PAGE_SIZE } from './dto/patients-query.dto';
 import { isValidRut, normalizeRut } from '../../common/utils/rut.util';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
+import { rejectNullFields } from '../../common/utils/reject-null-fields.util';
 import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
 import { decryptConsultationRow } from '../consultations/util/consultation-text.util';
 
@@ -93,6 +94,23 @@ function comparableValue(key: string, value: unknown): string | null {
   return typeof value === 'object'
     ? JSON.stringify(value)
     : String(value as string | number | boolean);
+}
+
+type PatientDiff = Record<string, { from: unknown; to: unknown }>;
+
+// Solo los campos que realmente cambian respecto de la fila almacenada.
+function buildPatientDiff(fields: object, current: object): PatientDiff {
+  const diff: PatientDiff = {};
+  for (const [key, incoming] of Object.entries(fields)) {
+    if (incoming === undefined) continue;
+
+    const currentVal = (current as Record<string, unknown>)[key];
+
+    if (comparableValue(key, incoming) !== comparableValue(key, currentVal)) {
+      diff[key] = { from: currentVal, to: incoming };
+    }
+  }
+  return diff;
 }
 
 const MINOR_NEEDS_GUARDIAN_MESSAGE =
@@ -204,14 +222,27 @@ export class PatientsService {
       throw new ConflictException('Ya existe un paciente con ese RUT');
     }
 
-    const patient = await this.prisma.patient.create({
-      data: {
-        ...dto,
-        rut,
-        birthDate: new Date(dto.birthDate),
-        therapistId,
-      },
-    });
+    // issue #488: dos altas simultáneas con el mismo RUT pasan el chequeo de
+    // arriba; la perdedora choca con el índice único parcial y recibe el mismo
+    // 409 que si hubiera llegado después.
+    const patient = await this.prisma.patient
+      .create({
+        data: {
+          ...dto,
+          rut,
+          birthDate: new Date(dto.birthDate),
+          therapistId,
+        },
+      })
+      .catch((err: unknown) => {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          throw new ConflictException('Ya existe un paciente con ese RUT');
+        }
+        throw err;
+      });
     this.logger.log(
       `Paciente creado: id=${patient.id} therapistId=${therapistId}`,
     );
@@ -421,6 +452,10 @@ export class PatientsService {
   }
 
   async update(id: string, dto: UpdatePatientDto, userId: string) {
+    // issue #488: el DTO de edición deja pasar null (IsOptional); estas
+    // columnas no son nulables y null terminaba en 500.
+    rejectNullFields(dto, ['fullName', 'rut', 'birthDate']);
+
     // issue #290: solo columnas escalares de Patient (no consultas,
     // documentos ni consentimientos); el filtro de ownership es el mismo de
     // assertAccess/findOne y lanza el mismo 404 uniforme.
@@ -431,49 +466,56 @@ export class PatientsService {
 
     const { reason, ...fields } = dto;
 
-    // Calcular diff: solo campos que realmente cambian
-    const diff: Record<string, { from: unknown; to: unknown }> = {};
-    for (const key of Object.keys(fields) as (keyof typeof fields)[]) {
-      const incoming = fields[key];
-      if (incoming === undefined) continue;
-
-      const currentVal = (current as Record<string, unknown>)[
-        key
-      ] as typeof incoming;
-
-      if (comparableValue(key, incoming) !== comparableValue(key, currentVal)) {
-        diff[key] = { from: currentVal, to: incoming };
-      }
-    }
-
-    // Sin cambios reales → no tocar la DB
-    if (Object.keys(diff).length === 0) {
-      return current;
-    }
-
     // Issue #289: el DTO de edición solo valida la forma del RUT para no bloquear
     // fichas existentes con un DV inválido; el dígito verificador se exige solo
     // cuando el RUT realmente cambia.
-    if (diff.rut && !isValidRut(fields.rut)) {
-      throw new BadRequestException(
-        'El dígito verificador del RUT no es válido',
-      );
-    }
+    const assertRutChangeIsValid = (diff: PatientDiff) => {
+      if (diff.rut && !isValidRut(fields.rut)) {
+        throw new BadRequestException(
+          'El dígito verificador del RUT no es válido',
+        );
+      }
+    };
 
-    const updated = await this.prisma
+    // Atajos sin tocar la DB, sobre la lectura previa (sin lock): equivalen a
+    // que la petición se hubiera resuelto antes de cualquier edición concurrente.
+    const preDiff = buildPatientDiff(fields, current);
+    if (Object.keys(preDiff).length === 0) {
+      return current;
+    }
+    assertRutChangeIsValid(preDiff);
+
+    const { patient: updated, diff } = await this.prisma
       .$transaction(async (tx) => {
         await lockTherapistForWrite(tx, userId);
+        // issue #488: la lectura de arriba no tiene lock. Con la fila del
+        // paciente tomada (el mismo FOR UPDATE de softDelete) se relee y el
+        // diff, el snapshot del historial y el 404 salen de lo que realmente
+        // hay: dos ediciones simultáneas quedan en secuencia y una edición
+        // que corre junto a softDelete ya no modifica un paciente eliminado.
+        await tx.$queryRaw`SELECT id FROM "Patient" WHERE id = ${id} FOR UPDATE`;
+        const locked = await tx.patient.findFirst({
+          where: { id, therapistId: userId, deletedAt: null },
+        });
+        if (!locked) throw new NotFoundException('Paciente no encontrado');
+
+        const lockedDiff = buildPatientDiff(fields, locked);
+        if (Object.keys(lockedDiff).length === 0) {
+          return { patient: locked, diff: lockedDiff };
+        }
+        assertRutChangeIsValid(lockedDiff);
+
         await tx.patientHistory.create({
           data: {
             patientId: id,
             changedById: userId,
             reason,
-            snapshot: toJsonSnapshot(current),
-            diff: toJsonSnapshot(diff),
+            snapshot: toJsonSnapshot(locked),
+            diff: toJsonSnapshot(lockedDiff),
           },
         });
 
-        return tx.patient.update({
+        const patient = await tx.patient.update({
           where: { id },
           data: {
             ...fields,
@@ -481,6 +523,7 @@ export class PatientsService {
             ...(fields.birthDate && { birthDate: new Date(fields.birthDate) }),
           },
         });
+        return { patient, diff: lockedDiff };
       })
       .catch((err: unknown) => {
         // issue #317: índice único parcial (therapistId, rut) WHERE deletedAt IS
@@ -495,9 +538,11 @@ export class PatientsService {
         }
         throw err;
       });
-    this.logger.log(
-      `Paciente actualizado: id=${id} userId=${userId} campos=${Object.keys(diff).join(',')}`,
-    );
+    if (Object.keys(diff).length > 0) {
+      this.logger.log(
+        `Paciente actualizado: id=${id} userId=${userId} campos=${Object.keys(diff).join(',')}`,
+      );
+    }
     return updated;
   }
 
