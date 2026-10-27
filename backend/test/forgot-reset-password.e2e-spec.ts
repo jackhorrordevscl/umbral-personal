@@ -282,13 +282,13 @@ describe('Forgot/reset password (e2e)', () => {
         where: { id },
         data: { passwordResetTokenIssuedAt: expiredIssuedAt },
       });
-      const expiredToken = signResetToken(id, expiredIssuedAt);
+      const expiredToken = signResetToken(id, expiredIssuedAt.getTime());
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/password/forgot')
         .send({ email })
         .expect(201);
-      await waitForResetIssuedAt(id, expiredIssuedAt);
+      await waitForResetIssuedAt(id, expiredIssuedAt.getTime());
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/password/reset')

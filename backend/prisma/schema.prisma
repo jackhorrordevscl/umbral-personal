@@ -153,7 +153,9 @@ model User {
 // asociado a más de una cuenta.
 model InvitationCode {
   id          String    @id @default(uuid())
-  code        String    @unique
+  // Issue #487: SHA-256 hex del código (hashInvitationCode); el código en
+  // claro se entrega una sola vez al crearlo y no se guarda.
+  codeHash    String    @unique
   createdById String
   createdBy   User      @relation("InvitationCreatedBy", fields: [createdById], references: [id])
   usedById    String?   @unique
