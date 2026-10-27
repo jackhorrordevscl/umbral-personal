@@ -145,6 +145,46 @@ describe('PatientsService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
+    it('issue #488: carrera de RUT, P2002 en el create -> mismo 409 que el chequeo previo', async () => {
+      prisma.patient.findFirst.mockResolvedValue(null);
+      prisma.patient.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+
+      await expect(
+        service.create(
+          {
+            fullName: 'Nuevo Paciente',
+            rut: '11.111.111-1',
+            birthDate: '1990-01-01',
+          } as never,
+          'therapist-1',
+        ),
+      ).rejects.toThrow(
+        new ConflictException('Ya existe un paciente con ese RUT'),
+      );
+    });
+
+    it('issue #488: un error del create que no es P2002 se propaga sin traducir', async () => {
+      prisma.patient.findFirst.mockResolvedValue(null);
+      const boom = new Error('conexión perdida');
+      prisma.patient.create.mockRejectedValue(boom);
+
+      await expect(
+        service.create(
+          {
+            fullName: 'Nuevo Paciente',
+            rut: '11.111.111-1',
+            birthDate: '1990-01-01',
+          } as never,
+          'therapist-1',
+        ),
+      ).rejects.toBe(boom);
+    });
+
     it('normaliza el RUT (sin puntos, mayúsculas) antes de crear', async () => {
       prisma.patient.findFirst.mockResolvedValue(null);
       prisma.patient.create.mockResolvedValue(buildPatient());
