@@ -60,7 +60,10 @@ export class GuardiansService {
   }
 
   async create(patientId: string, dto: CreateGuardianDto, therapistId: string) {
-    await this.patientsService.assertAccess(patientId, therapistId);
+    const patient = await this.patientsService.assertAccess(
+      patientId,
+      therapistId,
+    );
 
     return this.prisma.$transaction(async (tx) => {
       await this.lockPatient(tx, patientId);
@@ -71,6 +74,8 @@ export class GuardiansService {
           `Un paciente puede tener como máximo ${MAX_GUARDIANS_PER_PATIENT} representantes`,
         );
       }
+
+      await this.assertGuardianRutIsFree(tx, patient.rut, patientId, dto.rut);
 
       // Only one guardian per patient can be the payer: marking a new one
       // clears the flag on the others instead of rejecting the request, so
@@ -102,11 +107,27 @@ export class GuardiansService {
     therapistId: string,
   ) {
     rejectNullFields(dto, NON_NULLABLE_GUARDIAN_FIELDS);
-    await this.patientsService.assertAccess(patientId, therapistId);
+    const patient = await this.patientsService.assertAccess(
+      patientId,
+      therapistId,
+    );
 
     return this.prisma.$transaction(async (tx) => {
       await this.lockPatient(tx, patientId);
-      await this.findGuardianOrFail(tx, patientId, guardianId);
+      const current = await this.findGuardianOrFail(tx, patientId, guardianId);
+
+      // Only when the RUT actually changes: a guardian saved before this rule
+      // can still be edited without being blocked (same as the patient RUT,
+      // issue #289).
+      if (dto.rut !== undefined && normalizeRut(dto.rut) !== current.rut) {
+        await this.assertGuardianRutIsFree(
+          tx,
+          patient.rut,
+          patientId,
+          dto.rut,
+          guardianId,
+        );
+      }
 
       // Same single-payer rule as create(): the other guardians lose the flag.
       if (dto.isPayer) {
@@ -184,6 +205,37 @@ export class GuardiansService {
       FOR UPDATE`;
     if (rows.length === 0) {
       throw new NotFoundException('Paciente no encontrado');
+    }
+  }
+
+  // issue #488: a guardian cannot share the patient's RUT (the public booking
+  // already rejects it) nor repeat the RUT of another guardian of the same
+  // patient. Runs under lockPatient(), so two concurrent writes cannot both
+  // pass. `exceptGuardianId` keeps an edited guardian from colliding with itself.
+  private async assertGuardianRutIsFree(
+    tx: Prisma.TransactionClient,
+    patientRut: string,
+    patientId: string,
+    rawRut: string,
+    exceptGuardianId?: string,
+  ): Promise<void> {
+    const rut = normalizeRut(rawRut);
+    if (rut === patientRut) {
+      throw new ConflictException(
+        'El RUT del representante debe ser distinto al del paciente.',
+      );
+    }
+    const others = await tx.legalGuardian.findMany({
+      where: {
+        patientId,
+        ...(exceptGuardianId && { id: { not: exceptGuardianId } }),
+      },
+      select: { rut: true },
+    });
+    if (others.some((other) => other.rut === rut)) {
+      throw new ConflictException(
+        'Ya existe un representante con ese RUT para este paciente.',
+      );
     }
   }
 

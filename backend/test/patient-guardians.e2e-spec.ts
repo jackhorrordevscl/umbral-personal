@@ -321,6 +321,82 @@ describe('Patient guardians (e2e)', () => {
     });
   });
 
+  // issue #488: el alta manual aceptaba el RUT del paciente o el de otro
+  // representante del mismo paciente (la reserva pública ya rechaza el primero).
+  describe('RUT repetido', () => {
+    let patientId: string;
+    let patientRut: string;
+    let guardianRut: string;
+    let guardianId: string;
+
+    beforeAll(async () => {
+      patientRut = uniqueTestRut();
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/patients')
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({
+          fullName: 'Guardians Rut Patient',
+          rut: patientRut,
+          birthDate: yearsAgoDate(10),
+        })
+        .expect(201);
+      patientId = (res.body as Body).id as string;
+      patientIds.push(patientId);
+
+      guardianRut = uniqueTestRut();
+      const guardian = await postGuardian(
+        tokenA,
+        patientId,
+        guardianBody({ rut: guardianRut }),
+      ).expect(201);
+      guardianId = (guardian.body as Body).id as string;
+    });
+
+    it('rechaza al crear un representante con el RUT del paciente (409)', async () => {
+      const res = await postGuardian(
+        tokenA,
+        patientId,
+        guardianBody({ rut: patientRut, relationship: 'FATHER' }),
+      ).expect(409);
+
+      expect((res.body as Body).message).toContain('distinto al del paciente');
+    });
+
+    it('rechaza al crear un segundo representante con el RUT del primero (409)', async () => {
+      const res = await postGuardian(
+        tokenA,
+        patientId,
+        guardianBody({ rut: guardianRut, relationship: 'FATHER' }),
+      ).expect(409);
+
+      expect((res.body as Body).message).toContain(
+        'Ya existe un representante',
+      );
+    });
+
+    it('rechaza editar el RUT al del paciente y deja al representante intacto (409)', async () => {
+      await request(app.getHttpServer())
+        .patch(`/api/v1/patients/${patientId}/guardians/${guardianId}`)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ rut: patientRut })
+        .expect(409);
+
+      const list = await request(app.getHttpServer())
+        .get(`/api/v1/patients/${patientId}/guardians`)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .expect(200);
+      expect((list.body as Body[]).map((g) => g.rut)).toEqual([guardianRut]);
+    });
+
+    it('reenviar el mismo RUT del representante al editar sigue funcionando', () => {
+      return request(app.getHttpServer())
+        .patch(`/api/v1/patients/${patientId}/guardians/${guardianId}`)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ rut: guardianRut, hasConflict: true })
+        .expect(200);
+    });
+  });
+
   describe('aislamiento entre terapeutas', () => {
     let patientId: string;
     let guardianId: string;
