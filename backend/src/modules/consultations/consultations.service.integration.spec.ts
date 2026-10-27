@@ -1587,7 +1587,7 @@ describe('ConsultationsService consent guardrail for minors (integration, real P
   }, 15000);
 });
 
-// ADR 0004 (opción B): los textos clínicos se guardan cifrados (enc:v3) en la
+// ADR 0004 (opción B): los textos clínicos se guardan cifrados (enc:v4) en la
 // fila y en el snapshot del historial, y el servicio los devuelve en claro.
 describe('ConsultationsService clinical text encryption (integration, real Prisma)', () => {
   let prisma: PrismaService;
@@ -1688,9 +1688,9 @@ describe('ConsultationsService clinical text encryption (integration, real Prism
     const raw = await prisma.consultation.findUniqueOrThrow({
       where: { id: created.id },
     });
-    expect(raw.consultReason.startsWith('enc:v3:')).toBe(true);
-    expect(raw.intervention.startsWith('enc:v3:')).toBe(true);
-    expect(raw.agreements?.startsWith('enc:v3:')).toBe(true);
+    expect(raw.consultReason.startsWith('enc:v4:')).toBe(true);
+    expect(raw.intervention.startsWith('enc:v4:')).toBe(true);
+    expect(raw.agreements?.startsWith('enc:v4:')).toBe(true);
     expect(JSON.stringify(raw)).not.toContain('reservado');
   }, 30000);
 
@@ -1723,15 +1723,15 @@ describe('ConsultationsService clinical text encryption (integration, real Prism
     const rawCorrected = await prisma.consultation.findUniqueOrThrow({
       where: { id: corrected.id },
     });
-    expect(rawCorrected.consultReason.startsWith('enc:v3:')).toBe(true);
-    expect(rawCorrected.intervention.startsWith('enc:v3:')).toBe(true);
-    expect(rawCorrected.agreements?.startsWith('enc:v3:')).toBe(true);
+    expect(rawCorrected.consultReason.startsWith('enc:v4:')).toBe(true);
+    expect(rawCorrected.intervention.startsWith('enc:v4:')).toBe(true);
+    expect(rawCorrected.agreements?.startsWith('enc:v4:')).toBe(true);
 
     const rawHistory = await prisma.consultationHistory.findMany({
       where: { consultationId: original.groupId },
     });
     const rawSnapshot = rawHistory[0].snapshot as Record<string, unknown>;
-    expect(String(rawSnapshot.consultReason).startsWith('enc:v3:')).toBe(true);
+    expect(String(rawSnapshot.consultReason).startsWith('enc:v4:')).toBe(true);
     expect(JSON.stringify(rawHistory)).not.toContain('reservado');
 
     const viewed = await consultationsService.findOne(

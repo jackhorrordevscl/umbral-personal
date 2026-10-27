@@ -33,9 +33,9 @@ export class NotificationsService {
 
   // issue #501 (A4): title y body se guardan cifrados; todo lo que sale hacia
   // fuera pasa por `readable()`.
-  private readable<T extends { id: string; title: string; body: string }>(
-    row: T,
-  ): T {
+  private readable<
+    T extends { id: string; userId: string; title: string; body: string },
+  >(row: T): T {
     const { row: out, readable } = decryptNotificationRow(
       row,
       this.clinicalCrypto,
@@ -50,7 +50,7 @@ export class NotificationsService {
 
   async create(data: CreateNotificationData) {
     const texts = encryptNotificationTexts(
-      { title: data.title, body: data.body },
+      { userId: data.userId, title: data.title, body: data.body },
       this.clinicalCrypto,
     );
     const notification = await this.prisma.notification.create({

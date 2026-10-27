@@ -491,6 +491,93 @@ describe('keyring', () => {
     });
   });
 
+  // issue #486: con contexto el texto sale en enc:v4 y queda ligado a él.
+  describe('texto ligado a un contexto (enc:v4)', () => {
+    const CTX = 'patient/p-1/consultReason';
+    const clinical = (activeId?: string) =>
+      buildKeyring(
+        raw0,
+        `5:${raw5},7:${raw7}`,
+        activeId,
+        'CLINICAL_TEXT_ENCRYPTION_KEY',
+      );
+
+    it('hace roundtrip con el mismo contexto y escribe enc:v4:<keyId>:', () => {
+      const ring = clinical('5');
+      const text = encryptTextWithKeyring(Buffer.from('nota'), ring, CTX);
+
+      expect(text.startsWith('enc:v4:5:')).toBe(true);
+      expect(decryptTextWithKeyring(text, ring, CTX).toString()).toBe('nota');
+    });
+
+    it('no descifra con otro paciente, otro campo ni sin contexto', () => {
+      const ring = clinical('5');
+      const text = encryptTextWithKeyring(Buffer.from('nota'), ring, CTX);
+
+      expect(() =>
+        decryptTextWithKeyring(text, ring, 'patient/p-2/consultReason'),
+      ).toThrow();
+      expect(() =>
+        decryptTextWithKeyring(text, ring, 'patient/p-1/intervention'),
+      ).toThrow();
+      expect(() => decryptTextWithKeyring(text, ring)).toThrow(/contexto/);
+    });
+
+    it('no descifra con otra etiqueta de dataset ni con el keyId o la versión alterados', () => {
+      const ring = clinical('5');
+      const text = encryptTextWithKeyring(Buffer.from('nota'), ring, CTX);
+      const other = buildKeyring(
+        raw0,
+        `5:${raw5}`,
+        '5',
+        'GOOGLE_TOKEN_ENCRYPTION_KEY',
+      );
+      const twoKeys = buildKeyring(
+        raw0,
+        `5:${raw5},7:${raw5}`,
+        '5',
+        'CLINICAL_TEXT_ENCRYPTION_KEY',
+      );
+
+      expect(() => decryptTextWithKeyring(text, other, CTX)).toThrow();
+      expect(() =>
+        decryptTextWithKeyring(
+          text.replace('enc:v4:5:', 'enc:v4:7:'),
+          twoKeys,
+          CTX,
+        ),
+      ).toThrow();
+      expect(() =>
+        decryptTextWithKeyring(
+          text.replace('enc:v4:5:', 'enc:v3:5:'),
+          ring,
+          CTX,
+        ),
+      ).toThrow();
+    });
+
+    it('rechaza un contexto vacío al cifrar', () => {
+      expect(() =>
+        encryptTextWithKeyring(Buffer.from('nota'), clinical('5'), ''),
+      ).toThrow(/vacío/);
+    });
+
+    it('sigue leyendo enc:v3 ignorando el contexto y sin contexto escribe enc:v3', () => {
+      const ring = clinical('5');
+      const v3 = encryptTextWithKeyring(Buffer.from('viejo'), ring);
+
+      expect(v3.startsWith('enc:v3:5:')).toBe(true);
+      expect(decryptTextWithKeyring(v3, ring, CTX).toString()).toBe('viejo');
+    });
+
+    it('inspectText y resolveTextKeyId reconocen enc:v4', () => {
+      const text = encryptTextWithKeyring(Buffer.from('a'), clinical('7'), CTX);
+
+      expect(inspectText(text)).toEqual({ keyId: 7, format: 'v4' });
+      expect(resolveTextKeyId(text)).toBe(7);
+    });
+  });
+
   describe('resolvePayloadKeyId / resolveTextKeyId', () => {
     it('informa el keyId de un payload binario versionado', () => {
       const ring = ringWith('5');

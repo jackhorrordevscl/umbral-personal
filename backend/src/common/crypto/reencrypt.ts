@@ -13,8 +13,8 @@ import {
 // en memoria; el wrapper delgado que los implementa vive en
 // backend/scripts/reencrypt-keys.ts.
 //
-// "Al día" significa formato más nuevo (0x02 con AAD / enc:v3) Y keyId ===
-// clave activa. Todo lo demás se reescribe: legacy (sin cabecera, clave id 0),
+// "Al día" significa formato más nuevo (0x02 con AAD / enc:v3; enc:v4 en los
+// textos clínicos, ligados a su registro y campo) Y keyId === clave activa. Todo lo demás se reescribe: legacy (sin cabecera, clave id 0),
 // 0x01 / enc:v2 (versionados sin AAD) y texto plano, aunque la clave activa
 // sea la que ya los cifra.
 
@@ -53,21 +53,25 @@ export interface Row {
   id: string;
   key?: string;
   value?: Stored | null;
+  // Contexto que liga el texto a su registro y campo (AAD de enc:v4, issue
+  // #486). Solo lo llenan los datasets cuyo codec está ligado.
+  context?: string;
 }
 
 export interface Inspection {
   // null = texto plano sin cifrar (solo MFA).
   keyId: number | null;
   versioned: boolean;
-  // true solo si el valor ya está en el formato más nuevo (0x02 / enc:v3).
+  // true solo si el valor ya está en el formato más nuevo (0x02 / enc:v3, o
+  // enc:v4 en los datasets ligados a un registro).
   latest: boolean;
 }
 
 export interface ValueCodec {
   activeKeyId: number;
-  inspect(value: Stored): Inspection;
-  decrypt(value: Stored): Buffer;
-  encrypt(plaintext: Buffer): Stored;
+  inspect(value: Stored, context?: string): Inspection;
+  decrypt(value: Stored, context?: string): Buffer;
+  encrypt(plaintext: Buffer, context?: string): Stored;
 }
 
 export interface DatasetPort {
@@ -99,25 +103,34 @@ export function binaryCodec(keyring: Keyring): ValueCodec {
   };
 }
 
-export function textCodec(keyring: Keyring): ValueCodec {
+// `bound` (issue #486): el dataset liga cada texto a su registro y campo, así
+// que lo vigente es enc:v4 y cada fila debe traer su `context`; sin él la
+// escritura falla (no se degrada a enc:v3 sin ligar).
+export function textCodec(keyring: Keyring, bound = false): ValueCodec {
   return {
     activeKeyId: keyring.activeKeyId,
     inspect: (value) => {
       const { keyId, format } = inspectText(value as string);
       return {
         keyId,
-        versioned: format === 'v2' || format === 'v3',
-        latest: format === 'v3',
+        versioned: format === 'v2' || format === 'v3' || format === 'v4',
+        latest: format === (bound ? 'v4' : 'v3'),
       };
     },
     // El texto sin prefijo es un secreto en claro previo al cifrado en reposo.
-    decrypt: (value) => {
+    decrypt: (value, context) => {
       const text = value as string;
       return inspectText(text).format === 'plaintext'
         ? Buffer.from(text, 'utf8')
-        : decryptTextWithKeyring(text, keyring);
+        : decryptTextWithKeyring(text, keyring, context);
     },
-    encrypt: (plaintext) => encryptTextWithKeyring(plaintext, keyring),
+    encrypt: (plaintext, context) => {
+      if (!bound) return encryptTextWithKeyring(plaintext, keyring);
+      if (!context) {
+        throw new Error('Falta el contexto para cifrar un texto enc:v4');
+      }
+      return encryptTextWithKeyring(plaintext, keyring, context);
+    },
   };
 }
 
@@ -195,8 +208,8 @@ async function processRow(
   let inspection: Inspection;
   let plaintext: Buffer;
   try {
-    inspection = port.codec.inspect(value);
-    plaintext = port.codec.decrypt(value);
+    inspection = port.codec.inspect(value, row.context);
+    plaintext = port.codec.decrypt(value, row.context);
   } catch {
     fail('decrypt-failed');
     return;
@@ -224,7 +237,7 @@ async function processRow(
 
   let next: Stored;
   try {
-    next = port.codec.encrypt(plaintext);
+    next = port.codec.encrypt(plaintext, row.context);
   } catch {
     fail('encrypt-failed', bucket);
     return;
@@ -233,7 +246,7 @@ async function processRow(
   // Round-trip: el payload nuevo debe descifrar al mismo plaintext antes de
   // pisar el original.
   try {
-    if (!port.codec.decrypt(next).equals(plaintext)) {
+    if (!port.codec.decrypt(next, row.context).equals(plaintext)) {
       fail('roundtrip-mismatch', bucket);
       return;
     }

@@ -10,12 +10,18 @@ import { decryptAesGcm, encryptAesGcm, loadBase64Key } from './aes-gcm';
 //   keyId) + etiqueta fija del dataset. Una cabecera alterada o un payload
 //   movido a otro dataset falla la autenticación.
 //   formato 0x01 (T3a): igual pero sin AAD; solo se lee.
-// Texto:   enc:v3:<keyId>:<base64(IV|tag|ct)>  (vigente, con AAD)
+// Texto:   enc:v4:<keyId>:<base64(IV|tag|ct)>  (con AAD ligado al registro y al
+//          campo, issue #486; solo si el llamador pasa un contexto)
+//          enc:v3:<keyId>:<base64(IV|tag|ct)>  (con AAD del dataset; el vigente
+//          de los datasets sin contexto)
 //          enc:v2:<keyId>:<base64(IV|tag|ct)>  (sin AAD; solo se lee)
 //          enc:v1:<base64>                      (legacy, id 0)
 //
 // AAD binario = [0x55 0x4B][0x02][keyId] + etiqueta UTF-8 del dataset.
-// AAD de texto = UTF-8 de "enc:v3:<keyId>:" + etiqueta UTF-8 del dataset.
+// AAD de texto v3 = UTF-8 de "enc:v3:<keyId>:" + etiqueta UTF-8 del dataset.
+// AAD de texto v4 = UTF-8 de "enc:v4:<keyId>:<etiqueta>:<contexto>". El contexto
+// lo define el dataset (p. ej. "patient/<id>/<campo>"): un texto movido a otro
+// registro o campo falla la autenticación.
 
 const HEADER_MAGIC = Buffer.from([0x55, 0x4b]);
 const FORMAT_V1 = 0x01;
@@ -29,6 +35,7 @@ const MAX_KEY_ID = 255;
 const TEXT_V1_PREFIX = 'enc:v1:';
 const TEXT_V2_PREFIX = 'enc:v2:';
 const TEXT_V3_PREFIX = 'enc:v3:';
+const TEXT_V4_PREFIX = 'enc:v4:';
 
 // Etiquetas fijas de dataset para el AAD, por nombre de variable de entorno.
 // Mapa explícito: renombrar una variable no debe cambiar la etiqueta, porque
@@ -49,7 +56,7 @@ export interface Keyring {
 }
 
 export type PayloadFormatVersion = 'legacy' | 'v1' | 'v2';
-export type TextFormat = 'plaintext' | 'v1' | 'v2' | 'v3';
+export type TextFormat = 'plaintext' | 'v1' | 'v2' | 'v3' | 'v4';
 
 function parseKeyId(
   raw: string,
@@ -140,9 +147,15 @@ function binaryAad(header: Buffer, keyring: Keyring): Buffer {
   return Buffer.concat([header, Buffer.from(keyring.datasetLabel, 'utf8')]);
 }
 
-function textAad(keyId: number, keyring: Keyring): Buffer {
+function textAad(keyId: number, keyring: Keyring, context?: string): Buffer {
+  if (context === undefined) {
+    return Buffer.from(
+      `${TEXT_V3_PREFIX}${keyId}:${keyring.datasetLabel}`,
+      'utf8',
+    );
+  }
   return Buffer.from(
-    `${TEXT_V3_PREFIX}${keyId}:${keyring.datasetLabel}`,
+    `${TEXT_V4_PREFIX}${keyId}:${keyring.datasetLabel}:${context}`,
     'utf8',
   );
 }
@@ -250,17 +263,25 @@ export function inspectPayload(
   return { keyId, versioned, formatVersion };
 }
 
+// Sin contexto escribe enc:v3 (datasets que no se ligan a un registro); con
+// contexto escribe enc:v4 con el contexto dentro del AAD. Un contexto vacío se
+// rechaza: ligaría el texto a nada y pasaría por "ligado".
 export function encryptTextWithKeyring(
   plaintext: Buffer,
   keyring: Keyring,
+  context?: string,
 ): string {
+  if (context === '') {
+    throw new Error('El contexto de cifrado enc:v4 no puede estar vacío');
+  }
   const keyId = keyring.activeKeyId;
   const body = encryptAesGcm(
     plaintext,
     activeKey(keyring),
-    textAad(keyId, keyring),
+    textAad(keyId, keyring, context),
   ).toString('base64');
-  return `${TEXT_V3_PREFIX}${keyId}:${body}`;
+  const prefix = context === undefined ? TEXT_V3_PREFIX : TEXT_V4_PREFIX;
+  return `${prefix}${keyId}:${body}`;
 }
 
 function parseText(text: string): {
@@ -275,11 +296,9 @@ function parseText(text: string): {
       format: 'v1',
     };
   }
-  const prefix = text.startsWith(TEXT_V3_PREFIX)
-    ? TEXT_V3_PREFIX
-    : text.startsWith(TEXT_V2_PREFIX)
-      ? TEXT_V2_PREFIX
-      : undefined;
+  const prefix = [TEXT_V4_PREFIX, TEXT_V3_PREFIX, TEXT_V2_PREFIX].find((p) =>
+    text.startsWith(p),
+  );
   if (prefix) {
     const rest = text.slice(prefix.length);
     const separator = rest.indexOf(':');
@@ -292,25 +311,38 @@ function parseText(text: string): {
     return {
       keyId: Number(idRaw),
       body: Buffer.from(rest.slice(separator + 1), 'base64'),
-      format: prefix === TEXT_V3_PREFIX ? 'v3' : 'v2',
+      format:
+        prefix === TEXT_V4_PREFIX
+          ? 'v4'
+          : prefix === TEXT_V3_PREFIX
+            ? 'v3'
+            : 'v2',
     };
   }
   throw new Error(
-    'Texto cifrado con formato desconocido (esperado enc:v1/v2/v3)',
+    'Texto cifrado con formato desconocido (esperado enc:v1/v2/v3/v4)',
   );
 }
 
-export function decryptTextWithKeyring(text: string, keyring: Keyring): Buffer {
+// El contexto solo cuenta para enc:v4 (va dentro del AAD); enc:v1/v2/v3 se
+// leen como siempre, ignorándolo. Un enc:v4 sin contexto no se puede leer.
+export function decryptTextWithKeyring(
+  text: string,
+  keyring: Keyring,
+  context?: string,
+): Buffer {
   const { keyId, body, format } = parseText(text);
   const key = keyring.keys.get(keyId);
   if (!key) {
     throw new Error(`Texto cifrado con keyId ${keyId} ausente del llavero`);
   }
-  return decryptAesGcm(
-    body,
-    key,
-    format === 'v3' ? textAad(keyId, keyring) : undefined,
-  );
+  if (format === 'v4' && !context) {
+    throw new Error('Texto cifrado enc:v4 requiere un contexto para descifrar');
+  }
+  let aad: Buffer | undefined;
+  if (format === 'v4') aad = textAad(keyId, keyring, context);
+  else if (format === 'v3') aad = textAad(keyId, keyring);
+  return decryptAesGcm(body, key, aad);
 }
 
 // El prefijo del texto es explícito, así que no hace falta el llavero.
@@ -320,8 +352,9 @@ export function resolveTextKeyId(text: string): number {
 
 // Clasifica un valor de texto almacenado sin descifrarlo: sin prefijo es
 // texto plano (secreto previo al cifrado en reposo, keyId null), enc:v1 es
-// legacy (id 0), enc:v2 trae su keyId sin AAD y enc:v3 (vigente) su keyId con
-// AAD. Lanza ante un enc:v2/enc:v3 malformado.
+// legacy (id 0), enc:v2 trae su keyId sin AAD, enc:v3 su keyId con AAD del
+// dataset y enc:v4 su keyId con AAD ligado al registro. Lanza ante un
+// enc:v2/v3/v4 malformado.
 export function inspectText(text: string): {
   keyId: number | null;
   format: TextFormat;
@@ -329,7 +362,8 @@ export function inspectText(text: string): {
   if (
     !text.startsWith(TEXT_V1_PREFIX) &&
     !text.startsWith(TEXT_V2_PREFIX) &&
-    !text.startsWith(TEXT_V3_PREFIX)
+    !text.startsWith(TEXT_V3_PREFIX) &&
+    !text.startsWith(TEXT_V4_PREFIX)
   ) {
     return { keyId: null, format: 'plaintext' };
   }

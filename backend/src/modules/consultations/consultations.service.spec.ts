@@ -16,6 +16,7 @@ import { ORDER_OUTCOME_UNCERTAIN_ERROR } from '../payments/payments.constants';
 import { AvailabilityService } from '../availability/availability.service';
 import { AuditService } from '../audit/audit.service';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
+import { consultationTextContext } from './util/consultation-text.util';
 
 function buildConsultation(
   overrides: Partial<Consultation> = {},
@@ -553,17 +554,22 @@ describe('ConsultationsService', () => {
     it('aísla el texto ilegible de una consulta y de su historial sin tumbar las demás filas', async () => {
       const crypto = buildTestClinicalCrypto();
       const corrupt = 'enc:v3:0:AAAA';
+      const ctx = (field: 'consultReason' | 'intervention') =>
+        consultationTextContext('patient-1', field);
       prisma.consultation.findMany.mockResolvedValue([
         buildConsultation({
           id: 'c-ok',
           groupId: 'g-ok',
-          consultReason: crypto.encrypt('Motivo legible'),
-          intervention: crypto.encrypt('Intervención legible'),
+          consultReason: crypto.encrypt('Motivo legible', ctx('consultReason')),
+          intervention: crypto.encrypt(
+            'Intervención legible',
+            ctx('intervention'),
+          ),
         }),
         buildConsultation({
           id: 'c-bad',
           groupId: 'g-bad',
-          consultReason: crypto.encrypt('Motivo legible'),
+          consultReason: crypto.encrypt('Motivo legible', ctx('consultReason')),
           intervention: corrupt,
         }),
       ]);
@@ -573,7 +579,10 @@ describe('ConsultationsService', () => {
           consultationId: 'g-ok',
           snapshot: {
             consultReason: corrupt,
-            intervention: crypto.encrypt('Intervención previa'),
+            intervention: crypto.encrypt(
+              'Intervención previa',
+              ctx('intervention'),
+            ),
           },
         },
       ]);
@@ -602,6 +611,47 @@ describe('ConsultationsService', () => {
         consultReason: 'Motivo legible',
         intervention: null,
         unreadableFields: ['intervention'],
+      });
+    });
+
+    // issue #486: un texto cifrado copiado a otro paciente no se descifra; la
+    // fila (y el snapshot del historial) se aíslan en vez de mostrar texto ajeno.
+    it('aísla una consulta y un snapshot cuyo texto pertenece a otro paciente', async () => {
+      const crypto = buildTestClinicalCrypto();
+      const foreign = (field: 'consultReason' | 'intervention') =>
+        crypto.encrypt(
+          'Texto de otro paciente',
+          consultationTextContext('patient-2', field),
+        );
+      prisma.consultation.findMany.mockResolvedValue([
+        buildConsultation({
+          consultReason: foreign('consultReason'),
+          intervention: foreign('intervention'),
+        }),
+      ]);
+      prisma.consultationHistory.findMany.mockResolvedValue([
+        {
+          id: 'h-1',
+          consultationId: 'consultation-1',
+          snapshot: { consultReason: foreign('consultReason') },
+        },
+      ]);
+
+      const [row] = (await service.findByPatient(
+        'patient-1',
+        'therapist-1',
+      )) as (Record<string, unknown> & {
+        history: Record<string, unknown>[];
+      })[];
+
+      expect(row).toMatchObject({
+        consultReason: null,
+        intervention: null,
+        unreadableFields: ['consultReason', 'intervention'],
+      });
+      expect(row.history[0]).toMatchObject({
+        snapshot: { consultReason: null },
+        unreadableFields: ['consultReason'],
       });
     });
 
@@ -965,7 +1015,7 @@ describe('ConsultationsService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             correctsId: 'consultation-1',
-            consultReason: expect.stringMatching(/^enc:v3:/) as unknown,
+            consultReason: expect.stringMatching(/^enc:v4:/) as unknown,
           }) as unknown,
         }),
       );
@@ -974,9 +1024,13 @@ describe('ConsultationsService', () => {
           { data: { consultReason: string } },
         ]
       )[0].data.consultReason;
-      expect(buildTestClinicalCrypto().decrypt(persisted)).toBe(
-        'Motivo corregido',
-      );
+      // Ligado al paciente de la consulta y al campo (issue #486).
+      expect(
+        buildTestClinicalCrypto().decrypt(
+          persisted,
+          consultationTextContext('patient-1', 'consultReason'),
+        ),
+      ).toBe('Motivo corregido');
       expect(result.id).toBe('consultation-2');
     });
 

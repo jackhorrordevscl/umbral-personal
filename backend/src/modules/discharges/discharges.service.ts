@@ -118,14 +118,14 @@ export class DischargesService {
   // ADR 0004 (opción B): las columnas de texto libre se guardan cifradas. Toda
   // fila que sale de la base pasa por aquí, así el hash de contenido, el PDF y
   // la API trabajan siempre sobre el texto en claro.
-  private decryptRow<T extends object>(row: T): T {
+  private decryptRow<T extends { patientId: string }>(row: T): T {
     return decryptDischargeRow(row, this.clinicalCrypto);
   }
 
   // Solo para lecturas que no calculan hashes ni reescriben texto (listado y
   // verify): un campo ilegible no tumba la respuesta. Se registra qué campos
   // fallaron, nunca su contenido, y `unreadableFields` solo aparece si hay alguno.
-  private decryptRowLenient<T extends { id: string }>(
+  private decryptRowLenient<T extends { id: string; patientId: string }>(
     row: T,
   ): {
     row: T;
@@ -195,7 +195,7 @@ export class DischargesService {
           version: 1,
           patientId,
           therapistId,
-          ...encryptDischargeTexts(closure, this.clinicalCrypto),
+          ...encryptDischargeTexts(closure, this.clinicalCrypto, patientId),
           admissionDate: toDateOnly(admissionDay),
           dischargeDate: toDateOnly(today),
           sessionCount,
@@ -301,7 +301,7 @@ export class DischargesService {
     // Condicional a DRAFT: si una emisión concurrente ganó, count = 0 -> 409.
     const result = await this.prisma.treatmentDischarge.updateMany({
       where: { id, therapistId, status: 'DRAFT' },
-      data: encryptDischargeTexts(data, this.clinicalCrypto),
+      data: encryptDischargeTexts(data, this.clinicalCrypto, current.patientId),
     });
     if (result.count === 0) {
       throw new ConflictException(
@@ -597,7 +597,7 @@ export class DischargesService {
             therapistId,
             source: 'UPLOADED',
             status: 'ISSUED',
-            ...encryptDischargeTexts(closure, this.clinicalCrypto),
+            ...encryptDischargeTexts(closure, this.clinicalCrypto, patientId),
             admissionDate,
             dischargeDate,
             sessionCount,
@@ -726,7 +726,11 @@ export class DischargesService {
             therapistId,
             source: 'UPLOADED',
             status: 'ISSUED',
-            ...encryptDischargeTexts(closure, this.clinicalCrypto),
+            ...encryptDischargeTexts(
+              closure,
+              this.clinicalCrypto,
+              fresh.patientId,
+            ),
             admissionDate: fresh.admissionDate,
             dischargeDate,
             sessionCount: fresh.sessionCount,
@@ -1226,6 +1230,7 @@ export class DischargesService {
                 recommendations: original.recommendations,
               },
               this.clinicalCrypto,
+              original.patientId,
             ),
           },
         });

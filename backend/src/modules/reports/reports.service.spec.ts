@@ -1,4 +1,5 @@
 import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
+import { consultationTextContext } from '../consultations/util/consultation-text.util';
 import {
   NotFoundException,
   UnprocessableEntityException,
@@ -26,6 +27,7 @@ function buildPatientWithConsultations() {
     therapist: { name: 'Dra. Terapeuta', email: 'terapeuta@umbral.cl' },
     consultations: [
       {
+        patientId: 'patient-1',
         sessionDate: new Date('2026-01-10T12:00:00'),
         sessionType: 'IN_PERSON',
         consultReason: 'Motivo de consulta',
@@ -144,6 +146,7 @@ describe('ReportsService', () => {
     const patient = buildPatientWithConsultations();
     patient.consultations = [
       {
+        patientId: 'patient-1',
         sessionDate: new Date('2026-01-10T12:00:00'),
         sessionType: 'IN_PERSON',
         consultReason:
@@ -171,13 +174,25 @@ describe('ReportsService', () => {
     const crypto = buildTestClinicalCrypto();
     const render = jest.spyOn(clinicalNotePdf, 'renderClinicalNoteToPdf');
     const patient = buildPatientWithConsultations();
+    const ctx = (field: 'consultReason' | 'intervention' | 'agreements') =>
+      consultationTextContext('patient-1', field);
     patient.consultations = [
       {
+        patientId: 'patient-1',
         sessionDate: new Date('2026-01-10T12:00:00'),
         sessionType: 'IN_PERSON',
-        consultReason: crypto.encrypt('<p>Motivo reservado</p>'),
-        intervention: crypto.encrypt('<p>Intervención reservada</p>'),
-        agreements: crypto.encrypt('<p>Acuerdo reservado</p>'),
+        consultReason: crypto.encrypt(
+          '<p>Motivo reservado</p>',
+          ctx('consultReason'),
+        ),
+        intervention: crypto.encrypt(
+          '<p>Intervención reservada</p>',
+          ctx('intervention'),
+        ),
+        agreements: crypto.encrypt(
+          '<p>Acuerdo reservado</p>',
+          ctx('agreements'),
+        ),
         nextSessionDate: null,
       },
     ];
@@ -199,19 +214,28 @@ describe('ReportsService', () => {
   it('rechaza con 422 nombrando la sesión si un texto clínico no se puede descifrar', async () => {
     const crypto = buildTestClinicalCrypto();
     const patient = buildPatientWithConsultations();
+    const reason = crypto.encrypt(
+      '<p>Motivo legible</p>',
+      consultationTextContext('patient-1', 'consultReason'),
+    );
     patient.consultations = [
       {
+        patientId: 'patient-1',
         sessionDate: new Date('2026-01-10T12:00:00'),
         sessionType: 'IN_PERSON',
-        consultReason: crypto.encrypt('<p>Motivo legible</p>'),
-        intervention: crypto.encrypt('<p>Intervención legible</p>'),
+        consultReason: reason,
+        intervention: crypto.encrypt(
+          '<p>Intervención legible</p>',
+          consultationTextContext('patient-1', 'intervention'),
+        ),
         agreements: null,
         nextSessionDate: null,
       },
       {
+        patientId: 'patient-1',
         sessionDate: new Date('2026-01-17T12:00:00'),
         sessionType: 'IN_PERSON',
-        consultReason: crypto.encrypt('<p>Motivo legible</p>'),
+        consultReason: reason,
         intervention: 'enc:v3:0:AAAA',
         agreements: null,
         nextSessionDate: null,
@@ -225,6 +249,31 @@ describe('ReportsService', () => {
 
     expect(error).toBeInstanceOf(UnprocessableEntityException);
     expect((error as Error).message).toContain('sesión 2');
+  });
+
+  // issue #486: un texto copiado de otro paciente no se imprime en la ficha.
+  it('rechaza con 422 un texto clínico que pertenece a otro paciente', async () => {
+    const crypto = buildTestClinicalCrypto();
+    const patient = buildPatientWithConsultations();
+    patient.consultations = [
+      {
+        patientId: 'patient-1',
+        sessionDate: new Date('2026-01-10T12:00:00'),
+        sessionType: 'IN_PERSON',
+        consultReason: crypto.encrypt(
+          '<p>Texto de otro paciente</p>',
+          consultationTextContext('patient-2', 'consultReason'),
+        ),
+        intervention: 'Intervención realizada',
+        agreements: null,
+        nextSessionDate: null,
+      },
+    ];
+    prisma.patient.findFirst.mockResolvedValue(patient);
+
+    await expect(
+      service.generatePatientReport('patient-1', 'therapist-1'),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
   });
 
   it('consulta solo sesiones ya ocurridas, ordenadas por sessionDate y no por createdAt (issue #288)', async () => {

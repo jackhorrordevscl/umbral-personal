@@ -842,7 +842,7 @@ describe('DischargesService.issue (integration, cierre concurrente con reserva p
         where: { id },
       });
       for (const field of Object.keys(texts) as (keyof typeof texts)[]) {
-        expect(raw[field]).toMatch(/^enc:v3:/);
+        expect(raw[field]).toMatch(/^enc:v4:/);
       }
       expect(JSON.stringify(raw)).not.toContain('reservad');
     };
