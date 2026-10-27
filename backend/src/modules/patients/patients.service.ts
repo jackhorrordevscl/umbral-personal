@@ -94,6 +94,23 @@ function comparableValue(key: string, value: unknown): string | null {
     : String(value as string | number | boolean);
 }
 
+type PatientDiff = Record<string, { from: unknown; to: unknown }>;
+
+// Solo los campos que realmente cambian respecto de la fila almacenada.
+function buildPatientDiff(fields: object, current: object): PatientDiff {
+  const diff: PatientDiff = {};
+  for (const [key, incoming] of Object.entries(fields)) {
+    if (incoming === undefined) continue;
+
+    const currentVal = (current as Record<string, unknown>)[key];
+
+    if (comparableValue(key, incoming) !== comparableValue(key, currentVal)) {
+      diff[key] = { from: currentVal, to: incoming };
+    }
+  }
+  return diff;
+}
+
 const MINOR_NEEDS_GUARDIAN_MESSAGE =
   'El paciente es un NNA: el consentimiento debe ser otorgado por su representante legal. Registra al representante e indícalo al registrar el consentimiento.';
 const MINOR_LEGACY_CONSENT_MESSAGE =
@@ -430,49 +447,56 @@ export class PatientsService {
 
     const { reason, ...fields } = dto;
 
-    // Calcular diff: solo campos que realmente cambian
-    const diff: Record<string, { from: unknown; to: unknown }> = {};
-    for (const key of Object.keys(fields) as (keyof typeof fields)[]) {
-      const incoming = fields[key];
-      if (incoming === undefined) continue;
-
-      const currentVal = (current as Record<string, unknown>)[
-        key
-      ] as typeof incoming;
-
-      if (comparableValue(key, incoming) !== comparableValue(key, currentVal)) {
-        diff[key] = { from: currentVal, to: incoming };
-      }
-    }
-
-    // Sin cambios reales → no tocar la DB
-    if (Object.keys(diff).length === 0) {
-      return current;
-    }
-
     // Issue #289: el DTO de edición solo valida la forma del RUT para no bloquear
     // fichas existentes con un DV inválido; el dígito verificador se exige solo
     // cuando el RUT realmente cambia.
-    if (diff.rut && !isValidRut(fields.rut)) {
-      throw new BadRequestException(
-        'El dígito verificador del RUT no es válido',
-      );
-    }
+    const assertRutChangeIsValid = (diff: PatientDiff) => {
+      if (diff.rut && !isValidRut(fields.rut)) {
+        throw new BadRequestException(
+          'El dígito verificador del RUT no es válido',
+        );
+      }
+    };
 
-    const updated = await this.prisma
+    // Atajos sin tocar la DB, sobre la lectura previa (sin lock): equivalen a
+    // que la petición se hubiera resuelto antes de cualquier edición concurrente.
+    const preDiff = buildPatientDiff(fields, current);
+    if (Object.keys(preDiff).length === 0) {
+      return current;
+    }
+    assertRutChangeIsValid(preDiff);
+
+    const { patient: updated, diff } = await this.prisma
       .$transaction(async (tx) => {
         await lockTherapistForWrite(tx, userId);
+        // issue #488: la lectura de arriba no tiene lock. Con la fila del
+        // paciente tomada (el mismo FOR UPDATE de softDelete) se relee y el
+        // diff, el snapshot del historial y el 404 salen de lo que realmente
+        // hay: dos ediciones simultáneas quedan en secuencia y una edición
+        // que corre junto a softDelete ya no modifica un paciente eliminado.
+        await tx.$queryRaw`SELECT id FROM "Patient" WHERE id = ${id} FOR UPDATE`;
+        const locked = await tx.patient.findFirst({
+          where: { id, therapistId: userId, deletedAt: null },
+        });
+        if (!locked) throw new NotFoundException('Paciente no encontrado');
+
+        const lockedDiff = buildPatientDiff(fields, locked);
+        if (Object.keys(lockedDiff).length === 0) {
+          return { patient: locked, diff: lockedDiff };
+        }
+        assertRutChangeIsValid(lockedDiff);
+
         await tx.patientHistory.create({
           data: {
             patientId: id,
             changedById: userId,
             reason,
-            snapshot: toJsonSnapshot(current),
-            diff: toJsonSnapshot(diff),
+            snapshot: toJsonSnapshot(locked),
+            diff: toJsonSnapshot(lockedDiff),
           },
         });
 
-        return tx.patient.update({
+        const patient = await tx.patient.update({
           where: { id },
           data: {
             ...fields,
@@ -480,6 +504,7 @@ export class PatientsService {
             ...(fields.birthDate && { birthDate: new Date(fields.birthDate) }),
           },
         });
+        return { patient, diff: lockedDiff };
       })
       .catch((err: unknown) => {
         // issue #317: índice único parcial (therapistId, rut) WHERE deletedAt IS
@@ -494,9 +519,11 @@ export class PatientsService {
         }
         throw err;
       });
-    this.logger.log(
-      `Paciente actualizado: id=${id} userId=${userId} campos=${Object.keys(diff).join(',')}`,
-    );
+    if (Object.keys(diff).length > 0) {
+      this.logger.log(
+        `Paciente actualizado: id=${id} userId=${userId} campos=${Object.keys(diff).join(',')}`,
+      );
+    }
     return updated;
   }
 

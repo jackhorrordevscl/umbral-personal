@@ -721,14 +721,104 @@ describe('PatientsService', () => {
         'therapist-1',
       );
 
-      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
-      const [[strings]] = prisma.$queryRaw.mock.calls as unknown[][];
-      const sql = (strings as string[]).join('?');
-      expect(sql).toContain('"User"');
-      expect(sql).toContain('FOR NO KEY UPDATE');
-      expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      // issue #488: el segundo lock es el de la fila del paciente; el orden
+      // User -> Patient es el de #502 y el del resto de los módulos.
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+      const sqls = (prisma.$queryRaw.mock.calls as unknown[][]).map(
+        ([strings]) => (strings as string[]).join('?'),
+      );
+      expect(sqls[0]).toContain('"User"');
+      expect(sqls[0]).toContain('FOR NO KEY UPDATE');
+      expect(sqls[1]).toContain('"Patient"');
+      expect(sqls[1]).toContain('FOR UPDATE');
+      expect(prisma.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
         prisma.patientHistory.create.mock.invocationCallOrder[0],
       );
+    });
+
+    describe('issue #488: la fila se relee dentro de la transacción, bajo lock', () => {
+      const request = {
+        fullName: 'Nombre Nuevo',
+        reason: 'Corrección de datos del paciente',
+      } as never;
+
+      it('relee el paciente después de tomar el lock de su fila', async () => {
+        prisma.patient.findFirst.mockResolvedValue(buildPatient());
+        prisma.patient.update.mockResolvedValue(buildPatient());
+
+        await service.update('patient-1', request, 'therapist-1');
+
+        expect(prisma.patient.findFirst).toHaveBeenCalledTimes(2);
+        expect(prisma.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
+          prisma.patient.findFirst.mock.invocationCallOrder[1],
+        );
+      });
+
+      it('el snapshot y el diff del historial salen de la fila releída, no de la lectura previa', async () => {
+        prisma.patient.findFirst
+          .mockResolvedValueOnce(buildPatient({ fullName: 'Nombre Viejo' }))
+          .mockResolvedValueOnce(
+            buildPatient({ fullName: 'Nombre Concurrente' }),
+          );
+        prisma.patient.update.mockResolvedValue(buildPatient());
+
+        await service.update('patient-1', request, 'therapist-1');
+
+        expect(prisma.patientHistory.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            snapshot: expect.objectContaining({
+              fullName: 'Nombre Concurrente',
+            }) as unknown,
+            diff: {
+              fullName: { from: 'Nombre Concurrente', to: 'Nombre Nuevo' },
+            },
+          }) as unknown,
+        });
+      });
+
+      it('paciente eliminado entre la lectura y el lock: 404 sin historial ni update', async () => {
+        prisma.patient.findFirst
+          .mockResolvedValueOnce(buildPatient())
+          .mockResolvedValueOnce(null);
+
+        await expect(
+          service.update('patient-1', request, 'therapist-1'),
+        ).rejects.toThrow(NotFoundException);
+        expect(prisma.patientHistory.create).not.toHaveBeenCalled();
+        expect(prisma.patient.update).not.toHaveBeenCalled();
+      });
+
+      it('otra edición concurrente ya dejó el valor pedido: no escribe y devuelve la fila actual', async () => {
+        const concurrent = buildPatient({ fullName: 'Nombre Nuevo' });
+        prisma.patient.findFirst
+          .mockResolvedValueOnce(buildPatient({ fullName: 'Nombre Viejo' }))
+          .mockResolvedValueOnce(concurrent);
+
+        await expect(
+          service.update('patient-1', request, 'therapist-1'),
+        ).resolves.toBe(concurrent);
+        expect(prisma.patientHistory.create).not.toHaveBeenCalled();
+        expect(prisma.patient.update).not.toHaveBeenCalled();
+      });
+
+      it('si el RUT pedido es inválido respecto de la fila releída, responde 400 sin escribir', async () => {
+        prisma.patient.findFirst
+          .mockResolvedValueOnce(buildPatient({ rut: '22222222-3' }))
+          .mockResolvedValueOnce(buildPatient());
+
+        await expect(
+          service.update(
+            'patient-1',
+            {
+              rut: '22222222-3',
+              fullName: 'Nombre Nuevo',
+              reason: 'RUT ingresado con error',
+            } as never,
+            'therapist-1',
+          ),
+        ).rejects.toThrow(BadRequestException);
+        expect(prisma.patientHistory.create).not.toHaveBeenCalled();
+      });
     });
 
     it.each([
