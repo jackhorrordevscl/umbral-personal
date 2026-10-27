@@ -263,16 +263,20 @@ export class MfaService {
     secret: string,
     token: string,
   ): Promise<boolean> {
+    // Issue #487: una sola lectura del reloj para verificar y para calcular el
+    // paso. Con dos lecturas, en el borde de 30 s el paso consumido podía no
+    // ser el verificado y rechazar el siguiente código legítimo.
+    const nowSeconds = Math.floor(Date.now() / 1000);
     const delta = speakeasy.totp.verifyDelta({
       secret,
       encoding: 'base32',
       token,
       window: 1,
+      time: nowSeconds,
     });
     if (!delta) return false;
 
-    const step =
-      Math.floor(Date.now() / 1000 / TOTP_STEP_SECONDS) + delta.delta;
+    const step = Math.floor(nowSeconds / TOTP_STEP_SECONDS) + delta.delta;
 
     const { count } = await this.prisma.user.updateMany({
       where: {
@@ -408,10 +412,17 @@ export class MfaService {
       throw new BadRequestException('Código inválido, intenta de nuevo');
     }
 
-    await this.prisma.user.update({
-      where: { id: userId },
+    // Issue #487: activación condicional. Dos confirmaciones simultáneas con
+    // pasos TOTP distintos pasan ambas consumeTotp; sin esta condición las
+    // dos regenerarían los recovery codes y la primera tanda mostrada
+    // quedaría invalidada sin aviso.
+    const { count } = await this.prisma.user.updateMany({
+      where: { id: userId, mfaEnabled: false },
       data: { mfaEnabled: true },
     });
+    if (count === 0) {
+      throw new BadRequestException('MFA ya fue configurado para esta cuenta');
+    }
 
     // Issue #50: se generan acá (no en un endpoint separado) porque este es
     // el único momento en que sabemos que el usuario probó control real del
