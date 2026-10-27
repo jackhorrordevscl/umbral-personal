@@ -166,6 +166,13 @@ Se adopta la alternativa **B**, con esta secuencia:
   escritura directa en la base. Seguimiento en el issue #486 (formato `enc:v4`).
 - Un texto heredado en claro que empiece con `enc:v1:`, `enc:v2:` o `enc:v3:` se
   trata como cifrado y falla al descifrar. Riesgo bajo; también en el issue #486.
+- Nota (2026-10-27, issue #486, punto 3): un texto que no se puede descifrar ya no
+  tumba la respuesta completa. En la lista de consultas, su historial y el detalle
+  del paciente sale en `null` con `unreadableFields` (y se registra el id y el
+  nombre del campo, nunca el contenido), igual que en los informes de alta. El PDF
+  de la ficha, que es un registro legal, rechaza la exportación con un 422 que
+  nombra la sesión; corregir una consulta sigue fallando, para no re-cifrar un
+  texto a medias.
 - Material público: el cifrado a nivel de aplicación de los textos clínicos se
   puede afirmar solo cuando el despliegue con la clave esté en producción y los
   datos existentes estén recifrados. No afirmar aislamiento por RLS ni "a nivel

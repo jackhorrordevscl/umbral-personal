@@ -236,18 +236,22 @@ const PATIENT_SEARCH_DEBOUNCE_MS = 300;
 // profundidad antes de inyectarlo con dangerouslySetInnerHTML: no hay que
 // confiar ciegamente en HTML ya persistido (podría venir de datos
 // históricos, de un bug futuro en el backend, o de acceso directo a la DB).
-function sanitizeClinicalNoteHtml(html: string): string {
+//
+// Issue #486: un texto que el backend no pudo descifrar llega como null (con
+// `unreadableFields`); se muestra un aviso en vez de dejar la pantalla en blanco.
+function sanitizeClinicalNoteHtml(html: string | null): string {
+  if (html === null) return '<p><em>Texto no disponible</em></p>';
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'ul', 'ol', 'li'],
     ALLOWED_ATTR: [],
   });
 }
 
-function ExpandableText({ text }: { text: string }) {
+function ExpandableText({ text }: { text: string | null }) {
   const [expanded, setExpanded] = useState(false);
   // El largo se mide sobre el texto plano (sin tags) para que el umbral de
   // "ver más" siga reflejando cuánto contenido real hay, no el HTML.
-  const plainLength = text.replace(/<[^>]+>/g, '').length;
+  const plainLength = (text ?? '').replace(/<[^>]+>/g, '').length;
   const isLong = plainLength > EXPANDABLE_TEXT_THRESHOLD;
   const safeHtml = useMemo(() => sanitizeClinicalNoteHtml(text), [text]);
 
@@ -363,8 +367,8 @@ export default function ConsultationsPage() {
     setEditForm({
       sessionDate: toLocalDate(sd),
       sessionTime: toLocalTime(sd),
-      consultReason: c.consultReason,
-      intervention: c.intervention,
+      consultReason: c.consultReason ?? '',
+      intervention: c.intervention ?? '',
       agreements: c.agreements ?? '',
       nextSessionDate: nd ? toLocalDate(nd) : '',
       nextSessionTime: nd ? toLocalTime(nd) : '09:00',
@@ -793,8 +797,9 @@ export default function ConsultationsPage() {
                         </div>
                       </div>
                       <button onClick={() => handleEditOpen(c)}
-                        className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
-                        title="Corregir sesión"
+                        disabled={!!c.unreadableFields?.length}
+                        className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={c.unreadableFields?.length ? 'No se puede corregir: hay textos que no se pueden leer' : 'Corregir sesión'}
                         aria-label={`Corregir sesión del ${formatChileDateTime(c.sessionDate)}`}>
                         <Pencil size={14} />
                       </button>
@@ -808,7 +813,7 @@ export default function ConsultationsPage() {
                         <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Intervención</p>
                         <ExpandableText text={c.intervention} />
                       </div>
-                      {c.agreements && (
+                      {(c.agreements || c.unreadableFields?.includes('agreements')) && (
                         <div>
                           <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Acuerdos</p>
                           <ExpandableText text={c.agreements} />
@@ -864,12 +869,12 @@ export default function ConsultationsPage() {
                             dangerouslySetInnerHTML={{ __html: sanitizeClinicalNoteHtml(h.snapshot.intervention) }}
                           />
                         </div>
-                        {h.snapshot.agreements && (
+                        {(h.snapshot.agreements || h.unreadableFields?.includes('agreements')) && (
                           <div>
                             <p className="font-medium text-slate-500 uppercase tracking-wide mb-0.5">Acuerdos</p>
                             <div
                               className="[&_p]:m-0 [&_ul]:pl-5 [&_ol]:pl-5 [&_ul]:list-disc [&_ol]:list-decimal"
-                              dangerouslySetInnerHTML={{ __html: sanitizeClinicalNoteHtml(h.snapshot.agreements) }}
+                              dangerouslySetInnerHTML={{ __html: sanitizeClinicalNoteHtml(h.snapshot.agreements ?? null) }}
                             />
                           </div>
                         )}
