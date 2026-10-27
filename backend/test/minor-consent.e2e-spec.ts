@@ -497,7 +497,7 @@ describe('Minor consent and assent (e2e)', () => {
       await request(app.getHttpServer())
         .post(assentsUrl(minorId))
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ action: 'GRANTED', ageBand: 'AGE_14_17' })
+        .send({ action: 'INFORMED_AND_HEARD', ageBand: 'AGE_14_17' })
         .expect(400);
     });
 
@@ -505,8 +505,34 @@ describe('Minor consent and assent (e2e)', () => {
       await request(app.getHttpServer())
         .post(assentsUrl(minorId))
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ action: 'GRANTED', note: 'x'.repeat(501) })
+        .send({ action: 'INFORMED_AND_HEARD', note: 'x'.repeat(501) })
         .expect(400);
+    });
+
+    // issue #488: el asentimiento expreso empieza a los 14 años.
+    it('rechaza Otorgado para un menor de 14 años (400) y no deja registro', async () => {
+      const under14 = await createPatient(yearsAgoDate(10));
+
+      const res = await request(app.getHttpServer())
+        .post(assentsUrl(under14))
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ action: 'GRANTED' })
+        .expect(400);
+
+      expect((res.body as Body).message).toContain('desde los 14 años');
+      expect(
+        await prisma.patientAssent.count({ where: { patientId: under14 } }),
+      ).toBe(0);
+    });
+
+    it('acepta Otorgado desde los 14 años (201)', async () => {
+      const teen = await createPatient(yearsAgoDate(16));
+
+      await request(app.getHttpServer())
+        .post(assentsUrl(teen))
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ action: 'GRANTED' })
+        .expect(201);
     });
 
     it('rechaza un documento inexistente o de otro paciente (400)', async () => {
@@ -516,7 +542,10 @@ describe('Minor consent and assent (e2e)', () => {
       await request(app.getHttpServer())
         .post(assentsUrl(minorId))
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ action: 'GRANTED', documentId: (doc.body as Body).id })
+        .send({
+          action: 'INFORMED_AND_HEARD',
+          documentId: (doc.body as Body).id,
+        })
         .expect(400);
     });
 
@@ -526,7 +555,10 @@ describe('Minor consent and assent (e2e)', () => {
       await request(app.getHttpServer())
         .post(assentsUrl(minorId))
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ action: 'GRANTED', documentId: (doc.body as Body).id })
+        .send({
+          action: 'INFORMED_AND_HEARD',
+          documentId: (doc.body as Body).id,
+        })
         .expect(400);
     });
 
@@ -542,7 +574,7 @@ describe('Minor consent and assent (e2e)', () => {
       await request(app.getHttpServer())
         .post(assentsUrl(minorId))
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ action: 'GRANTED', documentId: docId })
+        .send({ action: 'INFORMED_AND_HEARD', documentId: docId })
         .expect(400);
     });
 

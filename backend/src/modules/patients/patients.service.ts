@@ -36,6 +36,8 @@ import { lockTherapistForWrite } from '../../common/utils/lock-therapist.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { DEFAULT_PATIENTS_PAGE_SIZE } from './dto/patients-query.dto';
 import { isValidRut, normalizeRut } from '../../common/utils/rut.util';
+import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
+import { rejectNullFields } from '../../common/utils/reject-null-fields.util';
 import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
 import { decryptConsultationRow } from '../consultations/util/consultation-text.util';
 
@@ -92,6 +94,23 @@ function comparableValue(key: string, value: unknown): string | null {
   return typeof value === 'object'
     ? JSON.stringify(value)
     : String(value as string | number | boolean);
+}
+
+type PatientDiff = Record<string, { from: unknown; to: unknown }>;
+
+// Solo los campos que realmente cambian respecto de la fila almacenada.
+function buildPatientDiff(fields: object, current: object): PatientDiff {
+  const diff: PatientDiff = {};
+  for (const [key, incoming] of Object.entries(fields)) {
+    if (incoming === undefined) continue;
+
+    const currentVal = (current as Record<string, unknown>)[key];
+
+    if (comparableValue(key, incoming) !== comparableValue(key, currentVal)) {
+      diff[key] = { from: currentVal, to: incoming };
+    }
+  }
+  return diff;
 }
 
 const MINOR_NEEDS_GUARDIAN_MESSAGE =
@@ -203,14 +222,27 @@ export class PatientsService {
       throw new ConflictException('Ya existe un paciente con ese RUT');
     }
 
-    const patient = await this.prisma.patient.create({
-      data: {
-        ...dto,
-        rut,
-        birthDate: new Date(dto.birthDate),
-        therapistId,
-      },
-    });
+    // issue #488: dos altas simultáneas con el mismo RUT pasan el chequeo de
+    // arriba; la perdedora choca con el índice único parcial y recibe el mismo
+    // 409 que si hubiera llegado después.
+    const patient = await this.prisma.patient
+      .create({
+        data: {
+          ...dto,
+          rut,
+          birthDate: new Date(dto.birthDate),
+          therapistId,
+        },
+      })
+      .catch((err: unknown) => {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          throw new ConflictException('Ya existe un paciente con ese RUT');
+        }
+        throw err;
+      });
     this.logger.log(
       `Paciente creado: id=${patient.id} therapistId=${therapistId}`,
     );
@@ -420,6 +452,10 @@ export class PatientsService {
   }
 
   async update(id: string, dto: UpdatePatientDto, userId: string) {
+    // issue #488: el DTO de edición deja pasar null (IsOptional); estas
+    // columnas no son nulables y null terminaba en 500.
+    rejectNullFields(dto, ['fullName', 'rut', 'birthDate']);
+
     // issue #290: solo columnas escalares de Patient (no consultas,
     // documentos ni consentimientos); el filtro de ownership es el mismo de
     // assertAccess/findOne y lanza el mismo 404 uniforme.
@@ -430,49 +466,56 @@ export class PatientsService {
 
     const { reason, ...fields } = dto;
 
-    // Calcular diff: solo campos que realmente cambian
-    const diff: Record<string, { from: unknown; to: unknown }> = {};
-    for (const key of Object.keys(fields) as (keyof typeof fields)[]) {
-      const incoming = fields[key];
-      if (incoming === undefined) continue;
-
-      const currentVal = (current as Record<string, unknown>)[
-        key
-      ] as typeof incoming;
-
-      if (comparableValue(key, incoming) !== comparableValue(key, currentVal)) {
-        diff[key] = { from: currentVal, to: incoming };
-      }
-    }
-
-    // Sin cambios reales → no tocar la DB
-    if (Object.keys(diff).length === 0) {
-      return current;
-    }
-
     // Issue #289: el DTO de edición solo valida la forma del RUT para no bloquear
     // fichas existentes con un DV inválido; el dígito verificador se exige solo
     // cuando el RUT realmente cambia.
-    if (diff.rut && !isValidRut(fields.rut)) {
-      throw new BadRequestException(
-        'El dígito verificador del RUT no es válido',
-      );
-    }
+    const assertRutChangeIsValid = (diff: PatientDiff) => {
+      if (diff.rut && !isValidRut(fields.rut)) {
+        throw new BadRequestException(
+          'El dígito verificador del RUT no es válido',
+        );
+      }
+    };
 
-    const updated = await this.prisma
+    // Atajos sin tocar la DB, sobre la lectura previa (sin lock): equivalen a
+    // que la petición se hubiera resuelto antes de cualquier edición concurrente.
+    const preDiff = buildPatientDiff(fields, current);
+    if (Object.keys(preDiff).length === 0) {
+      return current;
+    }
+    assertRutChangeIsValid(preDiff);
+
+    const { patient: updated, diff } = await this.prisma
       .$transaction(async (tx) => {
         await lockTherapistForWrite(tx, userId);
+        // issue #488: la lectura de arriba no tiene lock. Con la fila del
+        // paciente tomada (el mismo FOR UPDATE de softDelete) se relee y el
+        // diff, el snapshot del historial y el 404 salen de lo que realmente
+        // hay: dos ediciones simultáneas quedan en secuencia y una edición
+        // que corre junto a softDelete ya no modifica un paciente eliminado.
+        await tx.$queryRaw`SELECT id FROM "Patient" WHERE id = ${id} FOR UPDATE`;
+        const locked = await tx.patient.findFirst({
+          where: { id, therapistId: userId, deletedAt: null },
+        });
+        if (!locked) throw new NotFoundException('Paciente no encontrado');
+
+        const lockedDiff = buildPatientDiff(fields, locked);
+        if (Object.keys(lockedDiff).length === 0) {
+          return { patient: locked, diff: lockedDiff };
+        }
+        assertRutChangeIsValid(lockedDiff);
+
         await tx.patientHistory.create({
           data: {
             patientId: id,
             changedById: userId,
             reason,
-            snapshot: toJsonSnapshot(current),
-            diff: toJsonSnapshot(diff),
+            snapshot: toJsonSnapshot(locked),
+            diff: toJsonSnapshot(lockedDiff),
           },
         });
 
-        return tx.patient.update({
+        const patient = await tx.patient.update({
           where: { id },
           data: {
             ...fields,
@@ -480,6 +523,7 @@ export class PatientsService {
             ...(fields.birthDate && { birthDate: new Date(fields.birthDate) }),
           },
         });
+        return { patient, diff: lockedDiff };
       })
       .catch((err: unknown) => {
         // issue #317: índice único parcial (therapistId, rut) WHERE deletedAt IS
@@ -494,9 +538,11 @@ export class PatientsService {
         }
         throw err;
       });
-    this.logger.log(
-      `Paciente actualizado: id=${id} userId=${userId} campos=${Object.keys(diff).join(',')}`,
-    );
+    if (Object.keys(diff).length > 0) {
+      this.logger.log(
+        `Paciente actualizado: id=${id} userId=${userId} campos=${Object.keys(diff).join(',')}`,
+      );
+    }
     return updated;
   }
 
@@ -573,6 +619,9 @@ export class PatientsService {
         changedBy: { select: { id: true, name: true, role: true } },
       },
       orderBy: { changedAt: 'desc' },
+      // issue #488: cota de seguridad (las ediciones más recientes primero);
+      // el libro de consentimientos, un registro legal, no se acota.
+      take: UNPAGINATED_SAFETY_LIMIT,
     });
   }
 
@@ -745,9 +794,29 @@ export class PatientsService {
   // `recordConsent` sigue corriendo por paciente -- nadie puede declarar
   // consentimiento sobre un paciente que no es suyo solo por mandarlo en el
   // mismo lote. Un id inválido/ajeno no aborta el resto del lote.
-  async bulkDeclareConsent(dto: BulkDeclareConsentDto, userId: string) {
+  //
+  // issue #488: el interceptor global solo ve la URL (sin id de paciente) y
+  // dejaba una fila con resourceId 'N/A'; el controller lo omite con
+  // @SkipAudit y acá se deja una fila por paciente del lote, también las
+  // fallidas. `detail` lleva solo un código de resultado, nunca el mensaje de
+  // un error interno. Fail-open: un fallo del log no aborta el resto del lote.
+  async bulkDeclareConsent(
+    dto: BulkDeclareConsentDto,
+    userId: string,
+    ctx: { ipAddress?: string; userAgent?: string } = {},
+  ) {
     const results: Array<{ patientId: string; ok: boolean; error?: string }> =
       [];
+    const audit = (patientId: string, result: string, denied = false) =>
+      logAuditFailOpen(this.auditService, this.logger, {
+        userId,
+        action: denied ? 'UNAUTHORIZED_ATTEMPT' : 'CREATE',
+        resource: 'PatientConsent',
+        resourceId: patientId,
+        detail: `POST /patients/consents/bulk-declare purpose=${dto.purpose} result=${result}`,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      });
     // Un id repetido en el lote no debe dejar dos eventos en el ledger.
     for (const patientId of new Set(dto.patientIds)) {
       try {
@@ -764,6 +833,7 @@ export class PatientsService {
             error:
               'El paciente revocó su consentimiento para esta finalidad: debe registrarse de forma individual si volvió a otorgarlo.',
           });
+          await audit(patientId, 'revoked');
           continue;
         }
         // Ya vigente (adulto): no se agrega otro evento al ledger. Un NNA
@@ -773,6 +843,7 @@ export class PatientsService {
           !isMinor(patient.birthDate)
         ) {
           results.push({ patientId, ok: true });
+          await audit(patientId, 'already_granted');
           continue;
         }
         await this.writeConsent(
@@ -785,6 +856,7 @@ export class PatientsService {
           userId,
         );
         results.push({ patientId, ok: true });
+        await audit(patientId, 'granted');
       } catch (err) {
         // Review R3-002 (issue #131): solo se expone el mensaje cuando es
         // una HttpException conocida (ej. NotFoundException de assertAccess
@@ -801,6 +873,12 @@ export class PatientsService {
           );
         }
         results.push({ patientId, ok: false, error: message });
+        // 403/404: paciente ajeno o inexistente, el mismo criterio con el que
+        // el interceptor registra un acceso denegado.
+        const denied =
+          err instanceof HttpException &&
+          (err.getStatus() === 403 || err.getStatus() === 404);
+        await audit(patientId, denied ? 'denied' : 'failed', denied);
       }
     }
     return results;

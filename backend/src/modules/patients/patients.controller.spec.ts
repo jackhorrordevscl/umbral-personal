@@ -1,5 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
+import type { Request } from 'express';
+import { SKIP_AUDIT_KEY } from '../../common/decorators/skip-audit.decorator';
 import { PatientsController } from './patients.controller';
 import { PatientsService } from './patients.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -162,13 +164,31 @@ describe('PatientsController', () => {
         patientIds: ['p1', 'p2'],
       } as unknown as BulkDeclareConsentDto;
 
-      const result = await controller.bulkDeclareConsent(dto, user);
+      const req = {
+        headers: { 'user-agent': 'jest-agent' },
+        ip: '10.0.0.1',
+      } as unknown as Request;
 
+      const result = await controller.bulkDeclareConsent(dto, user, req);
+
+      // issue #488: el servicio audita por paciente, con la IP y el user-agent.
       expect(service.bulkDeclareConsent).toHaveBeenCalledWith(
         dto,
         'therapist-1',
+        { ipAddress: '10.0.0.1', userAgent: 'jest-agent' },
       );
       expect(result).toEqual({ declared: 2 });
+    });
+
+    it('omite la fila genérica del interceptor (el servicio audita por paciente) pero conserva los accesos denegados', () => {
+      const handler = Object.getOwnPropertyDescriptor(
+        PatientsController.prototype,
+        'bulkDeclareConsent',
+      )?.value as object;
+
+      expect(Reflect.getMetadata(SKIP_AUDIT_KEY, handler)).toEqual({
+        keepDenied: true,
+      });
     });
   });
 

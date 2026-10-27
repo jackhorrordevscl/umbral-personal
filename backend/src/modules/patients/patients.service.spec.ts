@@ -67,6 +67,7 @@ describe('PatientsService', () => {
     $queryRaw: jest.Mock;
     $transaction: jest.Mock;
   };
+  let audit: { log: jest.Mock };
   let calendarSync: { deletePatientEvents: jest.Mock };
   let paymentsService: { cancelUnpaidForPatient: jest.Mock };
   let availabilityService: { invalidate: jest.Mock };
@@ -109,7 +110,8 @@ describe('PatientsService', () => {
       }),
     };
 
-    const auditService = { log: jest.fn() } as unknown as AuditService;
+    audit = { log: jest.fn().mockResolvedValue(undefined) };
+    const auditService = audit as unknown as AuditService;
     calendarSync = {
       deletePatientEvents: jest.fn().mockResolvedValue(undefined),
     };
@@ -143,6 +145,46 @@ describe('PatientsService', () => {
           'therapist-1',
         ),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('issue #488: carrera de RUT, P2002 en el create -> mismo 409 que el chequeo previo', async () => {
+      prisma.patient.findFirst.mockResolvedValue(null);
+      prisma.patient.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+
+      await expect(
+        service.create(
+          {
+            fullName: 'Nuevo Paciente',
+            rut: '11.111.111-1',
+            birthDate: '1990-01-01',
+          } as never,
+          'therapist-1',
+        ),
+      ).rejects.toThrow(
+        new ConflictException('Ya existe un paciente con ese RUT'),
+      );
+    });
+
+    it('issue #488: un error del create que no es P2002 se propaga sin traducir', async () => {
+      prisma.patient.findFirst.mockResolvedValue(null);
+      const boom = new Error('conexión perdida');
+      prisma.patient.create.mockRejectedValue(boom);
+
+      await expect(
+        service.create(
+          {
+            fullName: 'Nuevo Paciente',
+            rut: '11.111.111-1',
+            birthDate: '1990-01-01',
+          } as never,
+          'therapist-1',
+        ),
+      ).rejects.toBe(boom);
     });
 
     it('normaliza el RUT (sin puntos, mayúsculas) antes de crear', async () => {
@@ -676,6 +718,23 @@ describe('PatientsService', () => {
       expect(prisma.patientConsent.findMany).not.toHaveBeenCalled();
     });
 
+    it.each(['fullName', 'rut', 'birthDate'])(
+      'issue #488: responde 400 y no toca la DB si %s viene null',
+      async (field) => {
+        prisma.patient.findFirst.mockResolvedValue(buildPatient());
+
+        await expect(
+          service.update(
+            'patient-1',
+            { [field]: null, reason: 'Motivo cualquiera' } as never,
+            'therapist-1',
+          ),
+        ).rejects.toThrow(BadRequestException);
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        expect(prisma.patient.update).not.toHaveBeenCalled();
+      },
+    );
+
     it('lanza 404 si el paciente no existe o es de otro terapeuta', async () => {
       prisma.patient.findFirst.mockResolvedValue(null);
 
@@ -721,14 +780,105 @@ describe('PatientsService', () => {
         'therapist-1',
       );
 
-      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
-      const [[strings]] = prisma.$queryRaw.mock.calls as unknown[][];
-      const sql = (strings as string[]).join('?');
-      expect(sql).toContain('"User"');
-      expect(sql).toContain('FOR NO KEY UPDATE');
-      expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      // issue #488: el segundo lock es el de la fila del paciente; el orden
+      // User -> Patient es el de #502 y el del resto de los módulos.
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+      const sqls = (prisma.$queryRaw.mock.calls as unknown[][]).map(
+        ([strings]) => (strings as string[]).join('?'),
+      );
+      expect(sqls[0]).toContain('"User"');
+      expect(sqls[0]).toContain('FOR NO KEY UPDATE');
+      expect(sqls[1]).toContain('"Patient"');
+      expect(sqls[1]).toContain('FOR UPDATE');
+      expect(prisma.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
         prisma.patientHistory.create.mock.invocationCallOrder[0],
       );
+    });
+
+    describe('issue #488: la fila se relee dentro de la transacción, bajo lock', () => {
+      const request = {
+        fullName: 'Nombre Nuevo',
+        reason: 'Corrección de datos del paciente',
+      } as never;
+
+      it('relee el paciente después de tomar el lock de su fila', async () => {
+        prisma.patient.findFirst.mockResolvedValue(buildPatient());
+        prisma.patient.update.mockResolvedValue(buildPatient());
+
+        await service.update('patient-1', request, 'therapist-1');
+
+        expect(prisma.patient.findFirst).toHaveBeenCalledTimes(2);
+        expect(prisma.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
+          prisma.patient.findFirst.mock.invocationCallOrder[1],
+        );
+      });
+
+      it('el snapshot y el diff del historial salen de la fila releída, no de la lectura previa', async () => {
+        prisma.patient.findFirst
+          .mockResolvedValueOnce(buildPatient({ fullName: 'Nombre Viejo' }))
+          .mockResolvedValueOnce(
+            buildPatient({ fullName: 'Nombre Concurrente' }),
+          );
+        prisma.patient.update.mockResolvedValue(buildPatient());
+
+        await service.update('patient-1', request, 'therapist-1');
+
+        expect(prisma.patientHistory.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            snapshot: expect.objectContaining({
+              fullName: 'Nombre Concurrente',
+            }) as unknown,
+            diff: {
+              fullName: { from: 'Nombre Concurrente', to: 'Nombre Nuevo' },
+            },
+          }) as unknown,
+        });
+      });
+
+      it('paciente eliminado entre la lectura y el lock: 404 sin historial ni update', async () => {
+        prisma.patient.findFirst
+          .mockResolvedValueOnce(buildPatient())
+          .mockResolvedValueOnce(null);
+
+        await expect(
+          service.update('patient-1', request, 'therapist-1'),
+        ).rejects.toThrow(NotFoundException);
+        expect(prisma.patientHistory.create).not.toHaveBeenCalled();
+        expect(prisma.patient.update).not.toHaveBeenCalled();
+      });
+
+      it('otra edición concurrente ya dejó el valor pedido: no escribe y devuelve la fila actual', async () => {
+        const concurrent = buildPatient({ fullName: 'Nombre Nuevo' });
+        prisma.patient.findFirst
+          .mockResolvedValueOnce(buildPatient({ fullName: 'Nombre Viejo' }))
+          .mockResolvedValueOnce(concurrent);
+
+        await expect(
+          service.update('patient-1', request, 'therapist-1'),
+        ).resolves.toBe(concurrent);
+        expect(prisma.patientHistory.create).not.toHaveBeenCalled();
+        expect(prisma.patient.update).not.toHaveBeenCalled();
+      });
+
+      it('si el RUT pedido es inválido respecto de la fila releída, responde 400 sin escribir', async () => {
+        prisma.patient.findFirst
+          .mockResolvedValueOnce(buildPatient({ rut: '22222222-3' }))
+          .mockResolvedValueOnce(buildPatient());
+
+        await expect(
+          service.update(
+            'patient-1',
+            {
+              rut: '22222222-3',
+              fullName: 'Nombre Nuevo',
+              reason: 'RUT ingresado con error',
+            } as never,
+            'therapist-1',
+          ),
+        ).rejects.toThrow(BadRequestException);
+        expect(prisma.patientHistory.create).not.toHaveBeenCalled();
+        expect(prisma.patient.update).not.toHaveBeenCalled();
+      });
     });
 
     it.each([
@@ -1053,9 +1203,36 @@ describe('PatientsService', () => {
       );
       expect(result).toEqual([{ id: 'history-1' }]);
     });
+
+    it('issue #488: acota el historial con el tope de seguridad, de lo más reciente hacia atrás', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patientHistory.findMany.mockResolvedValue([]);
+
+      await service.getHistory('patient-1', 'therapist-1');
+
+      expect(prisma.patientHistory.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { changedAt: 'desc' },
+          take: UNPAGINATED_SAFETY_LIMIT,
+        }),
+      );
+    });
   });
 
   describe('recordConsent / getConsentLedger / getCurrentConsentStatus', () => {
+    // issue #488: el libro de consentimientos es un registro legal; a
+    // diferencia del historial de ediciones no se trunca en silencio.
+    it('getConsentLedger devuelve el libro completo, sin tope', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patientConsent.findMany.mockResolvedValue([]);
+
+      await service.getConsentLedger('patient-1', 'therapist-1');
+
+      expect(prisma.patientConsent.findMany).toHaveBeenCalledWith(
+        expect.not.objectContaining({ take: expect.anything() as unknown }),
+      );
+    });
+
     it('recordConsent valida acceso y crea el evento en el ledger', async () => {
       prisma.patient.findFirst.mockResolvedValue(buildPatient());
       prisma.patientConsent.create.mockResolvedValue({ id: 'consent-1' });
@@ -1252,6 +1429,121 @@ describe('PatientsService', () => {
           error: 'No se pudo registrar el consentimiento para este paciente.',
         },
       ]);
+    });
+
+    describe('bulkDeclareConsent: auditoría por paciente (issue #488)', () => {
+      const ctx = { ipAddress: '10.0.0.1', userAgent: 'jest-agent' };
+      const dto = (patientIds: string[]) =>
+        ({
+          patientIds,
+          purpose: 'TREATMENT',
+          evidence: 'Consentimiento en papel del expediente físico previo',
+        }) as never;
+      const row = (resourceId: string, action: string, result: string) =>
+        expect.objectContaining({
+          userId: 'therapist-1',
+          action,
+          resource: 'PatientConsent',
+          resourceId,
+          detail: `POST /patients/consents/bulk-declare purpose=TREATMENT result=${result}`,
+          ipAddress: '10.0.0.1',
+          userAgent: 'jest-agent',
+        }) as unknown;
+
+      it('deja una fila por paciente declarado, con su id como recurso', async () => {
+        prisma.patient.findFirst.mockResolvedValue(buildPatient());
+        prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+
+        await service.bulkDeclareConsent(
+          dto(['patient-1', 'patient-2']),
+          'therapist-1',
+          ctx,
+        );
+
+        expect(audit.log).toHaveBeenCalledTimes(2);
+        expect(audit.log).toHaveBeenNthCalledWith(
+          1,
+          row('patient-1', 'CREATE', 'granted'),
+        );
+        expect(audit.log).toHaveBeenNthCalledWith(
+          2,
+          row('patient-2', 'CREATE', 'granted'),
+        );
+      });
+
+      it('registra los que fallan: revocado, ya vigente, ajeno e inesperado', async () => {
+        prisma.patient.findFirst
+          .mockResolvedValueOnce(buildPatient({ id: 'revocado' }))
+          .mockResolvedValueOnce(buildPatient({ id: 'vigente' }))
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce(buildPatient({ id: 'roto' }));
+        prisma.patientConsent.findMany
+          .mockResolvedValueOnce([
+            { patientId: 'revocado', purpose: 'TREATMENT', action: 'REVOKE' },
+          ])
+          .mockResolvedValueOnce([
+            {
+              patientId: 'vigente',
+              purpose: 'TREATMENT',
+              action: 'GRANT',
+              grantedBy: 'PATIENT',
+            },
+          ])
+          .mockResolvedValueOnce([]);
+        prisma.patientConsent.create.mockRejectedValue(
+          new Error('connection terminated unexpectedly'),
+        );
+
+        await service.bulkDeclareConsent(
+          dto(['revocado', 'vigente', 'ajeno-1', 'roto']),
+          'therapist-1',
+          ctx,
+        );
+
+        expect(
+          (audit.log.mock.calls as unknown[][]).map(([entry]) => entry),
+        ).toEqual([
+          row('revocado', 'CREATE', 'revoked'),
+          row('vigente', 'CREATE', 'already_granted'),
+          row('ajeno-1', 'UNAUTHORIZED_ATTEMPT', 'denied'),
+          row('roto', 'CREATE', 'failed'),
+        ]);
+        const details = audit.log.mock.calls.map(
+          ([entry]) => (entry as { detail: string }).detail,
+        );
+        expect(details.join(' ')).not.toContain('connection terminated');
+      });
+
+      it('un id repetido en el lote deja una sola fila', async () => {
+        prisma.patient.findFirst.mockResolvedValue(buildPatient());
+        prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+
+        await service.bulkDeclareConsent(
+          dto(['patient-1', 'patient-1']),
+          'therapist-1',
+          ctx,
+        );
+
+        expect(audit.log).toHaveBeenCalledTimes(1);
+      });
+
+      it('si la auditoría falla, el lote igual responde y sigue con el resto', async () => {
+        prisma.patient.findFirst.mockResolvedValue(buildPatient());
+        prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+        audit.log.mockRejectedValueOnce(new Error('audit db down'));
+
+        const results = await service.bulkDeclareConsent(
+          dto(['patient-1', 'patient-2']),
+          'therapist-1',
+          ctx,
+        );
+
+        expect(results).toEqual([
+          { patientId: 'patient-1', ok: true },
+          { patientId: 'patient-2', ok: true },
+        ]);
+        expect(audit.log).toHaveBeenCalledTimes(2);
+      });
     });
 
     it('getConsentLedger valida acceso antes de devolver el ledger completo', async () => {
