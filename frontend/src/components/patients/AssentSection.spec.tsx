@@ -75,6 +75,28 @@ describe('AssentSection', () => {
     expect(screen.getByText(/informado y oído/i, { selector: 'p' })).toBeInTheDocument()
   })
 
+  it('issue #488: bajo 14 años no ofrece "Asentimiento otorgado"', async () => {
+    mockAssents([])
+    renderSection('UNDER_14')
+
+    await screen.findByText('Sin registros de asentimiento.')
+    const options = screen
+      .getAllByRole('option')
+      .map((o) => (o as HTMLOptionElement).value)
+    expect(options).not.toContain('GRANTED')
+    expect(options).toEqual(['REFUSED', 'WITHDRAWN', 'INFORMED_AND_HEARD'])
+  })
+
+  it('de 14 a 17 años sigue ofreciendo todas las acciones', async () => {
+    mockAssents([])
+    renderSection('AGE_14_17')
+
+    await screen.findByText('Sin registros de asentimiento.')
+    expect(
+      screen.getAllByRole('option').map((o) => (o as HTMLOptionElement).value),
+    ).toContain('GRANTED')
+  })
+
   it('registra una acción con nota opcional', async () => {
     const user = userEvent.setup()
     mockAssents([])

@@ -132,13 +132,14 @@ export default function AssentSection({
             value={action}
             onChange={(e) => setAction(e.target.value as AssentAction)}
           >
-            {(Object.keys(ASSENT_ACTION_LABELS) as AssentAction[]).map(
-              (key) => (
+            {(Object.keys(ASSENT_ACTION_LABELS) as AssentAction[])
+              // issue #488: el asentimiento expreso empieza a los 14 años.
+              .filter((key) => !(ageBand === "UNDER_14" && key === "GRANTED"))
+              .map((key) => (
                 <option key={key} value={key}>
                   {ASSENT_ACTION_LABELS[key]}
                 </option>
-              ),
-            )}
+              ))}
           </select>
         </FormField>
         {action === "REFUSED" && (
