@@ -41,6 +41,21 @@ const TOTP_STEP_SECONDS = 30;
 // seguridad de tenerlos impresos/guardados.
 const MFA_RECOVERY_CODES_COUNT = 10;
 
+// Issue #487: generateRecoveryCode emite 20 hex en grupos de 4 y se hashea esa
+// forma exacta. Para no rechazar un código bien copiado pero tipeado en
+// mayúsculas, sin guiones o con espacios, se lleva a la forma canónica antes
+// de verificar. Lo que no tiene la forma de un código emitido pasa tal cual:
+// no puede matchear ningún hash.
+const RECOVERY_CODE_HEX_LENGTH = 20;
+
+function canonicalizeRecoveryCode(input: string): string {
+  const compact = input.replace(/[\s-]/g, '').toLowerCase();
+  if (!new RegExp(`^[0-9a-f]{${RECOVERY_CODE_HEX_LENGTH}}$`).test(compact)) {
+    return input;
+  }
+  return compact.match(/.{4}/g)!.join('-');
+}
+
 @Injectable()
 export class MfaService {
   private readonly logger = new Logger(MfaService.name);
@@ -519,9 +534,10 @@ export class MfaService {
       where: { userId: user.id, usedAt: null },
     });
 
+    const recoveryCode = canonicalizeRecoveryCode(dto.recoveryCode);
     let matchedCodeId: string | null = null;
     for (const candidate of unusedCodes) {
-      if (await argon2.verify(candidate.codeHash, dto.recoveryCode)) {
+      if (await argon2.verify(candidate.codeHash, recoveryCode)) {
         matchedCodeId = candidate.id;
         break;
       }

@@ -1161,6 +1161,51 @@ describe('MfaService', () => {
       });
     });
 
+    // Issue #487: el código se muestra como a1b2-c3d4-e5f6-a7b8-c9d0 y se
+    // guarda el hash de esa forma exacta; quien lo tipea en mayúsculas, sin
+    // guiones o con espacios no debe quedar rechazado por el formato.
+    it.each([
+      ['mayúsculas', 'A1B2-C3D4-E5F6-A7B8-C9D0'],
+      ['sin guiones', 'a1b2c3d4e5f6a7b8c9d0'],
+      ['con espacios en vez de guiones', ' a1b2 c3d4 e5f6 a7b8 c9d0 '],
+    ])(
+      'verifica la forma canónica del código de recuperación (%s)',
+      async (_label, recoveryCode) => {
+        prisma.user.findUnique.mockResolvedValue(
+          buildUser({ mfaEnabled: true }),
+        );
+        mockArgon2.verify
+          .mockResolvedValueOnce(true as never) // password
+          .mockResolvedValueOnce(true as never); // recovery code
+        prisma.mfaRecoveryCode.findMany.mockResolvedValue([
+          { id: 'code-1', codeHash: 'hash-1' },
+        ]);
+
+        await service.recoverMfa({ ...dto, recoveryCode });
+
+        expect(mockArgon2.verify).toHaveBeenLastCalledWith(
+          'hash-1',
+          'a1b2-c3d4-e5f6-a7b8-c9d0',
+        );
+      },
+    );
+
+    it('deja pasar tal cual un código que no tiene la forma de los emitidos (no matchea ningún hash)', async () => {
+      prisma.user.findUnique.mockResolvedValue(buildUser({ mfaEnabled: true }));
+      mockArgon2.verify
+        .mockResolvedValueOnce(true as never) // password
+        .mockResolvedValueOnce(false as never); // recovery code
+      prisma.mfaRecoveryCode.findMany.mockResolvedValue([
+        { id: 'code-1', codeHash: 'hash-1' },
+      ]);
+
+      await expect(service.recoverMfa(dto)).rejects.toThrow(
+        'Código de recuperación inválido',
+      );
+
+      expect(mockArgon2.verify).toHaveBeenLastCalledWith('hash-1', 'a1b2-c3d4');
+    });
+
     it('camino feliz: consume el código, desactiva MFA y audita', async () => {
       prisma.user.findUnique.mockResolvedValue(buildUser({ mfaEnabled: true }));
       mockArgon2.verify

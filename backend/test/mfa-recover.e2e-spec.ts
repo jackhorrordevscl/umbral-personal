@@ -241,6 +241,20 @@ describe('MFA recovery codes (e2e)', () => {
       );
     });
 
+    it('acepta el código tipeado en mayúsculas y sin guiones (issue #487)', async () => {
+      const { email, recoveryCodes } =
+        await createUserWithMfaEnabled('recover.format');
+
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/mfa/recover')
+        .send({
+          email,
+          password: TEST_PASSWORD,
+          recoveryCode: recoveryCodes[0].replace(/-/g, '').toUpperCase(),
+        })
+        .expect(201);
+    });
+
     it('reusar el mismo código ya consumido rechaza con 401 (replay guard)', async () => {
       const { email, recoveryCodes } =
         await createUserWithMfaEnabled('recover.replay');
