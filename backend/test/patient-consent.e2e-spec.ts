@@ -549,6 +549,7 @@ describe('Patient consent ledger (e2e)', () => {
     });
 
     it('declara consentimiento para los propios y reporta el ajeno sin abortar el lote', async () => {
+      const startedAt = new Date();
       const res = await request(app.getHttpServer())
         .post('/api/v1/patients/consents/bulk-declare')
         .set('Authorization', `Bearer ${therapistAToken}`)
@@ -579,6 +580,50 @@ describe('Patient consent ledger (e2e)', () => {
         where: { patientId: bulkPatientBId },
       });
       expect(ledgerB.length).toBe(0);
+
+      // issue #488: una fila de auditoría por paciente del lote (antes una
+      // sola con resourceId 'N/A'); el ajeno queda como acceso denegado.
+      const rows = await prisma.auditLog.findMany({
+        where: {
+          resourceId: {
+            in: [bulkPatientAId1, bulkPatientAId2, bulkPatientBId],
+          },
+          detail: { contains: 'consents/bulk-declare' },
+        },
+        select: {
+          resourceId: true,
+          action: true,
+          resource: true,
+          detail: true,
+        },
+      });
+      const byId = new Map(rows.map((r) => [r.resourceId, r]));
+      expect(rows).toHaveLength(3);
+      for (const id of [bulkPatientAId1, bulkPatientAId2]) {
+        expect(byId.get(id)).toEqual({
+          resourceId: id,
+          action: 'CREATE',
+          resource: 'PatientConsent',
+          detail:
+            'POST /patients/consents/bulk-declare purpose=TREATMENT result=granted',
+        });
+      }
+      expect(byId.get(bulkPatientBId)).toEqual({
+        resourceId: bulkPatientBId,
+        action: 'UNAUTHORIZED_ATTEMPT',
+        resource: 'PatientConsent',
+        detail:
+          'POST /patients/consents/bulk-declare purpose=TREATMENT result=denied',
+      });
+      expect(
+        await prisma.auditLog.count({
+          where: {
+            resourceId: 'N/A',
+            detail: { contains: 'consents/bulk-declare' },
+            createdAt: { gte: startedAt },
+          },
+        }),
+      ).toBe(0);
     });
 
     it('rechaza evidence menor a 10 caracteres (400)', () => {

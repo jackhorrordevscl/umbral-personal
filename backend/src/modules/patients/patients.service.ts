@@ -36,6 +36,7 @@ import { lockTherapistForWrite } from '../../common/utils/lock-therapist.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { DEFAULT_PATIENTS_PAGE_SIZE } from './dto/patients-query.dto';
 import { isValidRut, normalizeRut } from '../../common/utils/rut.util';
+import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
 import { decryptConsultationRow } from '../consultations/util/consultation-text.util';
 
@@ -745,9 +746,29 @@ export class PatientsService {
   // `recordConsent` sigue corriendo por paciente -- nadie puede declarar
   // consentimiento sobre un paciente que no es suyo solo por mandarlo en el
   // mismo lote. Un id inválido/ajeno no aborta el resto del lote.
-  async bulkDeclareConsent(dto: BulkDeclareConsentDto, userId: string) {
+  //
+  // issue #488: el interceptor global solo ve la URL (sin id de paciente) y
+  // dejaba una fila con resourceId 'N/A'; el controller lo omite con
+  // @SkipAudit y acá se deja una fila por paciente del lote, también las
+  // fallidas. `detail` lleva solo un código de resultado, nunca el mensaje de
+  // un error interno. Fail-open: un fallo del log no aborta el resto del lote.
+  async bulkDeclareConsent(
+    dto: BulkDeclareConsentDto,
+    userId: string,
+    ctx: { ipAddress?: string; userAgent?: string } = {},
+  ) {
     const results: Array<{ patientId: string; ok: boolean; error?: string }> =
       [];
+    const audit = (patientId: string, result: string, denied = false) =>
+      logAuditFailOpen(this.auditService, this.logger, {
+        userId,
+        action: denied ? 'UNAUTHORIZED_ATTEMPT' : 'CREATE',
+        resource: 'PatientConsent',
+        resourceId: patientId,
+        detail: `POST /patients/consents/bulk-declare purpose=${dto.purpose} result=${result}`,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      });
     // Un id repetido en el lote no debe dejar dos eventos en el ledger.
     for (const patientId of new Set(dto.patientIds)) {
       try {
@@ -764,6 +785,7 @@ export class PatientsService {
             error:
               'El paciente revocó su consentimiento para esta finalidad: debe registrarse de forma individual si volvió a otorgarlo.',
           });
+          await audit(patientId, 'revoked');
           continue;
         }
         // Ya vigente (adulto): no se agrega otro evento al ledger. Un NNA
@@ -773,6 +795,7 @@ export class PatientsService {
           !isMinor(patient.birthDate)
         ) {
           results.push({ patientId, ok: true });
+          await audit(patientId, 'already_granted');
           continue;
         }
         await this.writeConsent(
@@ -785,6 +808,7 @@ export class PatientsService {
           userId,
         );
         results.push({ patientId, ok: true });
+        await audit(patientId, 'granted');
       } catch (err) {
         // Review R3-002 (issue #131): solo se expone el mensaje cuando es
         // una HttpException conocida (ej. NotFoundException de assertAccess
@@ -801,6 +825,12 @@ export class PatientsService {
           );
         }
         results.push({ patientId, ok: false, error: message });
+        // 403/404: paciente ajeno o inexistente, el mismo criterio con el que
+        // el interceptor registra un acceso denegado.
+        const denied =
+          err instanceof HttpException &&
+          (err.getStatus() === 403 || err.getStatus() === 404);
+        await audit(patientId, denied ? 'denied' : 'failed', denied);
       }
     }
     return results;

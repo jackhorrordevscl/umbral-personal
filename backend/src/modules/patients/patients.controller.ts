@@ -7,8 +7,10 @@ import {
   Body,
   Param,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { PatientsService } from './patients.service';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
@@ -19,6 +21,8 @@ import {
   CurrentUser,
   type RequestUser,
 } from '../../common/decorators/current-user.decorator';
+import { SkipAudit } from '../../common/decorators/skip-audit.decorator';
+import { getRequestClientIp } from '../../common/utils/client-ip.util';
 import { PatientsQueryDto } from './dto/patients-query.dto';
 
 @Controller('patients')
@@ -79,12 +83,21 @@ export class PatientsController {
   // T5 (issue #131): declaración retroactiva en bloque para pacientes que
   // ya estaban en tratamiento antes de este cambio. Ruta fija (no ':id') --
   // no colisiona con ':id/consents' porque el segundo segmento no coincide.
+  //
+  // issue #488: @SkipAudit porque el servicio deja una fila de auditoría por
+  // paciente del lote (la genérica del interceptor no conoce los ids y quedaba
+  // con resourceId 'N/A'); keepDenied conserva el registro de un 403/404.
+  @SkipAudit({ keepDenied: true })
   @Post('consents/bulk-declare')
   bulkDeclareConsent(
     @Body() dto: BulkDeclareConsentDto,
     @CurrentUser() user: RequestUser,
+    @Req() req: Request,
   ) {
-    return this.patientsService.bulkDeclareConsent(dto, user.id);
+    return this.patientsService.bulkDeclareConsent(dto, user.id, {
+      ipAddress: getRequestClientIp(req),
+      userAgent: req.headers['user-agent'],
+    });
   }
 
   // T6.1 (issue #27): consentimiento granular por finalidad (Ley 21.719)
