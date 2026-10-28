@@ -13,6 +13,7 @@ import { hashInvitationCode } from './invitation-code.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { AuditService } from '../audit/audit.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
 jest.mock('argon2');
 
@@ -67,6 +68,11 @@ describe('AuthService', () => {
     sendSignupAttemptNoticeEmail: jest.Mock;
   };
   let auditService: { log: jest.Mock };
+  let subscriptions: {
+    isEnforced: jest.Mock;
+    assertPromoCodeUsable: jest.Mock;
+    redeemPromoCode: jest.Mock;
+  };
 
   beforeEach(() => {
     prisma = {
@@ -111,12 +117,19 @@ describe('AuthService', () => {
       log: jest.fn().mockResolvedValue(undefined),
     };
 
+    subscriptions = {
+      isEnforced: jest.fn().mockReturnValue(false),
+      assertPromoCodeUsable: jest.fn().mockResolvedValue(undefined),
+      redeemPromoCode: jest.fn().mockResolvedValue(new Date()),
+    };
+
     service = new AuthService(
       prisma as unknown as PrismaService,
       jwtService as unknown as JwtService,
       config as unknown as ConfigService,
       mailService as unknown as MailService,
       auditService as unknown as AuditService,
+      subscriptions as unknown as SubscriptionsService,
     );
 
     // clearAllMocks() solo limpia historial de llamadas (calls/instances/
@@ -134,6 +147,93 @@ describe('AuthService', () => {
       expiresAt: new Date(Date.now() + 60_000),
       usedAt: null,
     };
+
+    describe('registro abierto (issue #611, SUBSCRIPTIONS_ENFORCED encendido)', () => {
+      const openDto = {
+        email: 'nueva@example.com',
+        password: 'password1',
+        name: 'Nueva Cuenta',
+      };
+
+      beforeEach(() => {
+        subscriptions.isEnforced.mockReturnValue(true);
+        mockArgon2.hash.mockResolvedValue('hashed-password' as never);
+        prisma.user.findUnique.mockResolvedValue(null);
+        prisma.user.create.mockResolvedValue(
+          buildUser({ id: 'user-open', emailVerified: false }),
+        );
+      });
+
+      it('crea la cuenta sin código de invitación y sin tocar las invitaciones', async () => {
+        await service.signup(openDto, '10.0.0.1', 'jest-agent');
+
+        expect(prisma.user.create).toHaveBeenCalledTimes(1);
+        expect(prisma.invitationCode.findUnique).not.toHaveBeenCalled();
+        expect(prisma.invitationCode.updateMany).not.toHaveBeenCalled();
+        expect(subscriptions.redeemPromoCode).not.toHaveBeenCalled();
+        expect(auditService.log).toHaveBeenCalledWith(
+          expect.objectContaining({
+            detail: 'SIGNUP open promo=no',
+          }) as unknown,
+        );
+      });
+
+      it('con código promocional lo valida antes de mirar el email y lo canjea en la misma transacción', async () => {
+        await service.signup({ ...openDto, promoCode: 'FLYER-1' });
+
+        expect(subscriptions.assertPromoCodeUsable).toHaveBeenCalledWith(
+          'FLYER-1',
+        );
+        expect(
+          subscriptions.assertPromoCodeUsable.mock.invocationCallOrder[0],
+        ).toBeLessThan(prisma.user.findUnique.mock.invocationCallOrder[0]);
+        expect(subscriptions.redeemPromoCode).toHaveBeenCalledWith(
+          expect.anything(),
+          'user-open',
+          'FLYER-1',
+        );
+        expect(auditService.log).toHaveBeenCalledWith(
+          expect.objectContaining({
+            detail: 'SIGNUP open promo=yes',
+          }) as unknown,
+        );
+      });
+
+      it('un código promocional inválido se rechaza antes de buscar el email (no es oráculo de cuentas)', async () => {
+        subscriptions.assertPromoCodeUsable.mockRejectedValue(
+          new BadRequestException('Código promocional inválido o vencido'),
+        );
+
+        await expect(
+          service.signup({ ...openDto, promoCode: 'MALO' }),
+        ).rejects.toThrow(BadRequestException);
+
+        expect(prisma.user.findUnique).not.toHaveBeenCalled();
+        expect(prisma.user.create).not.toHaveBeenCalled();
+      });
+
+      it('si el email ya existe responde igual que un alta nueva y no canjea el código', async () => {
+        prisma.user.findUnique.mockResolvedValue(buildUser());
+
+        await expect(
+          service.signup({ ...openDto, promoCode: 'FLYER-1' }),
+        ).resolves.toHaveProperty('message');
+
+        expect(prisma.user.create).not.toHaveBeenCalled();
+        expect(subscriptions.redeemPromoCode).not.toHaveBeenCalled();
+      });
+
+      it('con el interruptor apagado sigue exigiendo invitación e ignora el código promocional', async () => {
+        subscriptions.isEnforced.mockReturnValue(false);
+
+        await expect(
+          service.signup({ ...openDto, promoCode: 'FLYER-1' }),
+        ).rejects.toThrow(UnauthorizedException);
+
+        expect(subscriptions.assertPromoCodeUsable).not.toHaveBeenCalled();
+        expect(prisma.user.create).not.toHaveBeenCalled();
+      });
+    });
 
     describe('auditoría (issue #283)', () => {
       const dto = {

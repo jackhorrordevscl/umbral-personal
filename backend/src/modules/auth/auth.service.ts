@@ -29,6 +29,7 @@ import {
 import { getDummyPasswordHash } from './dummy-password-hash.util';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 import { hashInvitationCode } from './invitation-code.util';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
 // Idem para el cambio de contraseña forzado (T4.4 / issue #22): el admin
 // semilla (y cualquier cuenta creada con mustChangePassword=true) no puede
@@ -97,6 +98,7 @@ export class AuthService {
     private config: ConfigService,
     private mailService: MailService,
     private auditService: AuditService,
+    private subscriptions: SubscriptionsService,
   ) {}
 
   // Issue #5: único componente genuinamente nuevo del MVP -- en la versión
@@ -118,15 +120,32 @@ export class AuthService {
     // Issue #487: con una invitación válida tampoco: si el email ya existe se
     // responde igual que un alta nueva (sin crear nada ni gastar la
     // invitación) y el titular recibe un aviso por email.
-    const invitation = await this.prisma.invitationCode.findUnique({
-      where: { codeHash: hashInvitationCode(dto.inviteCode) },
-    });
-    if (
-      !invitation ||
-      invitation.usedById ||
-      invitation.expiresAt < new Date()
-    ) {
-      this.rejectSignup('INVITATION_INVALID', ipAddress, userAgent);
+    //
+    // Issue #611: con SUBSCRIPTIONS_ENFORCED encendido el registro es abierto
+    // (sin invitación) y admite un código promocional opcional. Ese código se
+    // valida también ANTES de mirar si el email existe, por la misma razón: un
+    // código inválido no puede servir de oráculo de qué emails tienen cuenta.
+    const openSignup = this.subscriptions.isEnforced();
+    let invitation: Awaited<
+      ReturnType<PrismaService['invitationCode']['findUnique']>
+    > = null;
+    if (openSignup) {
+      if (dto.promoCode) {
+        await this.subscriptions.assertPromoCodeUsable(dto.promoCode);
+      }
+    } else {
+      invitation = dto.inviteCode
+        ? await this.prisma.invitationCode.findUnique({
+            where: { codeHash: hashInvitationCode(dto.inviteCode) },
+          })
+        : null;
+      if (
+        !invitation ||
+        invitation.usedById ||
+        invitation.expiresAt < new Date()
+      ) {
+        this.rejectSignup('INVITATION_INVALID', ipAddress, userAgent);
+      }
     }
 
     // El hash corre antes del chequeo de email para que la rama "email ya
@@ -180,12 +199,22 @@ export class AuthService {
             emailVerified: false,
           },
         });
-        const { count } = await tx.invitationCode.updateMany({
-          where: { id: invitation.id, usedById: null },
-          data: { usedById: createdUser.id, usedAt: new Date() },
-        });
-        if (count === 0) {
-          throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
+        if (invitation) {
+          const { count } = await tx.invitationCode.updateMany({
+            where: { id: invitation.id, usedById: null },
+            data: { usedById: createdUser.id, usedAt: new Date() },
+          });
+          if (count === 0) {
+            throw new UnauthorizedException(SIGNUP_REJECTED_MESSAGE);
+          }
+        } else if (dto.promoCode) {
+          // El canje y la cuenta son atómicos: si el cupo se agotó entre la
+          // validación previa y acá, no queda cuenta a medias.
+          await this.subscriptions.redeemPromoCode(
+            tx,
+            createdUser.id,
+            dto.promoCode,
+          );
         }
         return createdUser;
       })
@@ -216,7 +245,9 @@ export class AuthService {
       action: 'CREATE',
       resource: 'User',
       resourceId: user.id,
-      detail: `SIGNUP invitationId=${invitation.id}`,
+      detail: invitation
+        ? `SIGNUP invitationId=${invitation.id}`
+        : `SIGNUP open promo=${dto.promoCode ? 'yes' : 'no'}`,
       ipAddress,
       userAgent,
     });

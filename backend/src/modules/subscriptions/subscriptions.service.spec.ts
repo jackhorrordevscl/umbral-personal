@@ -25,6 +25,7 @@ describe('SubscriptionsService', () => {
     $transaction: jest.Mock;
     user: { findUnique: jest.Mock };
     subscriptionGrant: { findUnique: jest.Mock };
+    promoCode?: { findUnique: jest.Mock };
   };
   let env: Record<string, string | undefined>;
   let service: SubscriptionsService;
@@ -210,6 +211,77 @@ describe('SubscriptionsService', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(tx.promoRedemption.create).not.toHaveBeenCalled();
       expect(tx.subscription.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('interruptor y vista de estado (issue #611)', () => {
+    it('isEnforced solo es true con SUBSCRIPTIONS_ENFORCED="true"', () => {
+      expect(service.isEnforced()).toBe(false);
+      env.SUBSCRIPTIONS_ENFORCED = 'false';
+      expect(service.isEnforced()).toBe(false);
+      env.SUBSCRIPTIONS_ENFORCED = 'true';
+      expect(service.isEnforced()).toBe(true);
+    });
+
+    it('isWriteBlocked es false con el interruptor apagado aunque no haya suscripción', async () => {
+      expect(await service.isWriteBlocked('u1', now)).toBe(false);
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['sin suscripción', null, true],
+      ['período vigente', days(3), false],
+      ['en gracia', days(-2), false],
+      ['gracia terminada', days(-8), true],
+    ])(
+      'con el interruptor encendido, %s -> bloqueada=%s',
+      async (_n, end, blocked) => {
+        env.SUBSCRIPTIONS_ENFORCED = 'true';
+        prisma.user.findUnique.mockResolvedValue({
+          email: 'a@b.cl',
+          subscription: end ? { currentPeriodEnd: end } : null,
+        });
+        prisma.subscriptionGrant.findUnique.mockResolvedValue(null);
+
+        expect(await service.isWriteBlocked('u1', now)).toBe(blocked);
+      },
+    );
+
+    it('una concesión permanente nunca queda bloqueada', async () => {
+      env.SUBSCRIPTIONS_ENFORCED = 'true';
+      prisma.user.findUnique.mockResolvedValue({
+        email: 'a@b.cl',
+        subscription: null,
+      });
+      prisma.subscriptionGrant.findUnique.mockResolvedValue({
+        expiresAt: null,
+      });
+
+      expect(await service.isWriteBlocked('u1', now)).toBe(false);
+    });
+
+    it('assertPromoCodeUsable rechaza inexistente, vencido y con el tope alcanzado, sin consumir cupo', async () => {
+      const usable = {
+        expiresAt: days(5),
+        redemptionCount: 29,
+        maxRedemptions: 30,
+      };
+      for (const row of [
+        null,
+        { ...usable, expiresAt: days(-1) },
+        { ...usable, redemptionCount: 30 },
+      ]) {
+        tx.promoCode.findUnique.mockResolvedValue(row);
+        prisma.promoCode = tx.promoCode;
+        await expect(
+          service.assertPromoCodeUsable('X', now),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      }
+      tx.promoCode.findUnique.mockResolvedValue(usable);
+      await expect(
+        service.assertPromoCodeUsable('X', now),
+      ).resolves.toBeUndefined();
+      expect(tx.promoCode.updateMany).not.toHaveBeenCalled();
     });
   });
 });

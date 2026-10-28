@@ -11,6 +11,7 @@ import { SessionPurgeService } from './session-purge.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { MailModule } from '../mail/mail.module';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { getClientIp } from '../../common/utils/client-ip.util';
 
 /**
@@ -321,6 +322,7 @@ export function buildAuthThrottlerOptions(
   imports: [
     PassportModule,
     MailModule,
+    SubscriptionsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

@@ -26,6 +26,7 @@ import { PublicAvailabilityQueryDto } from './dto/public-availability-query.dto'
 import { BookPublicSlotDto } from './dto/book-public-slot.dto';
 import { parsePositiveInt } from './public-schedule-throttler.guard';
 import { PublicTherapistResolverService } from './public-therapist-resolver.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.6): mismo tope que
 // consultations.service.ts findByRange (62 días, con margen para el grid
@@ -69,6 +70,7 @@ export class PublicSchedulingService {
     private readonly notificationsService: NotificationsService,
     private readonly therapistResolver: PublicTherapistResolverService,
     private readonly mailService: MailService,
+    private readonly subscriptions: SubscriptionsService,
   ) {
     this.enabled =
       this.config.get<string>('PUBLIC_SCHEDULING_ENABLED') === 'true';
@@ -97,6 +99,16 @@ export class PublicSchedulingService {
   // la ruta existe, la funcionalidad está apagada por config.
   private assertEnabled(): void {
     if (!this.enabled) {
+      throw new ServiceUnavailableException(
+        'La agenda pública no está disponible.',
+      );
+    }
+  }
+
+  // Issue #611: la agenda pública de una cuenta en solo lectura deja de estar
+  // disponible, con el mismo mensaje que cuando la función está apagada.
+  private async assertTherapistCanBook(therapistId: string): Promise<void> {
+    if (await this.subscriptions.isWriteBlocked(therapistId)) {
       throw new ServiceUnavailableException(
         'La agenda pública no está disponible.',
       );
@@ -179,6 +191,7 @@ export class PublicSchedulingService {
     // Un slug desconocido se comporta como un id desconocido: sin slots.
     const therapistId = await this.therapistResolver.resolveId(therapistRef);
     if (!therapistId) return [];
+    await this.assertTherapistCanBook(therapistId);
 
     return this.availabilityService.computeSlots(therapistId, from, to);
   }
@@ -190,6 +203,7 @@ export class PublicSchedulingService {
     if (!therapistId) {
       throw new NotFoundException('Terapeuta no encontrado.');
     }
+    await this.assertTherapistCanBook(therapistId);
 
     const therapist = await this.prisma.user.findUnique({
       where: { id: therapistId },

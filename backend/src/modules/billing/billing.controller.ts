@@ -35,6 +35,13 @@ export class BillingController {
 
   constructor(private readonly billingService: BillingService) {}
 
+  // Estado de la suscripción de la cuenta autenticada, para el frontend.
+  @UseGuards(JwtAuthGuard)
+  @Get('status')
+  status(@CurrentUser() user: RequestUser) {
+    return this.billingService.getStatus(user.id);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post('checkout')
   checkout(@CurrentUser() user: RequestUser) {
