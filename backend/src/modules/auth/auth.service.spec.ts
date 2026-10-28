@@ -223,16 +223,49 @@ describe('AuthService', () => {
         expect(subscriptions.redeemPromoCode).not.toHaveBeenCalled();
       });
 
-      it('con el interruptor apagado sigue exigiendo invitación e ignora el código promocional', async () => {
-        subscriptions.isEnforced.mockReturnValue(false);
+      it('si el cupo se agota entre la validación y el canje, el cliente recibe 400 y no queda cuenta ni auditoría de alta', async () => {
+        subscriptions.redeemPromoCode.mockRejectedValue(
+          new BadRequestException('Código promocional inválido o vencido'),
+        );
 
         await expect(
           service.signup({ ...openDto, promoCode: 'FLYER-1' }),
+        ).rejects.toThrow(BadRequestException);
+
+        expect(auditService.log).not.toHaveBeenCalledWith(
+          expect.objectContaining({ action: 'CREATE' }) as unknown,
+        );
+      });
+
+      it('con el interruptor apagado sigue exigiendo invitación e ignora el código promocional', async () => {
+        subscriptions.isEnforced.mockReturnValue(false);
+        prisma.invitationCode.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.signup({
+            ...openDto,
+            inviteCode: 'invalida',
+            promoCode: 'FLYER-1',
+          }),
         ).rejects.toThrow(UnauthorizedException);
 
         expect(subscriptions.assertPromoCodeUsable).not.toHaveBeenCalled();
         expect(prisma.user.create).not.toHaveBeenCalled();
       });
+
+      it.each([undefined, ''])(
+        'con el interruptor apagado, un inviteCode ausente o vacío (%j) sigue siendo un 400 de validación, sin auditoría de rechazo',
+        async (inviteCode) => {
+          subscriptions.isEnforced.mockReturnValue(false);
+
+          await expect(
+            service.signup({ ...openDto, inviteCode }),
+          ).rejects.toThrow(BadRequestException);
+
+          expect(auditService.log).not.toHaveBeenCalled();
+          expect(prisma.invitationCode.findUnique).not.toHaveBeenCalled();
+        },
+      );
     });
 
     describe('auditoría (issue #283)', () => {

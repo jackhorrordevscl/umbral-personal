@@ -134,11 +134,15 @@ export class AuthService {
         await this.subscriptions.assertPromoCodeUsable(dto.promoCode);
       }
     } else {
-      invitation = dto.inviteCode
-        ? await this.prisma.invitationCode.findUnique({
-            where: { codeHash: hashInvitationCode(dto.inviteCode) },
-          })
-        : null;
+      // Interruptor apagado: el código de invitación sigue siendo obligatorio y
+      // su ausencia sigue siendo un 400 de validación (como antes de #611),
+      // no un rechazo de alta con auditoría.
+      if (!dto.inviteCode) {
+        throw new BadRequestException('inviteCode should not be empty');
+      }
+      invitation = await this.prisma.invitationCode.findUnique({
+        where: { codeHash: hashInvitationCode(dto.inviteCode) },
+      });
       if (
         !invitation ||
         invitation.usedById ||

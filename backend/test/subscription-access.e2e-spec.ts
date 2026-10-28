@@ -67,8 +67,11 @@ describe('Subscription access (e2e, SUBSCRIPTIONS_ENFORCED=true)', () => {
   }
 
   const as = (token: string) => ({ Authorization: `Bearer ${token}` });
-  const availabilityUrl = (therapistId: string) =>
-    `/api/v1/public/therapists/${therapistId}/availability?from=${encodeURIComponent('2026-12-01T00:00:00-03:00')}&to=${encodeURIComponent('2026-12-05T00:00:00-03:00')}`;
+  const availabilityUrl = (therapistId: string) => {
+    const from = new Date(Date.now() + 2 * 86_400_000).toISOString();
+    const to = new Date(Date.now() + 6 * 86_400_000).toISOString();
+    return `/api/v1/public/therapists/${therapistId}/availability?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  };
 
   beforeAll(async () => {
     process.env.SUBSCRIPTIONS_ENFORCED = 'true';
@@ -176,12 +179,17 @@ describe('Subscription access (e2e, SUBSCRIPTIONS_ENFORCED=true)', () => {
           priceStartedAt: new Date(),
         },
       });
-      await request(app.getHttpServer())
-        .post('/api/v1/patients')
-        .set(as(readOnly.token))
-        .send({})
-        .expect(400);
-      await prisma.subscription.deleteMany({ where: { userId: readOnly.id } });
+      try {
+        await request(app.getHttpServer())
+          .post('/api/v1/patients')
+          .set(as(readOnly.token))
+          .send({})
+          .expect(400);
+      } finally {
+        await prisma.subscription.deleteMany({
+          where: { userId: readOnly.id },
+        });
+      }
     });
 
     it('GET /billing/status informa el estado de la cuenta', async () => {
