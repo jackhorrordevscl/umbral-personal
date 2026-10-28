@@ -14,6 +14,7 @@ import { AvailabilityService } from '../availability/availability.service';
 import { PatientsService } from '../patients/patients.service';
 import { ConsultationsService } from '../consultations/consultations.service';
 import { MailService } from '../mail/mail.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { PublicBookingRejectedException } from '../patients/public-booking-rejected.exception';
 import {
   NotificationsService,
@@ -48,6 +49,7 @@ describe('PublicSchedulingService', () => {
     create: jest.Mock<Promise<unknown>, [CreateNotificationData]>;
   };
   let mailService: { sendPublicBookingAttemptNoticeEmail: jest.Mock };
+  let subscriptions: { isWriteBlocked: jest.Mock };
   // Por defecto actúa como identidad (la referencia ya es el id); los tests de
   // slug lo reconfiguran.
   let resolver: { resolveId: jest.Mock };
@@ -74,6 +76,7 @@ describe('PublicSchedulingService', () => {
       notificationsService as unknown as NotificationsService,
       resolver as unknown as PublicTherapistResolverService,
       mailService as unknown as MailService,
+      subscriptions as unknown as SubscriptionsService,
     );
   }
 
@@ -101,6 +104,7 @@ describe('PublicSchedulingService', () => {
         .fn<Promise<unknown>, [CreateNotificationData]>()
         .mockResolvedValue({}),
     };
+    subscriptions = { isWriteBlocked: jest.fn().mockResolvedValue(false) };
     mailService = {
       sendPublicBookingAttemptNoticeEmail: jest
         .fn()
@@ -226,6 +230,20 @@ describe('PublicSchedulingService', () => {
       );
     });
 
+    // Issue #611: cuenta en solo lectura (interruptor encendido).
+    it('una cuenta en solo lectura no tiene agenda pública (503) ni calcula slots', async () => {
+      subscriptions.isWriteBlocked.mockResolvedValue(true);
+
+      await expect(
+        service.getAvailability('therapist-1', {
+          from: '2026-09-01T00:00:00-04:00',
+          to: '2026-09-05T00:00:00-04:00',
+        }),
+      ).rejects.toThrow(ServiceUnavailableException);
+      expect(subscriptions.isWriteBlocked).toHaveBeenCalledWith('therapist-1');
+      expect(availabilityService.computeSlots).not.toHaveBeenCalled();
+    });
+
     it('rechaza un rango que supera los 60 días', async () => {
       await expect(
         service.getAvailability('therapist-1', {
@@ -254,6 +272,22 @@ describe('PublicSchedulingService', () => {
       birthDate: '1990-01-01',
       email: 'paciente@ejemplo.cl',
     };
+
+    it('una cuenta en solo lectura no acepta reservas: 503 sin escribir nada', async () => {
+      subscriptions.isWriteBlocked.mockResolvedValue(true);
+      prisma.user.findUnique.mockResolvedValue({ sessionDurationMinutes: 50 });
+
+      await expect(
+        service.book('therapist-1', {
+          slotStart: '2026-09-05T13:00:00.000Z',
+          patient: patientDto,
+        } as never),
+      ).rejects.toThrow(ServiceUnavailableException);
+      expect(patientsService.resolveForPublicBooking).not.toHaveBeenCalled();
+      expect(
+        consultationsService.createFromPublicBooking,
+      ).not.toHaveBeenCalled();
+    });
 
     it('lanza 404 si el terapeuta no existe', async () => {
       prisma.user.findUnique.mockResolvedValue(null);

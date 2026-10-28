@@ -11,6 +11,7 @@ import {
 } from './access-state';
 
 export const DEFAULT_SUBSCRIPTION_PRICE_CLP = 6990;
+export const PROMO_CODE_INVALID = 'Código promocional inválido o vencido';
 
 export function normalizeGrantEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -29,6 +30,58 @@ export class SubscriptionsService {
     return Number.isInteger(raw) && raw > 0
       ? raw
       : DEFAULT_SUBSCRIPTION_PRICE_CLP;
+  }
+
+  // Issue #611: interruptor de despliegue. Apagado, la app se comporta como
+  // antes de la suscripción (registro con invitación, sin bloqueos ni cobros).
+  isEnforced(): boolean {
+    return this.config.get<string>('SUBSCRIPTIONS_ENFORCED') === 'true';
+  }
+
+  // Cuenta que hoy no puede escribir: interruptor encendido y en solo lectura.
+  // La gracia y el período activo sí escriben.
+  async isWriteBlocked(
+    userId: string,
+    now: Date = new Date(),
+  ): Promise<boolean> {
+    if (!this.isEnforced()) return false;
+    return (await this.getAccess(userId, now)).state === 'READ_ONLY';
+  }
+
+  async getStatusView(userId: string, now: Date = new Date()) {
+    const [access, subscription] = await Promise.all([
+      this.getAccess(userId, now),
+      this.prisma.subscription.findUnique({
+        where: { userId },
+        select: { priceClp: true },
+      }),
+    ]);
+    return {
+      enforced: this.isEnforced(),
+      state: access.state,
+      periodEnd: access.periodEnd,
+      graceEnd: access.graceEnd,
+      priceClp: subscription?.priceClp ?? this.currentPriceClp(),
+    };
+  }
+
+  // Validación previa y de solo lectura del código promocional (no consume
+  // cupo): el signup la corre ANTES de mirar si el email existe, para que un
+  // código inválido no sirva de oráculo de qué emails tienen cuenta.
+  async assertPromoCodeUsable(
+    code: string,
+    now: Date = new Date(),
+  ): Promise<void> {
+    const promo = await this.prisma.promoCode.findUnique({
+      where: { codeHash: hashInvitationCode(code) },
+    });
+    if (
+      !promo ||
+      promo.expiresAt <= now ||
+      promo.redemptionCount >= promo.maxRedemptions
+    ) {
+      throw new BadRequestException(PROMO_CODE_INVALID);
+    }
   }
 
   // Crea la suscripción de la cuenta si aún no existe, congelando el precio
@@ -129,14 +182,14 @@ export class SubscriptionsService {
       where: { codeHash: hashInvitationCode(code) },
     });
     if (!promo || promo.expiresAt <= now) {
-      throw new BadRequestException('Código promocional inválido o vencido');
+      throw new BadRequestException(PROMO_CODE_INVALID);
     }
     const taken = await tx.promoCode.updateMany({
       where: { id: promo.id, redemptionCount: { lt: promo.maxRedemptions } },
       data: { redemptionCount: { increment: 1 } },
     });
     if (taken.count === 0) {
-      throw new BadRequestException('Código promocional inválido o vencido');
+      throw new BadRequestException(PROMO_CODE_INVALID);
     }
     // userId es único: una cuenta canjea una sola vez (P2002 revierte el tx).
     await tx.promoRedemption.create({

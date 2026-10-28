@@ -214,6 +214,10 @@ export class BillingService {
     }
   }
 
+  getStatus(userId: string) {
+    return this.subscriptions.getStatusView(userId);
+  }
+
   frontendReturnUrl(): string {
     const frontendUrl =
       this.config.get<string>('FRONTEND_URL') ?? DEFAULT_FRONTEND_URL;
