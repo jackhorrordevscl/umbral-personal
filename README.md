@@ -1039,7 +1039,8 @@ Todas las rutas usan el prefijo global `/api/v1`.
 
 ### Autenticación
 ```
-POST /api/v1/auth/signup               (requiere inviteCode, issue #124)
+GET  /api/v1/auth/signup-config        (público; { openSignup }, issue #611: true con SUBSCRIPTIONS_ENFORCED=true)
+POST /api/v1/auth/signup               (requiere inviteCode, issue #124; con SUBSCRIPTIONS_ENFORCED=true es abierto y admite promoCode opcional, issue #611)
 POST /api/v1/auth/invitations          🔒 (solo INVITE_CREATOR_EMAIL, issue #124)
 POST /api/v1/auth/verify-email
 POST /api/v1/auth/verify-email/resend

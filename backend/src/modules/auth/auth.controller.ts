@@ -1,4 +1,12 @@
-import { Controller, Post, Body, Req, Res, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { applySessionCookie, clearSessionCookie } from './session-cookie';
 import { ThrottlerGuard, SkipThrottle } from '@nestjs/throttler';
@@ -101,6 +109,15 @@ export class AuthController {
       req.headers['user-agent'],
     );
     return applySessionCookie(res, result);
+  }
+
+  // Issue #611: ruta pública de solo lectura para que el frontend sepa si el
+  // registro es abierto o por invitación. Sin ThrottlerGuard a propósito: solo
+  // lee el interruptor de entorno (sin base de datos ni efectos), y no hay un
+  // guard de throttling global.
+  @Get('signup-config')
+  signupConfig() {
+    return this.authService.getSignupConfig();
   }
 
   // Issue #5: signup propio, la única ruta no autenticada que crea una
