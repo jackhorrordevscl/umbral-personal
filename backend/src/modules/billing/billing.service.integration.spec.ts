@@ -1,9 +1,16 @@
 import * as argon2 from 'argon2';
-import { HttpException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  HttpException,
+  ServiceUnavailableException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FlowPaymentGatewayClient } from '../payments/flow-gateway.client';
-import { GatewayOrderStatus } from '../payments/payment-gateway.client';
+import {
+  GatewayOrderStatus,
+  PaymentGatewayError,
+} from '../payments/payment-gateway.client';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { BillingService } from './billing.service';
 
@@ -144,6 +151,38 @@ describe('BillingService (integration, real Prisma, Flow simulado)', () => {
     expect(payments).toHaveLength(1);
     expect(payments[0].status).toBe('FAILED');
     expect(payments[0].flowToken).toBeNull();
+  }, 30000);
+
+  it('si Flow rechaza el correo (code 1620), responde 422 con mensaje específico y el pago queda FAILED', async () => {
+    const userId = await createUser('bademail');
+    flow.createOrder.mockRejectedValueOnce(
+      new PaymentGatewayError(
+        'rejected',
+        'Flow devolvió 400 (POST /payment/create): userEmail no válido',
+        1620,
+      ),
+    );
+
+    const err = await service.createCheckout(userId).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(UnprocessableEntityException);
+    expect((err as Error).message).toMatch(/correo de tu cuenta/i);
+    const payments = await prisma.subscriptionPayment.findMany({
+      where: { subscription: { userId } },
+    });
+    expect(payments).toHaveLength(1);
+    expect(payments[0].status).toBe('FAILED');
+  }, 30000);
+
+  it('si Flow rechaza con otro código, mantiene el 503 genérico', async () => {
+    const userId = await createUser('otherrej');
+    flow.createOrder.mockRejectedValueOnce(
+      new PaymentGatewayError('rejected', 'rechazada', 1700),
+    );
+
+    await expect(service.createCheckout(userId)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
   }, 30000);
 
   it('confirm: pagado por el monto cobrado concede 30 días y queda PAID', async () => {

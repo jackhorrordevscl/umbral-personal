@@ -4,13 +4,17 @@ import {
   Injectable,
   Logger,
   ServiceUnavailableException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FlowPaymentGatewayClient } from '../payments/flow-gateway.client';
-import { GatewayCredentials } from '../payments/payment-gateway.client';
+import {
+  GatewayCredentials,
+  PaymentGatewayError,
+} from '../payments/payment-gateway.client';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { PERIOD_DAYS } from '../subscriptions/access-state';
 
@@ -31,6 +35,10 @@ const SWEEP_BATCH_LIMIT = 200;
 // llenar el lote del barrido ni gastar llamadas a Flow con la clave de la
 // plataforma. Solo cuentan los de la ventana del barrido.
 const MAX_OPEN_CHECKOUTS = 5;
+// Flow responde 400 con code 1620 ("The userEmail: ... is not valid.") cuando no
+// acepta el correo del pagador. Verificado en el sandbox el 3 nov 2026 con
+// dominio inexistente, formato inválido y correo vacío. Reintentar no lo arregla.
+const FLOW_INVALID_EMAIL_CODE = 1620;
 // Consulta al volver de Flow: por cuenta, como mucho una vez cada 5 s (la
 // pantalla de retorno consulta cada 5 s) y sobre los pagos pendientes más
 // recientes. El mapa vive en memoria de la instancia: es solo un freno de
@@ -140,6 +148,15 @@ export class BillingService {
       this.logger.error(
         `No se pudo crear la orden de suscripción (paymentId=${payment.id}): ${err instanceof Error ? err.message : String(err)}`,
       );
+      if (
+        err instanceof PaymentGatewayError &&
+        err.kind === 'rejected' &&
+        err.gatewayCode === FLOW_INVALID_EMAIL_CODE
+      ) {
+        throw new UnprocessableEntityException(
+          'El procesador de pagos no aceptó el correo de tu cuenta. Revisa que sea un correo válido en tu perfil e intenta de nuevo.',
+        );
+      }
       throw new ServiceUnavailableException(
         'No pudimos iniciar el pago. Intenta de nuevo en unos minutos.',
       );
