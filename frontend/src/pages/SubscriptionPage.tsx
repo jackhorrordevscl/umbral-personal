@@ -16,7 +16,8 @@ const clp = new Intl.NumberFormat('es-CL', {
 });
 
 // Tras pagar, Flow devuelve al navegador y confirma por webhook: puede tardar.
-// La pantalla de retorno consulta el estado cada 5 s durante un minuto.
+// La pantalla de retorno consulta el estado cada 5 s durante un minuto y, en
+// cada vuelta, le pide al backend que verifique el pago directamente en Flow.
 const RETURN_POLL = { everyMs: 5000, maxRefetches: 12 };
 
 function describeStatus(status: SubscriptionStatus) {
@@ -68,8 +69,7 @@ export function SubscriptionScreen({
     isLoading,
     isError,
     refetch,
-  } = useSubscriptionStatus({ poll: afterPayment ? RETURN_POLL : undefined });
-  const checkout = useCheckout();
+  } = useSubscriptionStatus({ poll: afterPayment ? RETURN_POLL : undefined });  const checkout = useCheckout();
   const [checkoutError, setCheckoutError] = useState('');
 
   const handlePay = () => {

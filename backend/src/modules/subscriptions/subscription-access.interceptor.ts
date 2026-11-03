@@ -25,8 +25,8 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const ALLOWED_WRITES: ReadonlyArray<{ method?: string; pattern: RegExp }> = [
   // Contraseña, MFA, cierre de sesión.
   { pattern: /^\/auth\// },
-  // Pantalla de pago.
-  { method: 'POST', pattern: /^\/billing\/checkout$/ },
+  // Pantalla de pago y consulta del pago al volver de Flow.
+  { method: 'POST', pattern: /^\/billing\/(checkout|refresh)$/ },
   // Supresión de un paciente y registro o revocación de consentimientos.
   { method: 'DELETE', pattern: /^\/patients\/:id$/ },
   { method: 'POST', pattern: /^\/patients\/:id\/consents$/ },

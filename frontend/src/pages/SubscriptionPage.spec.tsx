@@ -147,6 +147,39 @@ describe('SubscriptionPage (issue #611)', () => {
     expect(await screen.findByText(/estamos confirmando tu pago/i)).toBeInTheDocument()
   })
 
+  it('tras volver de Flow consulta el pago al backend y muestra la cuenta vigente sin esperar el webhook', async () => {
+    mockedApi.get.mockResolvedValue({
+      data: buildStatus({ state: 'READ_ONLY', periodEnd: null }),
+    })
+    mockedApi.post.mockResolvedValue({ data: buildStatus() })
+
+    renderPage({ afterPayment: true })
+
+    expect(await screen.findByText(/vigente hasta el 1 de diciembre de 2026/i)).toBeInTheDocument()
+    expect(mockedApi.post).toHaveBeenCalledWith('/billing/refresh')
+  })
+
+  it('si la consulta al volver de Flow falla, sigue mostrando el estado leído y no rompe la pantalla', async () => {
+    mockedApi.get.mockResolvedValue({
+      data: buildStatus({ state: 'READ_ONLY', periodEnd: null }),
+    })
+    mockedApi.post.mockRejectedValue(new Error('network'))
+
+    renderPage({ afterPayment: true })
+
+    expect(await screen.findByText(/solo lectura/i)).toBeInTheDocument()
+    expect(screen.getByText(/estamos confirmando tu pago/i)).toBeInTheDocument()
+  })
+
+  it('fuera del retorno de Flow no consulta el pago', async () => {
+    mockedApi.get.mockResolvedValue({ data: buildStatus() })
+
+    renderPage()
+
+    await screen.findByText(/vigente hasta/i)
+    expect(mockedApi.post).not.toHaveBeenCalledWith('/billing/refresh')
+  })
+
   it('si no se puede leer el estado ofrece reintentar y no muestra el botón de pago', async () => {
     mockedApi.get.mockRejectedValue(new Error('network'))
 

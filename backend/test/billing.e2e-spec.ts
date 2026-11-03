@@ -141,6 +141,34 @@ describe('Billing (e2e)', () => {
     );
   });
 
+  it('refresh exige sesión', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/billing/refresh')
+      .expect(401);
+  });
+
+  it('refresh: al volver de Flow confirma el pago sin webhook y devuelve la cuenta ACTIVE', async () => {
+    const { flowToken } = await checkout();
+    jest.spyOn(flow, 'getOrderStatus').mockResolvedValueOnce({
+      status: 'PAID',
+      gatewayPaymentId: String(8_200_000 + tokenSeq),
+      amount: 6990,
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/billing/refresh')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    const body = res.body as { state: string; periodEnd: string | null };
+    expect(body.state).toBe('ACTIVE');
+    expect(body.periodEnd).not.toBeNull();
+    const payment = await prisma.subscriptionPayment.findUniqueOrThrow({
+      where: { flowToken },
+    });
+    expect(payment.status).toBe('PAID');
+  }, 30000);
+
   it('confirm público: Flow reporta PAID por el monto cobrado, concede acceso y un reintento no suma', async () => {
     const { flowToken } = await checkout();
     const status = jest.spyOn(flow, 'getOrderStatus').mockResolvedValue({

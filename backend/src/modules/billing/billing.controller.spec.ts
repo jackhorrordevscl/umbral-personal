@@ -7,6 +7,7 @@ describe('BillingController', () => {
   let billing: {
     createCheckout: jest.Mock;
     confirmByToken: jest.Mock;
+    refreshPendingPayments: jest.Mock;
     frontendReturnUrl: jest.Mock;
   };
   let controller: BillingController;
@@ -15,6 +16,7 @@ describe('BillingController', () => {
     billing = {
       createCheckout: jest.fn(),
       confirmByToken: jest.fn(),
+      refreshPendingPayments: jest.fn(),
       frontendReturnUrl: jest.fn().mockReturnValue('https://app.test/retorno'),
     };
     controller = new BillingController(billing as unknown as BillingService);
@@ -27,6 +29,16 @@ describe('BillingController', () => {
 
     expect(billing.createCheckout).toHaveBeenCalledWith('u1');
     expect(result).toEqual({ paymentUrl: 'https://flow/p' });
+  });
+
+  it('refresh consulta el pago de la cuenta autenticada (nunca un id del request)', async () => {
+    const view = { enforced: true, state: 'ACTIVE' };
+    billing.refreshPendingPayments.mockResolvedValue(view);
+
+    const result = await controller.refresh({ id: 'u1' } as never);
+
+    expect(billing.refreshPendingPayments).toHaveBeenCalledWith('u1');
+    expect(result).toBe(view);
   });
 
   it.each<ConfirmOutcome>([
