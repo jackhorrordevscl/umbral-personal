@@ -8,6 +8,8 @@ vi.mock('../context/useAuth', () => ({
   useAuth: () => ({ user: { email: 'a@b.cl' }, logout: vi.fn() }),
 }))
 vi.mock('./notifications/NotificationBell', () => ({ default: () => null }))
+vi.mock('./subscription/SubscriptionBanner', () => ({ default: () => null }))
+vi.mock('./subscription/SubscriptionNavLink', () => ({ default: () => null }))
 
 type Listener = (e: MediaQueryListEvent) => void
 

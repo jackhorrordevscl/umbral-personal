@@ -113,6 +113,13 @@ export class AuthService {
   // MISMA $transaction que crea el User, para que un fallo de cualquiera de
   // las dos operaciones no deje ni una invitación "gastada" sin cuenta ni
   // una cuenta creada con una invitación que sigue viéndose disponible.
+  // Issue #611: la pantalla de registro necesita saber si el alta es abierta
+  // (con código promocional opcional) o por invitación. Solo lee el
+  // interruptor de entorno: no toca la base ni revela nada de las cuentas.
+  getSignupConfig(): { openSignup: boolean } {
+    return { openSignup: this.subscriptions.isEnforced() };
+  }
+
   async signup(dto: SignupDto, ipAddress?: string, userAgent?: string) {
     // Issue #303: la invitación se valida ANTES de mirar si el email existe,
     // así que sin una invitación válida no hay forma de enumerar qué emails

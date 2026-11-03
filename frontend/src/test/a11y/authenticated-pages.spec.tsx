@@ -78,16 +78,41 @@ describe('a11y: authenticated pages', () => {
   })
 
   it('Layout shell with the skip link has no axe violations', async () => {
-    const { container } = render(
-      <MemoryRouter>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route index element={<h1>Contenido</h1>} />
-          </Route>
-        </Routes>
-      </MemoryRouter>,
+    const { container } = renderPage(
+      <Routes>
+        <Route element={<Layout />}>
+          <Route index element={<h1>Contenido</h1>} />
+        </Route>
+      </Routes>,
     )
     await screen.findByText('Saltar al contenido')
+    await expectNoA11yViolations(container)
+  })
+
+  it('Layout con el aviso de suscripción en gracia y su entrada del menú no tiene violaciones axe (issue #611)', async () => {
+    const base = mockedApi.get.getMockImplementation()!
+    mockedApi.get.mockImplementation((url: string) =>
+      url === '/billing/status'
+        ? Promise.resolve({
+            data: {
+              enforced: true,
+              state: 'GRACE',
+              periodEnd: '2026-11-01T15:00:00.000Z',
+              graceEnd: '2026-11-08T15:00:00.000Z',
+              priceClp: 6990,
+            },
+          })
+        : base(url),
+    )
+    const { container } = renderPage(
+      <Routes>
+        <Route element={<Layout />}>
+          <Route index element={<h1>Contenido</h1>} />
+        </Route>
+      </Routes>,
+    )
+    await screen.findByText(/hasta el 8 de noviembre de 2026/i)
+    await screen.findByRole('link', { name: /suscripción/i })
     await expectNoA11yViolations(container)
   })
 

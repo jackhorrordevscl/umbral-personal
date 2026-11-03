@@ -38,6 +38,10 @@ const PaymentsPage = lazyWithRetry(() => import("./pages/PaymentsPage"));
 const ProfilePage = lazyWithRetry(() => import("./pages/ProfilePage"));
 const SecurityPage = lazyWithRetry(() => import("./pages/SecurityPage"));
 const SharedFilesPage = lazyWithRetry(() => import("./pages/SharedFilesPage"));
+const SubscriptionPage = lazyWithRetry(() => import("./pages/SubscriptionPage"));
+const SubscriptionReturnPage = lazyWithRetry(
+  () => import("./pages/SubscriptionReturnPage"),
+);
 
 function RouteFallback() {
   return (
@@ -146,6 +150,12 @@ function AppRoutes() {
               correcta. */}
           <Route path="settings" element={<Navigate to="/security" replace />} />
           <Route path="archivos" element={<SharedFilesPage />} />
+          {/* Issue #611: estado y pago de la suscripción. /suscripcion/retorno
+              es el destino al que el backend (BILLING_FRONTEND_RETURN_PATH)
+              devuelve el navegador tras pagar en Flow; el terapeuta sí tiene
+              sesión, así que va detrás de PrivateRoute. */}
+          <Route path="suscripcion" element={<SubscriptionPage />} />
+          <Route path="suscripcion/retorno" element={<SubscriptionReturnPage />} />
         </Route>
       </Routes>
     </Suspense>

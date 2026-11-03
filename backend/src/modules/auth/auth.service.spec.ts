@@ -138,6 +138,20 @@ describe('AuthService', () => {
     jest.clearAllMocks();
   });
 
+  describe('getSignupConfig (issue #611)', () => {
+    it('informa registro abierto cuando el interruptor de suscripciones está encendido', () => {
+      subscriptions.isEnforced.mockReturnValue(true);
+
+      expect(service.getSignupConfig()).toEqual({ openSignup: true });
+    });
+
+    it('informa registro por invitación cuando el interruptor está apagado', () => {
+      subscriptions.isEnforced.mockReturnValue(false);
+
+      expect(service.getSignupConfig()).toEqual({ openSignup: false });
+    });
+  });
+
   describe('signup', () => {
     const validInvitation = {
       id: 'invitation-1',

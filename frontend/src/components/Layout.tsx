@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import NotificationBell from './notifications/NotificationBell';
+import SubscriptionBanner from './subscription/SubscriptionBanner';
+import SubscriptionNavLink from './subscription/SubscriptionNavLink';
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -109,6 +111,7 @@ export default function Layout() {
               {label}
             </NavLink>
           ))}
+          <SubscriptionNavLink onClick={closeSidebar} />
         </nav>
         <div className="px-3 py-4 short:py-2 border-t border-slate-800">
           <div className="px-4 py-2 mb-2 short:py-1 short:mb-1">
@@ -138,6 +141,7 @@ export default function Layout() {
           <div className="flex-1" />
           <NotificationBell />
         </header>
+        <SubscriptionBanner />
         <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto focus:outline-hidden">
           <Outlet />
         </main>

@@ -54,6 +54,15 @@ export function formatChileDate(dateStr: string): string {
   });
 }
 
+// Issue #611: fecha sin hora ni día de la semana ("1 de diciembre de 2026"),
+// vista en Chile. Para vencimientos de suscripción.
+export function formatChileDateOnly(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString('es-CL', {
+    year: 'numeric', month: 'long', day: 'numeric',
+    timeZone: 'America/Santiago',
+  });
+}
+
 // PR4 (session-calendar-view): día calendario ("YYYY-MM-DD") en el que cae
 // un instante ISO, visto en America/Santiago -- no el día UTC naive. Usado
 // para bucketear sesiones (session-calendar Req: Session Date Anchoring).

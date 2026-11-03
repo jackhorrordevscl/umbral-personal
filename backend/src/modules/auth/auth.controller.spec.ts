@@ -106,6 +106,29 @@ describe('AuthController — logout routes (issue #192)', () => {
   });
 });
 
+describe('AuthController — signup-config (issue #611)', () => {
+  it('GET signup-config delega en AuthService y no lleva ThrottlerGuard (solo lee configuración)', () => {
+    const authService = {
+      getSignupConfig: jest.fn().mockReturnValue({ openSignup: true }),
+    };
+    const controller = new AuthController(
+      authService as unknown as AuthService,
+      {} as MfaService,
+    );
+
+    expect(controller.signupConfig()).toEqual({ openSignup: true });
+    expect(authService.getSignupConfig).toHaveBeenCalledTimes(1);
+    for (const name of ['signupConfig'] as const) {
+      expect(
+        new Reflector().get<unknown[]>(
+          '__guards__',
+          AuthController.prototype[name],
+        ),
+      ).toBeUndefined();
+    }
+  });
+});
+
 describe('AuthController — exhaustividad de @SkipThrottle (public-scheduling, payments)', () => {
   const reflector = new Reflector();
   const controller = new AuthController({} as AuthService, {} as MfaService);

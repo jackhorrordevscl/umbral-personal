@@ -42,13 +42,20 @@ describe('a11y: public pages', () => {
     await expectNoA11yViolations(container)
   })
 
-  it('SignupPage has no axe violations', async () => {
+  it.each([
+    ['por invitación', false],
+    ['abierto con código promocional (issue #611)', true],
+  ])('SignupPage %s has no axe violations', async (_mode, openSignup) => {
+    mockedApi.get.mockResolvedValue({ data: { openSignup } })
     const { container } = render(
-      <MemoryRouter>
-        <SignupPage />
-      </MemoryRouter>,
+      <TestProviders>
+        <MemoryRouter>
+          <SignupPage />
+        </MemoryRouter>
+      </TestProviders>,
     )
     await screen.findByLabelText('Nombre completo')
+    await screen.findByLabelText(openSignup ? /código promocional/i : 'Código de invitación')
     await expectNoA11yViolations(container)
   })
 
