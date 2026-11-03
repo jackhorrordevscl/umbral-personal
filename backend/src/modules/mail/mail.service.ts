@@ -97,6 +97,40 @@ export class MailService {
     }
   }
 
+  // Issue #611 (PR 4): aviso de vencimiento de la suscripción. Sin datos
+  // clínicos; solo fechas y el enlace a la pantalla de pago.
+  async sendSubscriptionReminderEmail(
+    to: string,
+    name: string,
+    subject: string,
+    message: string,
+    subscriptionUrl: string,
+  ): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn(
+        `RESEND_API_KEY no configurada: se salteó el aviso de suscripción a ${maskEmail(to)}.`,
+      );
+      return;
+    }
+
+    const { error } = await this.resend.emails.send({
+      from: this.from,
+      to,
+      subject,
+      html: `
+        <p>Hola ${escapeHtml(name)},</p>
+        <p>${escapeHtml(message)}</p>
+        <p><a href="${escapeHtml(subscriptionUrl)}">${escapeHtml(subscriptionUrl)}</a></p>
+      `,
+    });
+
+    if (error) {
+      this.logger.error(
+        `Falló el aviso de suscripción a ${maskEmail(to)}: ${error.message}`,
+      );
+    }
+  }
+
   // Issue #76: link de confirmación enviado a la casilla NUEVA (pendiente),
   // no a la activa -- ver EmailChangeService.requestChange.
   async sendEmailChangeVerificationEmail(

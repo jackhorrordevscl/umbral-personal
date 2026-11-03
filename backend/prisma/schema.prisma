@@ -165,6 +165,24 @@ model Subscription {
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
   payments         SubscriptionPayment[]
+  reminders        SubscriptionReminder[]
+}
+
+// Issue #611 (PR 4): un aviso de vencimiento por (suscripción, vencimiento,
+// días de anticipación). La garantía de "una sola vez por período" es el
+// @@unique, no lógica de aplicación. sent=false marca un aviso que perdió
+// sentido (cron caído) y se reclamó sin enviar. Pagar cambia currentPeriodEnd
+// y con ello rearma los avisos del período siguiente.
+model SubscriptionReminder {
+  id             String       @id @default(uuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  periodEnd      DateTime
+  offsetDays     Int
+  sent           Boolean
+  createdAt      DateTime     @default(now())
+
+  @@unique([subscriptionId, periodEnd, offsetDays])
 }
 
 enum SubscriptionPaymentStatus {
@@ -865,6 +883,8 @@ model Notification {
 
 enum NotificationType {
   SESSION_REMINDER
+  // Issue #611 (PR 4): aviso de vencimiento de la suscripción.
+  SUBSCRIPTION_EXPIRING
   // sdd/google-calendar-integration PR 2: emitida cuando invalid_grant/401
   // marca una conexión CONNECTED como DISCONNECTED (ver CalendarSyncService,
   // design.md "Failure classification"). El campo existe desde PR 1 junto
