@@ -50,8 +50,8 @@ ve directo al [Manual de uso](docs/manual-terapeutas.md).
   formularios del frontend (0002), el almacenamiento de la sesión en el frontend (0003), el cifrado de
   datos clínicos (0004), el versionado y la rotación de claves (0005), el
   informe de alta con firma simple y hash (0006), los pacientes niños, niñas y adolescentes (NNA) y su
-  representante legal (0007) y la respuesta uniforme de la reserva pública ante
-  una colisión de identidad (0008).
+  representante legal (0007), la respuesta uniforme de la reserva pública ante
+  una colisión de identidad (0008) y la suscripción mensual con Flow (0009).
 
 ---
 
@@ -1195,6 +1195,16 @@ POST   /api/v1/payments/return                        (mismo caso, safety net de
 GET    /api/v1/payments/return-status?token=          (estado PAID/PENDING/REJECTED del cobro tras el checkout, sin auth, sin datos personales)
 ```
 
+### Suscripción (issue #611, ADR 0009)
+```
+GET  /api/v1/billing/status          🔒 (estado de la cuenta: ACTIVE, GRACE, READ_ONLY o EXEMPT)
+POST /api/v1/billing/checkout        🔒 (crea la orden en Flow y devuelve paymentUrl; permitido en solo lectura)
+POST /api/v1/billing/refresh         🔒 (al volver de Flow: verifica en Flow los pagos recientes de la cuenta y devuelve el estado; permitido en solo lectura)
+POST /api/v1/billing/confirm             (webhook de Flow, sin auth; el acceso se concede solo si getStatus confirma el pago por el monto cobrado)
+GET  /api/v1/billing/return              (redirect al frontend tras pagar, sin auth)
+POST /api/v1/billing/return              (mismo caso, safety net de método HTTP)
+```
+
 ### Webhooks
 ```
 POST /api/v1/webhooks/resend    (webhook de Resend, sin JWT, firma Svix verificada; 501 sin RESEND_WEBHOOK_SECRET)
@@ -1523,6 +1533,9 @@ proveedor definido (Backblaze B2 + `rclone`); ver
 | `PAYMENT_CONFIRM_THROTTLE_LIMIT` / `PAYMENT_CONFIRM_THROTTLE_TTL_MS` | Tope de `POST /payments/confirm` (callbacks de Flow) por IP y la ventana en milisegundos. Todos los callbacks de todos los terapeutas salen de pocas IP de Flow y comparten el cupo. Opcionales; un valor que no sea un entero positivo vuelve al default | `300` por `60000` ms |
 | `E2E_SEED_CONFIRM` / `E2E_TEST_PASSWORD` / `E2E_TEST_MFA_SECRET` (y opcionales `E2E_TEST_EMAIL`, `E2E_FLOW_API_KEY`, `E2E_FLOW_SECRET_KEY`) | Solo para `npm run seed:e2e` (cuentas de los e2e de Playwright). `E2E_SEED_CONFIRM=1` es un opt-in explícito; `E2E_TEST_MFA_SECRET` debe ser una cadena base32. El seed se niega a correr con `NODE_ENV=production` | Ver [Pruebas](#pruebas) |
 | `FLOW_API_BASE_URL` | Base URL de la API de Flow que usa el cliente de pagos. Fuera de producción es opcional (sin definir usa el sandbox). En producción es obligatoria, con esquema `https://`, salvo con `PAYMENTS_ENABLED=false`: sin ella el backend no arranca | `https://www.flow.cl/api` (producción); `https://sandbox.flow.cl/api` (sandbox) |
+| `SUBSCRIPTIONS_ENFORCED` | Interruptor de la suscripción mensual (issue #611, ADR 0009). Opt-in (`=== 'true'`); sin definir, la app se comporta como antes: registro por invitación, sin cobro, sin solo lectura y sin avisos de vencimiento. Encendido: registro abierto con código promocional opcional, solo lectura al vencer la gracia, cobro y avisos. Como cambia un contrato, se despliega primero el backend y se enciende después de cargar las exenciones | `true` |
+| `SUBSCRIPTION_FLOW_API_KEY` / `SUBSCRIPTION_FLOW_SECRET_KEY` | Credenciales de Flow de la propia plataforma para cobrar la suscripción (distintas de las que conecta cada terapeuta para cobrar a sus pacientes). Sin ellas el checkout responde 503. El sandbox o producción lo decide la base URL de Flow de más arriba | Claves de la cuenta Flow de Umbral |
+| `SUBSCRIPTION_PRICE_CLP` | Precio mensual en CLP (entero positivo). Cada suscripción congela el precio con el que se creó, así que cambiarlo solo afecta a las nuevas | `6990` (default) |
 | `LAN_DEV_URL` | Origen adicional permitido por CORS para probar el frontend desde otro dispositivo de la red local. Opcional; si se define, debe ser una URL válida (se valida al arrancar) | `http://192.168.1.10:5173` |
 | `VITE_API_URL` (frontend) | URL base del backend (incluye `/api/v1`) que usa el frontend. Variable de build de Vite; en Vercel se define en el proyecto. Sin definir, en desarrollo cae a `http://localhost:3001/api/v1`; en un build de producción es un error de configuración | `http://localhost:3001/api/v1` |
 | `*_THROTTLE_LIMIT` / `*_THROTTLE_TTL_MS` (throttlers de auth, perfil y pagos) | Límite (peticiones) y ventana (ms) de cada throttler nombrado. Prefijos: `LOGIN_`, `SIGNUP_`, `MFA_` (verificación en login), `MFA_SETUP_`, `MFA_RECOVER_`, `PASSWORD_CHANGE_`, `PASSWORD_RESET_`, `VERIFY_EMAIL_`, `RESEND_VERIFICATION_`, `EMAIL_CHANGE_CONFIRM_`, `PROFILE_UPDATE_`, `REPORTS_EXPORT_` (exportación de la ficha PDF, por terapeuta), `PAYMENT_CONFIRM_`, `PAYMENT_RETURN_`. Un valor que no sea un entero positivo se ignora con un warning en el arranque | Límite por defecto `5` peticiones, salvo `EMAIL_CHANGE_CONFIRM_` (`10`), `PAYMENT_CONFIRM_` (`300`) y `PAYMENT_RETURN_` (`20`); ventana por defecto `60000` ms, salvo `PROFILE_UPDATE_` (`900000` ms). En `NODE_ENV=test` el límite por defecto es `1000` |
