@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import api from '../api/client';
+import { useSignupConfig } from '../hooks/useSubscription';
 import { getApiErrorMessage } from '../utils/api-error';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import PasswordInput from "../components/ui/PasswordInput";
@@ -18,10 +19,14 @@ const signupSchema = z
     email: z.string().email('Email inválido'),
     password: z.string().min(8, 'Mínimo 8 caracteres'),
     confirmPassword: z.string(),
-    // Issue #124: sin jerarquía de roles, el registro público requiere un
+    // Issue #124: con las suscripciones apagadas el registro requiere un
     // código de invitación emitido por el profesional autorizado (ver
-    // POST /auth/invitations en SecurityPage) para poder crear la cuenta.
-    inviteCode: z.string().min(1, 'El código de invitación es obligatorio'),
+    // POST /auth/invitations en SecurityPage). Que sea obligatorio depende de
+    // la configuración del backend, así que se valida en onSubmit.
+    inviteCode: z.string().optional(),
+    // Issue #611: con las suscripciones encendidas el registro es abierto y
+    // admite un código promocional opcional (flyer, QR).
+    promoCode: z.string().optional(),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: 'Las contraseñas no coinciden',
@@ -35,20 +40,40 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
 
-  const { register, handleSubmit, formState: { errors } } = useForm<SignupForm>({
-    resolver: zodResolver(signupSchema),
-  });
+  // Issue #611: el QR del flyer lleva al registro con el código precargado.
+  const [searchParams] = useSearchParams();
+  const config = useSignupConfig();
+  const openSignup = config.data?.openSignup === true;
+
+  const { register, handleSubmit, setError: setFieldError, formState: { errors } } =
+    useForm<SignupForm>({
+      resolver: zodResolver(signupSchema),
+      defaultValues: { promoCode: searchParams.get('promo') ?? '' },
+    });
 
   const onSubmit = async (data: SignupForm) => {
+    const inviteCode = data.inviteCode?.trim();
+    const promoCode = data.promoCode?.trim();
+    if (!openSignup && !inviteCode) {
+      setFieldError('inviteCode', { message: 'El código de invitación es obligatorio' });
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
       // La confirmación es solo de UI: no forma parte del DTO del backend.
+      // Se manda solo el código que corresponde al modo del backend; el
+      // promocional vacío se omite (el DTO rechaza una cadena vacía).
       await api.post('/auth/signup', {
         name: data.name,
         email: data.email,
         password: data.password,
-        inviteCode: data.inviteCode,
+        ...(openSignup
+          ? promoCode
+            ? { promoCode }
+            : {}
+          : { inviteCode }),
       });
       setDone(true);
     } catch (err) {
@@ -69,6 +94,26 @@ export default function SignupPage() {
           <Link to="/login" className="text-slate-900 font-medium hover:underline text-sm">
             Volver a iniciar sesión
           </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Sin conocer el modo del backend no se sabe qué código pedir: se espera la
+  // configuración en vez de mostrar un formulario que podría ser el equivocado.
+  if (!config.data) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+        <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md">
+          {config.isError ? (
+            <ErrorBanner
+              icon
+              message="No se pudo cargar el formulario de registro."
+              onRetry={() => void config.refetch()}
+            />
+          ) : (
+            <p className="text-slate-500 text-sm text-center">Cargando...</p>
+          )}
         </div>
       </div>
     );
@@ -129,18 +174,33 @@ export default function SignupPage() {
             )}
           </div>
 
-          <div>
-            <label htmlFor="signup-invite-code" className="block text-sm font-medium text-slate-700 mb-1">Código de invitación</label>
-            <input
-              {...register('inviteCode')}
-              id="signup-invite-code"
-              type="text"
-              className="input-field"
-            />
-            {errors.inviteCode && (
-              <p className="text-red-500 text-xs mt-1">{errors.inviteCode.message}</p>
-            )}
-          </div>
+          {openSignup ? (
+            <div>
+              <label htmlFor="signup-promo-code" className="block text-sm font-medium text-slate-700 mb-1">Código promocional (opcional)</label>
+              <input
+                {...register('promoCode')}
+                id="signup-promo-code"
+                type="text"
+                className="input-field"
+              />
+              <p className="text-slate-500 text-xs mt-1">
+                Si tienes un código, obtienes un mes de prueba.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label htmlFor="signup-invite-code" className="block text-sm font-medium text-slate-700 mb-1">Código de invitación</label>
+              <input
+                {...register('inviteCode')}
+                id="signup-invite-code"
+                type="text"
+                className="input-field"
+              />
+              {errors.inviteCode && (
+                <p className="text-red-500 text-xs mt-1">{errors.inviteCode.message}</p>
+              )}
+            </div>
+          )}
 
           {error && <ErrorBanner message={error} />}
 

@@ -11,6 +11,7 @@ import {
   formatChileTime,
   todayInChile,
   formatChileShortDateTimeNoSeconds,
+  formatChileDateOnly,
 } from './datetime'
 
 // PR4 (session-calendar-view, tasks 5.1): estos helpers alimentan el
@@ -20,6 +21,17 @@ import {
 // 2026-04-05T03:00:00Z) fueron derivados empíricamente en PR1 vía Intl ICU
 // (ver apply-progress.md "Key Discovery" del batch PR1) -- se reutilizan acá
 // tal cual, no se re-derivan a mano.
+
+describe('formatChileDateOnly (issue #611)', () => {
+  it('muestra día, mes y año sin hora ni día de la semana, visto en Chile', () => {
+    expect(formatChileDateOnly('2026-12-01T15:00:00.000Z')).toBe('1 de diciembre de 2026')
+  })
+
+  it('usa el día calendario de Chile, no el día UTC naive', () => {
+    // 2026-08-16T02:30:00Z en Chile (agosto, -04:00) es 2026-08-15T22:30.
+    expect(formatChileDateOnly('2026-08-16T02:30:00.000Z')).toBe('15 de agosto de 2026')
+  })
+})
 
 describe('toChileDayKey', () => {
   it('bucketea un instante UTC en el día calendario de Chile, no el día UTC naive', () => {
