@@ -230,8 +230,9 @@ export class BillingService {
    * Al volver de Flow no se espera el webhook (puede perderse o llegar tarde,
    * y el barrido solo mira pagos de más de 15 min): se consulta a Flow por los
    * pagos recientes de ESTA cuenta con confirmByToken, que verifica con
-   * getStatus y es idempotente. Nunca lanza: si Flow no responde, el estado
+   * getStatus y es idempotente. Un fallo de Flow no se propaga: el estado
    * queda como estaba y el webhook o el barrido lo resuelven después. Un
+   * error de base de datos en la consulta de pagos sí se propaga. Un
    * intervalo mínimo por cuenta acota las llamadas a Flow con la clave de la
    * plataforma.
    */
@@ -267,10 +268,19 @@ export class BillingService {
   }
 
   private rememberRefresh(userId: string, now: Date): void {
+    // Se borra antes de insertar para que el orden del Map sea el de la última
+    // consulta; así, si el tope se alcanza, lo primero del Map es lo más viejo.
+    this.lastRefreshAt.delete(userId);
     if (this.lastRefreshAt.size >= REFRESH_CACHE_MAX_ENTRIES) {
       const cutoff = now.getTime() - REFRESH_MIN_INTERVAL_MS;
       for (const [key, at] of this.lastRefreshAt) {
         if (at < cutoff) this.lastRefreshAt.delete(key);
+      }
+      // Si todas son recientes la poda no libera nada: se descartan las más
+      // viejas hasta respetar el tope.
+      for (const key of this.lastRefreshAt.keys()) {
+        if (this.lastRefreshAt.size < REFRESH_CACHE_MAX_ENTRIES) break;
+        this.lastRefreshAt.delete(key);
       }
     }
     this.lastRefreshAt.set(userId, now.getTime());

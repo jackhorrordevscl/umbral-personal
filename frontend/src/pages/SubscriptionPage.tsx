@@ -67,15 +67,21 @@ export function SubscriptionScreen({
   const {
     data: status,
     isLoading,
-    isError,
     refetch,
-  } = useSubscriptionStatus({ poll: afterPayment ? RETURN_POLL : undefined });  const checkout = useCheckout();
+  } = useSubscriptionStatus({ poll: afterPayment ? RETURN_POLL : undefined });
+  const checkout = useCheckout();
   const [checkoutError, setCheckoutError] = useState('');
+  // La mutación termina antes de que el navegador cambie de página: sin esto el
+  // botón se rehabilita y un segundo clic crearía otro checkout.
+  const [redirecting, setRedirecting] = useState(false);
 
   const handlePay = () => {
     setCheckoutError('');
     checkout.mutate(undefined, {
-      onSuccess: ({ paymentUrl }) => window.location.assign(paymentUrl),
+      onSuccess: ({ paymentUrl }) => {
+        setRedirecting(true);
+        window.location.assign(paymentUrl);
+      },
       onError: (err) =>
         setCheckoutError(
           getApiErrorMessage(err, 'No se pudo iniciar el pago. Intenta nuevamente.'),
@@ -115,8 +121,9 @@ export function SubscriptionScreen({
 
         {isLoading ? (
           <p className="text-sm text-slate-500">Verificando estado de tu suscripción...</p>
-        ) : isError || !status ? (
-          // Sin conocer el estado real no se ofrece pagar.
+        ) : !status ? (
+          // Sin conocer el estado real no se ofrece pagar. Si ya hay datos, un
+          // refetch fallido no los reemplaza (React Query los conserva).
           <ErrorBanner
             icon
             message="No se pudo verificar el estado de tu suscripción."
@@ -141,10 +148,10 @@ export function SubscriptionScreen({
                 <button
                   type="button"
                   onClick={handlePay}
-                  disabled={checkout.isPending}
+                  disabled={checkout.isPending || redirecting}
                   className="btn-primary w-full py-3 disabled:opacity-50"
                 >
-                  {checkout.isPending ? 'Redirigiendo a Flow...' : view.payLabel}
+                  {checkout.isPending || redirecting ?'Redirigiendo a Flow...' : view.payLabel}
                 </button>
               </>
             )}

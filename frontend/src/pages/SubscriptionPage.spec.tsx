@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
@@ -28,13 +28,14 @@ function renderPage(props: { afterPayment?: boolean } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return render(
+  const utils = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <SubscriptionScreen {...props} />
       </MemoryRouter>
     </QueryClientProvider>,
   )
+  return { ...utils, queryClient }
 }
 
 describe('SubscriptionPage (issue #611)', () => {
@@ -121,6 +122,46 @@ describe('SubscriptionPage (issue #611)', () => {
     await vi.waitFor(() =>
       expect(assign).toHaveBeenCalledWith('https://flow.example/pay?token=abc'),
     )
+  })
+
+  it('tras crear el checkout mantiene el botón deshabilitado mientras el navegador navega a Flow', async () => {
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, assign })
+    mockedApi.get.mockResolvedValue({
+      data: buildStatus({ state: 'READ_ONLY', periodEnd: null }),
+    })
+    mockedApi.post.mockResolvedValue({
+      data: { paymentUrl: 'https://flow.example/pay?token=abc' },
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /pagar suscripción/i }))
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1))
+
+    expect(screen.getByRole('button', { name: /redirigiendo a flow/i })).toBeDisabled()
+  })
+
+  it('si un refetch falla con datos ya cargados, conserva el estado y el botón de pago', async () => {
+    mockedApi.get.mockResolvedValueOnce({
+      data: buildStatus({ state: 'READ_ONLY', periodEnd: null }),
+    })
+    mockedApi.get.mockRejectedValue(new Error('network'))
+
+    const { queryClient } = renderPage()
+    expect(await screen.findByRole('button', { name: /pagar suscripción/i })).toBeInTheDocument()
+
+    await act(async () => {
+      await queryClient.refetchQueries()
+    })
+    // Precondición: el refetch realmente falló y la query quedó en error.
+    expect(queryClient.getQueryCache().getAll()[0].state.status).toBe('error')
+    // Deja que React pinte el estado de error antes de comprobar la pantalla.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(mockedApi.get).toHaveBeenCalledTimes(2)
+
+    expect(screen.getByRole('button', { name: /pagar suscripción/i })).toBeInTheDocument()
+    expect(screen.queryByText(/no se pudo verificar el estado/i)).not.toBeInTheDocument()
   })
 
   it('si el checkout falla muestra el mensaje del servidor y no redirige', async () => {
