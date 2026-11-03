@@ -48,6 +48,16 @@ export class BillingController {
     return this.billingService.createCheckout(user.id);
   }
 
+  // La pantalla de retorno de Flow lo llama en lugar de esperar el webhook:
+  // consulta a Flow por los pagos recientes de la cuenta autenticada y
+  // devuelve el estado de la suscripción. No recibe ningún dato del cliente.
+  @UseGuards(JwtAuthGuard)
+  @Post('refresh')
+  @HttpCode(200)
+  refresh(@CurrentUser() user: RequestUser) {
+    return this.billingService.refreshPendingPayments(user.id);
+  }
+
   // Webhook de Flow: trae solo `token`. Nunca se confía en él; confirmByToken
   // vuelve a consultar getStatus con nuestras propias credenciales. Todo lo que
   // no sea un pago verificable devuelve el mismo 400 uniforme.

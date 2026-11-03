@@ -13,6 +13,7 @@ describe('isWriteAllowedInReadOnly', () => {
     ['POST', '/api/v1/auth/logout'],
     ['POST', '/api/v1/auth/mfa/enable'],
     ['POST', '/api/v1/billing/checkout'],
+    ['POST', '/api/v1/billing/refresh'],
     ['DELETE', '/api/v1/patients/:id'],
     ['POST', '/api/v1/patients/:id/consents'],
     ['POST', '/api/v1/patients/consents/bulk-declare'],
@@ -41,6 +42,7 @@ describe('isWriteAllowedInReadOnly', () => {
     ['POST', '/api/v1/profile/avatar'],
     // Mismo ruta que una permitida, otro método.
     ['PATCH', '/api/v1/billing/checkout'],
+    ['PATCH', '/api/v1/billing/refresh'],
     ['POST', '/api/v1/patients/:id'],
     // Una función nueva nace bloqueada.
     ['POST', '/api/v1/funcion-nueva'],

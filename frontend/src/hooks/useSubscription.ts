@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../api/client';
 
 // Issue #611: estados que calcula el backend en access-state.ts.
@@ -25,19 +25,42 @@ export interface SignupConfig {
 
 export const subscriptionStatusKey = ['subscription-status'] as const;
 
+// Misma consulta con otra clave para la pantalla de retorno de Flow: así no
+// comparte función con el banner y no hay dos peticiones compitiendo por los
+// mismos datos.
+const subscriptionReturnKey = ['subscription-status', 'return'] as const;
+
 // Mismo patrón react-query que usePaymentAccount. `poll` lo usa la pantalla de
-// retorno de Flow para esperar la confirmación del pago: consulta cada
-// `everyMs` hasta `maxRefetches` veces y después se detiene.
+// retorno de Flow para esperar la confirmación del pago: cada `everyMs`, hasta
+// `maxRefetches` veces, le pide al backend que verifique el pago directamente
+// en Flow (POST /billing/refresh) en vez de esperar solo el webhook, y siembra
+// el resultado en la caché del estado general (banner, menú). Si esa consulta
+// falla, cae a la lectura normal del estado.
 export function useSubscriptionStatus(options?: {
   poll?: { everyMs: number; maxRefetches: number };
 }) {
   const poll = options?.poll;
+  const queryClient = useQueryClient();
   return useQuery({
-    queryKey: subscriptionStatusKey,
+    queryKey: poll ? subscriptionReturnKey : subscriptionStatusKey,
     queryFn: async (): Promise<SubscriptionStatus> => {
+      if (poll) {
+        try {
+          const res = await api.post<SubscriptionStatus>('/billing/refresh');
+          const refreshed = res.data;
+          if (!refreshed || typeof refreshed.state !== 'string') {
+            throw new Error('Respuesta de refresh inválida');
+          }
+          queryClient.setQueryData(subscriptionStatusKey, refreshed);
+          return refreshed;
+        } catch {
+          // Cae a la lectura normal.
+        }
+      }
       const res = await api.get('/billing/status');
       return res.data;
     },
+    gcTime: poll ? 0 : undefined,
     refetchInterval: poll
       ? (query) =>
           query.state.dataUpdateCount < poll.maxRefetches ? poll.everyMs : false

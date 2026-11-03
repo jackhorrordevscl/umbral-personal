@@ -31,6 +31,13 @@ const SWEEP_BATCH_LIMIT = 200;
 // llenar el lote del barrido ni gastar llamadas a Flow con la clave de la
 // plataforma. Solo cuentan los de la ventana del barrido.
 const MAX_OPEN_CHECKOUTS = 5;
+// Consulta al volver de Flow: por cuenta, como mucho una vez cada 5 s (la
+// pantalla de retorno consulta cada 5 s) y sobre los pagos pendientes más
+// recientes. El mapa vive en memoria de la instancia: es solo un freno de
+// costo, no una garantía; la seguridad la da confirmByToken.
+const REFRESH_MIN_INTERVAL_MS = 4000;
+const REFRESH_MAX_PAYMENTS = 3;
+const REFRESH_CACHE_MAX_ENTRIES = 1000;
 
 export type ConfirmOutcome =
   | 'unknown'
@@ -49,6 +56,7 @@ export type ConfirmOutcome =
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
   private sweeping = false;
+  private readonly lastRefreshAt = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -216,6 +224,56 @@ export class BillingService {
 
   getStatus(userId: string) {
     return this.subscriptions.getStatusView(userId);
+  }
+
+  /**
+   * Al volver de Flow no se espera el webhook (puede perderse o llegar tarde,
+   * y el barrido solo mira pagos de más de 15 min): se consulta a Flow por los
+   * pagos recientes de ESTA cuenta con confirmByToken, que verifica con
+   * getStatus y es idempotente. Nunca lanza: si Flow no responde, el estado
+   * queda como estaba y el webhook o el barrido lo resuelven después. Un
+   * intervalo mínimo por cuenta acota las llamadas a Flow con la clave de la
+   * plataforma.
+   */
+  async refreshPendingPayments(userId: string, now: Date = new Date()) {
+    const last = this.lastRefreshAt.get(userId);
+    if (last !== undefined && now.getTime() - last < REFRESH_MIN_INTERVAL_MS) {
+      return this.getStatus(userId);
+    }
+    this.rememberRefresh(userId, now);
+
+    const pending = await this.prisma.subscriptionPayment.findMany({
+      where: {
+        status: 'PENDING',
+        flowToken: { not: null },
+        subscription: { userId },
+        createdAt: { gte: new Date(now.getTime() - SWEEP_MAX_AGE_MS) },
+      },
+      select: { flowToken: true },
+      orderBy: { createdAt: 'desc' },
+      take: REFRESH_MAX_PAYMENTS,
+    });
+    for (const { flowToken } of pending) {
+      if (!flowToken) continue;
+      try {
+        await this.confirmByToken(flowToken, now);
+      } catch (err) {
+        this.logger.warn(
+          `Consulta al volver de Flow: no se pudo verificar un pago: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return this.getStatus(userId);
+  }
+
+  private rememberRefresh(userId: string, now: Date): void {
+    if (this.lastRefreshAt.size >= REFRESH_CACHE_MAX_ENTRIES) {
+      const cutoff = now.getTime() - REFRESH_MIN_INTERVAL_MS;
+      for (const [key, at] of this.lastRefreshAt) {
+        if (at < cutoff) this.lastRefreshAt.delete(key);
+      }
+    }
+    this.lastRefreshAt.set(userId, now.getTime());
   }
 
   frontendReturnUrl(): string {

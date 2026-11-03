@@ -310,4 +310,81 @@ describe('BillingService (integration, real Prisma, Flow simulado)', () => {
     expect(queried).toContain(lost.token);
     expect(queried).not.toContain(fresh.token);
   }, 30000);
+
+  describe('refreshPendingPayments (al volver de Flow, sin esperar el webhook)', () => {
+    it('un pago recién hecho se confirma al instante y la cuenta queda ACTIVE', async () => {
+      const { userId, token } = await checkout('refresh-paid');
+      flow.getOrderStatus.mockResolvedValue(flowStatus('PAID', 6990));
+
+      const view = await service.refreshPendingPayments(userId);
+
+      expect(flow.getOrderStatus).toHaveBeenCalledTimes(1);
+      expect((flow.getOrderStatus.mock.calls[0] as unknown[])[1]).toBe(token);
+      expect(view.state).toBe('ACTIVE');
+      expect(view.periodEnd).not.toBeNull();
+    }, 30000);
+
+    it('si Flow aún lo ve pendiente, no cambia nada y devuelve el estado actual', async () => {
+      const { userId } = await checkout('refresh-pending');
+      flow.getOrderStatus.mockResolvedValue(flowStatus('PENDING', undefined));
+
+      const view = await service.refreshPendingPayments(userId);
+
+      expect(view.state).toBe('READ_ONLY');
+      expect(view.periodEnd).toBeNull();
+    }, 30000);
+
+    it('si Flow no responde, no lanza y no concede acceso', async () => {
+      const { userId } = await checkout('refresh-down');
+      flow.getOrderStatus.mockRejectedValue(new Error('Flow caído'));
+
+      const view = await service.refreshPendingPayments(userId);
+
+      expect(view.state).toBe('READ_ONLY');
+    }, 30000);
+
+    it('una segunda llamada dentro del intervalo mínimo no vuelve a consultar a Flow', async () => {
+      const { userId } = await checkout('refresh-throttle');
+      flow.getOrderStatus.mockResolvedValue(flowStatus('PENDING', undefined));
+      const t0 = new Date();
+
+      await service.refreshPendingPayments(userId, t0);
+      await service.refreshPendingPayments(
+        userId,
+        new Date(t0.getTime() + 1000),
+      );
+      expect(flow.getOrderStatus).toHaveBeenCalledTimes(1);
+
+      await service.refreshPendingPayments(
+        userId,
+        new Date(t0.getTime() + 10_000),
+      );
+      expect(flow.getOrderStatus).toHaveBeenCalledTimes(2);
+    }, 30000);
+
+    it('sin pagos pendientes no consulta a Flow', async () => {
+      const userId = await createUser('refresh-none');
+
+      const view = await service.refreshPendingPayments(userId);
+
+      expect(flow.getOrderStatus).not.toHaveBeenCalled();
+      expect(view.state).toBe('READ_ONLY');
+    }, 30000);
+
+    it('solo consulta pagos de la cuenta que llama, nunca los de otra', async () => {
+      const mine = await checkout('refresh-mine');
+      const other = await checkout('refresh-other');
+      flow.getOrderStatus.mockResolvedValue(flowStatus('PAID', 6990));
+
+      await service.refreshPendingPayments(mine.userId);
+
+      const queried = flow.getOrderStatus.mock.calls.map(
+        (c: unknown[]) => c[1] as string,
+      );
+      expect(queried).toEqual([mine.token]);
+      expect((await subscriptions.getAccess(other.userId)).state).toBe(
+        'READ_ONLY',
+      );
+    }, 30000);
+  });
 });
