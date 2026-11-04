@@ -4,6 +4,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { REJECTED_BOOKING_BLOCKOUT_REASON } from '../src/modules/public-scheduling/public-scheduling.service';
 import { uniqueTestRut } from './support/unique-rut';
 import { computeRutCheckDigit } from '../src/common/utils/rut.util';
 import {
@@ -91,7 +92,20 @@ describe('Public booking for a minor (e2e)', () => {
       where: { therapistId, slotStart: thirdSlot },
     });
     expect(slot).toBeNull();
+    // Issue #635: the rejection occupies the slot with a regular blockout, so
+    // the availability looks the same as after a real booking.
+    const hold = await prisma.availabilityBlockout.findMany({
+      where: { therapistId, startsAt: thirdSlot },
+    });
+    expect(hold).toHaveLength(1);
+    expect(hold[0].reason).toBe(REJECTED_BOOKING_BLOCKOUT_REASON);
   };
+
+  // Every rejection in this suite targets thirdSlot and now occupies it; each
+  // test starts with the slot free again.
+  afterEach(async () => {
+    await prisma.availabilityBlockout.deleteMany({ where: { therapistId } });
+  });
 
   beforeAll(async () => {
     process.env.PUBLIC_SCHEDULING_ENABLED = 'true';
@@ -143,6 +157,7 @@ describe('Public booking for a minor (e2e)', () => {
         where: { patientId: { in: patientIds } },
       });
       await prisma.bookedSlot.deleteMany({ where: { therapistId } });
+      await prisma.availabilityBlockout.deleteMany({ where: { therapistId } });
       await prisma.consultation.deleteMany({
         where: { patientId: { in: patientIds } },
       });
@@ -396,15 +411,17 @@ describe('Public booking for a minor (e2e)', () => {
         },
       });
 
-    const registered = await attempt(registeredEmail).expect(201);
-    const unknown = await attempt(`dv.desconocido.${runId}@ejemplo.cl`).expect(
-      201,
-    );
-
-    for (const response of [registered, unknown]) {
+    // Each rejection occupies thirdSlot (issue #635); free it between attempts
+    // so both are measured against the same free slot.
+    for (const email of [
+      registeredEmail,
+      `dv.desconocido.${runId}@ejemplo.cl`,
+    ]) {
+      const response = await attempt(email).expect(201);
       await expectUniformCollisionResponse(
         response.body as { id: string; groupId: string; sessionDate: string },
       );
+      await prisma.availabilityBlockout.deleteMany({ where: { therapistId } });
     }
     const created = await prisma.patient.findFirst({
       where: { therapistId, fullName: 'Probe DV' },

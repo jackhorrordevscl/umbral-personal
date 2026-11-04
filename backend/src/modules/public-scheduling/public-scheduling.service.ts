@@ -7,7 +7,12 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { NotificationType, PaymentAccountStatus, Prisma } from '@prisma/client';
+import {
+  BlockoutKind,
+  NotificationType,
+  PaymentAccountStatus,
+  Prisma,
+} from '@prisma/client';
 import { ThrottlerException } from '@nestjs/throttler';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -37,6 +42,11 @@ import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 // esto rechaza el request completo antes de tocar la DB).
 const MAX_QUERY_SPAN_DAYS = 60;
 const MAX_QUERY_SPAN_MS = MAX_QUERY_SPAN_DAYS * 24 * 60 * 60 * 1000;
+
+// Issue #635: motivo del bloqueo que deja una reserva pública rechazada. La
+// terapeuta lo ve en sus bloqueos; no dice por qué se rechazó.
+export const REJECTED_BOOKING_BLOCKOUT_REASON =
+  'Intento de reserva pública no completado';
 
 // sdd/public-booking-payment-calendar PR 5 (tasks.md 5.1, design.md
 // "Interfaces / Contracts", Decision 5 "Checkout is polled, not awaited"):
@@ -290,6 +300,7 @@ export class PublicSchedulingService {
         throw err;
       });
     if (booked instanceof PublicBookingRejectedException) {
+      await this.holdSlotAfterRejection(therapistId, slotStart, slotEnd);
       return this.uniformRejectionResponse(booked, slotStart);
     }
     const { patient, isNew, consultation } = booked;
@@ -352,6 +363,42 @@ export class PublicSchedulingService {
       checkout = { status: 'NOT_APPLICABLE' };
     }
     return { ...confirmation, checkout };
+  }
+
+  // Issue #635: la reserva real ocupa el horario y el rechazo lo dejaba libre,
+  // así que quien consultaba la disponibilidad con otro rango de fechas veía si
+  // el horario seguía libre (no había paciente) o desaparecía (lo había). Para
+  // que ambos casos se vean igual, el rechazo ocupa el horario con un bloqueo
+  // común: la terapeuta lo ve en sus bloqueos y puede borrarlo. Corre tras el
+  // rollback de la reserva, con el lock del terapeuta y revisando de nuevo que
+  // el horario siga libre. Un fallo no cambia la respuesta (se registra).
+  private async holdSlotAfterRejection(
+    therapistId: string,
+    slotStart: Date,
+    slotEnd: Date,
+  ): Promise<void> {
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await this.consultationsService.lockTherapistSchedule(tx, therapistId);
+        await this.assertSlotStillFree(therapistId, slotStart, slotEnd, tx);
+        await tx.availabilityBlockout.create({
+          data: {
+            therapistId,
+            startsAt: slotStart,
+            endsAt: slotEnd,
+            kind: BlockoutKind.PARTIAL_DAY,
+            reason: REJECTED_BOOKING_BLOCKOUT_REASON,
+          },
+        });
+      });
+      this.availabilityService.invalidate(therapistId);
+    } catch (err: unknown) {
+      // Otra reserva tomó el horario entre medio: ya está ocupado, nada que hacer.
+      if (err instanceof ConflictException) return;
+      this.logger.error(
+        `Fallo no bloqueante al ocupar el horario tras una reserva pública rechazada (therapistId=${therapistId}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   // Issue #502: este endpoint es anónimo, así que contestar 409 solo cuando el

@@ -35,10 +35,14 @@ describe('PublicSchedulingService', () => {
     bookedSlot: { count: jest.Mock };
     $transaction: jest.Mock;
   };
-  const tx: { __tx: boolean; bookedSlot?: { count: jest.Mock } } = {
+  const tx: {
+    __tx: boolean;
+    bookedSlot?: { count: jest.Mock };
+    availabilityBlockout?: { create: jest.Mock };
+  } = {
     __tx: true,
   };
-  let availabilityService: { computeSlots: jest.Mock };
+  let availabilityService: { computeSlots: jest.Mock; invalidate: jest.Mock };
   let patientsService: { resolveForPublicBooking: jest.Mock };
   let consultationsService: {
     createFromPublicBooking: jest.Mock;
@@ -92,7 +96,8 @@ describe('PublicSchedulingService', () => {
     // Issue #496: el tope también se cuenta dentro de la transacción; el tx
     // comparte el mock de conteo con prisma para poder simular el orden.
     tx.bookedSlot = prisma.bookedSlot;
-    availabilityService = { computeSlots: jest.fn() };
+    tx.availabilityBlockout = { create: jest.fn().mockResolvedValue({}) };
+    availabilityService = { computeSlots: jest.fn(), invalidate: jest.fn() };
     patientsService = { resolveForPublicBooking: jest.fn() };
     consultationsService = {
       createFromPublicBooking: jest.fn(),
@@ -682,6 +687,61 @@ describe('PublicSchedulingService', () => {
       mailService.sendPublicBookingAttemptNoticeEmail.mockRejectedValue(
         new Error('resend caído'),
       );
+
+      await expect(service.book('therapist-1', dto)).resolves.toMatchObject({
+        sessionDate: new Date('2026-09-05T13:00:00.000Z'),
+      });
+    });
+
+    // Issue #635: el rechazo dejaba el horario libre mientras que la reserva
+    // real lo ocupaba; quien consultaba la disponibilidad con otro rango
+    // distinguía a un paciente existente. Ahora el rechazo ocupa el horario
+    // con un bloqueo que la terapeuta ve y puede borrar.
+    it('issue #635: el rechazo ocupa el horario con un bloqueo visible para la terapeuta', async () => {
+      setUpCollision(null);
+
+      await service.book('therapist-1', dto);
+
+      expect(tx.availabilityBlockout?.create).toHaveBeenCalledTimes(1);
+      expect(tx.availabilityBlockout?.create).toHaveBeenCalledWith({
+        data: {
+          therapistId: 'therapist-1',
+          startsAt: new Date('2026-09-05T13:00:00.000Z'),
+          endsAt: new Date('2026-09-05T13:50:00.000Z'),
+          kind: 'PARTIAL_DAY',
+          reason: expect.stringContaining('Intento de reserva') as string,
+        },
+      });
+      expect(availabilityService.invalidate).toHaveBeenCalledWith(
+        'therapist-1',
+      );
+      expect(consultationsService.lockTherapistSchedule).toHaveBeenCalledWith(
+        tx,
+        'therapist-1',
+      );
+    });
+
+    it('issue #635: si otra reserva tomó el horario entre medio, no crea bloqueo y responde igual', async () => {
+      setUpCollision(null);
+      const free = [
+        { start: '2026-09-05T13:00:00.000Z', end: '2026-09-05T13:50:00.000Z' },
+      ];
+      // Recheck previo y recheck dentro de la reserva: libre. Al ocupar el
+      // horario tras el rechazo: ya lo tomó otra reserva.
+      availabilityService.computeSlots
+        .mockResolvedValueOnce(free)
+        .mockResolvedValueOnce(free)
+        .mockResolvedValueOnce([]);
+
+      await expect(service.book('therapist-1', dto)).resolves.toMatchObject({
+        sessionDate: new Date('2026-09-05T13:00:00.000Z'),
+      });
+      expect(tx.availabilityBlockout?.create).not.toHaveBeenCalled();
+    });
+
+    it('issue #635: un fallo al ocupar el horario no cambia la respuesta uniforme', async () => {
+      setUpCollision(null);
+      tx.availabilityBlockout?.create.mockRejectedValue(new Error('db caída'));
 
       await expect(service.book('therapist-1', dto)).resolves.toMatchObject({
         sessionDate: new Date('2026-09-05T13:00:00.000Z'),
