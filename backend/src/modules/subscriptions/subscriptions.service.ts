@@ -9,6 +9,11 @@ import {
   extendPeriod,
   resolveAccessState,
 } from './access-state';
+import {
+  DEFAULT_RENEWAL_PRICE_CLP,
+  effectivePriceClp,
+  launchPriceEnd,
+} from './launch-price';
 
 export const DEFAULT_SUBSCRIPTION_PRICE_CLP = 6990;
 export const PROMO_CODE_INVALID = 'Código promocional inválido o vencido';
@@ -32,6 +37,28 @@ export class SubscriptionsService {
       : DEFAULT_SUBSCRIPTION_PRICE_CLP;
   }
 
+  // Precio que se cobra al cumplirse los 12 meses del precio de lanzamiento.
+  private renewalPriceClp(): number {
+    const raw = Number(
+      this.config.get<string>('SUBSCRIPTION_RENEWAL_PRICE_CLP'),
+    );
+    return Number.isInteger(raw) && raw > 0 ? raw : DEFAULT_RENEWAL_PRICE_CLP;
+  }
+
+  // Precio a cobrar ahora: el congelado durante los 12 meses de lanzamiento y
+  // el post-lanzamiento después. Se calcula al leer; no depende de ningún cron.
+  effectivePriceClp(
+    subscription: { priceClp: number; priceStartedAt: Date },
+    now: Date = new Date(),
+  ): number {
+    return effectivePriceClp({
+      priceClp: subscription.priceClp,
+      priceStartedAt: subscription.priceStartedAt,
+      renewalPriceClp: this.renewalPriceClp(),
+      now,
+    });
+  }
+
   // Issue #611: interruptor de despliegue. Apagado, la app se comporta como
   // antes de la suscripción (registro con invitación, sin bloqueos ni cobros).
   isEnforced(): boolean {
@@ -53,15 +80,25 @@ export class SubscriptionsService {
       this.getAccess(userId, now),
       this.prisma.subscription.findUnique({
         where: { userId },
-        select: { priceClp: true },
+        select: { priceClp: true, priceStartedAt: true },
       }),
     ]);
+    const priceEnd = subscription
+      ? launchPriceEnd(subscription.priceStartedAt)
+      : null;
+    const priceRises =
+      !!subscription && this.renewalPriceClp() > subscription.priceClp;
     return {
       enforced: this.isEnforced(),
       state: access.state,
       periodEnd: access.periodEnd,
       graceEnd: access.graceEnd,
-      priceClp: subscription?.priceClp ?? this.currentPriceClp(),
+      priceClp: subscription
+        ? this.effectivePriceClp(subscription, now)
+        : this.currentPriceClp(),
+      // Cuándo termina el precio congelado; null si ya terminó o no aplica.
+      priceChangesAt:
+        priceEnd && priceEnd > now && priceRises ? priceEnd : null,
     };
   }
 
