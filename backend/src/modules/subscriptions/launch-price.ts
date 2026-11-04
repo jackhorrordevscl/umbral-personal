@@ -3,17 +3,21 @@
 export const LAUNCH_PRICE_MONTHS = 12;
 export const DEFAULT_RENEWAL_PRICE_CLP = 12990;
 
-// Suma meses en UTC sin desbordar al mes siguiente (29 feb -> 28 feb).
-export function launchPriceEnd(priceStartedAt: Date): Date {
-  const end = new Date(priceStartedAt.getTime());
-  const day = end.getUTCDate();
-  end.setUTCDate(1);
-  end.setUTCMonth(end.getUTCMonth() + LAUNCH_PRICE_MONTHS);
+// Suma (o resta) meses en UTC sin desbordar al mes siguiente (29 feb -> 28 feb).
+export function addUtcMonths(date: Date, months: number): Date {
+  const result = new Date(date.getTime());
+  const day = result.getUTCDate();
+  result.setUTCDate(1);
+  result.setUTCMonth(result.getUTCMonth() + months);
   const lastDay = new Date(
-    Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 0),
+    Date.UTC(result.getUTCFullYear(), result.getUTCMonth() + 1, 0),
   ).getUTCDate();
-  end.setUTCDate(Math.min(day, lastDay));
-  return end;
+  result.setUTCDate(Math.min(day, lastDay));
+  return result;
+}
+
+export function launchPriceEnd(priceStartedAt: Date): Date {
+  return addUtcMonths(priceStartedAt, LAUNCH_PRICE_MONTHS);
 }
 
 // Precio a cobrar ahora. Nunca baja del congelado: una cuenta creada con un

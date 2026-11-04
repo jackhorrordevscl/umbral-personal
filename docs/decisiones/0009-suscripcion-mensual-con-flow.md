@@ -72,6 +72,15 @@ lo cambie. Los avisos de vencimiento (a los 5, 1 y 0 días, una vez por período
 por notificación y correo) son una ayuda: si un cron no corrió, el siguiente
 avisa solo el más urgente y marca los anteriores sin enviarlos.
 
+Aviso previo al cambio de precio: un único aviso, desde 30 días antes de que
+termine el precio de lanzamiento (`priceChange` en `SubscriptionsService`), por
+notificación (`SUBSCRIPTION_PRICE_CHANGE`) y correo. Lo reciben solo las cuentas
+activas o en gracia cuyo precio sube; las exentas, las de solo lectura y las que
+no ven subir el precio no reciben nada. La garantía de "una sola vez" es el
+`@@unique(subscriptionId, priceChangeAt)` de `SubscriptionPriceNotice`. Si el
+cron no corrió, el siguiente día avisa igual mientras el cambio siga pendiente.
+Como los demás avisos, no corre con `SUBSCRIPTIONS_ENFORCED` apagado.
+
 ### 4. Al vencer
 
 - 7 días de gracia y luego solo lectura.

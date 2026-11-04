@@ -59,6 +59,19 @@ export class SubscriptionsService {
     });
   }
 
+  // Cambio de precio pendiente: cuándo termina el precio congelado y a cuánto
+  // pasa. Null si ya terminó o si el precio no sube. Es la única fuente de esta
+  // regla: la vista de estado y los avisos previos la usan.
+  priceChange(
+    subscription: { priceClp: number; priceStartedAt: Date },
+    now: Date = new Date(),
+  ): { changesAt: Date; fromPriceClp: number; toPriceClp: number } | null {
+    const changesAt = launchPriceEnd(subscription.priceStartedAt);
+    const toPriceClp = this.renewalPriceClp();
+    if (changesAt <= now || toPriceClp <= subscription.priceClp) return null;
+    return { changesAt, fromPriceClp: subscription.priceClp, toPriceClp };
+  }
+
   // Issue #611: interruptor de despliegue. Apagado, la app se comporta como
   // antes de la suscripción (registro con invitación, sin bloqueos ni cobros).
   isEnforced(): boolean {
@@ -83,11 +96,7 @@ export class SubscriptionsService {
         select: { priceClp: true, priceStartedAt: true },
       }),
     ]);
-    const priceEnd = subscription
-      ? launchPriceEnd(subscription.priceStartedAt)
-      : null;
-    const priceRises =
-      !!subscription && this.renewalPriceClp() > subscription.priceClp;
+    const change = subscription ? this.priceChange(subscription, now) : null;
     return {
       enforced: this.isEnforced(),
       state: access.state,
@@ -97,8 +106,7 @@ export class SubscriptionsService {
         ? this.effectivePriceClp(subscription, now)
         : this.currentPriceClp(),
       // Cuándo termina el precio congelado; null si ya terminó o no aplica.
-      priceChangesAt:
-        priceEnd && priceEnd > now && priceRises ? priceEnd : null,
+      priceChangesAt: change?.changesAt ?? null,
     };
   }
 

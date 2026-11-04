@@ -272,6 +272,30 @@ describe('SubscriptionsService', () => {
         ).toBe(12990);
       });
 
+      it('priceChange informa fecha y precios mientras el congelado vence y sube', () => {
+        const during = service.priceChange(
+          sub,
+          new Date('2027-10-20T00:00:00Z'),
+        );
+        expect(during?.changesAt.toISOString()).toBe(
+          '2027-11-10T12:00:00.000Z',
+        );
+        expect(during?.fromPriceClp).toBe(6990);
+        expect(during?.toPriceClp).toBe(12990);
+      });
+
+      it('priceChange es null una vez cumplido el plazo, o si el precio no sube', () => {
+        expect(
+          service.priceChange(sub, new Date('2027-11-10T12:00:00Z')),
+        ).toBeNull();
+        expect(
+          service.priceChange(
+            { ...sub, priceClp: 12990 },
+            new Date('2027-10-20T00:00:00Z'),
+          ),
+        ).toBeNull();
+      });
+
       it('getStatusView informa el precio efectivo y cuándo cambia', async () => {
         prisma.user.findUnique.mockResolvedValue({
           email: 'a@b.cl',

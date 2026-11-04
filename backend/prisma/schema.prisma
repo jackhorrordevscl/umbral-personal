@@ -166,6 +166,20 @@ model Subscription {
   updatedAt        DateTime              @updatedAt
   payments         SubscriptionPayment[]
   reminders        SubscriptionReminder[]
+  priceNotices     SubscriptionPriceNotice[]
+}
+
+// Issue #611: un aviso de cambio de precio por (suscripción, fecha del
+// cambio). La garantía de "una sola vez" es el @@unique, no lógica de
+// aplicación; si la fecha del cambio se moviera, el aviso se rearma.
+model SubscriptionPriceNotice {
+  id             String       @id @default(uuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  priceChangeAt  DateTime
+  createdAt      DateTime     @default(now())
+
+  @@unique([subscriptionId, priceChangeAt])
 }
 
 // Issue #611 (PR 4): un aviso de vencimiento por (suscripción, vencimiento,
@@ -885,6 +899,8 @@ enum NotificationType {
   SESSION_REMINDER
   // Issue #611 (PR 4): aviso de vencimiento de la suscripción.
   SUBSCRIPTION_EXPIRING
+  // Issue #611: aviso previo al fin del precio de lanzamiento.
+  SUBSCRIPTION_PRICE_CHANGE
   // sdd/google-calendar-integration PR 2: emitida cuando invalid_grant/401
   // marca una conexión CONNECTED como DISCONNECTED (ver CalendarSyncService,
   // design.md "Failure classification"). El campo existe desde PR 1 junto
