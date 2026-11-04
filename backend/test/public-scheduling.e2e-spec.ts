@@ -161,6 +161,22 @@ describe('Public scheduling (e2e)', () => {
       }
       await request(app.getHttpServer()).get(url).expect(429);
     });
+
+    // Issue #635: antes, `ip` y `headers` se perdían al copiar el request y todos
+    // los visitantes compartían un solo bucket por terapeuta.
+    it('cuenta el límite por visitante: IP de cliente distinta, bucket distinto', async () => {
+      const url = `/api/v1/public/therapists/${UNKNOWN_THERAPIST_ID}/availability?from=2026-09-01T00:00:00-04:00&to=2026-09-05T00:00:00-04:00`;
+      const from = (ip: string) =>
+        request(app.getHttpServer()).get(url).set('X-Forwarded-For', ip);
+
+      for (let i = 0; i < TEST_LIMIT; i++) {
+        await from('198.51.100.10').expect(200);
+      }
+      await from('198.51.100.10').expect(429);
+
+      // Otro visitante no hereda el cupo agotado del primero.
+      await from('198.51.100.11').expect(200);
+    });
   });
 
   // tasks.md 3.12 "existing auth throttlers unaffected": el riesgo real que

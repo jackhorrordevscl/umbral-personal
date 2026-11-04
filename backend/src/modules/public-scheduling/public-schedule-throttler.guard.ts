@@ -182,8 +182,16 @@ export class PublicScheduleThrottlerGuard extends ThrottlerGuard {
   protected async getTracker(req: Record<string, any>): Promise<string> {
     const typedReq = req as Parameters<typeof getPublicScheduleTracker>[0];
     const therapistId = await this.canonicalTherapistKey(typedReq);
+    // Issue #635: NO copiar el request con spread. En Express `ip` y `headers`
+    // son accesores del prototipo, no propiedades propias, y el spread los
+    // dejaba undefined (todos los visitantes caían en un solo bucket).
     return getPublicScheduleTracker(
-      { ...typedReq, params: { ...typedReq.params, therapistId } },
+      {
+        ip: typedReq.ip,
+        headers: typedReq.headers,
+        body: typedReq.body,
+        params: { ...typedReq.params, therapistId },
+      },
       this.trustedProxyHops,
     );
   }
