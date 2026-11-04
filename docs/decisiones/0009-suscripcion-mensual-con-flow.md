@@ -29,8 +29,10 @@ fuente de verdad.
   post-lanzamiento (`SUBSCRIPTION_RENEWAL_PRICE_CLP`, 12990 CLP por defecto),
   nunca menos que el precio congelado de la cuenta. Se calcula al consultar, sin
   cron, y no reescribe `Subscription.priceClp`; cada pago guarda el monto
-  cobrado. `GET /billing/status` informa el precio efectivo y `priceChangesAt`
-  (fin del precio congelado, o null si ya terminó o no sube).
+  cobrado. `GET /billing/status` informa el precio efectivo, `priceChangesAt`
+  (fin del precio congelado, o null si ya terminó o no sube) y `nextPriceClp`
+  (precio que se cobrará desde esa fecha). La pantalla de suscripción muestra
+  "Desde el [fecha] el precio pasa a [precio] al mes" a quien puede pagar.
 - Cada pago confirmado suma 30 días: `max(ahora, vencimiento actual) + 30 días`.
   Pagar antes de vencer no hace perder días.
 - Las credenciales son de la plataforma (`SUBSCRIPTION_FLOW_API_KEY` y

@@ -16,6 +16,10 @@ export interface SubscriptionStatus {
   periodEnd: string | null;
   graceEnd: string | null;
   priceClp: number;
+  // Fin del precio de lanzamiento y precio que se cobrará desde esa fecha;
+  // null si no hay un cambio pendiente.
+  priceChangesAt?: string | null;
+  nextPriceClp?: number | null;
 }
 
 export interface SignupConfig {
