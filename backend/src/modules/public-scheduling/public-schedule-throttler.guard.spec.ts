@@ -381,6 +381,43 @@ describe('PublicScheduleThrottlerGuard (límites extra, issue #299)', () => {
     ]);
   });
 
+  // Issue #635: en Express `ip` y `headers` son accesores del prototipo, no
+  // propiedades propias; copiar el request con spread los dejaba undefined y
+  // todos los visitantes caían en el mismo bucket.
+  it('getTracker separa visitantes con un request real cuyo ip y headers son accesores del prototipo', async () => {
+    class FakeExpressRequest {
+      constructor(
+        private readonly peer: string,
+        private readonly rawHeaders: Record<string, string>,
+      ) {}
+      get ip() {
+        return this.peer;
+      }
+      get headers() {
+        return this.rawHeaders;
+      }
+      params = { therapistId: 'therapist-1' };
+      body = {};
+    }
+    const guard = buildGuard({}, buildStorage());
+    const trackerOf = (req: FakeExpressRequest) =>
+      (
+        guard as unknown as {
+          getTracker: (r: unknown) => Promise<string>;
+        }
+      ).getTracker(req);
+
+    const a = await trackerOf(new FakeExpressRequest('198.51.100.1', {}));
+    const b = await trackerOf(new FakeExpressRequest('198.51.100.2', {}));
+    const viaXff = await trackerOf(
+      new FakeExpressRequest('10.0.0.5', { 'x-forwarded-for': '203.0.113.7' }),
+    );
+
+    expect(a).toBe('198.51.100.1:therapist-1');
+    expect(b).toBe('198.51.100.2:therapist-1');
+    expect(viaXff).toBe('203.0.113.7:therapist-1');
+  });
+
   it('no cuenta las lecturas (GET) contra los límites extra', async () => {
     const storage = buildStorage();
     const guard = buildGuard(
