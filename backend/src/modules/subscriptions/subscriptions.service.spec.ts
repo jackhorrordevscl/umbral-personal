@@ -25,6 +25,7 @@ describe('SubscriptionsService', () => {
     $transaction: jest.Mock;
     user: { findUnique: jest.Mock };
     subscriptionGrant: { findUnique: jest.Mock };
+    subscription?: { findUnique: jest.Mock };
     promoCode?: { findUnique: jest.Mock };
   };
   let env: Record<string, string | undefined>;
@@ -246,6 +247,68 @@ describe('SubscriptionsService', () => {
         expect(await service.isWriteBlocked('u1', now)).toBe(blocked);
       },
     );
+
+    describe('precio tras los 12 meses de lanzamiento', () => {
+      const started = new Date('2026-11-10T12:00:00Z');
+      const sub = { priceClp: 6990, priceStartedAt: started };
+
+      it('effectivePriceClp mantiene el congelado dentro de los 12 meses y cobra 12990 después', () => {
+        expect(
+          service.effectivePriceClp(sub, new Date('2027-11-10T11:59:59Z')),
+        ).toBe(6990);
+        expect(
+          service.effectivePriceClp(sub, new Date('2027-11-10T12:00:00Z')),
+        ).toBe(12990);
+      });
+
+      it('toma el precio post-lanzamiento de SUBSCRIPTION_RENEWAL_PRICE_CLP si es válido', () => {
+        env.SUBSCRIPTION_RENEWAL_PRICE_CLP = '14990';
+        expect(
+          service.effectivePriceClp(sub, new Date('2028-01-01T00:00:00Z')),
+        ).toBe(14990);
+        env.SUBSCRIPTION_RENEWAL_PRICE_CLP = 'abc';
+        expect(
+          service.effectivePriceClp(sub, new Date('2028-01-01T00:00:00Z')),
+        ).toBe(12990);
+      });
+
+      it('getStatusView informa el precio efectivo y cuándo cambia', async () => {
+        prisma.user.findUnique.mockResolvedValue({
+          email: 'a@b.cl',
+          subscription: null,
+        });
+        prisma.subscriptionGrant.findUnique.mockResolvedValue(null);
+        prisma.subscription = {
+          findUnique: jest.fn().mockResolvedValue(sub),
+        };
+
+        const during = await service.getStatusView(
+          'u1',
+          new Date('2027-01-01T00:00:00Z'),
+        );
+        expect(during.priceClp).toBe(6990);
+        expect(during.priceChangesAt?.toISOString()).toBe(
+          '2027-11-10T12:00:00.000Z',
+        );
+
+        const after = await service.getStatusView(
+          'u1',
+          new Date('2027-12-01T00:00:00Z'),
+        );
+        expect(after.priceClp).toBe(12990);
+        expect(after.priceChangesAt).toBeNull();
+      });
+
+      it('sin suscripción, la vista usa el precio vigente y no anuncia cambio', async () => {
+        prisma.user.findUnique.mockResolvedValue(null);
+        prisma.subscriptionGrant.findUnique.mockResolvedValue(null);
+        prisma.subscription = { findUnique: jest.fn().mockResolvedValue(null) };
+
+        const view = await service.getStatusView('u1', now);
+        expect(view.priceClp).toBe(6990);
+        expect(view.priceChangesAt).toBeNull();
+      });
+    });
 
     it('una concesión permanente nunca queda bloqueada', async () => {
       env.SUBSCRIPTIONS_ENFORCED = 'true';

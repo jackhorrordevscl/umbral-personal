@@ -24,6 +24,13 @@ fuente de verdad.
   precio vigente está en `SUBSCRIPTION_PRICE_CLP` (6990 CLP por defecto) y cada
   suscripción y cada pago guardan el monto con el que se cobraron, de modo que
   un cambio de precio solo afecta a las suscripciones nuevas.
+- El precio de lanzamiento se mantiene 12 meses desde que se congela
+  (`priceStartedAt`). Al cumplirse, el checkout cobra el precio
+  post-lanzamiento (`SUBSCRIPTION_RENEWAL_PRICE_CLP`, 12990 CLP por defecto),
+  nunca menos que el precio congelado de la cuenta. Se calcula al consultar, sin
+  cron, y no reescribe `Subscription.priceClp`; cada pago guarda el monto
+  cobrado. `GET /billing/status` informa el precio efectivo y `priceChangesAt`
+  (fin del precio congelado, o null si ya terminó o no sube).
 - Cada pago confirmado suma 30 días: `max(ahora, vencimiento actual) + 30 días`.
   Pagar antes de vencer no hace perder días.
 - Las credenciales son de la plataforma (`SUBSCRIPTION_FLOW_API_KEY` y

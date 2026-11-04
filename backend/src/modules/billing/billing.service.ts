@@ -119,7 +119,7 @@ export class BillingService {
       data: {
         subscriptionId: subscription.id,
         commerceOrder: `sub-${randomUUID()}`,
-        amountClp: subscription.priceClp,
+        amountClp: this.subscriptions.effectivePriceClp(subscription, now),
       },
     });
 

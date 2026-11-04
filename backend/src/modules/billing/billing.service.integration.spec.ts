@@ -123,6 +123,54 @@ describe('BillingService (integration, real Prisma, Flow simulado)', () => {
     expect((await subscriptions.getAccess(userId)).state).toBe('READ_ONLY');
   }, 30000);
 
+  it('checkout: cumplidos los 12 meses del precio de lanzamiento cobra 12990 y guarda ese monto en el pago', async () => {
+    const userId = await createUser('p12');
+    const started = new Date('2026-01-15T12:00:00Z');
+    await subscriptions.ensureSubscription(userId, started);
+    const token = `tok-p12-${runId}`;
+    flow.createOrder.mockResolvedValueOnce({
+      token,
+      paymentUrl: `https://flow.test/pay?token=${token}`,
+    });
+
+    await service.createCheckout(userId, new Date('2027-01-15T12:00:00Z'));
+
+    const [, input] = flow.createOrder.mock.calls[0] as [
+      unknown,
+      Record<string, unknown>,
+    ];
+    expect(input).toMatchObject({ amount: 12990 });
+    const payment = await prisma.subscriptionPayment.findUniqueOrThrow({
+      where: { flowToken: token },
+    });
+    expect(payment.amountClp).toBe(12990);
+    // El precio congelado de la suscripción no se reescribe.
+    const subscription = await prisma.subscription.findUniqueOrThrow({
+      where: { userId },
+    });
+    expect(subscription.priceClp).toBe(6990);
+  }, 30000);
+
+  it('checkout: un día antes de cumplir los 12 meses sigue cobrando el precio congelado', async () => {
+    const userId = await createUser('p12b');
+    await subscriptions.ensureSubscription(
+      userId,
+      new Date('2026-01-15T12:00:00Z'),
+    );
+    flow.createOrder.mockResolvedValueOnce({
+      token: `tok-p12b-${runId}`,
+      paymentUrl: 'https://flow.test/pay',
+    });
+
+    await service.createCheckout(userId, new Date('2027-01-14T12:00:00Z'));
+
+    const [, input] = flow.createOrder.mock.calls[0] as [
+      unknown,
+      Record<string, unknown>,
+    ];
+    expect(input).toMatchObject({ amount: 6990 });
+  }, 30000);
+
   it('checkout sin credenciales de la plataforma responde 503 y no crea nada', async () => {
     env.SUBSCRIPTION_FLOW_API_KEY = undefined;
     const userId = await createUser('nocreds');
