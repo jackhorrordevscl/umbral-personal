@@ -204,6 +204,47 @@ describe('GoogleCalendarClient', () => {
       } as Partial<GoogleCalendarError>);
     });
 
+    // Issue #635: una clave de la app mal puesta o rotada (invalid_client) no
+    // dice nada sobre el permiso del terapeuta; tratarla como invalid_grant
+    // desconectaba a todos y borraba sus refresh tokens.
+    it.each([
+      ['401 invalid_client', 401, 'invalid_client'],
+      ['400 invalid_client', 400, 'invalid_client'],
+      ['400 unauthorized_client', 400, 'unauthorized_client'],
+      ['400 invalid_request', 400, 'invalid_request'],
+    ])(
+      'clasifica un rechazo %s del endpoint de tokens como transient, no como invalid_grant',
+      async (_label, status, error) => {
+        const oauth2Client = {
+          getAccessToken: jest.fn().mockRejectedValue(
+            Object.assign(new Error(error), {
+              response: { status, data: { error } },
+            }),
+          ),
+        } as unknown as OAuth2Client;
+
+        await expect(
+          client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY, EVENT_ID),
+        ).rejects.toMatchObject({
+          kind: 'transient',
+        } as Partial<GoogleCalendarError>);
+      },
+    );
+
+    it('clasifica invalid_client como transient aunque el error solo traiga el mensaje', async () => {
+      const oauth2Client = {
+        getAccessToken: jest
+          .fn()
+          .mockRejectedValue(new Error('invalid_client')),
+      } as unknown as OAuth2Client;
+
+      await expect(
+        client.insertEvent(oauth2Client, CALENDAR_ID, EVENT_BODY, EVENT_ID),
+      ).rejects.toMatchObject({
+        kind: 'transient',
+      } as Partial<GoogleCalendarError>);
+    });
+
     it('clasifica un error de red al refrescar el access_token como transient', async () => {
       const oauth2Client = {
         getAccessToken: jest

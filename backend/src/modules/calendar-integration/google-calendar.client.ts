@@ -93,11 +93,21 @@ export const GOOGLE_REQUEST_TIMEOUT_MS = 15_000;
 // GaxiosError con response.status y response.data.error; si el shape no
 // viene, el mensaje 'invalid_grant' sigue contando. Todo lo demás (DNS,
 // reset de conexión, 5xx) es transitorio.
+//
+// Issue #635: un 400/401 del endpoint de tokens NO siempre es un grant
+// revocado. Si Google informa otro código de error (invalid_client por una
+// clave de la app rotada o mal puesta, unauthorized_client, invalid_request...)
+// el problema es de la configuración de la app, no del permiso del terapeuta:
+// tratarlo como invalid_grant desconectaría a todos y borraría sus refresh
+// tokens. Solo `invalid_grant` cuenta; un 400/401 sin código (shape ausente)
+// conserva el comportamiento anterior.
 function isTokenRejection(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const { response } = err as {
     response?: { status?: number; data?: { error?: unknown } };
   };
+  const code = response?.data?.error;
+  if (typeof code === 'string' && code !== 'invalid_grant') return false;
   if (response?.status === 400 || response?.status === 401) return true;
   return (
     response?.data?.error === 'invalid_grant' ||
