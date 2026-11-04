@@ -107,6 +107,8 @@ export class SubscriptionsService {
         : this.currentPriceClp(),
       // Cuándo termina el precio congelado; null si ya terminó o no aplica.
       priceChangesAt: change?.changesAt ?? null,
+      // Precio que se cobrará desde priceChangesAt; null si no hay cambio.
+      nextPriceClp: change?.toPriceClp ?? null,
     };
   }
 

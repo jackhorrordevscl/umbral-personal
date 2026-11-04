@@ -161,6 +161,13 @@ export function SubscriptionScreen({
                 <p className="text-xs text-slate-500">
                   Precio: {clp.format(status.priceClp)} al mes
                 </p>
+                {status.priceChangesAt && status.nextPriceClp != null && (
+                  <p className="text-xs text-slate-500">
+                    Desde el {formatChileDateOnly(status.priceChangesAt)} el precio pasa a{' '}
+                    {clp.format(status.nextPriceClp)} al mes. No tienes que hacer nada: el cambio
+                    aplica a los pagos desde esa fecha.
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={handlePay}

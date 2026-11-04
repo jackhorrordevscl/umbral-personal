@@ -66,6 +66,51 @@ describe('SubscriptionPage (issue #611)', () => {
     expect(screen.getByRole('button', { name: /pagar un mes más/i })).toBeInTheDocument()
   })
 
+  it('con un cambio de precio pendiente avisa desde cuándo y a cuánto pasa', async () => {
+    mockedApi.get.mockResolvedValue({
+      data: buildStatus({
+        priceChangesAt: '2027-11-10T15:00:00.000Z',
+        nextPriceClp: 12990,
+      }),
+    })
+
+    renderPage()
+
+    expect(
+      await screen.findByText(/desde el 10 de noviembre de 2027 el precio pasa a \$12\.990 al mes/i),
+    ).toBeInTheDocument()
+    // El precio de hoy sigue visible.
+    expect(screen.getByText(/precio: \$6\.990 al mes/i)).toBeInTheDocument()
+  })
+
+  it('sin cambio de precio pendiente no escribe el aviso ni "null"', async () => {
+    mockedApi.get.mockResolvedValue({
+      data: buildStatus({ priceChangesAt: null, nextPriceClp: null }),
+    })
+
+    renderPage()
+
+    expect(await screen.findByText(/vigente hasta el 1 de diciembre de 2026/i)).toBeInTheDocument()
+    expect(screen.queryByText(/el precio pasa a/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/null/i)).not.toBeInTheDocument()
+  })
+
+  it('una cuenta exenta no ve el aviso de cambio de precio', async () => {
+    mockedApi.get.mockResolvedValue({
+      data: buildStatus({
+        state: 'EXEMPT',
+        periodEnd: null,
+        priceChangesAt: '2027-11-10T15:00:00.000Z',
+        nextPriceClp: 12990,
+      }),
+    })
+
+    renderPage()
+
+    expect(await screen.findByText(/acceso sin costo/i)).toBeInTheDocument()
+    expect(screen.queryByText(/el precio pasa a/i)).not.toBeInTheDocument()
+  })
+
   it('período de gracia: explica hasta cuándo se puede renovar antes del solo lectura', async () => {
     mockedApi.get.mockResolvedValue({
       data: buildStatus({

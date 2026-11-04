@@ -314,6 +314,7 @@ describe('SubscriptionsService', () => {
         expect(during.priceChangesAt?.toISOString()).toBe(
           '2027-11-10T12:00:00.000Z',
         );
+        expect(during.nextPriceClp).toBe(12990);
 
         const after = await service.getStatusView(
           'u1',
@@ -321,6 +322,7 @@ describe('SubscriptionsService', () => {
         );
         expect(after.priceClp).toBe(12990);
         expect(after.priceChangesAt).toBeNull();
+        expect(after.nextPriceClp).toBeNull();
       });
 
       it('sin suscripción, la vista usa el precio vigente y no anuncia cambio', async () => {
@@ -331,6 +333,7 @@ describe('SubscriptionsService', () => {
         const view = await service.getStatusView('u1', now);
         expect(view.priceClp).toBe(6990);
         expect(view.priceChangesAt).toBeNull();
+        expect(view.nextPriceClp).toBeNull();
       });
     });
 
