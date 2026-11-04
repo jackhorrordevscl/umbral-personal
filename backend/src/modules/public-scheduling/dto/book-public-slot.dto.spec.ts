@@ -24,6 +24,21 @@ describe('BookPublicSlotDto', () => {
     expect(errors).toHaveLength(0);
   });
 
+  // Issue #635: sin @IsDefined, un POST sin patient pasaba la validación y
+  // terminaba en un 500 (TypeError) en el servicio en vez de un 400.
+  it.each([
+    ['ausente', undefined],
+    ['null', null],
+  ])('rechaza un body con patient %s', async (_label, patient) => {
+    const dto = plainToInstance(BookPublicSlotDto, {
+      slotStart: '2026-09-05T13:00:00.000Z',
+      patient,
+    });
+    const errors = await validate(dto);
+
+    expect(errors.map((e) => e.property)).toContain('patient');
+  });
+
   // Minor booking: email is optional at the DTO level (a minor may have none);
   // PatientsService.resolveForPublicBooking requires it for adults by birthDate.
   it('acepta patient sin email (la obligatoriedad para adultos la decide el servicio)', async () => {

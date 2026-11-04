@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsOptional, ValidateNested } from 'class-validator';
+import { IsDefined, IsOptional, ValidateNested } from 'class-validator';
 import { IsStrictDateString } from '../../../common/validators/is-strict-date-string.decorator';
 import { PublicBookingPatientDto } from './public-booking-patient.dto';
 import { PublicBookingOriginDto } from './public-booking-origin.dto';
@@ -16,6 +16,9 @@ export class BookPublicSlotDto {
   @IsStrictDateString()
   slotStart: string;
 
+  // Issue #635: sin @IsDefined, un body sin patient pasaba la validación y
+  // fallaba con un 500 en el servicio.
+  @IsDefined()
   @ValidateNested()
   @Type(() => PublicBookingPatientDto)
   patient: PublicBookingPatientDto;
