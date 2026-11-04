@@ -94,6 +94,16 @@ describe('Public scheduling (e2e)', () => {
         });
       expect(response.status).not.toBe(401);
     });
+
+    // Issue #635: sin patient respondía 500 (TypeError en el servicio).
+    it('POST .../availability/book sin patient responde 400, no 500', async () => {
+      await request(app.getHttpServer())
+        .post(
+          `/api/v1/public/therapists/${UNKNOWN_THERAPIST_ID}/availability/book`,
+        )
+        .send({ slotStart: '2099-01-01T13:00:00.000Z' })
+        .expect(400);
+    });
   });
 
   describe('validación de rango (span > 60 días rechazado)', () => {
