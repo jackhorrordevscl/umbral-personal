@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -174,6 +175,54 @@ describe('SubscriptionPriceNoticesService (issue #611)', () => {
       where: { subscriptionId: 'sub-1', priceChangeAt: changesAt(26) },
     });
     expect(mail.sendSubscriptionReminderEmail).not.toHaveBeenCalled();
+  });
+
+  it('si además falla liberar el reclamo, se registra el error original de la notificación', async () => {
+    const errorSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    notifications.create.mockRejectedValue(new Error('db caída'));
+    prisma.subscriptionPriceNotice.deleteMany.mockRejectedValue(
+      new Error('liberación falló'),
+    );
+    await service.scan(NOW);
+    const messages = errorSpy.mock.calls.map((call) => String(call[0]));
+    expect(messages.some((m) => m.includes('db caída'))).toBe(true);
+    errorSpy.mockRestore();
+  });
+
+  it('si falla el correo tras reclamar, no libera el reclamo ni corta el escaneo', async () => {
+    const errorSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    mail.sendSubscriptionReminderEmail.mockRejectedValue(
+      new Error('resend caído'),
+    );
+    await expect(service.scan(NOW)).resolves.toBeUndefined();
+    expect(notifications.create).toHaveBeenCalledTimes(1);
+    expect(prisma.subscriptionPriceNotice.deleteMany).not.toHaveBeenCalled();
+    const messages = errorSpy.mock.calls.map((call) => String(call[0]));
+    expect(messages.some((m) => m.includes('resend caído'))).toBe(true);
+    errorSpy.mockRestore();
+  });
+
+  it('pagina el escaneo con cursor cuando el lote viene lleno', async () => {
+    const fullPage = Array.from({ length: 200 }, (_, i) => ({
+      ...sub,
+      id: `sub-${i}`,
+      userId: `user-${i}`,
+    }));
+    prisma.subscription.findMany
+      .mockResolvedValueOnce(fullPage)
+      .mockResolvedValueOnce([]);
+    await service.scan(NOW);
+    const calls = prisma.subscription.findMany.mock.calls as [
+      Record<string, unknown>,
+    ][];
+    expect(calls).toHaveLength(2);
+    expect(calls[0][0]).not.toHaveProperty('cursor');
+    expect(calls[1][0]).toMatchObject({ cursor: { id: 'sub-199' }, skip: 1 });
+    expect(notifications.create).toHaveBeenCalledTimes(200);
   });
 
   it('un fallo en una cuenta no corta el lote', async () => {

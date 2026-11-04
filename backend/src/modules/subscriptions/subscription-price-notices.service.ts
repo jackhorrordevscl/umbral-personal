@@ -166,12 +166,19 @@ export class SubscriptionPriceNoticesService {
     } catch (err) {
       // Sin la notificación el aviso no llegó: se libera el reclamo para que
       // el próximo tick lo reintente.
-      await this.prisma.subscriptionPriceNotice.deleteMany({
-        where: {
-          subscriptionId: subscription.id,
-          priceChangeAt: change.changesAt,
-        },
-      });
+      // Si liberar también falla, ese error no debe tapar el original.
+      try {
+        await this.prisma.subscriptionPriceNotice.deleteMany({
+          where: {
+            subscriptionId: subscription.id,
+            priceChangeAt: change.changesAt,
+          },
+        });
+      } catch (releaseErr) {
+        this.logger.error(
+          `No se pudo liberar el reclamo del aviso de precio para subscriptionId=${subscription.id}: ${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`,
+        );
+      }
       throw err;
     }
 
