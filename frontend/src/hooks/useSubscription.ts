@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../api/client';
 
@@ -32,15 +33,18 @@ const subscriptionReturnKey = ['subscription-status', 'return'] as const;
 
 // Mismo patrón react-query que usePaymentAccount. `poll` lo usa la pantalla de
 // retorno de Flow para esperar la confirmación del pago: cada `everyMs`, hasta
-// `maxRefetches` veces, le pide al backend que verifique el pago directamente
+// `maxMs` milisegundos desde que se monta, le pide al backend que verifique el pago directamente
 // en Flow (POST /billing/refresh) en vez de esperar solo el webhook, y siembra
 // el resultado en la caché del estado general (banner, menú). Si esa consulta
 // falla, cae a la lectura normal del estado.
 export function useSubscriptionStatus(options?: {
-  poll?: { everyMs: number; maxRefetches: number };
+  poll?: { everyMs: number; maxMs: number };
 }) {
   const poll = options?.poll;
   const queryClient = useQueryClient();
+  // El tope es por tiempo y no por refetches exitosos: si las consultas fallan,
+  // el sondeo igual termina.
+  const [startedAt] = useState(() => Date.now());
   return useQuery({
     queryKey: poll ? subscriptionReturnKey : subscriptionStatusKey,
     queryFn: async (): Promise<SubscriptionStatus> => {
@@ -62,8 +66,7 @@ export function useSubscriptionStatus(options?: {
     },
     gcTime: poll ? 0 : undefined,
     refetchInterval: poll
-      ? (query) =>
-          query.state.dataUpdateCount < poll.maxRefetches ? poll.everyMs : false
+      ? () => (Date.now() - startedAt < poll.maxMs ? poll.everyMs : false)
       : false,
   });
 }

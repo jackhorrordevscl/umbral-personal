@@ -18,7 +18,7 @@ const clp = new Intl.NumberFormat('es-CL', {
 // Tras pagar, Flow devuelve al navegador y confirma por webhook: puede tardar.
 // La pantalla de retorno consulta el estado cada 5 s durante un minuto y, en
 // cada vuelta, le pide al backend que verifique el pago directamente en Flow.
-const RETURN_POLL = { everyMs: 5000, maxRefetches: 12 };
+const RETURN_POLL = { everyMs: 5000, maxMs: 60_000 };
 
 function describeStatus(status: SubscriptionStatus) {
   const periodEnd = status.periodEnd ? formatChileDateOnly(status.periodEnd) : null;
@@ -27,14 +27,20 @@ function describeStatus(status: SubscriptionStatus) {
   switch (status.state) {
     case 'ACTIVE':
       return {
-        lines: [`Tu suscripción está vigente hasta el ${periodEnd}.`],
+        lines: [
+          periodEnd
+            ? `Tu suscripción está vigente hasta el ${periodEnd}.`
+            : 'Tu suscripción está vigente.',
+        ],
         payLabel: 'Pagar un mes más',
       };
     case 'GRACE':
       return {
         lines: [
-          `Tu suscripción venció el ${periodEnd}.`,
-          `Puedes renovar hasta el ${graceEnd}; después tu cuenta pasará a solo lectura.`,
+          periodEnd ? `Tu suscripción venció el ${periodEnd}.` : 'Tu suscripción venció.',
+          graceEnd
+            ? `Puedes renovar hasta el ${graceEnd}; después tu cuenta pasará a solo lectura.`
+            : 'Puedes renovar; después tu cuenta pasará a solo lectura.',
         ],
         payLabel: 'Pagar suscripción',
       };
@@ -89,6 +95,16 @@ export function SubscriptionScreen({
     });
   };
 
+  // Primer estado leído en esta pantalla: si luego el vencimiento avanza, el
+  // pago ya se confirmó y el aviso de espera sobra.
+  const [baseline, setBaseline] = useState<SubscriptionStatus | null>(null);
+  if (status && !baseline) setBaseline(status);
+  const paymentConfirmed =
+    !!status &&
+    !!baseline &&
+    status.state === 'ACTIVE' &&
+    status.periodEnd !== baseline.periodEnd;
+
   const view = status?.enforced ? describeStatus(status) : null;
 
   return (
@@ -113,7 +129,7 @@ export function SubscriptionScreen({
           </div>
         </div>
 
-        {afterPayment && (
+        {afterPayment && !paymentConfirmed && (
           <p className="mb-4 rounded-lg bg-sage-50 p-3 text-sm text-slate-700">
             Estamos confirmando tu pago. Puede tardar unos minutos; esta pantalla se actualiza sola.
           </p>
@@ -151,7 +167,7 @@ export function SubscriptionScreen({
                   disabled={checkout.isPending || redirecting}
                   className="btn-primary w-full py-3 disabled:opacity-50"
                 >
-                  {checkout.isPending || redirecting ?'Redirigiendo a Flow...' : view.payLabel}
+                  {checkout.isPending || redirecting ? 'Redirigiendo a Flow...' : view.payLabel}
                 </button>
               </>
             )}

@@ -212,6 +212,63 @@ describe('SubscriptionPage (issue #611)', () => {
     expect(screen.getByText(/estamos confirmando tu pago/i)).toBeInTheDocument()
   })
 
+  it('tras volver de Flow, al avanzar el vencimiento quita el aviso de confirmación', async () => {
+    mockedApi.get.mockResolvedValue({
+      data: buildStatus({ state: 'READ_ONLY', periodEnd: null }),
+    })
+    mockedApi.post.mockRejectedValueOnce(new Error('network'))
+    mockedApi.post.mockResolvedValue({ data: buildStatus() })
+
+    const { queryClient } = renderPage({ afterPayment: true })
+    expect(await screen.findByText(/solo lectura/i)).toBeInTheDocument()
+    expect(screen.getByText(/estamos confirmando tu pago/i)).toBeInTheDocument()
+
+    await act(async () => {
+      await queryClient.refetchQueries()
+    })
+
+    expect(await screen.findByText(/vigente hasta el 1 de diciembre de 2026/i)).toBeInTheDocument()
+    expect(screen.queryByText(/estamos confirmando tu pago/i)).not.toBeInTheDocument()
+  })
+
+  it('cuenta vigente sin fecha de vencimiento: no escribe "null"', async () => {
+    mockedApi.get.mockResolvedValue({ data: buildStatus({ periodEnd: null }) })
+
+    renderPage()
+
+    expect(await screen.findByText(/tu suscripción está vigente\./i)).toBeInTheDocument()
+    expect(screen.queryByText(/null/i)).not.toBeInTheDocument()
+  })
+
+  it('período de gracia sin fechas: no escribe "null"', async () => {
+    mockedApi.get.mockResolvedValue({
+      data: buildStatus({ state: 'GRACE', periodEnd: null, graceEnd: null }),
+    })
+
+    renderPage()
+
+    expect(await screen.findByText(/tu suscripción venció\./i)).toBeInTheDocument()
+    expect(screen.queryByText(/null/i)).not.toBeInTheDocument()
+  })
+
+  it('el sondeo del retorno termina por tiempo aunque todas las consultas fallen', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      mockedApi.get.mockRejectedValue(new Error('network'))
+      mockedApi.post.mockRejectedValue(new Error('network'))
+
+      renderPage({ afterPayment: true })
+      await vi.advanceTimersByTimeAsync(61_000)
+      const callsAtLimit = mockedApi.get.mock.calls.length
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      expect(callsAtLimit).toBeGreaterThan(1)
+      expect(mockedApi.get.mock.calls.length).toBe(callsAtLimit)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('fuera del retorno de Flow no consulta el pago', async () => {
     mockedApi.get.mockResolvedValue({ data: buildStatus() })
 
