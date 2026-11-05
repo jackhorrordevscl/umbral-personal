@@ -36,6 +36,12 @@ const SWEEP_BATCH_LIMIT = 200;
 // llenar el lote del barrido ni gastar llamadas a Flow con la clave de la
 // plataforma. Solo cuentan los de la ventana del barrido.
 const MAX_OPEN_CHECKOUTS = 5;
+// Issue #633: sin timeout, Flow deja la orden pagable para siempre. Con él, una
+// orden abandonada vence sola a las 24 h y el tope solo cuenta las de esa
+// ventana: nadie queda bloqueado días. El barrido sigue mirando 3 días, así que
+// un pago hecho justo antes de vencer y con webhook perdido igual se acredita.
+const CHECKOUT_TIMEOUT_SECONDS = 24 * 60 * 60;
+const CHECKOUT_TIMEOUT_MS = CHECKOUT_TIMEOUT_SECONDS * 1000;
 // Flow responde 400 con code 1620 ("The userEmail: ... is not valid.") cuando no
 // acepta el correo del pagador. Verificado en el sandbox el 3 nov 2026 con
 // dominio inexistente, formato inválido y correo vacío. Reintentar no lo arregla.
@@ -120,12 +126,12 @@ export class BillingService {
       where: {
         subscriptionId: subscription.id,
         status: 'PENDING',
-        createdAt: { gte: new Date(now.getTime() - SWEEP_MAX_AGE_MS) },
+        createdAt: { gte: new Date(now.getTime() - CHECKOUT_TIMEOUT_MS) },
       },
     });
     if (openCheckouts >= MAX_OPEN_CHECKOUTS) {
       throw new HttpException(
-        'Tienes varios pagos iniciados sin completar. Termina uno o espera unas horas antes de intentar de nuevo.',
+        'Tienes varios pagos iniciados sin completar. Termina uno o espera hasta 24 horas antes de intentar de nuevo.',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
@@ -148,6 +154,7 @@ export class BillingService {
         payerEmail: user.email,
         returnUrl: `${backendUrl}${BILLING_RETURN_PATH}`,
         confirmUrl: `${backendUrl}${BILLING_CONFIRM_PATH}`,
+        timeoutSeconds: CHECKOUT_TIMEOUT_SECONDS,
       });
       await this.prisma.subscriptionPayment.update({
         where: { id: payment.id },
