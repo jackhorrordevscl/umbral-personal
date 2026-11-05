@@ -105,6 +105,10 @@ export interface OrderInput {
   // (deliverPaymentLink already handles a patient with no email on its
   // own).
   payerEmail: string;
+  // Issue #633: segundos tras los cuales la orden deja de poder pagarse. Sin
+  // él, Flow la deja vigente por tiempo indefinido. Opcional: solo lo usa el
+  // cobro de la suscripción; los pagos a terapeutas no lo envían.
+  timeoutSeconds?: number;
 }
 
 // design.md "Port contract": stateless. Every method takes credentials in --

@@ -113,6 +113,9 @@ describe('BillingService (integration, real Prisma, Flow simulado)', () => {
       payerEmail: `bill611-co-${runId}@example.com`,
       confirmUrl: 'https://api.test/api/v1/billing/confirm',
       returnUrl: 'https://api.test/api/v1/billing/return',
+      // Issue #633: la orden vence en Flow a las 24 h; sin esto seguiría
+      // pagable para siempre.
+      timeoutSeconds: 24 * 60 * 60,
     });
     const payment = await prisma.subscriptionPayment.findUniqueOrThrow({
       where: { flowToken: token },
@@ -327,6 +330,31 @@ describe('BillingService (integration, real Prisma, Flow simulado)', () => {
         where: { subscription: { userId } },
       }),
     ).toBe(5);
+  }, 30000);
+
+  it('el tope solo cuenta los pendientes de las últimas 24 h (la orden ya venció en Flow)', async () => {
+    const userId = await createUser('cap-expired');
+    for (let i = 0; i < 5; i++) {
+      flow.createOrder.mockResolvedValueOnce({
+        token: `tok-capexp-${i}-${runId}`,
+        paymentUrl: 'https://flow.test/pay',
+      });
+      await service.createCheckout(userId);
+    }
+    const sixth = await service.createCheckout(userId).catch((e: unknown) => e);
+    expect((sixth as HttpException).getStatus()).toBe(429);
+    expect((sixth as HttpException).message).toContain('24 horas');
+
+    await prisma.subscriptionPayment.updateMany({
+      where: { subscription: { userId } },
+      data: { createdAt: new Date(Date.now() - 25 * HOUR_MS) },
+    });
+    flow.createOrder.mockResolvedValueOnce({
+      token: `tok-capexp-ok-${runId}`,
+      paymentUrl: 'https://flow.test/pay',
+    });
+
+    await expect(service.createCheckout(userId)).resolves.toBeDefined();
   }, 30000);
 
   it('el tope no cuenta los pagos fallidos (Flow caído al crear la orden)', async () => {

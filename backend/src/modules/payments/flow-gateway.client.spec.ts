@@ -104,6 +104,46 @@ describe('FlowPaymentGatewayClient', () => {
     });
   });
 
+  describe('vencimiento de la orden (issue #633)', () => {
+    const baseOrder = {
+      amount: 6990,
+      currency: 'CLP',
+      subject: 'Suscripción Umbral',
+      externalId: 'sub-1',
+      payerEmail: 'terapeuta@example.com',
+      returnUrl: 'https://umbral.cl/return',
+      confirmUrl: 'https://umbral.cl/confirm',
+    };
+    const sentBody = () => {
+      const [, init] = (globalThis.fetch as jest.Mock).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      return Object.fromEntries(new URLSearchParams(init.body as string));
+    };
+
+    it('con timeoutSeconds envía timeout a Flow, incluido en la firma', async () => {
+      mockFetchOnce({ ok: true, status: 200 }, { token: 't', url: 'u' });
+
+      await client.createOrder(credentials, {
+        ...baseOrder,
+        timeoutSeconds: 86400,
+      });
+
+      const { s, ...params } = sentBody();
+      expect(params.timeout).toBe('86400');
+      expect(s).toBe(referenceSign(params, 'test-secret-key'));
+    });
+
+    it('sin timeoutSeconds no envía timeout (comportamiento de siempre)', async () => {
+      mockFetchOnce({ ok: true, status: 200 }, { token: 't', url: 'u' });
+
+      await client.createOrder(credentials, baseOrder);
+
+      expect(sentBody()).not.toHaveProperty('timeout');
+    });
+  });
+
   describe('timeout de las llamadas a Flow', () => {
     it('toda petición lleva un AbortSignal para no colgarse si Flow no responde', async () => {
       mockFetchOnce({ ok: true, status: 200 }, { status: 1 });

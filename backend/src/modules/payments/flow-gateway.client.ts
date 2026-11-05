@@ -158,6 +158,9 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
       urlConfirmation: input.confirmUrl,
       urlReturn: input.returnUrl,
     };
+    if (input.timeoutSeconds !== undefined) {
+      params.timeout = String(input.timeoutSeconds);
+    }
     params.s = this.sign(params, credentials.secretKey);
 
     const response = await this.request<FlowPaymentCreateResponse>(
