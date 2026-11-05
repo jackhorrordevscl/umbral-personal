@@ -682,6 +682,57 @@ describe('PublicSchedulingService', () => {
       ).not.toHaveBeenCalled();
     });
 
+    // Issue #635: sin tope, un anónimo podía hacer que la plataforma escribiera
+    // sin límite a un paciente real enviando su RUT o correo.
+    describe('tope de avisos por destinatario', () => {
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      let now: jest.SpyInstance;
+
+      beforeEach(() => {
+        now = jest.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
+      });
+      afterEach(() => now.mockRestore());
+
+      const sent = () =>
+        mailService.sendPublicBookingAttemptNoticeEmail.mock.calls.length;
+
+      it('envía un solo aviso por destinatario en 24 horas, sin distinguir mayúsculas', async () => {
+        setUpCollision('paciente@ejemplo.cl');
+        await service.book('therapist-1', dto);
+        setUpCollision(' Paciente@Ejemplo.CL ');
+        await service.book('therapist-1', dto);
+        await service.book('therapist-1', dto);
+
+        expect(sent()).toBe(1);
+      });
+
+      it('la respuesta es la misma aunque el aviso no se envíe', async () => {
+        setUpCollision('paciente@ejemplo.cl');
+        const first = await service.book('therapist-1', dto);
+        const second = await service.book('therapist-1', dto);
+
+        expect(Object.keys(second).sort()).toEqual(Object.keys(first).sort());
+      });
+
+      it('otro destinatario recibe su propio aviso', async () => {
+        setUpCollision('paciente@ejemplo.cl');
+        await service.book('therapist-1', dto);
+        setUpCollision('otra@ejemplo.cl');
+        await service.book('therapist-1', dto);
+
+        expect(sent()).toBe(2);
+      });
+
+      it('pasadas 24 horas el destinatario vuelve a recibir el aviso', async () => {
+        setUpCollision('paciente@ejemplo.cl');
+        await service.book('therapist-1', dto);
+        now.mockReturnValue(1_800_000_000_000 + DAY_MS + 1);
+        await service.book('therapist-1', dto);
+
+        expect(sent()).toBe(2);
+      });
+    });
+
     it('un fallo del aviso no cambia la respuesta ni la hace fallar', async () => {
       setUpCollision('paciente@ejemplo.cl');
       mailService.sendPublicBookingAttemptNoticeEmail.mockRejectedValue(

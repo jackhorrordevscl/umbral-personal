@@ -955,7 +955,10 @@ umbral-personal/
   cerrado, el endpoint responde `201` con la misma forma que una reserva nueva
   (ids inventados), sin crear consulta, paciente, representante ni
   notificación, para no revelar quién se atiende con el terapeuta. Si la ficha
-  tiene email, se le envía un aviso de que la solicitud no pudo completarse.
+  tiene email, se le envía un aviso de que la solicitud no pudo completarse,
+  con un tope de un aviso por destinatario cada 24 horas (en memoria: un
+  reinicio del proceso lo vacía; la respuesta pública no cambia si el aviso no
+  se envía, issue #635).
   Los rechazos que dependen solo del request (horario ya no disponible, `409`;
   tope diario, `429`; representante ausente, `400`; dígito verificador del RUT
   del representante inválido, `409`) siguen siendo errores
