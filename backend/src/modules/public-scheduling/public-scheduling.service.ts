@@ -9,7 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { BlockoutKind, NotificationType, Prisma } from '@prisma/client';
 import { ThrottlerException } from '@nestjs/throttler';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   AvailabilityService,
@@ -38,6 +38,11 @@ import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 const MAX_QUERY_SPAN_DAYS = 60;
 const MAX_QUERY_SPAN_MS = MAX_QUERY_SPAN_DAYS * 24 * 60 * 60 * 1000;
 
+// Issue #635: ventana del tope de avisos de reserva no completada por
+// destinatario y cantidad máxima de destinatarios que se recuerdan a la vez.
+const NOTICE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const NOTICE_MAX_TRACKED = 10_000;
+
 // Issue #635: motivo del bloqueo que deja una reserva pública rechazada. La
 // terapeuta lo ve en sus bloqueos; no dice por qué se rechazó.
 export const REJECTED_BOOKING_BLOCKOUT_REASON =
@@ -65,6 +70,9 @@ export class PublicSchedulingService {
   private readonly checkoutInlineEnabled: boolean;
   private readonly dailyBookingLimit: number;
   private readonly dailyBookingWindowMs: number;
+  // Hash del correo -> cuándo se le envió el último aviso de reserva no
+  // completada (ver claimNoticeSlot).
+  private readonly noticeSentAt = new Map<string, number>();
 
   constructor(
     private readonly config: ConfigService,
@@ -386,6 +394,37 @@ export class PublicSchedulingService {
     }
   }
 
+  // Issue #635: un aviso por destinatario cada 24 horas. Sin tope, un anónimo
+  // podía hacer que la plataforma le escribiera sin límite a un paciente real
+  // enviando su RUT o correo. Vive en memoria (la clave es un hash, no el
+  // correo): un reinicio del proceso lo vacía, y el límite por IP acota cuánto
+  // se puede insistir mientras tanto. Si se llena, descarta primero lo vencido
+  // y luego lo más antiguo, para que la memoria no crezca sin límite. Un aviso
+  // que no se envía no cambia la respuesta pública.
+  private claimNoticeSlot(email: string): boolean {
+    const key = createHash('sha256')
+      .update(email.trim().toLowerCase())
+      .digest('hex');
+    const now = Date.now();
+
+    const last = this.noticeSentAt.get(key);
+    if (last !== undefined && now - last < NOTICE_WINDOW_MS) return false;
+
+    if (this.noticeSentAt.size >= NOTICE_MAX_TRACKED) {
+      for (const [k, sentAt] of this.noticeSentAt) {
+        if (now - sentAt >= NOTICE_WINDOW_MS) this.noticeSentAt.delete(k);
+      }
+      while (this.noticeSentAt.size >= NOTICE_MAX_TRACKED) {
+        const oldest = this.noticeSentAt.keys().next().value as string;
+        this.noticeSentAt.delete(oldest);
+      }
+    }
+    // delete + set deja la clave al final: el orden del Map es el de envío.
+    this.noticeSentAt.delete(key);
+    this.noticeSentAt.set(key, now);
+    return true;
+  }
+
   // Issue #502: este endpoint es anónimo, así que contestar 409 solo cuando el
   // RUT o el email ya pertenecen a un paciente del terapeuta le entregaba a
   // cualquiera si una persona se atiende con él (dato de salud, Ley 21.719).
@@ -399,7 +438,7 @@ export class PublicSchedulingService {
     rejection: PublicBookingRejectedException,
     slotStart: Date,
   ) {
-    if (rejection.notifyEmail) {
+    if (rejection.notifyEmail && this.claimNoticeSlot(rejection.notifyEmail)) {
       void this.mailService
         .sendPublicBookingAttemptNoticeEmail(rejection.notifyEmail)
         .catch((err: unknown) => {
