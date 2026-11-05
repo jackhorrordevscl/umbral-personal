@@ -429,6 +429,23 @@ describe('CalendarOauthService', () => {
         expect(connectionMock.update).not.toHaveBeenCalled();
       });
 
+      // Issue #635: dos /authorize simultáneos de un terapeuta sin fila. Los dos
+      // fallan el primer reclamo, los dos intentan crear y el segundo choca con
+      // la fila que acaba de crear el primero (P2002) aunque esa fila no está
+      // CONNECTED: no hay nada que desconectar, así que no es un 409.
+      it('si pierde la carrera de creación con otro /authorize, reclama la fila del otro y devuelve la URL', async () => {
+        const { service, connectionMock } = buildWith(0, uniqueViolation());
+        connectionMock.updateMany
+          .mockResolvedValueOnce({ count: 0 })
+          .mockResolvedValueOnce({ count: 1 });
+
+        const { url } = await service.buildAuthorizationUrl('therapist-1');
+
+        expect(new URL(url).searchParams.get('state')).toBeTruthy();
+        expect(connectionMock.create).toHaveBeenCalledTimes(1);
+        expect(connectionMock.updateMany).toHaveBeenCalledTimes(2);
+      });
+
       it('solo reclama la fila si no está CONNECTED', async () => {
         const { service, connectionMock } = buildWith(1);
 

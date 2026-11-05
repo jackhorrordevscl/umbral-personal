@@ -150,26 +150,35 @@ export class CalendarOauthService {
     // primero: disconnect() sí lo revoca. El claim es un solo updateMany
     // condicionado al estado, y no un findUnique + upsert, para que un callback
     // que termina justo en medio no se cuele.
-    const claimed = await this.prisma.googleCalendarConnection.updateMany({
-      where: { therapistId, status: { not: 'CONNECTED' } },
-      data: { stateNonceHash: nonceHash, stateExpiresAt },
-    });
+    const claim = () =>
+      this.prisma.googleCalendarConnection.updateMany({
+        where: { therapistId, status: { not: 'CONNECTED' } },
+        data: { stateNonceHash: nonceHash, stateExpiresAt },
+      });
+    const claimed = await claim();
     if (claimed.count === 0) {
       try {
         await this.prisma.googleCalendarConnection.create({
           data: { therapistId, stateNonceHash: nonceHash, stateExpiresAt },
         });
       } catch (err) {
-        // P2002: la fila ya existe y no era reclamable, o sea está CONNECTED.
         if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2002'
+          !(
+            err instanceof Prisma.PrismaClientKnownRequestError &&
+            err.code === 'P2002'
+          )
         ) {
+          throw err;
+        }
+        // P2002: la fila ya existe. Puede estar CONNECTED, o ser la que creó
+        // hace un instante otro /authorize simultáneo (issue #635), que no
+        // está CONNECTED. Se distinguen reclamándola de nuevo: solo si sigue
+        // sin ser reclamable es que está conectada.
+        if ((await claim()).count === 0) {
           throw new ConflictException(
             'Desconecta Google Calendar antes de volver a conectarlo',
           );
         }
-        throw err;
       }
     }
 
