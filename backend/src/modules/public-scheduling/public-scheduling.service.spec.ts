@@ -7,7 +7,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { NotificationType } from '@prisma/client';
 import { ThrottlerException } from '@nestjs/throttler';
-import { PublicSchedulingService } from './public-scheduling.service';
+import {
+  PublicSchedulingService,
+  REJECTED_BOOKING_BLOCKOUT_REASON,
+} from './public-scheduling.service';
 import { PublicTherapistResolverService } from './public-therapist-resolver.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AvailabilityService } from '../availability/availability.service';
@@ -33,12 +36,13 @@ describe('PublicSchedulingService', () => {
     user: { findUnique: jest.Mock };
     paymentAccount: { findUnique: jest.Mock };
     bookedSlot: { count: jest.Mock };
+    availabilityBlockout: { count: jest.Mock };
     $transaction: jest.Mock;
   };
   const tx: {
     __tx: boolean;
     bookedSlot?: { count: jest.Mock };
-    availabilityBlockout?: { create: jest.Mock };
+    availabilityBlockout?: { create: jest.Mock; count: jest.Mock };
   } = {
     __tx: true,
   };
@@ -89,6 +93,7 @@ describe('PublicSchedulingService', () => {
       user: { findUnique: jest.fn() },
       paymentAccount: { findUnique: jest.fn() },
       bookedSlot: { count: jest.fn().mockResolvedValue(0) },
+      availabilityBlockout: { count: jest.fn().mockResolvedValue(0) },
       // Emula la transaccion interactiva: corre el callback con un tx
       // sentinela; si el callback lanza, la promesa se rechaza (rollback).
       $transaction: jest.fn((cb: (t: unknown) => Promise<unknown>) => cb(tx)),
@@ -96,7 +101,10 @@ describe('PublicSchedulingService', () => {
     // Issue #496: el tope también se cuenta dentro de la transacción; el tx
     // comparte el mock de conteo con prisma para poder simular el orden.
     tx.bookedSlot = prisma.bookedSlot;
-    tx.availabilityBlockout = { create: jest.fn().mockResolvedValue({}) };
+    tx.availabilityBlockout = {
+      create: jest.fn().mockResolvedValue({}),
+      count: prisma.availabilityBlockout.count,
+    };
     availabilityService = { computeSlots: jest.fn(), invalidate: jest.fn() };
     patientsService = { resolveForPublicBooking: jest.fn() };
     consultationsService = {
@@ -872,6 +880,40 @@ describe('PublicSchedulingService', () => {
       service = buildService(true, false, { PUBLIC_BOOKING_DAILY_LIMIT: '3' });
       setUpFreeSlot();
       prisma.bookedSlot.count.mockResolvedValue(2);
+
+      await expect(service.book('therapist-1', dto)).resolves.toMatchObject({
+        id: 'consultation-1',
+      });
+    });
+
+    // Issue #635: el rechazo ocupa el horario con un bloqueo para verse igual
+    // que una reserva real. Si no consumiera cupo, el momento del 429 delataría
+    // cuántas reservas fueron reales, y un anónimo podría llenar la agenda de
+    // bloqueos sin tope.
+    it('issue #635: los bloqueos de reservas rechazadas consumen el mismo tope que las reservas reales', async () => {
+      service = buildService(true, false, { PUBLIC_BOOKING_DAILY_LIMIT: '3' });
+      setUpFreeSlot();
+      prisma.bookedSlot.count.mockResolvedValue(1);
+      prisma.availabilityBlockout.count.mockResolvedValue(2);
+
+      await expect(service.book('therapist-1', dto)).rejects.toThrow(
+        ThrottlerException,
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.availabilityBlockout.count).toHaveBeenCalledWith({
+        where: {
+          therapistId: 'therapist-1',
+          reason: REJECTED_BOOKING_BLOCKOUT_REASON,
+          createdAt: { gte: expect.any(Date) as Date },
+        },
+      });
+    });
+
+    it('issue #635: reservas y bloqueos por debajo del tope entre los dos todavía se aceptan', async () => {
+      service = buildService(true, false, { PUBLIC_BOOKING_DAILY_LIMIT: '3' });
+      setUpFreeSlot();
+      prisma.bookedSlot.count.mockResolvedValue(1);
+      prisma.availabilityBlockout.count.mockResolvedValue(1);
 
       await expect(service.book('therapist-1', dto)).resolves.toMatchObject({
         id: 'consultation-1',
