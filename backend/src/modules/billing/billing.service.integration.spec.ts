@@ -1,5 +1,6 @@
 import * as argon2 from 'argon2';
 import {
+  ForbiddenException,
   HttpException,
   ServiceUnavailableException,
   UnprocessableEntityException,
@@ -30,6 +31,7 @@ describe('BillingService (integration, real Prisma, Flow simulado)', () => {
   let service: BillingService;
   const runId = Date.now();
   const userIds: string[] = [];
+  const grantEmails: string[] = [];
   let tokenSeq = 0;
 
   const config = {
@@ -72,6 +74,7 @@ describe('BillingService (integration, real Prisma, Flow simulado)', () => {
 
   beforeEach(() => {
     env = {
+      SUBSCRIPTIONS_ENFORCED: 'true',
       SUBSCRIPTION_FLOW_API_KEY: 'platform-key',
       SUBSCRIPTION_FLOW_SECRET_KEY: 'platform-secret',
       BACKEND_PUBLIC_URL: 'https://api.test',
@@ -88,6 +91,9 @@ describe('BillingService (integration, real Prisma, Flow simulado)', () => {
   });
 
   afterAll(async () => {
+    await prisma.subscriptionGrant.deleteMany({
+      where: { email: { in: grantEmails } },
+    });
     await prisma.subscriptionPayment.deleteMany({
       where: { subscription: { userId: { in: userIds } } },
     });
@@ -169,6 +175,40 @@ describe('BillingService (integration, real Prisma, Flow simulado)', () => {
       Record<string, unknown>,
     ];
     expect(input).toMatchObject({ amount: 6990 });
+  }, 30000);
+
+  it('checkout con el interruptor apagado responde 403 y no crea suscripción ni pago', async () => {
+    env.SUBSCRIPTIONS_ENFORCED = 'false';
+    const userId = await createUser('off');
+
+    await expect(service.createCheckout(userId)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(flow.createOrder).not.toHaveBeenCalled();
+    expect(await prisma.subscription.count({ where: { userId } })).toBe(0);
+    expect(
+      await prisma.subscriptionPayment.count({
+        where: { subscription: { userId } },
+      }),
+    ).toBe(0);
+  }, 30000);
+
+  it('checkout de una cuenta exenta responde 403 y no crea suscripción ni pago', async () => {
+    const userId = await createUser('exempt');
+    const email = `bill611-exempt-${runId}@example.com`;
+    await prisma.subscriptionGrant.create({ data: { email } });
+    grantEmails.push(email);
+
+    await expect(service.createCheckout(userId)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(flow.createOrder).not.toHaveBeenCalled();
+    expect(await prisma.subscription.count({ where: { userId } })).toBe(0);
+    expect(
+      await prisma.subscriptionPayment.count({
+        where: { subscription: { userId } },
+      }),
+    ).toBe(0);
   }, 30000);
 
   it('checkout sin credenciales de la plataforma responde 503 y no crea nada', async () => {

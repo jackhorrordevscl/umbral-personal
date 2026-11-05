@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -84,6 +85,19 @@ export class BillingService {
     userId: string,
     now: Date = new Date(),
   ): Promise<{ paymentUrl: string }> {
+    // Issue #633: el frontend esconde el botón, pero la API debe negarse sola.
+    // Antes de crear nada: ni suscripción (congela priceStartedAt) ni cobro.
+    if (!this.subscriptions.isEnforced()) {
+      throw new ForbiddenException(
+        'El cobro de la suscripción no está activo.',
+      );
+    }
+    if ((await this.subscriptions.getAccess(userId, now)).state === 'EXEMPT') {
+      throw new ForbiddenException(
+        'Tu cuenta está exenta del pago de la suscripción.',
+      );
+    }
+
     const credentials = this.platformCredentials();
     if (!credentials) {
       this.logger.error(

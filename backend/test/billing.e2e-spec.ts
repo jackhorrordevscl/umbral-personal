@@ -73,7 +73,10 @@ describe('Billing (e2e)', () => {
     (await prisma.subscription.findUnique({ where: { userId } }))
       ?.currentPeriodEnd ?? null;
 
+  const previousEnforced = process.env.SUBSCRIPTIONS_ENFORCED;
+
   beforeAll(async () => {
+    process.env.SUBSCRIPTIONS_ENFORCED = 'true';
     process.env.SUBSCRIPTION_FLOW_API_KEY = 'e2e-platform-key';
     process.env.SUBSCRIPTION_FLOW_SECRET_KEY = 'e2e-platform-secret';
 
@@ -100,6 +103,11 @@ describe('Billing (e2e)', () => {
 
   afterAll(async () => {
     jest.restoreAllMocks();
+    if (previousEnforced === undefined) {
+      delete process.env.SUBSCRIPTIONS_ENFORCED;
+    } else {
+      process.env.SUBSCRIPTIONS_ENFORCED = previousEnforced;
+    }
     delete process.env.SUBSCRIPTION_FLOW_API_KEY;
     delete process.env.SUBSCRIPTION_FLOW_SECRET_KEY;
     await prisma.subscriptionPayment.deleteMany({
