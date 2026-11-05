@@ -359,26 +359,44 @@ describe('PublicScheduleThrottlerGuard (límites extra, issue #299)', () => {
     ]);
   });
 
-  it('si el resolver falla o no conoce la referencia, usa la referencia cruda', async () => {
+  it('si el resolver falla, usa la referencia cruda', async () => {
     const resolver = {
-      resolveId: jest
-        .fn()
-        .mockRejectedValueOnce(new Error('db caída'))
-        .mockResolvedValueOnce(null),
+      resolveId: jest.fn().mockRejectedValueOnce(new Error('db caída')),
     };
     const storage = buildStorage();
     const guard = buildGuard({}, storage, resolver);
 
-    await guard.canActivate(buildContext('POST', 'desconocido'));
-    await guard.canActivate(buildContext('POST', 'otro'));
+    await guard.canActivate(buildContext('POST', 'ana-perez'));
 
     const keys = (storage.increment.mock.calls as Array<[string]>).map(
       (c) => c[0],
     );
-    expect(keys).toEqual([
-      `${PUBLIC_BOOKING_IP_BUCKET}:10.0.0.5:desconocido`,
-      `${PUBLIC_BOOKING_IP_BUCKET}:10.0.0.5:otro`,
-    ]);
+    expect(keys).toEqual([`${PUBLIC_BOOKING_IP_BUCKET}:10.0.0.5:ana-perez`]);
+  });
+
+  // Issue #635: con la referencia cruda como clave, una misma IP que rotara
+  // slugs inventados nunca llegaba al tope y el storage crecía sin límite.
+  it('una referencia que el resolver no conoce cae en un solo bucket por IP', async () => {
+    const resolver = { resolveId: jest.fn().mockResolvedValue(null) };
+    const storage = buildStorage();
+    const guard = buildGuard(
+      { PUBLIC_BOOKING_IP_THROTTLE_LIMIT: '2' },
+      storage,
+      resolver,
+    );
+
+    await guard.canActivate(buildContext('POST', 'inventado-1'));
+    await guard.canActivate(buildContext('POST', 'inventado-2'));
+    await expect(
+      guard.canActivate(buildContext('POST', 'inventado-3')),
+    ).rejects.toThrow(ThrottlerException);
+
+    const keys = (storage.increment.mock.calls as Array<[string]>).map(
+      (c) => c[0],
+    );
+    expect(new Set(keys)).toEqual(
+      new Set([`${PUBLIC_BOOKING_IP_BUCKET}:10.0.0.5:unknown`]),
+    );
   });
 
   // Issue #635: en Express `ip` y `headers` son accesores del prototipo, no
