@@ -25,4 +25,20 @@ describe('PublicAvailabilityQueryDto', () => {
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].property).toBe('from');
   });
+
+  // Issue #635: @IsDateString() no estricto aceptaba fechas que no existen y
+  // terminaban en un 500 (RangeError al armar la clave de caché).
+  it.each([
+    ['from', { from: '2026-02-30T00:00:00Z', to: '2026-09-10T00:00:00Z' }],
+    ['to', { from: '2026-09-01T00:00:00Z', to: '2026-02-30T00:00:00Z' }],
+    ['from', { from: '2026-09-31T00:00:00-04:00', to: '2026-10-05T00:00:00Z' }],
+  ])(
+    'rechaza una fecha que no existe en el calendario (%s)',
+    async (property, body) => {
+      const errors = await validate(
+        plainToInstance(PublicAvailabilityQueryDto, body),
+      );
+      expect(errors.map((e) => e.property)).toEqual([property]);
+    },
+  );
 });
