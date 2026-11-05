@@ -7,12 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  BlockoutKind,
-  NotificationType,
-  PaymentAccountStatus,
-  Prisma,
-} from '@prisma/client';
+import { BlockoutKind, NotificationType, Prisma } from '@prisma/client';
 import { ThrottlerException } from '@nestjs/throttler';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -52,9 +47,9 @@ export const REJECTED_BOOKING_BLOCKOUT_REASON =
 // "Interfaces / Contracts", Decision 5 "Checkout is polled, not awaited"):
 // NOT_APPLICABLE le dice al cliente que ni siquiera empiece a hacer polling
 // -- nunca va a aparecer un paymentUrl para esta reserva. PENDING solo
-// significa "puede que aparezca"; ensureCharge() sigue siendo
-// fire-and-forget y puede terminar sin crear ningún Payment igual (p.ej. si
-// Flow rechaza la orden), el poll simplemente se agota en ese caso.
+// significa "puede que aparezca"; desde el issue #635 el servidor ya no lo
+// envía (revelaba si el RUT y el correo eran de un paciente), pero el tipo
+// y el cliente lo conservan.
 export type CheckoutHint = { status: 'PENDING' } | { status: 'NOT_APPLICABLE' };
 
 // sdd/patient-self-scheduling PR 3 (tasks.md 3.6, design.md "Data Flow" +
@@ -346,22 +341,12 @@ export class PublicSchedulingService {
       return confirmation;
     }
 
-    // Issue #496: la reserva ya está confirmada y sus efectos lanzados; un
-    // fallo de esta lectura no puede convertirse en un 500 (el reintento del
-    // mismo horario daría 409 y el cliente lo trataría como horario ocupado).
-    // El hint es solo una ayuda para el polling: ante un fallo, sin polling.
-    let checkout: CheckoutHint;
-    try {
-      checkout = await this.resolveCheckoutHint(
-        therapistId,
-        patient.defaultSessionAmount,
-      );
-    } catch (err: unknown) {
-      this.logger.error(
-        `Fallo no bloqueante al resolver el hint de checkout (therapistId=${therapistId}): ${err instanceof Error ? err.message : String(err)}`,
-      );
-      checkout = { status: 'NOT_APPLICABLE' };
-    }
+    // Issue #635: el hint no depende del paciente ni de la cuenta de pago. Si
+    // dependiera, quien mandara el RUT y el correo de una ficha existente con
+    // monto y cuenta conectada recibiría PENDING, y con datos que no coinciden
+    // NOT_APPLICABLE: eso confirma que la persona es paciente (dato de salud,
+    // Ley 21.719). Es la misma respuesta de un paciente nuevo o de un rechazo.
+    const checkout: CheckoutHint = { status: 'NOT_APPLICABLE' };
     return { ...confirmation, checkout };
   }
 
@@ -431,52 +416,5 @@ export class PublicSchedulingService {
     }
     const checkout: CheckoutHint = { status: 'NOT_APPLICABLE' };
     return { ...confirmation, checkout };
-  }
-
-  // sdd/public-booking-payment-calendar PR 5 (tasks.md 5.1, spec.md
-  // "Booking succeeds and carries a checkout URL when available" /
-  // "...without a checkout URL when payment is unavailable"): a esta altura
-  // ensureCharge() todavía no corrió (fire-and-forget, ver
-  // consultations.service.ts createFromPublicBooking) -- este hint nunca
-  // lee Payment, solo decide si vale la pena que el cliente empiece a
-  // pollear GET .../checkout (PENDING) o directamente no lo intente
-  // (NOT_APPLICABLE), sin agregar ni un tick de latencia a la respuesta de
-  // reserva.
-  //
-  // issue #139 (resuelto vía notificación, ya NO es un caso silencioso sin
-  // mitigar): un paciente público NUEVO (autocreado por
-  // resolveForPublicBooking) nunca tiene defaultSessionAmount --
-  // PatientsService lo excluye a propósito de la creación pública (ver
-  // public-booking-patient.dto.ts) -- así que sigue cayendo acá en
-  // NOT_APPLICABLE por monto no resolvible y ensureCharge() sigue sin
-  // generar un cargo para él. Eso no cambia: no se generó cobro automático
-  // en la primera reserva a propósito (decisión de producto). Lo que sí
-  // cambia es que book() ahora dispara una notificación al terapeuta
-  // (PATIENT_MISSING_SESSION_AMOUNT) cuando esto ocurre, para que complete
-  // el monto manualmente antes de la primera sesión -- ya no es revenue
-  // perdido en silencio. Solo un paciente YA existente (matcheado por
-  // email) puede llegar a PENDING acá.
-  private async resolveCheckoutHint(
-    therapistId: string,
-    defaultSessionAmount: number | null,
-  ): Promise<CheckoutHint> {
-    if (defaultSessionAmount === null || defaultSessionAmount === undefined) {
-      return { status: 'NOT_APPLICABLE' };
-    }
-
-    // Lectura directa de PaymentAccount.status en vez de
-    // PaymentAccountService.resolveGatewayContext(): esta última desencripta
-    // las credenciales del gateway (trabajo real de CPU/crypto) solo para
-    // devolver un contexto que acá ni se usa -- lo único que importa es el
-    // status. Evita ese costo en una ruta pública no autenticada.
-    const account = await this.prisma.paymentAccount.findUnique({
-      where: { therapistId },
-      select: { status: true },
-    });
-    if (account?.status !== PaymentAccountStatus.CONNECTED) {
-      return { status: 'NOT_APPLICABLE' };
-    }
-
-    return { status: 'PENDING' };
   }
 }

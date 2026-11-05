@@ -976,11 +976,15 @@ umbral-personal/
   Google Calendar ya conectado del terapeuta (mismo scope `calendar.events`,
   sin re-consentimiento) a `CalendarBusyBlock`, y `computeSlots()` los resta
   del grid de horarios libres junto con los bloqueos propios de Umbral
-- Checkout en línea opcional (`PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED=true`):
-  si el terapeuta tiene una cuenta Flow `CONNECTED` y el paciente ya existe
-  con `defaultSessionAmount` resuelto, la confirmación de la reserva
-  pública consulta periódicamente `GET .../book/:groupId/checkout` y muestra el link de
-  pago en la misma página, además del email existente
+- Checkout en línea (`PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED=true`): desde
+  el issue #635 la respuesta de la reserva siempre trae
+  `checkout: NOT_APPLICABLE` y la confirmación no muestra el link de pago,
+  sea o no paciente quien reserva. Antes devolvía `PENDING` solo si el RUT y
+  el correo coincidían con una ficha con `defaultSessionAmount` y cuenta
+  Flow `CONNECTED`, lo que confirmaba que la persona era paciente. El cargo
+  se sigue creando y el link llega por email. `GET .../book/:groupId/checkout`
+  sigue existiendo, pero la página de reserva solo lo consulta ante
+  `PENDING`, que el servidor ya no envía
 - Los dos flags son independientes entre sí: cada uno lee su propia env
   var y ninguno consulta ni depende del estado del otro: apagar uno no
   afecta al otro. Ambos son opt-in (`=== 'true'`, no `!== 'false'`): sin

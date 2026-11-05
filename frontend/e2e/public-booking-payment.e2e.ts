@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { expectNoA11yViolations } from './helpers/axe';
 
-// Payment of a public booking (issue #419, point 2): the patient books, gets a
-// "Pagar ahora" link, pays on the (fake) Flow checkout and lands back on Umbral.
+// Payment of a public booking (issue #419, point 2): the patient books, the
+// charge is created in the background (the link travels by email, never on the
+// confirmation page: issue #635), pays on the (fake) Flow checkout and lands
+// back on Umbral.
 //
 // It runs against a FAKE Flow (frontend/e2e/support/fake-flow-server.mjs, started
 // by playwright.config.ts), never the real sandbox: that one is external, rate
@@ -73,22 +75,25 @@ test('un paciente reserva, paga en Flow simulado y vuelve a Umbral', async ({ pa
   await page.getByRole('button', { name: 'Confirmar reserva' }).click();
   expect((await bookingResponse).status()).toBe(201);
 
-  // The charge is created in the background after the booking: the page polls
-  // until the payment link shows up.
+  // Issue #635: the confirmation page never shows a payment link, whether or not
+  // the email belongs to an existing patient (otherwise it would reveal who is
+  // a patient). The patient gets the link by email instead.
   await expect(page.getByRole('heading', { name: '¡Listo!' })).toBeVisible();
-  const payLink = page.getByRole('link', { name: 'Pagar ahora' });
-  await expect(payLink).toBeVisible({ timeout: 20_000 });
-  await expectNoA11yViolations(page, { label: 'public booking payment: pay link' });
+  await expect(page.getByRole('link', { name: 'Pagar ahora' })).toHaveCount(0);
+  await expectNoA11yViolations(page, { label: 'public booking payment: confirmation' });
 
-  const href = (await payLink.getAttribute('href')) ?? '';
-  expect(href.startsWith(`${FAKE_FLOW_URL}/pay?token=`)).toBe(true);
-  const token = new URL(href).searchParams.get('token') ?? '';
-
-  // The order the backend created in the fake Flow.
-  const findOrder = async (): Promise<FakeFlowOrder | undefined> => {
+  // The charge is still created in the background after the booking: wait for
+  // the order the backend created in the fake Flow. The test cannot read the
+  // email, so it opens the same checkout URL the email carries.
+  const findOrder = async (token?: string): Promise<FakeFlowOrder | undefined> => {
     const orders = (await (await request.get(`${FAKE_FLOW_URL}/__orders`)).json()) as FakeFlowOrder[];
-    return orders.find((order) => order.token === token);
+    return orders.find((order) =>
+      token ? order.token === token : order.payerEmail === PATIENT.email,
+    );
   };
+  await expect.poll(async () => (await findOrder())?.payerEmail, { timeout: 20_000 }).toBe(
+    PATIENT.email,
+  );
   const created = await findOrder();
   expect(created).toMatchObject({
     amount: SESSION_AMOUNT,
@@ -97,9 +102,10 @@ test('un paciente reserva, paga en Flow simulado y vuelve a Umbral', async ({ pa
     status: 1,
     confirmation: null,
   });
+  const token = created?.token ?? '';
 
   // Hosted checkout of the fake Flow: pay, and come back to Umbral.
-  await payLink.click();
+  await page.goto(`${FAKE_FLOW_URL}/pay?token=${token}`);
   await expect(page.getByRole('heading', { name: 'Flow simulado' })).toBeVisible();
   await page.getByRole('button', { name: 'Pagar' }).click();
 
@@ -112,6 +118,6 @@ test('un paciente reserva, paga en Flow simulado y vuelve a Umbral', async ({ pa
 
   // The backend accepted the server-to-server confirmation (it re-queries the
   // order status with its own signed request before answering 200).
-  const paid = await findOrder();
+  const paid = await findOrder(token);
   expect(paid).toMatchObject({ status: 2, confirmation: { status: 200 } });
 });

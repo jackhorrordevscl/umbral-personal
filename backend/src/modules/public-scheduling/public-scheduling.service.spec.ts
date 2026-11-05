@@ -1042,50 +1042,11 @@ describe('PublicSchedulingService', () => {
       expect(prisma.paymentAccount.findUnique).not.toHaveBeenCalled();
     });
 
-    it('con el flag prendido, monto resolvible pero PaymentAccount no CONNECTED: NOT_APPLICABLE', async () => {
-      service = buildService(true, true);
-      setUpSuccessfulBooking({
-        id: 'patient-1',
-        rut: '11111111-1',
-        defaultSessionAmount: 30000,
-      });
-      prisma.paymentAccount.findUnique.mockResolvedValue({
-        status: 'PENDING',
-      });
-
-      const result = await service.book('therapist-1', {
-        slotStart: '2026-09-05T13:00:00.000Z',
-        patient: patientDto,
-      } as never);
-
-      expect(result).toMatchObject({ checkout: { status: 'NOT_APPLICABLE' } });
-      expect(prisma.paymentAccount.findUnique).toHaveBeenCalledWith({
-        where: { therapistId: 'therapist-1' },
-        select: { status: true },
-      });
-    });
-
-    // Triangulación: sin fila de PaymentAccount (nunca se conectó) también
-    // es NOT_APPLICABLE, mismo camino que una fila PENDING/DISCONNECTED --
-    // no un caso especial ni un crash.
-    it('con el flag prendido y sin ninguna fila de PaymentAccount: NOT_APPLICABLE', async () => {
-      service = buildService(true, true);
-      setUpSuccessfulBooking({
-        id: 'patient-1',
-        rut: '11111111-1',
-        defaultSessionAmount: 30000,
-      });
-      prisma.paymentAccount.findUnique.mockResolvedValue(null);
-
-      const result = await service.book('therapist-1', {
-        slotStart: '2026-09-05T13:00:00.000Z',
-        patient: patientDto,
-      } as never);
-
-      expect(result).toMatchObject({ checkout: { status: 'NOT_APPLICABLE' } });
-    });
-
-    it('con el flag prendido, monto resolvible y PaymentAccount CONNECTED: PENDING', async () => {
+    // Issue #635: PENDING solo lo recibía quien mandaba el RUT y el correo de
+    // un paciente existente con monto y cuenta conectada, lo que confirmaba
+    // que era paciente. La respuesta ya no depende del paciente ni de la
+    // cuenta de pago: es la misma de un paciente nuevo o de un rechazo.
+    it('con el flag prendido, paciente existente con monto y PaymentAccount CONNECTED: NOT_APPLICABLE, sin consultar PaymentAccount', async () => {
       service = buildService(true, true);
       setUpSuccessfulBooking({
         id: 'patient-1',
@@ -1101,33 +1062,8 @@ describe('PublicSchedulingService', () => {
         patient: patientDto,
       } as never);
 
-      expect(result).toMatchObject({ checkout: { status: 'PENDING' } });
-    });
-
-    // Issue #496: la reserva ya está confirmada cuando se resuelve el hint; si
-    // la lectura falla no puede salir un 500 (el reintento daría 409).
-    it('con el flag prendido, si la lectura de PaymentAccount falla: la reserva igual responde, con NOT_APPLICABLE', async () => {
-      service = buildService(true, true);
-      setUpSuccessfulBooking({
-        id: 'patient-1',
-        rut: '11111111-1',
-        defaultSessionAmount: 30000,
-      });
-      prisma.paymentAccount.findUnique.mockRejectedValue(
-        new Error('conexión perdida'),
-      );
-
-      const result = await service.book('therapist-1', {
-        slotStart: '2026-09-05T13:00:00.000Z',
-        patient: patientDto,
-      } as never);
-
-      expect(result).toMatchObject({
-        id: 'consultation-1',
-        groupId: 'consultation-1',
-        checkout: { status: 'NOT_APPLICABLE' },
-      });
-      expect(consultationsService.afterPublicBookingCommit).toHaveBeenCalled();
+      expect(result).toMatchObject({ checkout: { status: 'NOT_APPLICABLE' } });
+      expect(prisma.paymentAccount.findUnique).not.toHaveBeenCalled();
     });
   });
 
