@@ -102,6 +102,9 @@ export function getPublicScheduleTracker(
 // contar hits de storage, que también sumarían los intentos fallidos.
 export const PUBLIC_BOOKING_IP_BUCKET = 'public-booking-ip-therapist';
 
+// Clave que reemplaza a toda referencia de terapeuta que el resolver no conoce.
+const UNKNOWN_THERAPIST_KEY = 'unknown';
+
 export interface PublicBookingExtraLimits {
   ipTherapistLimit: number;
   ipTherapistTtlMs: number;
@@ -169,7 +172,12 @@ export class PublicScheduleThrottlerGuard extends ThrottlerGuard {
       : (rawTherapistId ?? 'unknown');
     let key = ref;
     try {
-      key = (await this.therapistResolver.resolveId(ref)) ?? ref;
+      // Issue #635: una referencia que no corresponde a ningún terapeuta no se
+      // usa como clave. Con la referencia cruda, una misma IP que rotara slugs
+      // inventados nunca llegaba al tope y el storage crecía sin límite; todas
+      // comparten un solo bucket por IP.
+      key =
+        (await this.therapistResolver.resolveId(ref)) ?? UNKNOWN_THERAPIST_KEY;
     } catch (err: unknown) {
       this.logger.warn(
         `No se pudo resolver el terapeuta para el throttling; se usa la referencia cruda: ${err instanceof Error ? err.message : String(err)}`,
