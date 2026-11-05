@@ -217,6 +217,34 @@ function validateMainTsEnvVars(config: Record<string, unknown>): void {
     }
   }
 
+  // Issue #633: SubscriptionsService.isEnforced solo enciende el cobro con el
+  // texto exacto "true"; "TRUE" o "1" lo apagarían sin avisar.
+  if (
+    config.SUBSCRIPTIONS_ENFORCED !== undefined &&
+    config.SUBSCRIPTIONS_ENFORCED !== 'true' &&
+    config.SUBSCRIPTIONS_ENFORCED !== 'false'
+  ) {
+    throw new Error(
+      `SUBSCRIPTIONS_ENFORCED inválido: "${describeValue(config.SUBSCRIPTIONS_ENFORCED)}" -- debe ser exactamente "true" o "false".`,
+    );
+  }
+  // Issue #633: ausentes = precio por defecto; un valor inválido hoy cae al
+  // default en silencio y cobraría un precio que nadie eligió.
+  for (const name of [
+    'SUBSCRIPTION_PRICE_CLP',
+    'SUBSCRIPTION_RENEWAL_PRICE_CLP',
+  ]) {
+    const value = config[name];
+    if (
+      value !== undefined &&
+      (typeof value !== 'string' || !/^[1-9]\d*$/.test(value))
+    ) {
+      throw new Error(
+        `${name} inválido: "${describeValue(value)}" -- debe ser un entero positivo (CLP).`,
+      );
+    }
+  }
+
   // sdd/patient-self-scheduling PR 1 (tasks.md 1.3, design.md "Migration /
   // Rollout"): un solo flag gatea tanto GET .../availability como POST
   // .../availability/book (PR 3) -- mismo criterio de validación que
@@ -316,8 +344,22 @@ function validateProductionRequiredVars(config: Record<string, unknown>): void {
 
   // Issue #494: sin esta variable FlowPaymentGatewayClient usa el sandbox de
   // Flow, y producción cobraría contra un entorno de prueba sin ningún aviso.
-  // Con los pagos deshabilitados el cliente no se usa, así que no se exige.
-  if (config.PAYMENTS_ENABLED !== 'false') {
+  // Con los pagos deshabilitados el cliente no se usa, así que no se exige,
+  // salvo que el cobro de la suscripción (#633) lo use igual.
+  const subscriptionsEnforced = config.SUBSCRIPTIONS_ENFORCED === 'true';
+  if (subscriptionsEnforced) {
+    for (const varName of [
+      'SUBSCRIPTION_FLOW_API_KEY',
+      'SUBSCRIPTION_FLOW_SECRET_KEY',
+    ] as const) {
+      if (!isNonEmptyString(config[varName])) {
+        throw new Error(
+          `${varName} requerida: en producción, con SUBSCRIPTIONS_ENFORCED="true", debe estar definida y no puede estar vacía.`,
+        );
+      }
+    }
+  }
+  if (config.PAYMENTS_ENABLED !== 'false' || subscriptionsEnforced) {
     const flowApiBaseUrl = config.FLOW_API_BASE_URL;
     if (
       !isNonEmptyString(flowApiBaseUrl) ||
