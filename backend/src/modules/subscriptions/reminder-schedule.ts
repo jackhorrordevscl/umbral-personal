@@ -12,12 +12,40 @@ export interface DueReminders {
   skip: ReminderOffsetDays[];
 }
 
+const SCHEDULE_TIME_ZONE = 'America/Santiago';
+
+const dayFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: SCHEDULE_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+// Número de día calendario en Santiago (independiente de la hora y del
+// horario de verano), para comparar días y no milisegundos.
+function santiagoDayNumber(date: Date): number {
+  const parts = dayFormatter.formatToParts(date);
+  const part = (type: string) =>
+    Number(parts.find((p) => p.type === type)?.value);
+  return Math.round(
+    Date.UTC(part('year'), part('month') - 1, part('day')) / DAY_MS,
+  );
+}
+
+// Issue #633: el cron corre una vez al día, así que "vence mañana" y "vence
+// en 5 días" se deciden por día calendario de Santiago (no por milisegundos
+// exactos, que corrían el aviso hasta un día según la hora del vencimiento).
+// El aviso de 0 días sigue siendo exacto: dice "venció", así que solo sale
+// pasado el vencimiento real.
 export function resolveDueReminders(
   now: Date,
   currentPeriodEnd: Date,
 ): DueReminders {
-  const due = REMINDER_OFFSETS_DAYS.filter(
-    (offset) => now.getTime() >= currentPeriodEnd.getTime() - offset * DAY_MS,
+  const daysLeft = santiagoDayNumber(currentPeriodEnd) - santiagoDayNumber(now);
+  const due = REMINDER_OFFSETS_DAYS.filter((offset) =>
+    offset === 0
+      ? now.getTime() >= currentPeriodEnd.getTime()
+      : daysLeft <= offset,
   );
   if (due.length === 0) return { send: null, skip: [] };
   const send = Math.min(...due) as ReminderOffsetDays;
