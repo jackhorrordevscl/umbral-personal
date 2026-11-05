@@ -788,6 +788,101 @@ describe('validateEnv', () => {
     });
   });
 
+  // Issue #633: la configuración del cobro de la suscripción se valida al
+  // arrancar; un typo no debe apagar el cobro ni caer a un precio por defecto.
+  describe('suscripción (issue #633)', () => {
+    it.each(['TRUE', '1', 'yes', ''])(
+      'rechaza un SUBSCRIPTIONS_ENFORCED %j (apagaría el cobro sin avisar)',
+      (value) => {
+        expect(() =>
+          validateEnv({ NODE_ENV: 'test', SUBSCRIPTIONS_ENFORCED: value }),
+        ).toThrow(/SUBSCRIPTIONS_ENFORCED inválido/);
+      },
+    );
+
+    it.each(['true', 'false'])(
+      'permite SUBSCRIPTIONS_ENFORCED="%s"',
+      (value) => {
+        const config = { NODE_ENV: 'test', SUBSCRIPTIONS_ENFORCED: value };
+
+        expect(validateEnv(config)).toBe(config);
+      },
+    );
+
+    it('permite SUBSCRIPTIONS_ENFORCED ausente', () => {
+      const config = { NODE_ENV: 'test' };
+
+      expect(validateEnv(config)).toBe(config);
+    });
+
+    it.each(['SUBSCRIPTION_PRICE_CLP', 'SUBSCRIPTION_RENEWAL_PRICE_CLP'])(
+      'rechaza un %s que no es un entero positivo',
+      (name) => {
+        for (const value of ['abc', '0', '-5', '6990.5', '$6990', '']) {
+          expect(() =>
+            validateEnv({ NODE_ENV: 'test', [name]: value }),
+          ).toThrow(new RegExp(`${name} inválido`));
+        }
+      },
+    );
+
+    it.each(['SUBSCRIPTION_PRICE_CLP', 'SUBSCRIPTION_RENEWAL_PRICE_CLP'])(
+      'permite %s como entero positivo',
+      (name) => {
+        const config = { NODE_ENV: 'test', [name]: '6990' };
+
+        expect(validateEnv(config)).toBe(config);
+      },
+    );
+
+    describe('con el cobro activo en producción', () => {
+      const enforcedProduction = {
+        ...productionBase,
+        MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
+        ...productionRequiredVars,
+        SUBSCRIPTIONS_ENFORCED: 'true',
+        SUBSCRIPTION_FLOW_API_KEY: 'sub-api-key-de-prueba',
+        SUBSCRIPTION_FLOW_SECRET_KEY: 'sub-secret-key-de-prueba',
+      };
+
+      it('permite la configuración completa', () => {
+        expect(validateEnv(enforcedProduction)).toBe(enforcedProduction);
+      });
+
+      it.each(['SUBSCRIPTION_FLOW_API_KEY', 'SUBSCRIPTION_FLOW_SECRET_KEY'])(
+        'rechaza %s ausente o vacía',
+        (name) => {
+          for (const value of [undefined, '   ']) {
+            expect(() =>
+              validateEnv({ ...enforcedProduction, [name]: value }),
+            ).toThrow(new RegExp(`${name} requerida`));
+          }
+        },
+      );
+
+      it('exige FLOW_API_BASE_URL aunque PAYMENTS_ENABLED sea "false"', () => {
+        const config: Record<string, unknown> = {
+          ...enforcedProduction,
+          PAYMENTS_ENABLED: 'false',
+        };
+        delete config.FLOW_API_BASE_URL;
+
+        expect(() => validateEnv(config)).toThrow(/FLOW_API_BASE_URL inválida/);
+      });
+    });
+
+    it('con el cobro apagado en producción no exige las claves de Flow de la suscripción', () => {
+      const config = {
+        ...productionBase,
+        MFA_SECRET_ENCRYPTION_KEY: validMfaKey,
+        ...productionRequiredVars,
+        SUBSCRIPTIONS_ENFORCED: 'false',
+      };
+
+      expect(validateEnv(config)).toBe(config);
+    });
+  });
+
   // Issue #382 (ADR 0005): <NOMBRE>_KEYRING y <NOMBRE>_ACTIVE_KEY_ID son
   // opcionales, pero si se definen se validan con las mismas reglas que el
   // llavero de runtime, en cualquier entorno.
