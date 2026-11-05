@@ -132,16 +132,30 @@ export class PublicSchedulingService {
   }
 
   private async assertWithinDailyLimit(
-    client: Pick<Prisma.TransactionClient, 'bookedSlot'>,
+    client: Pick<
+      Prisma.TransactionClient,
+      'bookedSlot' | 'availabilityBlockout'
+    >,
     therapistId: string,
   ): Promise<void> {
-    const recentBookings = await client.bookedSlot.count({
-      where: {
-        therapistId,
-        createdAt: { gte: new Date(Date.now() - this.dailyBookingWindowMs) },
-      },
-    });
-    if (recentBookings >= this.dailyBookingLimit) {
+    const since = new Date(Date.now() - this.dailyBookingWindowMs);
+    // Issue #635: una reserva rechazada deja un bloqueo (holdSlotAfterRejection)
+    // para verse igual que una real, así que consume el mismo cupo. Si no lo
+    // consumiera, el momento del 429 delataría cuántas reservas fueron reales y
+    // un anónimo podría llenar la agenda de bloqueos sin tope.
+    const [bookings, rejectedHolds] = await Promise.all([
+      client.bookedSlot.count({
+        where: { therapistId, createdAt: { gte: since } },
+      }),
+      client.availabilityBlockout.count({
+        where: {
+          therapistId,
+          reason: REJECTED_BOOKING_BLOCKOUT_REASON,
+          createdAt: { gte: since },
+        },
+      }),
+    ]);
+    if (bookings + rejectedHolds >= this.dailyBookingLimit) {
       this.logger.warn(
         `Tope diario de reservas públicas excedido (therapistId=${therapistId})`,
       );
