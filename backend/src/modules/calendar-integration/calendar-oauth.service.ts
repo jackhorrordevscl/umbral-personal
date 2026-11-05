@@ -79,7 +79,11 @@ export class CalendarOauthService {
     this.clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
     this.clientSecret = this.config.get<string>('GOOGLE_CLIENT_SECRET');
     this.redirectUri = this.config.get<string>('GOOGLE_REDIRECT_URI');
-    this.enabled = Boolean(this.clientId && this.clientSecret);
+    // Issue #635: sin GOOGLE_REDIRECT_URI el flujo arrancaba y Google
+    // respondía con un error de redirect; mejor un 503 claro de entrada.
+    this.enabled = Boolean(
+      this.clientId && this.clientSecret && this.redirectUri,
+    );
 
     // Mismo criterio que MailService sin RESEND_API_KEY (mail.service.ts):
     // sin credenciales de Google, el módulo se registra pero no-opea con un
@@ -87,7 +91,7 @@ export class CalendarOauthService {
     // / Rollout").
     if (!this.enabled) {
       this.logger.warn(
-        'GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET no configuradas: la integración con Google Calendar queda deshabilitada.',
+        'GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/GOOGLE_REDIRECT_URI no configuradas: la integración con Google Calendar queda deshabilitada.',
       );
     }
   }

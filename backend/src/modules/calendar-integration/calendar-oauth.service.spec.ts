@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   ConflictException,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -368,6 +369,29 @@ describe('CalendarOauthService', () => {
         buildAuditServiceMock().auditService,
       );
     }
+
+    // Issue #635: sin GOOGLE_REDIRECT_URI la integración parecía configurada y
+    // el usuario terminaba en un error de Google en vez de un 503 claro.
+    it.each([
+      ['GOOGLE_REDIRECT_URI', { GOOGLE_REDIRECT_URI: undefined }],
+      ['GOOGLE_CLIENT_ID', { GOOGLE_CLIENT_ID: undefined }],
+      ['GOOGLE_CLIENT_SECRET', { GOOGLE_CLIENT_SECRET: undefined }],
+    ])('sin %s responde 503 y no toca la base', async (_name, overrides) => {
+      const { prisma, connectionMock } = buildPrismaMock();
+      const service = new CalendarOauthService(
+        prisma,
+        buildJwt(),
+        buildConfig(overrides),
+        buildTokenCrypto(),
+        buildAuditServiceMock().auditService,
+      );
+
+      await expect(
+        service.buildAuthorizationUrl('therapist-1'),
+      ).rejects.toThrow(ServiceUnavailableException);
+      expect(connectionMock.updateMany).not.toHaveBeenCalled();
+      expect(connectionMock.create).not.toHaveBeenCalled();
+    });
 
     // issue #497: el secreto de la cookie nunca viaja en el state ni en la URL;
     // el state solo lleva su hash.

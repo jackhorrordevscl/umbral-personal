@@ -41,6 +41,9 @@ describe('PublicTherapistProfileController', () => {
       'Content-Type': 'image/png',
       'Content-Length': buffer.length,
       'Cross-Origin-Resource-Policy': 'cross-origin',
+      // Issue #635: sin esto cada vista de la agenda bajaba la imagen de B2 y
+      // gastaba el cupo del limitador.
+      'Cache-Control': 'public, max-age=300',
     });
     expect(res.end).toHaveBeenCalledWith(buffer);
   });

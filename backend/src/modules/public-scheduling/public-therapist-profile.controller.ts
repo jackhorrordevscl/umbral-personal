@@ -48,6 +48,10 @@ export class PublicTherapistProfileController {
       // Esta ruta es pública por diseño y se consume vía <img>, así que se
       // relaja solo acá, sin bajar la protección global de Helmet.
       'Cross-Origin-Resource-Policy': 'cross-origin',
+      // Issue #635: sin caché, cada vista de la agenda bajaba la imagen de B2 y
+      // gastaba el cupo del limitador. 5 minutos acotan cuánto tarda en verse
+      // un avatar nuevo.
+      'Cache-Control': 'public, max-age=300',
     });
     res.end(buffer);
   }
