@@ -83,7 +83,9 @@ export class SubscriptionRemindersService {
           where: {
             currentPeriodEnd: {
               gt: new Date(now.getTime() - GRACE_DAYS * DAY_MS),
-              lte: new Date(now.getTime() + maxOffset * DAY_MS),
+              // +1 día: el aviso se decide por día calendario, así que un
+              // vencimiento de la tarde del día 5 ya está en ventana al mediodía.
+              lte: new Date(now.getTime() + (maxOffset + 1) * DAY_MS),
             },
           },
           select: {
