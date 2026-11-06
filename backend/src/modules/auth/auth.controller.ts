@@ -170,7 +170,7 @@ export class AuthController {
   })
   @Post('verify-email')
   verifyEmail(@Body() dto: VerifyEmailDto) {
-    return this.authService.verifyEmail(dto.token);
+    return this.authService.verifyEmail(dto.token, dto.password);
   }
 
   // Reenvío del link de verificación (compliance: la única salida

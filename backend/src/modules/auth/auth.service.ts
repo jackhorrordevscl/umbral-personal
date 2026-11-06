@@ -175,7 +175,14 @@ export class AuthService {
 
     // El hash corre antes del chequeo de email para que la rama "email ya
     // registrado" no sea mucho más rápida que la de éxito (oráculo de tiempo).
-    const passwordHash = await argon2.hash(dto.password);
+    //
+    // Issue #627: el registro no recibe contraseña. La cuenta nace con un hash
+    // de bytes aleatorios que nadie conoce; la contraseña real se define al
+    // verificar el correo (verifyEmail). Así, quien registra el correo de otra
+    // persona no obtiene ninguna credencial.
+    const passwordHash = await argon2.hash(
+      crypto.randomBytes(32).toString('hex'),
+    );
 
     const existing = await this.prisma.user.findUnique({
       where: { email: normalizeEmail(dto.email) },
@@ -322,7 +329,9 @@ export class AuthService {
     });
   }
 
-  async verifyEmail(token: string) {
+  // Issue #627: verificar el correo y elegir la contraseña son un solo paso.
+  // También pisa cualquier hash previo de una cuenta sin verificar.
+  async verifyEmail(token: string, password: string) {
     let payload: { sub: string; purpose?: string };
     try {
       payload = this.jwtService.verify(token);
@@ -351,10 +360,16 @@ export class AuthService {
       throw new UnauthorizedException('Este email ya fue verificado');
     }
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { emailVerified: true },
+    // updateMany con emailVerified: false: dos verificaciones simultáneas no
+    // pueden ganar ambas ni la segunda pisar la contraseña de la primera.
+    const passwordHash = await argon2.hash(password);
+    const { count } = await this.prisma.user.updateMany({
+      where: { id: user.id, emailVerified: false },
+      data: { emailVerified: true, passwordHash },
     });
+    if (count === 0) {
+      throw new UnauthorizedException('Este email ya fue verificado');
+    }
 
     return { message: 'Email verificado. Ya puedes iniciar sesión.' };
   }

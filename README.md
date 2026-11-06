@@ -288,7 +288,7 @@ cuenta, pero desde el issue #124 el signup público exige un código de
 invitación:
 
 - **Alta normal**: `POST /auth/signup` (o el botón "Regístrate" del login)
-  requiere `inviteCode` además de `email`/`password`/`name`, y crea la cuenta
+  requiere `inviteCode` además de `email`/`name` (sin contraseña, issue #627), y crea la cuenta
   con `emailVerified: false`. El código se obtiene con `POST
   /auth/invitations` (requiere sesión), pero solo lo acepta si quien está
   logueado tiene el email configurado en `INVITE_CREATOR_EMAIL`; sin esa
@@ -1051,9 +1051,9 @@ Todas las rutas usan el prefijo global `/api/v1`.
 ### Autenticación
 ```
 GET  /api/v1/auth/signup-config        (público; { openSignup }, issue #611: true con SUBSCRIPTIONS_ENFORCED=true)
-POST /api/v1/auth/signup               (requiere inviteCode, issue #124; con SUBSCRIPTIONS_ENFORCED=true es abierto y admite promoCode opcional, issue #611)
+POST /auth/signup               (email, nombre y inviteCode, issue #124; sin contraseña, issue #627; con SUBSCRIPTIONS_ENFORCED=true es abierto y admite promoCode opcional, issue #611)
 POST /api/v1/auth/invitations          🔒 (solo INVITE_CREATOR_EMAIL, issue #124)
-POST /api/v1/auth/verify-email
+POST /auth/verify-email           (token + password: verifica el correo y fija la contraseña, issue #627)
 POST /api/v1/auth/verify-email/resend
 POST /api/v1/auth/login
 POST /api/v1/auth/mfa/verify

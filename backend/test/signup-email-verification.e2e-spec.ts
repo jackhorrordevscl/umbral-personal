@@ -112,7 +112,6 @@ describe('Signup + verificación de email (e2e)', () => {
         .post('/api/v1/auth/signup')
         .send({
           email,
-          password: TEST_PASSWORD,
           name: 'Nueva Profesional',
           inviteCode: await createInviteCode(),
         })
@@ -145,7 +144,6 @@ describe('Signup + verificación de email (e2e)', () => {
         .post('/api/v1/auth/signup')
         .send({
           email,
-          password: TEST_PASSWORD,
           name: 'Primera Vez',
           inviteCode: await createInviteCode(),
         })
@@ -156,7 +154,6 @@ describe('Signup + verificación de email (e2e)', () => {
         .post('/api/v1/auth/signup')
         .send({
           email,
-          password: TEST_PASSWORD,
           name: 'Segunda Vez',
           inviteCode: secondCode,
         })
@@ -177,7 +174,6 @@ describe('Signup + verificación de email (e2e)', () => {
         .post('/api/v1/auth/signup')
         .send({
           email,
-          password: TEST_PASSWORD,
           name: 'Primera Vez',
           inviteCode: await createInviteCode(),
         })
@@ -187,7 +183,6 @@ describe('Signup + verificación de email (e2e)', () => {
         .post('/api/v1/auth/signup')
         .send({
           email,
-          password: TEST_PASSWORD,
           name: 'Segunda Vez',
           inviteCode: 'no-existe',
         })
@@ -199,12 +194,14 @@ describe('Signup + verificación de email (e2e)', () => {
         });
     });
 
-    it('rechaza contraseña menor a 8 caracteres (400)', async () => {
+    // Issue #627: el registro ya no recibe contraseña; mandarla es un 400 y
+    // nadie puede fijar una credencial antes de verificar el correo.
+    it('rechaza una contraseña en el cuerpo del registro (400)', async () => {
       return request(app.getHttpServer())
         .post('/api/v1/auth/signup')
         .send({
           email: `signup.short.${runId}@umbral.cl`,
-          password: 'corta1',
+          password: TEST_PASSWORD,
           name: 'Test',
           inviteCode: await createInviteCode(),
         })
@@ -216,7 +213,6 @@ describe('Signup + verificación de email (e2e)', () => {
         .post('/api/v1/auth/signup')
         .send({
           email: 'no-es-un-email',
-          password: TEST_PASSWORD,
           name: 'Test',
           inviteCode: await createInviteCode(),
         })
@@ -228,7 +224,6 @@ describe('Signup + verificación de email (e2e)', () => {
         .post('/api/v1/auth/signup')
         .send({
           email: `signup.noinvite.${runId}@umbral.cl`,
-          password: TEST_PASSWORD,
           name: 'Sin Invitación',
           inviteCode: 'no-existe',
         })
@@ -245,7 +240,6 @@ describe('Signup + verificación de email (e2e)', () => {
         .post('/api/v1/auth/signup')
         .send({
           email,
-          password: TEST_PASSWORD,
           name: 'Sin Verificar',
           inviteCode: await createInviteCode(),
         })
@@ -262,8 +256,61 @@ describe('Signup + verificación de email (e2e)', () => {
     it('token inválido devuelve 401', () => {
       return request(app.getHttpServer())
         .post('/api/v1/auth/verify-email')
-        .send({ token: 'esto-no-es-un-jwt-valido' })
+        .send({ token: 'esto-no-es-un-jwt-valido', password: TEST_PASSWORD })
         .expect(401);
+    });
+
+    it('rechaza contraseña ausente o menor a 8 caracteres (400)', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/verify-email')
+        .send({ token: 'cualquiera' })
+        .expect(400);
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/verify-email')
+        .send({ token: 'cualquiera', password: 'corta1' })
+        .expect(400);
+    });
+
+    // Issue #627: quien registra el correo de otra persona no obtiene ninguna
+    // credencial; solo quien abre el enlace del correo elige la contraseña.
+    it('la contraseña la fija quien verifica, no quien registró el correo (issue #627)', async () => {
+      const email = `signup.squat.${runId}@umbral.cl`;
+      createdEmails.push(email);
+      const ATTACKER_PASSWORD = 'AtacantePass123!';
+      const VICTIM_PASSWORD = 'VictimaPass123!';
+
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/signup')
+        .send({
+          email,
+          name: 'Registro Ajeno',
+          inviteCode: await createInviteCode(),
+        })
+        .expect(201);
+
+      // Con el correo aún sin verificar, ninguna contraseña sirve.
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email, password: ATTACKER_PASSWORD })
+        .expect(401);
+
+      const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+      const token = app
+        .get(JwtService)
+        .sign({ sub: user.id, purpose: 'email-verify' }, { expiresIn: '24h' });
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/verify-email')
+        .send({ token, password: VICTIM_PASSWORD })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email, password: ATTACKER_PASSWORD })
+        .expect(401);
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email, password: VICTIM_PASSWORD })
+        .expect(201);
     });
 
     it('verifica la cuenta y permite loguear después (camino feliz completo)', async () => {
@@ -279,7 +326,6 @@ describe('Signup + verificación de email (e2e)', () => {
         .post('/api/v1/auth/signup')
         .send({
           email,
-          password: TEST_PASSWORD,
           name: 'Verificación Completa',
           inviteCode: await createInviteCode(),
         })
@@ -297,7 +343,7 @@ describe('Signup + verificación de email (e2e)', () => {
 
       const verifyRes = await request(app.getHttpServer())
         .post('/api/v1/auth/verify-email')
-        .send({ token })
+        .send({ token, password: TEST_PASSWORD })
         .expect(201);
       expect((verifyRes.body as Record<string, unknown>).message).toBeDefined();
 
@@ -323,7 +369,6 @@ describe('Signup + verificación de email (e2e)', () => {
         .post('/api/v1/auth/signup')
         .send({
           email,
-          password: TEST_PASSWORD,
           name: 'Replay Guard',
           inviteCode: await createInviteCode(),
         })
@@ -338,12 +383,12 @@ describe('Signup + verificación de email (e2e)', () => {
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/verify-email')
-        .send({ token })
+        .send({ token, password: TEST_PASSWORD })
         .expect(201);
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/verify-email')
-        .send({ token })
+        .send({ token, password: TEST_PASSWORD })
         .expect(401);
     });
 
@@ -355,7 +400,6 @@ describe('Signup + verificación de email (e2e)', () => {
         .post('/api/v1/auth/signup')
         .send({
           email,
-          password: TEST_PASSWORD,
           name: 'Bearer Guard',
           inviteCode: await createInviteCode(),
         })

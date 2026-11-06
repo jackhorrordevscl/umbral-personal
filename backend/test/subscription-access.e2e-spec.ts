@@ -228,7 +228,6 @@ describe('Subscription access (e2e, SUBSCRIPTIONS_ENFORCED=true)', () => {
       emails.push(email);
       await signup({
         email,
-        password: 'TestPass123!',
         name: 'Abierta Plana',
       }).expect(201);
 
@@ -257,7 +256,6 @@ describe('Subscription access (e2e, SUBSCRIPTIONS_ENFORCED=true)', () => {
 
       await signup({
         email,
-        password: 'TestPass123!',
         name: 'Abierta Promo',
         promoCode: code,
       }).expect(201);
@@ -280,7 +278,6 @@ describe('Subscription access (e2e, SUBSCRIPTIONS_ENFORCED=true)', () => {
       const email = `sub.open.${runId}.bad@umbral.cl`;
       await signup({
         email,
-        password: 'TestPass123!',
         name: 'Abierta Mala',
         promoCode: 'NO-EXISTE',
       }).expect(400);
@@ -291,7 +288,6 @@ describe('Subscription access (e2e, SUBSCRIPTIONS_ENFORCED=true)', () => {
     it('un código inválido responde igual para un email que ya existe (no revela cuentas)', async () => {
       const existing = await signup({
         email: `sub.ro.${runId}@umbral.cl`,
-        password: 'TestPass123!',
         name: 'Ya Existe',
         promoCode: 'NO-EXISTE',
       });

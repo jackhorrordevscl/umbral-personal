@@ -36,7 +36,6 @@ describe('límites de longitud en DTOs de auth y profile', () => {
     expect(
       await propiedadesInvalidas(SignupDto, {
         email,
-        password: largo(128),
         name: 'Ana Pérez',
         inviteCode: 'abcdef123456',
       }),
@@ -46,15 +45,15 @@ describe('límites de longitud en DTOs de auth y profile', () => {
   it.each([
     ['LoginDto', LoginDto, { email, password: largo(129) }, 'password'],
     [
-      'SignupDto (password)',
-      SignupDto,
-      { email, password: largo(129), name: 'Ana', inviteCode: 'abc' },
+      'VerifyEmailDto (password)',
+      VerifyEmailDto,
+      { token: 'abc', password: largo(129) },
       'password',
     ],
     [
       'SignupDto (inviteCode)',
       SignupDto,
-      { email, password: largo(8), name: 'Ana', inviteCode: largo(65) },
+      { email, name: 'Ana', inviteCode: largo(65) },
       'inviteCode',
     ],
     [
@@ -105,7 +104,12 @@ describe('límites de longitud en DTOs de auth y profile', () => {
       { setupToken: largo(2049), token: '123456' },
       'setupToken',
     ],
-    ['VerifyEmailDto', VerifyEmailDto, { token: largo(2049) }, 'token'],
+    [
+      'VerifyEmailDto',
+      VerifyEmailDto,
+      { token: largo(2049), password: largo(8) },
+      'token',
+    ],
     [
       'ConfirmEmailChangeDto',
       ConfirmEmailChangeDto,

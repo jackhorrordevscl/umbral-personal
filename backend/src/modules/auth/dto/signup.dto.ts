@@ -12,11 +12,9 @@ export class SignupDto {
   @NormalizedEmail()
   email: string;
 
-  @IsString()
-  @MinLength(8)
-  @MaxLength(128)
-  password: string;
-
+  // Issue #627: el registro ya no recibe contraseña. Se elige al verificar el
+  // correo (ver VerifyEmailDto), así quien no controla la casilla nunca
+  // conoce una credencial de la cuenta.
   @PersonName(200)
   @MinLength(1)
   name: string;
