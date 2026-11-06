@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Download, FileCheck2, Pencil, Plus, ShieldCheck } from "lucide-react";
+import { Download, FileCheck2, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import ConfirmDialog from "../ui/ConfirmDialog";
 import ErrorBanner from "../ui/ErrorBanner";
 import DischargeForm from "./DischargeForm";
 import VerifyDischargeDialog from "./VerifyDischargeDialog";
 import DeliverySection from "./DeliverySection";
 import { downloadDischargePdf } from "../../api/discharges";
-import { useCorrectDischarge, useDischarges } from "../../hooks/useDischarges";
+import { useCorrectDischarge, useDiscardDischargeDraft, useDischarges } from "../../hooks/useDischarges";
 import {
   DISCHARGE_SOURCE_LABELS,
   TREATMENT_STATUS_LABELS,
@@ -40,6 +41,8 @@ export default function DischargeSection({
 }: DischargeSectionProps) {
   const dischargesQuery = useDischarges(patientId);
   const correct = useCorrectDischarge();
+  const discard = useDiscardDischargeDraft();
+  const [toDiscard, setToDiscard] = useState<TreatmentDischarge | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [verifyId, setVerifyId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -82,6 +85,23 @@ export default function DischargeSection({
     correct.mutate(d.id, {
       onSuccess: (draft) => setForm({ kind: "draft", draft }),
       onError: (err) => setError(getApiErrorMessage(err, "No se pudo crear la corrección")),
+    });
+  };
+
+  // Issue #634: un borrador de corrección deja al informe emitido como
+  // reemplazado y bloquea sus entregas; descartarlo devuelve la versión vigente.
+  const handleDiscard = (d: TreatmentDischarge) => {
+    setError("");
+    setNotice("");
+    // El diálogo se cierra al confirmar: un segundo clic no manda otro DELETE.
+    setToDiscard(null);
+    discard.mutate(d.id, {
+      onSuccess: () => {
+        setNotice("Borrador descartado. El informe emitido sigue vigente.");
+      },
+      onError: (err) => {
+        setError(getApiErrorMessage(err, "No se pudo descartar el borrador"));
+      },
     });
   };
 
@@ -172,6 +192,17 @@ export default function DischargeSection({
                         <Pencil size={13} />
                       </button>
                     )}
+                    {d.status === "DRAFT" && d.correctsId && (
+                      <button
+                        type="button"
+                        disabled={discard.isPending}
+                        onClick={() => setToDiscard(d)}
+                        className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500"
+                        aria-label={`Descartar el borrador de la versión ${d.version}`}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
                     {isIssued && d.documentId && (
                       <button
                         type="button"
@@ -220,6 +251,15 @@ export default function DischargeSection({
           correctUploadOf={form.kind === "correct-upload" ? form.of : undefined}
           onClose={() => setForm(null)}
           onDone={handleDone}
+        />
+      )}
+      {toDiscard && (
+        <ConfirmDialog
+          title="Descartar borrador"
+          message={`¿Descartar el borrador de la versión ${toDiscard.version}? Se pierde lo que escribiste y el informe emitido anterior sigue vigente.`}
+          confirmLabel="Descartar"
+          onConfirm={() => handleDiscard(toDiscard)}
+          onCancel={() => setToDiscard(null)}
         />
       )}
       {verifyId && (

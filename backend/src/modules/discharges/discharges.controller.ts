@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -104,6 +105,13 @@ export class DischargesController {
     @CurrentUser() user: RequestUser,
   ) {
     return this.dischargesService.update(id, dto, user.id);
+  }
+
+  // Issue #634: descarta el borrador de una corrección (el interceptor global
+  // registra la acción; no hay datos personales en el detalle).
+  @Delete('discharges/:id')
+  discardDraft(@Param('id') id: string, @CurrentUser() user: RequestUser) {
+    return this.dischargesService.discardDraft(id, user.id);
   }
 
   // T3b: sube el PDF propio y cierra el tratamiento en un solo paso (el informe

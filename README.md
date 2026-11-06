@@ -728,7 +728,9 @@ umbral-personal/
   (`DISCHARGE_REPORT`) y no se puede subir por la vía de documentos comunes
 - Un informe emitido nunca se edita: `POST /discharges/:id/correct` (o
   `correct-upload` para uno aportado) crea una versión nueva que hereda el
-  `groupId`
+  `groupId`. El borrador de una corrección bloquea registrar entregas del informe
+  vigente; `DELETE /discharges/:id` lo descarta (solo borradores de corrección) y
+  la versión emitida sigue vigente
 - Emitir el informe cancela las consultas futuras del paciente (vista previa
   en `GET /patients/:patientId/discharges/cancellation-preview`), borra sus
   eventos de Google Calendar y avisa por email al paciente adulto, o a los
@@ -1107,6 +1109,7 @@ GET   /api/v1/patients/:patientId/discharges/cancellation-preview 🔒 (consulta
 POST  /api/v1/patients/:patientId/discharges/upload               🔒 (informe aportado por el terapeuta, solo PDF)
 GET   /api/v1/discharges/:id                                      🔒
 PATCH /api/v1/discharges/:id                                      🔒 (edita un borrador)
+DELETE /api/v1/discharges/:id                                     🔒 (descarta el borrador de una corrección)
 POST  /api/v1/discharges/:id/issue                                🔒 (emite, cierra el tratamiento y cancela consultas futuras)
 POST  /api/v1/discharges/:id/correct                              🔒 (nueva versión de un informe generado)
 POST  /api/v1/discharges/:id/correct-upload                       🔒 (nueva versión de un informe aportado)
