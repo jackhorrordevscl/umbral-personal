@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { AxiosError } from 'axios'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import DischargeSection from './DischargeSection'
 import api from '../../api/client'
@@ -134,9 +135,12 @@ describe('DischargeSection', () => {
   it('si el descarte falla cierra el diálogo y muestra el error (issue #634)', async () => {
     const user = userEvent.setup()
     const draft = build({ id: 'd2', version: 2, status: 'DRAFT', correctsId: 'd1', issuedAt: null, documentId: null })
-    mockedApi.delete.mockRejectedValue({
-      response: { data: { message: 'El borrador ya no existe o fue emitido: no se puede descartar.' } },
-    })
+    mockedApi.delete.mockRejectedValue(
+      new AxiosError('conflict', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 409,
+        data: { message: 'El borrador ya no existe o fue emitido: no se puede descartar.' },
+      } as never),
+    )
     renderSection([build({ id: 'd1' }), draft], 'DISCHARGED')
 
     await user.click(await screen.findByRole('button', { name: 'Descartar el borrador de la versión 2' }))
