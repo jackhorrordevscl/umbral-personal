@@ -19,6 +19,33 @@ import {
 export const DEFAULT_SUBSCRIPTION_PRICE_CLP = 6990;
 export const PROMO_CODE_INVALID = 'Código promocional inválido o vencido';
 
+// Issue #633: el código del flyer se tipea a mano; el espacio final o la
+// mayúscula que pone el teclado no deben invalidarlo. Se busca primero el
+// código normalizado (sin espacios del borde y en mayúsculas) y, si no está,
+// el código tal cual se creó antes de la normalización, para no romper los
+// códigos que ya existen. Si existen dos códigos que solo difieren en la
+// capitalización, gana siempre el normalizado (el de mayúsculas) aunque esté
+// vencido o agotado, y el otro queda inalcanzable; create-promo-code.ts no
+// crea esa colisión porque actualiza el código existente.
+export function normalizePromoCode(code: string): string {
+  return code.trim().toUpperCase();
+}
+
+async function findPromoCode(
+  client: Pick<Prisma.TransactionClient, 'promoCode'>,
+  code: string,
+) {
+  const normalized = await client.promoCode.findUnique({
+    where: { codeHash: hashInvitationCode(normalizePromoCode(code)) },
+  });
+  if (normalized) return normalized;
+  const trimmed = code.trim();
+  if (trimmed === normalizePromoCode(code)) return null;
+  return client.promoCode.findUnique({
+    where: { codeHash: hashInvitationCode(trimmed) },
+  });
+}
+
 export function normalizeGrantEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -143,9 +170,7 @@ export class SubscriptionsService {
     code: string,
     now: Date = new Date(),
   ): Promise<void> {
-    const promo = await this.prisma.promoCode.findUnique({
-      where: { codeHash: hashInvitationCode(code) },
-    });
+    const promo = await findPromoCode(this.prisma, code);
     if (
       !promo ||
       promo.expiresAt <= now ||
@@ -249,9 +274,7 @@ export class SubscriptionsService {
     code: string,
     now: Date = new Date(),
   ): Promise<Date> {
-    const promo = await tx.promoCode.findUnique({
-      where: { codeHash: hashInvitationCode(code) },
-    });
+    const promo = await findPromoCode(tx, code);
     if (!promo || promo.expiresAt <= now) {
       throw new BadRequestException(PROMO_CODE_INVALID);
     }

@@ -138,14 +138,28 @@ export class AuthService {
     > = null;
     if (openSignup) {
       if (dto.promoCode) {
-        await this.subscriptions.assertPromoCodeUsable(dto.promoCode);
+        try {
+          await this.subscriptions.assertPromoCodeUsable(dto.promoCode);
+        } catch (err) {
+          // Issue #633: un código inválido deja rastro, como la invitación. La
+          // respuesta al cliente no cambia.
+          if (err instanceof BadRequestException) {
+            this.auditSignupRejection(
+              'PROMO_CODE_INVALID',
+              ipAddress,
+              userAgent,
+            );
+          }
+          throw err;
+        }
       }
     } else {
       // Interruptor apagado: el código de invitación sigue siendo obligatorio y
       // su ausencia sigue siendo un 400 de validación (como antes de #611),
-      // no un rechazo de alta con auditoría.
+      // no un rechazo de alta con auditoría. Issue #633: con el mismo formato
+      // que el ValidationPipe (lista de mensajes).
       if (!dto.inviteCode) {
-        throw new BadRequestException('inviteCode should not be empty');
+        throw new BadRequestException(['inviteCode should not be empty']);
       }
       invitation = await this.prisma.invitationCode.findUnique({
         where: { codeHash: hashInvitationCode(dto.inviteCode) },

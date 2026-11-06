@@ -166,6 +166,57 @@ describe('SubscriptionsService', () => {
       );
     });
 
+    it('normaliza el código: sin espacios del borde y sin distinguir mayúsculas (issue #633)', async () => {
+      tx.promoCode.findUnique.mockResolvedValue(promo);
+      tx.promoCode.updateMany.mockResolvedValue({ count: 1 });
+      await service.redeemPromoCode(
+        tx as unknown as Prisma.TransactionClient,
+        'u1',
+        '  flyer-1 ',
+        now,
+      );
+      expect(tx.promoCode.findUnique).toHaveBeenCalledTimes(1);
+      expect(tx.promoCode.findUnique).toHaveBeenCalledWith({
+        where: { codeHash: hashInvitationCode('FLYER-1') },
+      });
+    });
+
+    it('si el código normalizado no existe, prueba el código tal cual se creó antes de la normalización (issue #633)', async () => {
+      tx.promoCode.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(promo);
+      tx.promoCode.updateMany.mockResolvedValue({ count: 1 });
+      await service.redeemPromoCode(
+        tx as unknown as Prisma.TransactionClient,
+        'u1',
+        ' Flyer-1 ',
+        now,
+      );
+      expect(tx.promoCode.findUnique).toHaveBeenNthCalledWith(1, {
+        where: { codeHash: hashInvitationCode('FLYER-1') },
+      });
+      expect(tx.promoCode.findUnique).toHaveBeenNthCalledWith(2, {
+        where: { codeHash: hashInvitationCode('Flyer-1') },
+      });
+      expect(tx.promoRedemption.create).toHaveBeenCalled();
+    });
+
+    it('si el código normalizado existe pero venció, no cae al código original (gana siempre el normalizado, issue #633)', async () => {
+      tx.promoCode.findUnique.mockResolvedValue({
+        ...promo,
+        expiresAt: days(-1),
+      });
+      await expect(
+        service.redeemPromoCode(
+          tx as unknown as Prisma.TransactionClient,
+          'u1',
+          'Flyer-1',
+          now,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(tx.promoCode.findUnique).toHaveBeenCalledTimes(1);
+    });
+
     it('toma el precio de SUBSCRIPTION_PRICE_CLP si es válido', async () => {
       env.SUBSCRIPTION_PRICE_CLP = '7990';
       tx.promoCode.findUnique.mockResolvedValue(promo);

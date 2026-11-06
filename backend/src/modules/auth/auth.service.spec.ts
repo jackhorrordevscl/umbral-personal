@@ -226,6 +226,43 @@ describe('AuthService', () => {
         expect(prisma.user.create).not.toHaveBeenCalled();
       });
 
+      it('un código promocional inválido deja rastro PROMO_CODE_INVALID sin el código ni el email (issue #633)', async () => {
+        subscriptions.assertPromoCodeUsable.mockRejectedValue(
+          new BadRequestException('Código promocional inválido o vencido'),
+        );
+
+        await expect(
+          service.signup({ ...openDto, promoCode: 'MALO' }, '10.0.0.1'),
+        ).rejects.toThrow('Código promocional inválido o vencido');
+        await flushBackground();
+
+        expect(auditService.log).toHaveBeenCalledTimes(1);
+        const [entry] = auditService.log.mock.calls[0] as [
+          Record<string, string>,
+        ];
+        expect(entry).toMatchObject({
+          action: 'UNAUTHORIZED_ATTEMPT',
+          resource: 'Signup',
+          detail: 'PROMO_CODE_INVALID',
+          ipAddress: '10.0.0.1',
+        });
+        expect(JSON.stringify(entry)).not.toContain('MALO');
+        expect(JSON.stringify(entry)).not.toContain(openDto.email);
+      });
+
+      it('un fallo que no es de validación del código no se audita como código inválido (issue #633)', async () => {
+        subscriptions.assertPromoCodeUsable.mockRejectedValue(
+          new Error('db caída'),
+        );
+
+        await expect(
+          service.signup({ ...openDto, promoCode: 'FLYER-1' }),
+        ).rejects.toThrow('db caída');
+        await flushBackground();
+
+        expect(auditService.log).not.toHaveBeenCalled();
+      });
+
       it('si el email ya existe responde igual que un alta nueva y no canjea el código', async () => {
         prisma.user.findUnique.mockResolvedValue(buildUser());
 
@@ -275,6 +312,16 @@ describe('AuthService', () => {
           await expect(
             service.signup({ ...openDto, inviteCode }),
           ).rejects.toThrow(BadRequestException);
+          // Issue #633: mismo formato que el ValidationPipe (lista de mensajes).
+          await expect(
+            service.signup({ ...openDto, inviteCode }),
+          ).rejects.toMatchObject({
+            response: {
+              message: ['inviteCode should not be empty'],
+              error: 'Bad Request',
+              statusCode: 400,
+            },
+          });
 
           expect(auditService.log).not.toHaveBeenCalled();
           expect(prisma.invitationCode.findUnique).not.toHaveBeenCalled();

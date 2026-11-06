@@ -174,13 +174,25 @@ export class SubscriptionRemindersService {
     } catch (err) {
       // Sin la notificación el aviso no llegó: se libera el reclamo para que
       // el próximo tick lo reintente.
-      await this.prisma.subscriptionReminder.deleteMany({
-        where: {
-          subscriptionId: subscription.id,
-          periodEnd,
-          offsetDays: send,
-        },
-      });
+      // Issue #633: si liberar el reclamo también falla, se conserva el error
+      // original (el que explica por qué no llegó el aviso).
+      try {
+        await this.prisma.subscriptionReminder.deleteMany({
+          where: {
+            subscriptionId: subscription.id,
+            periodEnd,
+            offsetDays: send,
+          },
+        });
+      } catch (releaseErr) {
+        this.logger.error(
+          `No se pudo liberar el reclamo del aviso subscriptionId=${subscription.id} offsetDays=${send}: ${
+            releaseErr instanceof Error
+              ? releaseErr.message
+              : String(releaseErr)
+          }`,
+        );
+      }
       throw err;
     }
 

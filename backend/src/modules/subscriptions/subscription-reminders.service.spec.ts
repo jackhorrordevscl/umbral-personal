@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -133,6 +134,25 @@ describe('SubscriptionRemindersService', () => {
       expect(notifications.create).not.toHaveBeenCalled();
     },
   );
+
+  it('si falla la notificación y también liberar el reclamo, el log conserva el error original (issue #633)', async () => {
+    notifications.create.mockRejectedValue(new Error('db caída'));
+    prisma.subscriptionReminder.deleteMany.mockRejectedValue(
+      new Error('delete falló'),
+    );
+    const errorLog = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    try {
+      await service.scan(NOW);
+      const messages = errorLog.mock.calls.map((c) => String(c[0]));
+      expect(messages.some((m) => m.includes('db caída'))).toBe(true);
+      expect(messages.some((m) => m.includes('delete falló'))).toBe(true);
+      expect(mail.sendSubscriptionReminderEmail).not.toHaveBeenCalled();
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
 
   it('si falla la notificación libera el reclamo para reintentar y no envía email', async () => {
     notifications.create.mockRejectedValue(new Error('db caída'));
