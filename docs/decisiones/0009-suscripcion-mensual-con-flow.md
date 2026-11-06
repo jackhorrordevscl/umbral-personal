@@ -102,9 +102,11 @@ Como los demás avisos, no corre con `SUBSCRIPTIONS_ENFORCED` apagado.
   tope de canjes y vencimiento). Sin código, la cuenta nace en solo lectura.
   Los códigos se crean con un script de línea de comandos
   (`backend/scripts/create-promo-code.ts <CODIGO> --channel <canal> [--max 30]
-  [--trial-days 30] [--valid-days 60]`). El código se guarda hasheado sin
-  normalizar, así que distingue mayúsculas y debe ir en el QR tal como se creó
-  (`/signup?promo=<CODIGO>`).
+  [--trial-days 30] [--valid-days 60]`). El código se guarda hasheado en
+  mayúsculas y sin espacios del borde, y el registro lo compara igual: no
+  distingue mayúsculas ni espacios al final (`/signup?promo=<CODIGO>`). Los
+  códigos creados antes de este cambio con otra capitalización siguen
+  funcionando tal como se escribieron.
 - Las cuentas exentas se cargan por email con un script de línea de comandos
   (`backend/scripts/grant-subscription.ts <email> [--until YYYY-MM-DD]`, sin rol
   ADMIN), de forma permanente o hasta una fecha. La concesión se busca por email

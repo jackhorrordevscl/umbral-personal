@@ -6,8 +6,8 @@
 //     [--max 30] [--trial-days 30] [--valid-days 60]
 //
 // Valores por defecto del issue: 30 días de prueba, 30 canjes y 60 días de
-// vigencia. El código se guarda hasheado SIN normalizar: distingue mayúsculas
-// y debe ir en el QR exactamente como se escribe aquí. Repetir el comando con
+// vigencia. El código se guarda hasheado en mayúsculas y sin espacios del
+// borde; el registro lo compara igual, sin distinguir mayúsculas. Repetir el comando con
 // el mismo código actualiza canal, tope, prueba y vigencia, pero conserva el
 // conteo de canjes ya hechos.
 import * as dotenv from 'dotenv';
@@ -56,7 +56,8 @@ export function parseArgs(
   argv: string[],
   now: Date = new Date(),
 ): PromoCodeArgs {
-  const code = argv[0]?.trim() ?? '';
+  // Issue #633: el registro compara el código sin distinguir mayúsculas.
+  const code = (argv[0]?.trim() ?? '').toUpperCase();
   if (!/^[A-Za-z0-9_-]{4,40}$/.test(code)) {
     throw new Error(
       `${USAGE}\nEl código admite 4 a 40 caracteres: letras sin tilde, números, guion y guion bajo.`,

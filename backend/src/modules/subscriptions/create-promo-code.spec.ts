@@ -38,9 +38,9 @@ describe('create-promo-code parseArgs', () => {
     });
   });
 
-  it('conserva el código tal cual (se hashea sin normalizar, distingue mayúsculas) y solo recorta espacios', () => {
+  it('normaliza el código como el registro (issue #633): recorta espacios y lo pasa a mayúsculas', () => {
     expect(parseArgs([' Umbral-Flyer ', '--channel', 'flyer'], NOW).code).toBe(
-      'Umbral-Flyer',
+      'UMBRAL-FLYER',
     );
   });
 
