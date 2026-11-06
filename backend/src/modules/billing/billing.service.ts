@@ -18,6 +18,7 @@ import {
 } from '../payments/payment-gateway.client';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { PERIOD_DAYS } from '../subscriptions/access-state';
+import { isRenewalOpen } from '../subscriptions/renewal-window';
 
 const DEFAULT_BACKEND_URL = 'http://localhost:3001';
 const DEFAULT_FRONTEND_URL = 'http://localhost:5173';
@@ -98,9 +99,21 @@ export class BillingService {
         'El cobro de la suscripción no está activo.',
       );
     }
-    if ((await this.subscriptions.getAccess(userId, now)).state === 'EXEMPT') {
+    const access = await this.subscriptions.getAccess(userId, now);
+    if (access.state === 'EXEMPT') {
       throw new ForbiddenException(
         'Tu cuenta está exenta del pago de la suscripción.',
+      );
+    }
+    // Issue #633: con la suscripción vigente solo se renueva en los últimos
+    // días del período; en gracia o solo lectura se puede pagar siempre.
+    if (
+      access.state === 'ACTIVE' &&
+      access.periodEnd &&
+      !isRenewalOpen(now, access.periodEnd)
+    ) {
+      throw new ForbiddenException(
+        'Tu suscripción está vigente. Podrás renovarla desde 5 días antes de su vencimiento.',
       );
     }
 

@@ -138,6 +138,32 @@ describe('SubscriptionPage (issue #611)', () => {
     expect(screen.getByRole('button', { name: /pagar suscripción/i })).toBeInTheDocument()
   })
 
+  it('vigente fuera de la ventana: informa desde cuándo renovar y no ofrece pagar (issue #633)', async () => {
+    mockedApi.get.mockResolvedValue({
+      data: buildStatus({
+        canRenew: false,
+        renewableFrom: '2026-11-26T15:00:00.000Z',
+      }),
+    })
+
+    renderPage()
+
+    expect(
+      await screen.findByText(/podrás renovarla desde el 26 de noviembre de 2026/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /pagar/i })).not.toBeInTheDocument()
+  })
+
+  it('vigente dentro de la ventana de renovación: ofrece pagar un mes más', async () => {
+    mockedApi.get.mockResolvedValue({
+      data: buildStatus({ canRenew: true, renewableFrom: null }),
+    })
+
+    renderPage()
+
+    expect(await screen.findByRole('button', { name: /pagar un mes más/i })).toBeInTheDocument()
+  })
+
   it('cuenta exenta permanente: informa acceso sin costo y no ofrece pagar', async () => {
     mockedApi.get.mockResolvedValue({
       data: buildStatus({ state: 'EXEMPT', periodEnd: null }),

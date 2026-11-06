@@ -9,6 +9,7 @@ import {
   extendPeriod,
   resolveAccessState,
 } from './access-state';
+import { isRenewalOpen, renewalOpensAt } from './renewal-window';
 import {
   DEFAULT_RENEWAL_PRICE_CLP,
   effectivePriceClp,
@@ -106,11 +107,22 @@ export class SubscriptionsService {
       }),
     ]);
     const change = subscription ? this.priceChange(subscription, now) : null;
+    // Issue #633: vigente y fuera de la ventana de renovación, no se puede pagar.
+    const renewalClosed =
+      access.state === 'ACTIVE' &&
+      access.periodEnd !== null &&
+      !isRenewalOpen(now, access.periodEnd);
     return {
       enforced: this.isEnforced(),
       state: access.state,
       periodEnd: access.periodEnd,
       graceEnd: access.graceEnd,
+      canRenew: access.state !== 'EXEMPT' && !renewalClosed,
+      // Desde cuándo se podrá renovar; null si ya se puede o no aplica.
+      renewableFrom:
+        renewalClosed && access.periodEnd
+          ? renewalOpensAt(access.periodEnd)
+          : null,
       // Issue #653: el último pago fue rechazado; la pantalla de retorno deja de
       // decir que se está confirmando.
       lastPaymentFailed: subscription?.payments?.[0]?.status === 'FAILED',
