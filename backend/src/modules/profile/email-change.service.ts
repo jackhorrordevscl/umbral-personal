@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -99,7 +100,9 @@ export class EmailChangeService {
     // el estado pendiente, el enlace ya enviado deja de servir (replay guard).
     try {
       if (taken) {
-        await this.mailService.sendEmailChangeTakenNoticeEmail(newEmail);
+        this.assertMailSent(
+          await this.mailService.sendEmailChangeTakenNoticeEmail(newEmail),
+        );
       } else {
         const token = this.jwtService.sign(
           {
@@ -113,19 +116,23 @@ export class EmailChangeService {
         const frontendUrl =
           this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
         const confirmUrl = `${frontendUrl}/confirm-email-change?token=${token}`;
-        await this.mailService.sendEmailChangeVerificationEmail(
-          newEmail,
-          user.name,
-          confirmUrl,
+        this.assertMailSent(
+          await this.mailService.sendEmailChangeVerificationEmail(
+            newEmail,
+            user.name,
+            confirmUrl,
+          ),
         );
       }
       // Notificación a la dirección ACTUAL (no a la pendiente): si alguien más
       // solicitó el cambio con una sesión robada, el dueño real se entera por
       // la casilla que todavía controla, no por la que el atacante pidió.
-      await this.mailService.sendEmailChangeNoticeEmail(
-        user.email,
-        user.name,
-        newEmail,
+      this.assertMailSent(
+        await this.mailService.sendEmailChangeNoticeEmail(
+          user.email,
+          user.name,
+          newEmail,
+        ),
       );
     } catch (err) {
       await this.cancelPendingChange(user.id, issuedAt);
@@ -141,6 +148,18 @@ export class EmailChangeService {
       resourceId: user.id,
       detail: `oldEmail=${user.email} newEmail=${newEmail}`,
     });
+  }
+
+  // MailService no lanza: ante un error de Resend registra y devuelve false.
+  // Sin este chequeo el catch de requestChange nunca correría y el pedido
+  // quedaría abierto sin que el dueño haya sido avisado (judgment-day #636).
+  // Solo false cuenta como fallo: la ausencia de RESEND_API_KEY (dev) devuelve true.
+  private assertMailSent(sent: boolean | void): void {
+    if (sent === false) {
+      throw new ServiceUnavailableException(
+        'No se pudo enviar el correo del cambio de email. Inténtalo de nuevo más tarde.',
+      );
+    }
   }
 
   /**

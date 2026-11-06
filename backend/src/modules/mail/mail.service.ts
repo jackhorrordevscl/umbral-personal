@@ -137,12 +137,12 @@ export class MailService {
     to: string,
     name: string,
     confirmUrl: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!this.resend) {
       this.logger.warn(
         `RESEND_API_KEY no configurada: se salteó el envío del email de confirmación de cambio de email a ${maskEmail(to)}.`,
       );
-      return;
+      return true;
     }
 
     const { error } = await this.resend.emails.send({
@@ -161,7 +161,9 @@ export class MailService {
       this.logger.error(
         `Falló el envío del email de confirmación de cambio de email a ${maskEmail(to)}: ${error.message}`,
       );
+      return false;
     }
+    return true;
   }
 
   // Issue #76: notificación informativa a la dirección ACTUAL (todavía
@@ -173,12 +175,12 @@ export class MailService {
     to: string,
     name: string,
     newEmail: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!this.resend) {
       this.logger.warn(
         `RESEND_API_KEY no configurada: se salteó el envío de la notificación de cambio de email a ${maskEmail(to)}.`,
       );
-      return;
+      return true;
     }
 
     const { error } = await this.resend.emails.send({
@@ -196,7 +198,9 @@ export class MailService {
       this.logger.error(
         `Falló el envío de la notificación de cambio de email a ${maskEmail(to)}: ${error.message}`,
       );
+      return false;
     }
+    return true;
   }
 
   // Judgment-day #499: alguien pidió cambiar el email de su cuenta a la
@@ -204,12 +208,12 @@ export class MailService {
   // pedido normal, así que este correo es la única señal (y la vía de
   // corrección si el titular es la misma persona con otra cuenta). No nombra
   // a quien lo pidió ni a su cuenta.
-  async sendEmailChangeTakenNoticeEmail(to: string): Promise<void> {
+  async sendEmailChangeTakenNoticeEmail(to: string): Promise<boolean> {
     if (!this.resend) {
       this.logger.warn(
         `RESEND_API_KEY no configurada: se salteó el aviso de dirección ya en uso a ${maskEmail(to)}.`,
       );
-      return;
+      return true;
     }
 
     const { error } = await this.resend.emails.send({
@@ -228,7 +232,9 @@ export class MailService {
       this.logger.error(
         `Falló el envío del aviso de dirección ya en uso a ${maskEmail(to)}: ${error.message}`,
       );
+      return false;
     }
+    return true;
   }
 
   // Issue #302: aviso al dueño de la cuenta cuando MFA se desactiva con un

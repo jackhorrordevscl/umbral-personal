@@ -1,4 +1,9 @@
-import { ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  ConflictException,
+  BadRequestException,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { User } from '@prisma/client';
@@ -259,6 +264,57 @@ describe('EmailChangeService', () => {
         ).rejects.toThrow('mail provider down');
 
         expect(mailService.sendEmailChangeVerificationEmail).toHaveBeenCalled();
+        expect(prisma.user.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: 'user-1',
+            pendingEmailTokenIssuedAt: expect.any(Date) as unknown as Date,
+          },
+          data: { pendingEmail: null, pendingEmailTokenIssuedAt: null },
+        });
+        expect(auditService.log).not.toHaveBeenCalled();
+      });
+
+      it('cancela el pedido y responde 503 si Resend rechaza el aviso a la dirección actual (MailService devuelve false)', async () => {
+        mailService.sendEmailChangeNoticeEmail.mockResolvedValue(false);
+
+        await expect(
+          service.requestChange(requester, 'new@example.com'),
+        ).rejects.toThrow(ServiceUnavailableException);
+        expect(mailService.sendEmailChangeVerificationEmail).toHaveBeenCalled();
+        expect(prisma.user.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: 'user-1',
+            pendingEmailTokenIssuedAt: expect.any(Date) as unknown as Date,
+          },
+          data: { pendingEmail: null, pendingEmailTokenIssuedAt: null },
+        });
+        expect(auditService.log).not.toHaveBeenCalled();
+      });
+
+      it('cancela el pedido y responde 503 si Resend rechaza el correo de verificación (MailService devuelve false)', async () => {
+        mailService.sendEmailChangeVerificationEmail.mockResolvedValue(false);
+
+        await expect(
+          service.requestChange(requester, 'new@example.com'),
+        ).rejects.toThrow(ServiceUnavailableException);
+        expect(mailService.sendEmailChangeNoticeEmail).not.toHaveBeenCalled();
+        expect(prisma.user.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: 'user-1',
+            pendingEmailTokenIssuedAt: expect.any(Date) as unknown as Date,
+          },
+          data: { pendingEmail: null, pendingEmailTokenIssuedAt: null },
+        });
+        expect(auditService.log).not.toHaveBeenCalled();
+      });
+
+      it('cancela el pedido y responde 503 si Resend rechaza el aviso de dirección ya en uso (MailService devuelve false)', async () => {
+        prisma.user.findFirst.mockResolvedValue({ id: 'other-user' });
+        mailService.sendEmailChangeTakenNoticeEmail.mockResolvedValue(false);
+
+        await expect(
+          service.requestChange(requester, 'new@example.com'),
+        ).rejects.toThrow(ServiceUnavailableException);
         expect(prisma.user.updateMany).toHaveBeenCalledWith({
           where: {
             id: 'user-1',
