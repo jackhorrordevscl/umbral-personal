@@ -93,6 +93,14 @@ export function useCorrectDischarge() {
   });
 }
 
+export function useDiscardDischargeDraft() {
+  const invalidate = useDraftInvalidation();
+  return useMutation({
+    mutationFn: (id: string) => dischargesApi.discardDischargeDraft(id),
+    onSuccess: invalidate,
+  });
+}
+
 export function useUploadDischarge(patientId: string) {
   const invalidate = useDischargeInvalidation(true);
   return useMutation({

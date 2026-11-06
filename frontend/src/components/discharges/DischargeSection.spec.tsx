@@ -8,7 +8,7 @@ import type { TreatmentDischarge } from '../../types/discharge'
 import type { TreatmentStatus } from '../../types/patient'
 
 vi.mock('../../api/client', () => ({
-  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
+  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
 }))
 
 const mockedApi = vi.mocked(api)
@@ -107,6 +107,36 @@ describe('DischargeSection', () => {
     expect(screen.getAllByRole('button', { name: /Registrar entrega/ })).toHaveLength(1)
     expect(mockedApi.get).toHaveBeenCalledWith('/discharges/d1/deliveries')
     expect(mockedApi.get).not.toHaveBeenCalledWith('/discharges/d2/deliveries')
+  })
+
+  it('el borrador de una corrección se descarta tras confirmar (issue #634)', async () => {
+    const user = userEvent.setup()
+    const issued = build({ id: 'd1', version: 1 })
+    const draft = build({
+      id: 'd2',
+      version: 2,
+      status: 'DRAFT',
+      correctsId: 'd1',
+      issuedAt: null,
+      documentId: null,
+    })
+    mockedApi.delete.mockResolvedValue({ data: undefined })
+    renderSection([issued, draft], 'DISCHARGED')
+
+    await user.click(await screen.findByRole('button', { name: 'Descartar el borrador de la versión 2' }))
+    expect(mockedApi.delete).not.toHaveBeenCalled()
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Descartar' }))
+
+    expect(mockedApi.delete).toHaveBeenCalledWith('/discharges/d2')
+    expect(await screen.findByRole('status')).toHaveTextContent('Borrador descartado')
+  })
+
+  it('un borrador inicial, que no corrige nada, no ofrece descartar (issue #634)', async () => {
+    const draft = build({ id: 'd2', status: 'DRAFT', correctsId: null, issuedAt: null, documentId: null })
+    renderSection([draft], 'ACTIVE')
+
+    await screen.findByText(/Versión 1/)
+    expect(screen.queryByRole('button', { name: /Descartar el borrador/ })).not.toBeInTheDocument()
   })
 
   it('con un paciente NNA el diálogo de entrega no ofrece "Paciente" (T4c)', async () => {

@@ -42,6 +42,10 @@ export function correctDischarge(id: string) {
   return api.post<TreatmentDischarge>(`/discharges/${id}/correct`).then((r) => r.data);
 }
 
+export function discardDischargeDraft(id: string) {
+  return api.delete<void>(`/discharges/${id}`).then((r) => r.data);
+}
+
 function buildUploadForm({ file, ...fields }: UploadDischargePayload) {
   const formData = new FormData();
   formData.append('file', file);

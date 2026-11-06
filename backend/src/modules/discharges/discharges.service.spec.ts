@@ -72,6 +72,7 @@ describe('DischargesService', () => {
       count: jest.Mock;
       create: jest.Mock;
       updateMany: jest.Mock;
+      deleteMany: jest.Mock;
       findUniqueOrThrow: jest.Mock;
     };
     consultation: {
@@ -113,6 +114,7 @@ describe('DischargesService', () => {
         count: jest.fn().mockResolvedValue(0),
         create: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUniqueOrThrow: jest.fn(),
       },
       consultation: {
@@ -1011,6 +1013,73 @@ describe('DischargesService', () => {
       );
       expect(loggerSpy).toHaveBeenCalled();
       loggerSpy.mockRestore();
+    });
+  });
+
+  // Issue #634: un borrador de corrección bloqueaba las entregas del informe
+  // vigente y no había forma de descartarlo.
+  describe('discardDraft', () => {
+    const correctionDraft = () =>
+      buildRow({ status: 'DRAFT', correctsId: 'dis-0', version: 2 });
+
+    it('borra el borrador de la corrección bajo los locks y condicional a DRAFT', async () => {
+      prisma.treatmentDischarge.findFirst.mockResolvedValue(correctionDraft());
+
+      await service.discardDraft('dis-1', 'therapist-1');
+
+      expect(prisma.treatmentDischarge.deleteMany).toHaveBeenCalledWith({
+        where: {
+          id: 'dis-1',
+          therapistId: 'therapist-1',
+          status: 'DRAFT',
+          correctsId: { not: null },
+        },
+      });
+      // User, Patient y la fila del informe, antes del DELETE (orden de issue()).
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);
+      expect(prisma.$queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
+        prisma.treatmentDischarge.deleteMany.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('filtra por terapeuta: un informe ajeno es 404 y no borra nada', async () => {
+      prisma.treatmentDischarge.findFirst.mockResolvedValue(null);
+
+      await expect(service.discardDraft('dis-1', 'intruder')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.treatmentDischarge.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('un informe emitido no se descarta (409)', async () => {
+      prisma.treatmentDischarge.findFirst.mockResolvedValue(
+        buildRow({ status: 'ISSUED', correctsId: 'dis-0' }),
+      );
+
+      await expect(
+        service.discardDraft('dis-1', 'therapist-1'),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.treatmentDischarge.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('un borrador inicial, que no corrige nada, no se descarta (409)', async () => {
+      prisma.treatmentDischarge.findFirst.mockResolvedValue(
+        buildRow({ status: 'DRAFT', correctsId: null }),
+      );
+
+      await expect(
+        service.discardDraft('dis-1', 'therapist-1'),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.treatmentDischarge.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('si una emisión concurrente ganó (count 0) responde 409', async () => {
+      prisma.treatmentDischarge.findFirst.mockResolvedValue(correctionDraft());
+      prisma.treatmentDischarge.deleteMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.discardDraft('dis-1', 'therapist-1'),
+      ).rejects.toThrow(ConflictException);
     });
   });
 

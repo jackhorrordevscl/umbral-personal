@@ -1,9 +1,15 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { DischargeDeliveriesService } from './discharge-deliveries.service';
+import { DischargesService } from './discharges.service';
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import { CreateDischargeDeliveryDto } from './dto/create-discharge-delivery.dto';
 
 const ctx = { ipAddress: '127.0.0.1', userAgent: 'jest' };
@@ -16,6 +22,7 @@ const ctx = { ipAddress: '127.0.0.1', userAgent: 'jest' };
 describe('DischargeDeliveriesService (integration)', () => {
   let prisma: PrismaService;
   let service: DischargeDeliveriesService;
+  let dischargesService: DischargesService;
   let therapistId: string;
   const runId = Date.now();
   const patientIds: string[] = [];
@@ -90,6 +97,19 @@ describe('DischargeDeliveriesService (integration)', () => {
     });
     therapistId = therapist.id;
     service = new DischargeDeliveriesService(prisma, new AuditService(prisma));
+    // discardDraft solo usa prisma y el cifrado de textos; el resto no interviene.
+    const unused = {} as never;
+    dischargesService = new DischargesService(
+      prisma,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused,
+      buildTestClinicalCrypto(),
+    );
   }, 30000);
 
   afterAll(async () => {
@@ -274,6 +294,71 @@ describe('DischargeDeliveriesService (integration)', () => {
     await expect(
       prisma.patientDocument.delete({ where: { id: valid.id } }),
     ).rejects.toThrow();
+  });
+
+  // Issue #634: un borrador de corrección hace que el informe emitido cuente
+  // como reemplazado y bloquea su entrega; descartarlo la desbloquea.
+  it('descartar el borrador de una corrección desbloquea la entrega del informe vigente', async () => {
+    const patient = await createPatient('Con borrador', new Date('1990-01-01'));
+    const issued = await createIssuedDischarge(patient.id);
+    const draft = await prisma.treatmentDischarge.create({
+      data: {
+        id: randomUUID(),
+        groupId: issued.groupId,
+        version: 2,
+        correctsId: issued.id,
+        patientId: patient.id,
+        therapistId,
+        status: 'DRAFT',
+        closureReason: 'DISCHARGED',
+        admissionDate: issued.admissionDate,
+        dischargeDate: issued.dischargeDate,
+        sessionCount: issued.sessionCount,
+      },
+    });
+
+    await expect(
+      service.record(
+        issued.id,
+        dto({ recipientType: 'PATIENT' }),
+        therapistId,
+        ctx,
+      ),
+    ).rejects.toThrow(ConflictException);
+
+    await dischargesService.discardDraft(draft.id, therapistId);
+
+    expect(
+      await prisma.treatmentDischarge.findUnique({ where: { id: draft.id } }),
+    ).toBeNull();
+    const delivery = await service.record(
+      issued.id,
+      dto({ recipientType: 'PATIENT' }),
+      therapistId,
+      ctx,
+    );
+    expect(delivery.dischargeId).toBe(issued.id);
+    // La versión emitida sigue intacta.
+    expect(
+      await prisma.treatmentDischarge.findUniqueOrThrow({
+        where: { id: issued.id },
+      }),
+    ).toMatchObject({ status: 'ISSUED', version: 1 });
+  });
+
+  it('no descarta un informe emitido ni el borrador de otro terapeuta', async () => {
+    const patient = await createPatient('Emitido', new Date('1990-01-01'));
+    const issued = await createIssuedDischarge(patient.id);
+
+    await expect(
+      dischargesService.discardDraft(issued.id, therapistId),
+    ).rejects.toThrow(ConflictException);
+    await expect(
+      dischargesService.discardDraft(issued.id, 'otro-terapeuta'),
+    ).rejects.toThrow(NotFoundException);
+    expect(
+      await prisma.treatmentDischarge.count({ where: { id: issued.id } }),
+    ).toBe(1);
   });
 
   it('un informe de otro terapeuta responde 404 al registrar y al listar', async () => {

@@ -311,6 +311,47 @@ export class DischargesService {
     return this.findOwned(id, therapistId);
   }
 
+  // DELETE /discharges/:id (solo el borrador de una corrección)
+  //
+  // Issue #634: un borrador de corrección hace que el informe emitido cuente
+  // como reemplazado y bloquea registrar su entrega; sin esta salida el bloqueo
+  // no se podía deshacer. Descartarlo borra solo ese borrador (nunca tuvo PDF ni
+  // entregas) y deja vigente la versión emitida. Un informe emitido no se
+  // descarta: se corrige. Un borrador inicial (sin informe previo) se edita.
+  async discardDraft(id: string, therapistId: string): Promise<void> {
+    const draft = await this.findOwned(id, therapistId);
+    if (draft.status !== 'DRAFT') {
+      throw new ConflictException(
+        'Solo se puede descartar un borrador. Un informe emitido no se descarta: se corrige.',
+      );
+    }
+    if (draft.correctsId === null) {
+      throw new ConflictException(
+        'Este borrador no corrige ningún informe emitido: edítalo o emítelo.',
+      );
+    }
+
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      // Mismos locks y orden que issue(): serializa con una emisión concurrente
+      // del mismo borrador (User -> Patient -> informe).
+      await this.lockTherapistAndPatient(tx, therapistId, draft.patientId);
+      await tx.$queryRaw`SELECT id FROM "TreatmentDischarge" WHERE id = ${id} FOR UPDATE`;
+      // Condicional al estado: si una emisión concurrente ganó, count = 0 -> 409.
+      const { count } = await tx.treatmentDischarge.deleteMany({
+        where: { id, therapistId, status: 'DRAFT', correctsId: { not: null } },
+      });
+      return count;
+    });
+    if (deleted === 0) {
+      throw new ConflictException(
+        'El borrador ya no existe o fue emitido: no se puede descartar.',
+      );
+    }
+    this.logger.log(
+      `Borrador de corrección descartado: id=${id} patientId=${draft.patientId} groupId=${draft.groupId} therapistId=${therapistId}`,
+    );
+  }
+
   // POST /discharges/:id/issue
   async issue(
     id: string,
