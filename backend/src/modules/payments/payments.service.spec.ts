@@ -6,7 +6,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PaymentProvider } from '@prisma/client';
+import { PaymentProvider, TreatmentStatus } from '@prisma/client';
 import { PaymentsService } from './payments.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -30,6 +30,7 @@ interface ConsultationRow {
     id: string;
     defaultSessionAmount: number | null;
     deletedAt: Date | null;
+    treatmentStatus: TreatmentStatus;
     email: string | null;
     fullName: string;
     birthDate: Date;
@@ -59,6 +60,7 @@ function buildConsultation(
       id: 'patient-1',
       defaultSessionAmount: 30000,
       deletedAt: null,
+      treatmentStatus: 'ACTIVE',
       email: 'paciente@example.com',
       fullName: 'Juan Soto',
       birthDate: new Date('1990-01-01'),
@@ -855,6 +857,43 @@ describe('PaymentsService', () => {
         data: { dueDate: new Date('2026-10-02T15:00:00.000Z') },
       });
       expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+    });
+
+    // issue #634: corregir una consulta pasada sin cobro no debe crear uno ni
+    // mandar el enlace de pago cuando el tratamiento ya se cerró.
+    it('con el tratamiento cerrado y sin cargo previo, no crea el cargo ni toca la pasarela', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(
+        buildConsultation({}, { treatmentStatus: 'DISCHARGED' }),
+      );
+      prisma.payment.findUnique.mockResolvedValue(null);
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+
+      await service.ensureCharge('group-1');
+
+      expect(prisma.payment.create).not.toHaveBeenCalled();
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+    });
+
+    it('con el tratamiento cerrado, un cargo existente igual mueve su dueDate', async () => {
+      prisma.consultation.findFirst.mockResolvedValue(
+        buildConsultation(
+          { sessionDate: new Date('2026-10-01T15:00:00.000Z') },
+          { treatmentStatus: 'DISCHARGED' },
+        ),
+      );
+      prisma.payment.findUnique.mockResolvedValue(
+        buildPayment({ dueDate: new Date('2026-09-10T15:00:00.000Z') }),
+      );
+
+      await service.ensureCharge('group-1');
+
+      expect(prisma.payment.update).toHaveBeenCalledWith({
+        where: { id: 'payment-1' },
+        data: { dueDate: new Date('2026-10-02T15:00:00.000Z') },
+      });
+      expect(prisma.payment.create).not.toHaveBeenCalled();
     });
   });
 
