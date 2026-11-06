@@ -9,6 +9,8 @@ describe('AssentsService', () => {
   let prisma: {
     patientAssent: { findMany: jest.Mock; create: jest.Mock };
     patientDocument: { findFirst: jest.Mock };
+    $queryRaw: jest.Mock;
+    $transaction: jest.Mock;
   };
   let patientsService: { assertAccess: jest.Mock };
 
@@ -28,6 +30,9 @@ describe('AssentsService', () => {
         create: jest.fn().mockResolvedValue({ id: 'assent-1' }),
       },
       patientDocument: { findFirst: jest.fn() },
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'therapist-1' }]),
+      // $transaction(callback) real corre el callback con el cliente de la tx.
+      $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(prisma)),
     };
     patientsService = {
       assertAccess: jest.fn().mockResolvedValue(minor('2015-01-01')),
@@ -86,6 +91,36 @@ describe('AssentsService', () => {
   });
 
   describe('record', () => {
+    // issue #502 / #634: el insert con FK a User y a Patient toma antes la fila
+    // del terapeuta, para no cruzarse con consultations.create (deadlock 40P01).
+    it('toma el lock del terapeuta dentro de la transacción antes de insertar el evento', async () => {
+      await service.record(
+        'patient-1',
+        { action: 'INFORMED_AND_HEARD' },
+        'therapist-1',
+      );
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+      expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.patientAssent.create.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('no toma el lock si la validación falla antes de insertar', async () => {
+      patientsService.assertAccess.mockResolvedValue(minor('1990-01-01'));
+
+      await expect(
+        service.record(
+          'patient-1',
+          { action: 'INFORMED_AND_HEARD' },
+          'therapist-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
     it('NNA con menos de 14 años: calcula el tramo en el servidor y registra el evento', async () => {
       await service.record(
         'patient-1',
