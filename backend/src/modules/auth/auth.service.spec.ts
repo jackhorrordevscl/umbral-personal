@@ -412,7 +412,6 @@ describe('AuthService', () => {
     describe('email ya registrado (issue #487)', () => {
       const dto = {
         email: 'user@example.com',
-        password: 'password1',
         name: 'Nueva Cuenta',
         inviteCode: 'valid-code',
       };
@@ -482,7 +481,6 @@ describe('AuthService', () => {
       await expect(
         service.signup({
           email: 'user@example.com',
-          password: 'password1',
           name: 'Test User',
           inviteCode: 'valid-code',
         }),
@@ -502,7 +500,6 @@ describe('AuthService', () => {
 
       await service.signup({
         email: ' Ana@Example.COM ',
-        password: 'password1',
         name: 'Ana',
         inviteCode: 'valid-code',
       });
@@ -527,7 +524,6 @@ describe('AuthService', () => {
 
       await service.signup({
         email: 'ana@example.com',
-        password: 'password1',
         name: 'Ana Pérez',
         inviteCode: 'valid-code',
       });
@@ -547,7 +543,6 @@ describe('AuthService', () => {
       await expect(
         service.signup({
           email: 'user@example.com',
-          password: 'password1',
           name: 'Nueva Cuenta',
           inviteCode: 'no-existe',
         }),
@@ -568,7 +563,6 @@ describe('AuthService', () => {
 
       const result = await service.signup({
         email: 'user@example.com',
-        password: 'password1',
         name: 'Test User',
         inviteCode: 'valid-code',
       });
@@ -592,7 +586,6 @@ describe('AuthService', () => {
       await expect(
         service.signup({
           email: 'user@example.com',
-          password: 'password1',
           name: 'Test User',
           inviteCode: 'valid-code',
         }),
@@ -609,7 +602,6 @@ describe('AuthService', () => {
       await expect(
         service.signup({
           email: 'user@example.com',
-          password: 'password1',
           name: 'Test User',
           inviteCode: 'no-existe',
         }),
@@ -627,7 +619,6 @@ describe('AuthService', () => {
       await expect(
         service.signup({
           email: 'user@example.com',
-          password: 'password1',
           name: 'Test User',
           inviteCode: 'valid-code',
         }),
@@ -645,7 +636,6 @@ describe('AuthService', () => {
       await expect(
         service.signup({
           email: 'user@example.com',
-          password: 'password1',
           name: 'Test User',
           inviteCode: 'valid-code',
         }),
@@ -665,7 +655,6 @@ describe('AuthService', () => {
 
       const result = await service.signup({
         email: 'user@example.com',
-        password: 'password1',
         name: 'Test User',
         inviteCode: 'valid-code',
       });
@@ -714,7 +703,6 @@ describe('AuthService', () => {
       await expect(
         service.signup({
           email: 'user@example.com',
-          password: 'password1',
           name: 'Test User',
           inviteCode: 'valid-code',
         }),
@@ -805,17 +793,17 @@ describe('AuthService', () => {
         throw new Error('jwt expired');
       });
 
-      await expect(service.verifyEmail('bad-token')).rejects.toThrow(
-        'Token de verificación inválido o expirado',
-      );
+      await expect(
+        service.verifyEmail('bad-token', 'NuevaClave123'),
+      ).rejects.toThrow('Token de verificación inválido o expirado');
     });
 
     it('lanza 401 si el purpose del token no es email-verify', async () => {
       jwtService.verify.mockReturnValue({ sub: 'user-1', purpose: 'other' });
 
-      await expect(service.verifyEmail('token')).rejects.toThrow(
-        'Token de verificación inválido',
-      );
+      await expect(
+        service.verifyEmail('token', 'NuevaClave123'),
+      ).rejects.toThrow('Token de verificación inválido');
     });
 
     it('lanza 401 (replay guard) si el email ya estaba verificado', async () => {
@@ -827,12 +815,12 @@ describe('AuthService', () => {
         buildUser({ emailVerified: true }),
       );
 
-      await expect(service.verifyEmail('token')).rejects.toThrow(
-        'Este email ya fue verificado',
-      );
+      await expect(
+        service.verifyEmail('token', 'NuevaClave123'),
+      ).rejects.toThrow('Este email ya fue verificado');
     });
 
-    it('marca emailVerified=true en el camino feliz', async () => {
+    it('marca emailVerified=true y guarda la contraseña elegida en el camino feliz (issue #627)', async () => {
       jwtService.verify.mockReturnValue({
         sub: 'user-1',
         purpose: 'email-verify',
@@ -840,15 +828,66 @@ describe('AuthService', () => {
       prisma.user.findUnique.mockResolvedValue(
         buildUser({ emailVerified: false }),
       );
+      mockArgon2.hash.mockResolvedValue('hash-nueva-clave' as never);
 
-      const result = await service.verifyEmail('token');
+      const result = await service.verifyEmail('token', 'NuevaClave123');
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        data: { emailVerified: true },
+      expect(mockArgon2.hash).toHaveBeenCalledWith('NuevaClave123');
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-1', emailVerified: false },
+        data: { emailVerified: true, passwordHash: 'hash-nueva-clave' },
       });
       expect(result).toEqual({
         message: 'Email verificado. Ya puedes iniciar sesión.',
+      });
+    });
+  });
+
+  describe('verifyEmail (carrera, issue #627)', () => {
+    it('lanza 401 si otra verificación ganó entre la lectura y la escritura', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'email-verify',
+      });
+      prisma.user.findUnique.mockResolvedValue(
+        buildUser({ emailVerified: false }),
+      );
+      mockArgon2.hash.mockResolvedValue('hash' as never);
+      prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.verifyEmail('token', 'NuevaClave123'),
+      ).rejects.toThrow('Este email ya fue verificado');
+    });
+  });
+
+  describe('signup sin contraseña (issue #627)', () => {
+    it('la cuenta nace con un hash de bytes aleatorios, nunca con una contraseña del cliente', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.invitationCode.findUnique.mockResolvedValue({
+        id: 'invitation-1',
+        codeHash: hashInvitationCode('valid-code'),
+        createdById: 'creator-1',
+        usedById: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        usedAt: null,
+      });
+      mockArgon2.hash.mockResolvedValue('hash-aleatorio' as never);
+      prisma.user.create.mockResolvedValue(buildUser({ emailVerified: false }));
+      prisma.invitationCode.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.signup({
+        email: 'ana@example.com',
+        name: 'Ana',
+        inviteCode: 'valid-code',
+      });
+
+      const [hashed] = mockArgon2.hash.mock.calls[0] as [string];
+      expect(hashed).toMatch(/^[0-9a-f]{64}$/);
+      expect(prisma.user.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          passwordHash: 'hash-aleatorio',
+        }) as unknown as Record<string, unknown>,
       });
     });
   });

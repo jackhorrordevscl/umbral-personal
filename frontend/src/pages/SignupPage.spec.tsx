@@ -29,14 +29,9 @@ function renderSignup(initialEntry = '/signup') {
   )
 }
 
-async function fillBaseFields(
-  user: ReturnType<typeof userEvent.setup>,
-  confirmPassword = 'Password123!',
-) {
+async function fillBaseFields(user: ReturnType<typeof userEvent.setup>) {
   await user.type(await screen.findByLabelText('Nombre completo'), 'Ana Pérez')
   await user.type(screen.getByLabelText('Email'), 'ana@umbral.cl')
-  await user.type(screen.getByLabelText('Contraseña'), 'Password123!')
-  await user.type(screen.getByLabelText('Confirmar contraseña'), confirmPassword)
 }
 
 describe('SignupPage — registro por invitación (suscripciones apagadas)', () => {
@@ -58,21 +53,16 @@ describe('SignupPage — registro por invitación (suscripciones apagadas)', () 
     expect(mockedApi.post).toHaveBeenCalledWith('/auth/signup', {
       name: 'Ana Pérez',
       email: 'ana@umbral.cl',
-      password: 'Password123!',
       inviteCode: 'INV-123',
     })
   })
 
-  it('no envía el registro y muestra error si las contraseñas no coinciden', async () => {
-    const user = userEvent.setup()
-
+  // Issue #627: la contraseña se elige al verificar el correo, no al registrarse.
+  it('no pide contraseña en el registro', async () => {
     renderSignup()
-    await fillBaseFields(user, 'Distinta123!')
-    await user.type(screen.getByLabelText('Código de invitación'), 'INV-123')
-    await user.click(screen.getByRole('button', { name: /crear cuenta/i }))
-
-    expect(await screen.findByText('Las contraseñas no coinciden')).toBeInTheDocument()
-    expect(mockedApi.post).not.toHaveBeenCalled()
+    await screen.findByLabelText('Nombre completo')
+    expect(screen.queryByLabelText('Contraseña')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Confirmar contraseña')).not.toBeInTheDocument()
   })
 
   it('exige el código de invitación y no muestra el campo promocional', async () => {
@@ -110,7 +100,6 @@ describe('SignupPage — registro abierto (suscripciones encendidas, issue #611)
     expect(mockedApi.post).toHaveBeenCalledWith('/auth/signup', {
       name: 'Ana Pérez',
       email: 'ana@umbral.cl',
-      password: 'Password123!',
       promoCode: 'FLYER-1',
     })
   })
