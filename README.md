@@ -1192,7 +1192,7 @@ viene en la ruta, así que slug y UUID cuentan en buckets separados.
 GET    /api/v1/payments/account                  🔒
 POST   /api/v1/payments/account/validate         🔒 (paso previo del wizard, sin persistir)
 POST   /api/v1/payments/account                   🔒 (confirmación, persiste la cuenta Flow)
-DELETE /api/v1/payments/account                   🔒
+DELETE /api/v1/payments/account                   🔒 (anula los enlaces de pago abiertos y desconecta; responde cancelledCharges y unvoidedGroupIds)
 PATCH  /api/v1/payments/:groupId                  🔒 (corrige el monto de un cargo; 409 si la pasarela ya lo registra pagado)
 POST   /api/v1/payments/:groupId/resend-link       🔒
 POST   /api/v1/payments/:groupId/retry-charge      🔒 (reintenta crear el cargo cuando aún no tiene link de pago, issue #271; 409 si el intento anterior quedó incierto y falta `confirmOrderNotCreated`)

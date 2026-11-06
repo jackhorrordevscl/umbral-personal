@@ -122,10 +122,15 @@ export class PaymentsController {
     return this.paymentAccountService.connect(user.id, dto);
   }
 
+  // issue #634: antes de borrar las credenciales se anulan los enlaces de pago
+  // abiertos; después no habría con qué anularlos en la pasarela.
   @UseGuards(JwtAuthGuard)
   @Delete('account')
-  disconnect(@CurrentUser() user: RequestUser) {
-    return this.paymentAccountService.disconnect(user.id);
+  async disconnect(@CurrentUser() user: RequestUser) {
+    const { cancelled, unvoidedGroupIds } =
+      await this.paymentsService.cancelOpenChargesForDisconnect(user.id);
+    const result = await this.paymentAccountService.disconnect(user.id);
+    return { ...result, cancelledCharges: cancelled, unvoidedGroupIds };
   }
 
   // T5.5/T7.7/T7.8: assertOwnership FIRST -- therapist B requesting
