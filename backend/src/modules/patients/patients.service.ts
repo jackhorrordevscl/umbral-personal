@@ -431,6 +431,9 @@ export class PatientsService {
         documents: {
           orderBy: { uploadedAt: 'desc' },
           take: UNPAGINATED_SAFETY_LIMIT,
+          // issue #634: mismo criterio que DocumentsService.findByPatient; la
+          // clave del objeto en B2 y quién anuló no salen en la ficha.
+          omit: { storagePath: true, voidedById: true },
         },
         guardians: { orderBy: { createdAt: 'asc' } },
       },

@@ -402,7 +402,7 @@ describe('PatientsService', () => {
       );
     });
 
-    it('acota los documentos con el cap de seguridad (issue #290)', async () => {
+    it('acota los documentos con el cap de seguridad y omite storagePath y voidedById (issue #290, #634)', async () => {
       prisma.patient.findFirst.mockResolvedValue({
         ...buildPatient(),
         consultations: [],
@@ -416,6 +416,7 @@ describe('PatientsService', () => {
             documents: {
               orderBy: { uploadedAt: 'desc' },
               take: UNPAGINATED_SAFETY_LIMIT,
+              omit: { storagePath: true, voidedById: true },
             },
           }) as unknown,
         }),
