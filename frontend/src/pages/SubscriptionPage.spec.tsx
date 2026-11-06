@@ -276,6 +276,32 @@ describe('SubscriptionPage (issue #611)', () => {
     expect(screen.queryByText(/estamos confirmando tu pago/i)).not.toBeInTheDocument()
   })
 
+  it('tras volver de Flow con el último pago rechazado avisa del rechazo y no dice que se está confirmando (issue #653)', async () => {
+    mockedApi.get.mockResolvedValue({
+      data: buildStatus({ state: 'READ_ONLY', periodEnd: null, lastPaymentFailed: true }),
+    })
+    mockedApi.post.mockResolvedValue({
+      data: buildStatus({ state: 'READ_ONLY', periodEnd: null, lastPaymentFailed: true }),
+    })
+
+    renderPage({ afterPayment: true })
+
+    expect(await screen.findByText(/tu pago fue rechazado/i)).toBeInTheDocument()
+    expect(screen.queryByText(/estamos confirmando tu pago/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /pagar suscripción/i })).toBeInTheDocument()
+  })
+
+  it('fuera del retorno de Flow no muestra el aviso de pago rechazado', async () => {
+    mockedApi.get.mockResolvedValue({
+      data: buildStatus({ state: 'READ_ONLY', periodEnd: null, lastPaymentFailed: true }),
+    })
+
+    renderPage()
+
+    expect(await screen.findByText(/solo lectura/i)).toBeInTheDocument()
+    expect(screen.queryByText(/tu pago fue rechazado/i)).not.toBeInTheDocument()
+  })
+
   it('cuenta vigente sin fecha de vencimiento: no escribe "null"', async () => {
     mockedApi.get.mockResolvedValue({ data: buildStatus({ periodEnd: null }) })
 
