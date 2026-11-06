@@ -221,6 +221,9 @@ export class EmailChangeService {
           emailVerified: true,
           pendingEmail: null,
           pendingEmailTokenIssuedAt: null,
+          // Invalida un enlace de restablecimiento ya enviado al correo viejo
+          // (si no, seguiría válido hasta 30 min tras el cambio).
+          passwordResetTokenIssuedAt: null,
         },
       });
     } catch (err) {
