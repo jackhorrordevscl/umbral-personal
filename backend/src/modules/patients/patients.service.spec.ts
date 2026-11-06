@@ -1,4 +1,8 @@
 import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
+import {
+  consentTextContext,
+  documentTextContext,
+} from './util/consent-text.util';
 import { consultationTextContext } from '../consultations/util/consultation-text.util';
 import {
   BadRequestException,
@@ -17,6 +21,11 @@ import { PaymentsService } from '../payments/payments.service';
 import { AvailabilityService } from '../availability/availability.service';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { DEFAULT_PATIENTS_PAGE_SIZE } from './dto/patients-query.dto';
+
+// issue #634: la fila creada devuelve lo que se guardó (evidencia cifrada).
+const echoConsentCreate =
+  (id: string) => (args: { data: Record<string, unknown> }) =>
+    Promise.resolve({ id, ...args.data });
 
 function buildPatient(overrides: Partial<Patient> = {}): Patient {
   return {
@@ -40,6 +49,7 @@ function buildPatient(overrides: Partial<Patient> = {}): Patient {
     therapistId: 'therapist-1',
     // Relación incluida por findOne/findAll (M2a); los demás métodos la ignoran.
     guardians: [],
+    documents: [],
     ...overrides,
   } as unknown as Patient;
 }
@@ -421,6 +431,32 @@ describe('PatientsService', () => {
           }) as unknown,
         }),
       );
+    });
+
+    it('devuelve en claro el motivo de anulación de los documentos de la ficha (issue #634)', async () => {
+      const crypto = buildTestClinicalCrypto();
+      prisma.patient.findFirst.mockResolvedValue({
+        ...buildPatient(),
+        consultations: [],
+        documents: [
+          {
+            id: 'd1',
+            patientId: 'patient-1',
+            voidReason: crypto.encrypt(
+              'Archivo equivocado',
+              documentTextContext('patient-1', 'voidReason'),
+            ),
+          },
+          { id: 'd2', patientId: 'patient-1', voidReason: null },
+        ],
+      });
+
+      const result = await service.findOne('patient-1', 'therapist-1');
+
+      expect(result.documents.map((d) => d.voidReason)).toEqual([
+        'Archivo equivocado',
+        null,
+      ]);
     });
 
     // issue #486: una consulta corrupta no tumba el detalle del paciente.
@@ -1296,9 +1332,67 @@ describe('PatientsService', () => {
       );
     });
 
+    // issue #634: la evidencia es texto libre; se guarda cifrada y sale en claro.
+    it('recordConsent guarda la evidencia cifrada (ligada al paciente) y responde en claro', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      prisma.patientConsent.create.mockImplementation(
+        echoConsentCreate('consent-1'),
+      );
+      const crypto = buildTestClinicalCrypto();
+
+      const result = await service.recordConsent(
+        'patient-1',
+        {
+          purpose: 'TREATMENT',
+          action: 'GRANT',
+          evidence: 'Firmado en papel por la madre',
+        } as never,
+        'therapist-1',
+      );
+
+      const stored = (
+        prisma.patientConsent.create.mock.calls[0] as [
+          { data: { evidence: string } },
+        ]
+      )[0].data.evidence;
+      expect(stored).not.toContain('Firmado');
+      expect(
+        crypto.decrypt(stored, consentTextContext('patient-1', 'evidence')),
+      ).toBe('Firmado en papel por la madre');
+      expect(() =>
+        crypto.decrypt(stored, consentTextContext('patient-2', 'evidence')),
+      ).toThrow();
+      expect(result.evidence).toBe('Firmado en papel por la madre');
+    });
+
+    it('getConsentLedger devuelve la evidencia en claro, también la heredada en texto plano', async () => {
+      prisma.patient.findFirst.mockResolvedValue(buildPatient());
+      const crypto = buildTestClinicalCrypto();
+      prisma.patientConsent.findMany.mockResolvedValue([
+        {
+          id: 'e1',
+          patientId: 'patient-1',
+          evidence: crypto.encrypt(
+            'Evidencia cifrada',
+            consentTextContext('patient-1', 'evidence'),
+          ),
+        },
+        { id: 'e2', patientId: 'patient-1', evidence: 'Evidencia heredada' },
+      ]);
+
+      const result = await service.getConsentLedger('patient-1', 'therapist-1');
+
+      expect(result.map((e) => e.evidence)).toEqual([
+        'Evidencia cifrada',
+        'Evidencia heredada',
+      ]);
+    });
+
     it('recordConsent valida acceso y crea el evento en el ledger', async () => {
       prisma.patient.findFirst.mockResolvedValue(buildPatient());
-      prisma.patientConsent.create.mockResolvedValue({ id: 'consent-1' });
+      prisma.patientConsent.create.mockImplementation(
+        echoConsentCreate('consent-1'),
+      );
 
       await service.recordConsent(
         'patient-1',
@@ -1322,7 +1416,9 @@ describe('PatientsService', () => {
 
     it('issue #502: recordConsent toma el lock del User antes de insertar el evento', async () => {
       prisma.patient.findFirst.mockResolvedValue(buildPatient());
-      prisma.patientConsent.create.mockResolvedValue({ id: 'consent-1' });
+      prisma.patientConsent.create.mockImplementation(
+        echoConsentCreate('consent-1'),
+      );
 
       await service.recordConsent(
         'patient-1',
@@ -1346,7 +1442,9 @@ describe('PatientsService', () => {
 
     it('bulkDeclareConsent crea el evento GRANT para cada paciente del lote (issue #131 T5)', async () => {
       prisma.patient.findFirst.mockResolvedValue(buildPatient());
-      prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+      prisma.patientConsent.create.mockImplementation(
+        echoConsentCreate('consent-x'),
+      );
 
       const results = await service.bulkDeclareConsent(
         {
@@ -1378,7 +1476,9 @@ describe('PatientsService', () => {
           },
         ])
         .mockResolvedValueOnce([]);
-      prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+      prisma.patientConsent.create.mockImplementation(
+        echoConsentCreate('consent-x'),
+      );
 
       const results = await service.bulkDeclareConsent(
         {
@@ -1426,7 +1526,9 @@ describe('PatientsService', () => {
 
     it('bulkDeclareConsent procesa una sola vez los ids repetidos del lote', async () => {
       prisma.patient.findFirst.mockResolvedValue(buildPatient());
-      prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+      prisma.patientConsent.create.mockImplementation(
+        echoConsentCreate('consent-x'),
+      );
 
       const results = await service.bulkDeclareConsent(
         {
@@ -1445,7 +1547,9 @@ describe('PatientsService', () => {
       prisma.patient.findFirst
         .mockResolvedValueOnce(buildPatient())
         .mockResolvedValueOnce(null);
-      prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+      prisma.patientConsent.create.mockImplementation(
+        echoConsentCreate('consent-x'),
+      );
 
       const results = await service.bulkDeclareConsent(
         {
@@ -1472,7 +1576,7 @@ describe('PatientsService', () => {
         .mockResolvedValueOnce(buildPatient())
         .mockResolvedValueOnce(buildPatient());
       prisma.patientConsent.create
-        .mockResolvedValueOnce({ id: 'consent-x' })
+        .mockImplementationOnce(echoConsentCreate('consent-x'))
         .mockRejectedValueOnce(new Error('connection terminated unexpectedly'));
 
       const results = await service.bulkDeclareConsent(
@@ -1515,7 +1619,9 @@ describe('PatientsService', () => {
 
       it('deja una fila por paciente declarado, con su id como recurso', async () => {
         prisma.patient.findFirst.mockResolvedValue(buildPatient());
-        prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+        prisma.patientConsent.create.mockImplementation(
+          echoConsentCreate('consent-x'),
+        );
 
         await service.bulkDeclareConsent(
           dto(['patient-1', 'patient-2']),
@@ -1579,7 +1685,9 @@ describe('PatientsService', () => {
 
       it('un id repetido en el lote deja una sola fila', async () => {
         prisma.patient.findFirst.mockResolvedValue(buildPatient());
-        prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+        prisma.patientConsent.create.mockImplementation(
+          echoConsentCreate('consent-x'),
+        );
 
         await service.bulkDeclareConsent(
           dto(['patient-1', 'patient-1']),
@@ -1592,7 +1700,9 @@ describe('PatientsService', () => {
 
       it('si la auditoría falla, el lote igual responde y sigue con el resto', async () => {
         prisma.patient.findFirst.mockResolvedValue(buildPatient());
-        prisma.patientConsent.create.mockResolvedValue({ id: 'consent-x' });
+        prisma.patientConsent.create.mockImplementation(
+          echoConsentCreate('consent-x'),
+        );
         audit.log.mockRejectedValueOnce(new Error('audit db down'));
 
         const results = await service.bulkDeclareConsent(
@@ -1646,7 +1756,9 @@ describe('PatientsService', () => {
 
     beforeEach(() => {
       jest.useFakeTimers().setSystemTime(new Date('2026-10-08T15:00:00Z'));
-      prisma.patientConsent.create.mockResolvedValue({ id: 'consent-1' });
+      prisma.patientConsent.create.mockImplementation(
+        echoConsentCreate('consent-1'),
+      );
     });
     afterEach(() => jest.useRealTimers());
 

@@ -2,6 +2,7 @@ import * as argon2 from 'argon2';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { DocumentEncryptionService } from './document-encryption.service';
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
 import { DocumentsService } from './documents.service';
 
 /**
@@ -69,6 +70,7 @@ describe('DocumentsService.voidDocument (integration, anulación concurrente de 
         assertAccess: jest.fn().mockResolvedValue(patient),
       } as unknown as PatientsService,
       {} as unknown as DocumentEncryptionService,
+      buildTestClinicalCrypto(),
     );
   }, 30000);
 

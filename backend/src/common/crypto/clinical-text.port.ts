@@ -10,6 +10,14 @@ import {
   dischargeTextContext,
 } from '../../modules/discharges/util/discharge-text.util';
 import {
+  CONSENT_TEXT_FIELDS,
+  ConsentTextField,
+  DOCUMENT_TEXT_FIELDS,
+  DocumentTextField,
+  consentTextContext,
+  documentTextContext,
+} from '../../modules/patients/util/consent-text.util';
+import {
   ASSENT_TEXT_FIELDS,
   AssentTextField,
   assentTextContext,
@@ -63,6 +71,8 @@ type ColumnModel =
   | 'consultation'
   | 'treatmentDischarge'
   | 'notification'
+  | 'patientConsent'
+  | 'patientDocument'
   | 'patientAssent';
 
 // issue #486: cada texto se recifra en enc:v4 ligado a su dueño (`ownerColumn`:
@@ -90,6 +100,22 @@ const COLUMN_TABLES: {
     ownerColumn: 'patientId',
     context: (ownerId, field) =>
       dischargeTextContext(ownerId, field as DischargeTextField),
+  },
+  {
+    table: 'consent',
+    model: 'patientConsent',
+    fields: CONSENT_TEXT_FIELDS,
+    ownerColumn: 'patientId',
+    context: (ownerId, field) =>
+      consentTextContext(ownerId, field as ConsentTextField),
+  },
+  {
+    table: 'document',
+    model: 'patientDocument',
+    fields: DOCUMENT_TEXT_FIELDS,
+    ownerColumn: 'patientId',
+    context: (ownerId, field) =>
+      documentTextContext(ownerId, field as DocumentTextField),
   },
   {
     table: 'assent',

@@ -474,9 +474,18 @@ describe('Patient consent ledger (e2e)', () => {
         .expect(200);
       expect(res.body).toEqual({ TREATMENT: true, TELEMEDICINE: false });
 
-      const ledger = await prisma.patientConsent.findMany({
+      // issue #634: la evidencia se guarda cifrada; el ledger de la API la
+      // devuelve en claro.
+      const stored = await prisma.patientConsent.findMany({
         where: { patientId: uploadPatientId },
       });
+      expect(stored.length).toBe(1);
+      expect(stored[0].evidence).toMatch(/^enc:v4:/);
+      const ledgerRes = await request(app.getHttpServer())
+        .get(`/api/v1/patients/${uploadPatientId}/consents`)
+        .set('Authorization', `Bearer ${therapistAToken}`)
+        .expect(200);
+      const ledger = ledgerRes.body as { evidence: string }[];
       expect(ledger.length).toBe(1);
       expect(ledger[0].evidence).toContain('consentimiento.pdf');
     });

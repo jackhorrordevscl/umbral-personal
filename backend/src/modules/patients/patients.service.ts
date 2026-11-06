@@ -39,6 +39,11 @@ import { isValidRut, normalizeRut } from '../../common/utils/rut.util';
 import { logAuditFailOpen } from '../../common/utils/audit-fail-open.util';
 import { rejectNullFields } from '../../common/utils/reject-null-fields.util';
 import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
+import {
+  decryptConsentRow,
+  decryptDocumentRow,
+  encryptConsentEvidence,
+} from './util/consent-text.util';
 import { decryptConsultationRowLenient } from '../consultations/util/consultation-text.util';
 
 // issue #157: origen de adquisición capturado en el frontend (referrer +
@@ -445,6 +450,10 @@ export class PatientsService {
       buildConsentStatusMap([id], latestEvents).get(id) ?? emptyConsentStatus();
     return {
       ...patient,
+      // issue #634: el motivo de anulación de cada documento sale en claro.
+      documents: patient.documents.map((d) =>
+        decryptDocumentRow(d, this.clinicalCrypto),
+      ),
       // ADR 0004 (opción B): los textos clínicos salen en claro. issue #486:
       // un texto ilegible no tumba la ficha; sale en null con `unreadableFields`.
       consultations: patient.consultations.map((c) => {
@@ -668,7 +677,7 @@ export class PatientsService {
     );
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const created = await this.prisma.$transaction(async (tx) => {
         await lockTherapistForWrite(tx, userId);
         return tx.patientConsent.create({
           data: {
@@ -676,13 +685,19 @@ export class PatientsService {
             purpose: dto.purpose,
             action: dto.action,
             recordedById: userId,
-            evidence: dto.evidence,
+            // issue #634: la evidencia es texto libre; se guarda cifrada.
+            evidence: encryptConsentEvidence(
+              dto.evidence,
+              this.clinicalCrypto,
+              id,
+            ),
             documentId: documentId ?? null,
             grantedBy,
             guardianId,
           },
         });
       });
+      return decryptConsentRow(created, this.clinicalCrypto);
     } catch (err) {
       // The guardian was deleted between the check and the INSERT (FK).
       if (
@@ -899,13 +914,14 @@ export class PatientsService {
   async getConsentLedger(id: string, userId: string) {
     await this.assertAccess(id, userId);
 
-    return this.prisma.patientConsent.findMany({
+    const ledger = await this.prisma.patientConsent.findMany({
       where: { patientId: id },
       include: {
         recordedBy: { select: { id: true, name: true, role: true } },
       },
       orderBy: { recordedAt: 'desc' },
     });
+    return ledger.map((event) => decryptConsentRow(event, this.clinicalCrypto));
   }
 
   async getCurrentConsentStatus(

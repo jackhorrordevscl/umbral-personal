@@ -4,6 +4,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
+import {
+  consentTextContext,
+  documentTextContext,
+} from '../patients/util/consent-text.util';
 import { DocumentsService } from './documents.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
@@ -137,10 +142,35 @@ describe('DocumentsService', () => {
       prisma as unknown as PrismaService,
       patientsService as unknown as PatientsService,
       encryption as unknown as DocumentEncryptionService,
+      buildTestClinicalCrypto(),
     );
   });
 
   describe('findByPatient', () => {
+    it('devuelve el motivo de anulación en claro (cifrado y heredado en texto plano)', async () => {
+      const crypto = buildTestClinicalCrypto();
+      prisma.patientDocument.findMany.mockResolvedValue([
+        {
+          id: 'd1',
+          patientId: 'patient-1',
+          voidReason: crypto.encrypt(
+            'Archivo equivocado',
+            documentTextContext('patient-1', 'voidReason'),
+          ),
+        },
+        { id: 'd2', patientId: 'patient-1', voidReason: 'Motivo heredado' },
+        { id: 'd3', patientId: 'patient-1', voidReason: null },
+      ]);
+
+      const result = await service.findByPatient('patient-1', 'therapist-1');
+
+      expect(result.map((d) => d.voidReason)).toEqual([
+        'Archivo equivocado',
+        'Motivo heredado',
+        null,
+      ]);
+    });
+
     it('acota la lista con el cap de seguridad (issue #290)', async () => {
       prisma.patientDocument.findMany.mockResolvedValue([]);
 
@@ -967,9 +997,37 @@ describe('DocumentsService', () => {
         data: {
           voidedAt: expect.any(Date) as unknown,
           voidedById: 'therapist-1',
-          voidReason: dto.reason,
+          // issue #634: el motivo se guarda cifrado y ligado al paciente.
+          voidReason: expect.stringMatching(/^enc:v4:/) as unknown,
         },
       });
+      const stored = (
+        tx.patientDocument.updateMany.mock.calls[0] as [
+          { data: { voidReason: string } },
+        ]
+      )[0].data.voidReason;
+      expect(stored).not.toContain(dto.reason);
+      expect(
+        buildTestClinicalCrypto().decrypt(
+          stored,
+          documentTextContext('patient-1', 'voidReason'),
+        ),
+      ).toBe(dto.reason);
+    });
+
+    it('responde con el motivo en claro aunque la fila lo tenga cifrado', async () => {
+      const crypto = buildTestClinicalCrypto();
+      tx.patientDocument.findUniqueOrThrow.mockResolvedValue({
+        ...consentDoc,
+        voidReason: crypto.encrypt(
+          dto.reason,
+          documentTextContext('patient-1', 'voidReason'),
+        ),
+      });
+
+      const result = await service.voidDocument('doc-1', dto, 'therapist-1');
+
+      expect(result.voidReason).toBe(dto.reason);
     });
 
     it('documento de consentimiento: bloquea al terapeuta y luego al paciente antes de marcar la anulación', async () => {
@@ -1042,10 +1100,22 @@ describe('DocumentsService', () => {
           documentId: 'doc-1',
           grantedBy: 'PATIENT',
           guardianId: null,
-          evidence:
-            'Documento anulado: consentimiento.pdf (id doc-1). Motivo: Archivo equivocado',
+          evidence: expect.stringMatching(/^enc:v4:/) as unknown,
         },
       });
+      const stored = (
+        tx.patientConsent.create.mock.calls[0] as [
+          { data: { evidence: string } },
+        ]
+      )[0].data.evidence;
+      expect(
+        buildTestClinicalCrypto().decrypt(
+          stored,
+          consentTextContext('patient-1', 'evidence'),
+        ),
+      ).toBe(
+        'Documento anulado: consentimiento.pdf (id doc-1). Motivo: Archivo equivocado',
+      );
     });
 
     it('el REVOKE de un consentimiento de un NNA hereda grantedBy/guardianId del GRANT que revoca (M2b)', async () => {
