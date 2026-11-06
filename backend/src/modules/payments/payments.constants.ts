@@ -78,3 +78,9 @@ export const MAX_AMOUNT_CLP = 100_000_000;
 // lo comparan para no emitir una segunda orden bajo el mismo commerceOrder.
 export const ORDER_OUTCOME_UNCERTAIN_ERROR =
   'Flow no confirmó si creó la orden de este cobro. Antes de reintentar, revisa en tu panel de Flow que no exista una orden con el identificador de esta sesión.';
+
+// Issue #634: aviso que queda en Payment.lastError cuando no se pudo anular el
+// enlace anterior al cambiar el monto. El enlace viejo sigue pagable en Flow, así
+// que no se emite uno nuevo hasta que retryCharge consiga anularlo.
+export const PREVIOUS_ORDER_VOID_FAILED_ERROR =
+  'No se pudo anular el enlace de pago anterior en Flow. Reintenta el cobro en unos minutos para emitir uno nuevo.';
