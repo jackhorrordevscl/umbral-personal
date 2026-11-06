@@ -130,9 +130,15 @@ export function SubscriptionScreen({
         </div>
 
         {afterPayment && !paymentConfirmed && (
-          <p className="mb-4 rounded-lg bg-sage-50 p-3 text-sm text-slate-700">
-            Estamos confirmando tu pago. Puede tardar unos minutos; esta pantalla se actualiza sola.
-          </p>
+          status?.lastPaymentFailed ? (
+            <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+              Tu pago fue rechazado. Puedes intentar de nuevo.
+            </p>
+          ) : (
+            <p className="mb-4 rounded-lg bg-sage-50 p-3 text-sm text-slate-700">
+              Estamos confirmando tu pago. Puede tardar unos minutos; esta pantalla se actualiza sola.
+            </p>
+          )
         )}
 
         {isLoading ? (

@@ -93,7 +93,16 @@ export class SubscriptionsService {
       this.getAccess(userId, now),
       this.prisma.subscription.findUnique({
         where: { userId },
-        select: { priceClp: true, priceStartedAt: true },
+        select: {
+          priceClp: true,
+          priceStartedAt: true,
+          // Issue #653: solo el pago más reciente, para saber si terminó rechazado.
+          payments: {
+            select: { status: true },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
+        },
       }),
     ]);
     const change = subscription ? this.priceChange(subscription, now) : null;
@@ -102,6 +111,9 @@ export class SubscriptionsService {
       state: access.state,
       periodEnd: access.periodEnd,
       graceEnd: access.graceEnd,
+      // Issue #653: el último pago fue rechazado; la pantalla de retorno deja de
+      // decir que se está confirmando.
+      lastPaymentFailed: subscription?.payments?.[0]?.status === 'FAILED',
       priceClp: subscription
         ? this.effectivePriceClp(subscription, now)
         : this.currentPriceClp(),

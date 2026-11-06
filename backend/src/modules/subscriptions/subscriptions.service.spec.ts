@@ -335,6 +335,55 @@ describe('SubscriptionsService', () => {
         expect(view.priceChangesAt).toBeNull();
         expect(view.nextPriceClp).toBeNull();
       });
+
+      it('getStatusView informa si el último pago quedó rechazado (issue #653)', async () => {
+        prisma.user.findUnique.mockResolvedValue({
+          email: 'a@b.cl',
+          subscription: null,
+        });
+        prisma.subscriptionGrant.findUnique.mockResolvedValue(null);
+        const findUnique = jest.fn();
+        prisma.subscription = { findUnique };
+
+        findUnique.mockResolvedValue({
+          ...sub,
+          payments: [{ status: 'FAILED' }],
+        });
+        expect((await service.getStatusView('u1', now)).lastPaymentFailed).toBe(
+          true,
+        );
+
+        for (const payments of [
+          [],
+          [{ status: 'PAID' }],
+          [{ status: 'PENDING' }],
+        ]) {
+          findUnique.mockResolvedValue({ ...sub, payments });
+          expect(
+            (await service.getStatusView('u1', now)).lastPaymentFailed,
+          ).toBe(false);
+        }
+
+        // Solo se mira el pago más reciente.
+        const [query] = findUnique.mock.calls[0] as [
+          { select: { payments: unknown } },
+        ];
+        expect(query.select.payments).toEqual({
+          select: { status: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        });
+      });
+
+      it('sin suscripción, lastPaymentFailed es false', async () => {
+        prisma.user.findUnique.mockResolvedValue(null);
+        prisma.subscriptionGrant.findUnique.mockResolvedValue(null);
+        prisma.subscription = { findUnique: jest.fn().mockResolvedValue(null) };
+
+        expect((await service.getStatusView('u1', now)).lastPaymentFailed).toBe(
+          false,
+        );
+      });
     });
 
     it('una concesión permanente nunca queda bloqueada', async () => {

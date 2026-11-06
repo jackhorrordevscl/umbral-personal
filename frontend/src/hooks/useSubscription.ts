@@ -15,6 +15,8 @@ export interface SubscriptionStatus {
   state: SubscriptionAccessState;
   periodEnd: string | null;
   graceEnd: string | null;
+  // Issue #653: el último pago de la cuenta terminó rechazado.
+  lastPaymentFailed?: boolean;
   priceClp: number;
   // Fin del precio de lanzamiento y precio que se cobrará desde esa fecha;
   // null si no hay un cambio pendiente.
