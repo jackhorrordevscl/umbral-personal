@@ -12,11 +12,22 @@ export class EmailChangeController {
   constructor(private emailChangeService: EmailChangeService) {}
 
   // sdd/patient-self-scheduling PR 3 (fix post-verify): ThrottlerModule es
-  // @Global(), así que 'public-availability'/'public-booking' (registrados
-  // en auth.module.ts) también aplican acá salvo que se salteen.
+  // @Global(), así que todos los throttlers de los demás módulos (auth,
+  // payments, reports) también aplican acá salvo que se salteen; el spec
+  // recorre los registrados para que uno nuevo sin saltar rompa el test.
   @UseGuards(ThrottlerGuard)
   @SkipThrottle({
     'profile-update': true,
+    login: true,
+    'mfa-verify': true,
+    signup: true,
+    'mfa-setup': true,
+    'verify-email': true,
+    'mfa-recover': true,
+    'password-change': true,
+    'resend-verification': true,
+    'password-reset': true,
+    'reports-export': true,
     'public-availability': true,
     'public-booking': true,
     'payment-confirm': true,

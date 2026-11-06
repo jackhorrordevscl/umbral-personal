@@ -1,4 +1,6 @@
 import { Reflector } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
+import { buildAppThrottlerOptions } from '../../config/throttler.config';
 import { EmailChangeController } from './email-change.controller';
 import { EmailChangeService } from './email-change.service';
 
@@ -54,16 +56,23 @@ describe('EmailChangeController', () => {
   // Issue #133: 'payment-confirm'/'payment-return' (buildPaymentsThrottlerOptions
   // en payments.module.ts) son otro módulo satélite más registrando su propio
   // ThrottlerModule.forRootAsync -- mismo riesgo, se cubren en la misma lista.
-  describe('exhaustividad de @SkipThrottle (public-availability/public-booking/payments)', () => {
+  describe('exhaustividad de @SkipThrottle (todos los throttlers ajenos)', () => {
     const reflector = new Reflector();
-    const foreignThrottlerNames = [
-      'public-availability',
-      'public-booking',
-      'payment-confirm',
-      'payment-return',
-    ] as const;
+    // Recorre los throttlers REALMENTE registrados (no una lista fija): uno
+    // nuevo sin saltar acá rompe el test. Solo 'email-change-confirm' puede aplicar.
+    const foreignThrottlerNames = (
+      buildAppThrottlerOptions(new ConfigService({ NODE_ENV: 'test' })) as {
+        throttlers: { name: string }[];
+      }
+    ).throttlers
+      .map((t) => t.name)
+      .filter((name) => name !== 'email-change-confirm');
 
-    it('confirm saltea public-availability, public-booking, payment-confirm y payment-return', () => {
+    it('registra throttlers ajenos que saltear', () => {
+      expect(foreignThrottlerNames.length).toBeGreaterThan(0);
+    });
+
+    it('confirm saltea todos los throttlers ajenos a email-change-confirm', () => {
       const handler = (controller as unknown as Record<string, () => unknown>)
         .confirm;
 

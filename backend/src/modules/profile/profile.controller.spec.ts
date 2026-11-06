@@ -1,5 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
+import { buildAppThrottlerOptions } from '../../config/throttler.config';
 
 // FileInterceptor captura sus opciones al decorar el controller; se reemplaza
 // para poder ejercer el fileFilter del avatar sin levantar multer.
@@ -181,17 +183,24 @@ describe('ProfileController', () => {
   // Issue #133: 'payment-confirm'/'payment-return' (buildPaymentsThrottlerOptions
   // en payments.module.ts) son otro módulo satélite más registrando su propio
   // ThrottlerModule.forRootAsync -- mismo riesgo, se cubren en la misma lista.
-  describe('exhaustividad de @SkipThrottle (public-availability/public-booking/payments)', () => {
+  describe('exhaustividad de @SkipThrottle (todos los throttlers ajenos)', () => {
     const reflector = new Reflector();
-    const foreignThrottlerNames = [
-      'public-availability',
-      'public-booking',
-      'payment-confirm',
-      'payment-return',
-    ] as const;
+    // Recorre los throttlers REALMENTE registrados (no una lista fija): uno
+    // nuevo sin saltar acá rompe el test. Solo 'profile-update' puede aplicar.
+    const foreignThrottlerNames = (
+      buildAppThrottlerOptions(new ConfigService({ NODE_ENV: 'test' })) as {
+        throttlers: { name: string }[];
+      }
+    ).throttlers
+      .map((t) => t.name)
+      .filter((name) => name !== 'profile-update');
+
+    it('registra throttlers ajenos que saltear', () => {
+      expect(foreignThrottlerNames.length).toBeGreaterThan(0);
+    });
 
     it.each(['update', 'uploadAvatar', 'deleteAvatar'] as const)(
-      '%s saltea public-availability, public-booking, payment-confirm y payment-return',
+      '%s saltea todos los throttlers ajenos a profile-update',
       (methodName) => {
         const handler = (
           controller as unknown as Record<string, () => unknown>

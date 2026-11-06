@@ -56,10 +56,21 @@ export class ProfileController {
   // módulo ('email-change-confirm'), mismo patrón que AuthController.
   @UseGuards(ThrottlerGuard)
   // sdd/patient-self-scheduling PR 3 (fix post-verify): ThrottlerModule es
-  // @Global(), así que 'public-availability'/'public-booking' (registrados
-  // en auth.module.ts) también aplican acá salvo que se salteen.
+  // @Global(), así que todos los throttlers de los demás módulos (auth,
+  // payments, reports) también aplican acá salvo que se salteen; el spec
+  // recorre los registrados para que uno nuevo sin saltar rompa el test.
   @SkipThrottle({
     'email-change-confirm': true,
+    login: true,
+    'mfa-verify': true,
+    signup: true,
+    'mfa-setup': true,
+    'verify-email': true,
+    'mfa-recover': true,
+    'password-change': true,
+    'resend-verification': true,
+    'password-reset': true,
+    'reports-export': true,
     'public-availability': true,
     'public-booking': true,
     'payment-confirm': true,
@@ -75,10 +86,21 @@ export class ProfileController {
   // es un vector de abuso distinto al resto de este controller.
   @UseGuards(ThrottlerGuard)
   // sdd/patient-self-scheduling PR 3 (fix post-verify): ThrottlerModule es
-  // @Global(), así que 'public-availability'/'public-booking' (registrados
-  // en auth.module.ts) también aplican acá salvo que se salteen.
+  // @Global(), así que todos los throttlers de los demás módulos (auth,
+  // payments, reports) también aplican acá salvo que se salteen; el spec
+  // recorre los registrados para que uno nuevo sin saltar rompa el test.
   @SkipThrottle({
     'email-change-confirm': true,
+    login: true,
+    'mfa-verify': true,
+    signup: true,
+    'mfa-setup': true,
+    'verify-email': true,
+    'mfa-recover': true,
+    'password-change': true,
+    'resend-verification': true,
+    'password-reset': true,
+    'reports-export': true,
     'public-availability': true,
     'public-booking': true,
     'payment-confirm': true,
@@ -128,10 +150,21 @@ export class ProfileController {
   // quitar la foto no es un endpoint público ni un vector de abuso distinto.
   @UseGuards(ThrottlerGuard)
   // sdd/patient-self-scheduling PR 3 (fix post-verify): ThrottlerModule es
-  // @Global(), así que 'public-availability'/'public-booking' (registrados
-  // en auth.module.ts) también aplican acá salvo que se salteen.
+  // @Global(), así que todos los throttlers de los demás módulos (auth,
+  // payments, reports) también aplican acá salvo que se salteen; el spec
+  // recorre los registrados para que uno nuevo sin saltar rompa el test.
   @SkipThrottle({
     'email-change-confirm': true,
+    login: true,
+    'mfa-verify': true,
+    signup: true,
+    'mfa-setup': true,
+    'verify-email': true,
+    'mfa-recover': true,
+    'password-change': true,
+    'resend-verification': true,
+    'password-reset': true,
+    'reports-export': true,
     'public-availability': true,
     'public-booking': true,
     'payment-confirm': true,
