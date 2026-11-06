@@ -276,8 +276,8 @@ describe('Signup + verificación de email (e2e)', () => {
     it('la contraseña la fija quien verifica, no quien registró el correo (issue #627)', async () => {
       const email = `signup.squat.${runId}@umbral.cl`;
       createdEmails.push(email);
-      const ATTACKER_PASSWORD = 'AtacantePass123!';
-      const VICTIM_PASSWORD = 'VictimaPass123!';
+      const ATTACKER_PASSWORD = `${crypto.randomBytes(8).toString('hex')}Aa1!`;
+      const VICTIM_PASSWORD = `${crypto.randomBytes(8).toString('hex')}Bb2!`;
 
       await request(app.getHttpServer())
         .post('/api/v1/auth/signup')
