@@ -56,7 +56,16 @@ describe('Billing (e2e)', () => {
     };
   }
 
+  const DAY_MS = 86_400_000;
+
   const checkout = async () => {
+    // Issue #633: una cuenta con la suscripción vigente solo paga en los
+    // últimos 5 días del período. Las pruebas reusan una cuenta que ya pagó,
+    // así que se la deja dentro de la ventana antes de pedir el checkout.
+    await prisma.subscription.updateMany({
+      where: { userId, currentPeriodEnd: { not: null } },
+      data: { currentPeriodEnd: new Date(Date.now() + 2 * DAY_MS) },
+    });
     const flowToken = `e2e-billing-${runId}-${++tokenSeq}`;
     jest.spyOn(flow, 'createOrder').mockResolvedValueOnce({
       token: flowToken,
@@ -202,8 +211,8 @@ describe('Billing (e2e)', () => {
   }, 30000);
 
   it('confirm con Flow caído responde 400 y no concede acceso', async () => {
-    const before = await subscriptionEnd();
     const { flowToken } = await checkout();
+    const before = await subscriptionEnd();
     jest.spyOn(flow, 'getOrderStatus').mockRejectedValueOnce(new Error('Flow'));
 
     await request(app.getHttpServer())
@@ -211,6 +220,30 @@ describe('Billing (e2e)', () => {
       .send({ token: flowToken })
       .expect(400);
     expect(await subscriptionEnd()).toEqual(before);
+  }, 30000);
+
+  it('checkout con la suscripción vigente fuera de los últimos 5 días responde 403 y no crea pago', async () => {
+    await prisma.subscription.updateMany({
+      where: { userId },
+      data: { currentPeriodEnd: new Date(Date.now() + 20 * DAY_MS) },
+    });
+    const createOrder = jest.spyOn(flow, 'createOrder');
+    createOrder.mockClear();
+    const paymentsBefore = await prisma.subscriptionPayment.count({
+      where: { subscription: { userId } },
+    });
+
+    await request(app.getHttpServer())
+      .post('/api/v1/billing/checkout')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(403);
+
+    expect(createOrder).not.toHaveBeenCalled();
+    expect(
+      await prisma.subscriptionPayment.count({
+        where: { subscription: { userId } },
+      }),
+    ).toBe(paymentsBefore);
   }, 30000);
 
   it('return redirige 302 a la pantalla del frontend por GET y por POST', async () => {

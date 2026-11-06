@@ -25,15 +25,23 @@ function describeStatus(status: SubscriptionStatus) {
   const graceEnd = status.graceEnd ? formatChileDateOnly(status.graceEnd) : null;
 
   switch (status.state) {
-    case 'ACTIVE':
-      return {
-        lines: [
-          periodEnd
-            ? `Tu suscripción está vigente hasta el ${periodEnd}.`
-            : 'Tu suscripción está vigente.',
-        ],
-        payLabel: 'Pagar un mes más',
-      };
+    case 'ACTIVE': {
+      const lines = [
+        periodEnd
+          ? `Tu suscripción está vigente hasta el ${periodEnd}.`
+          : 'Tu suscripción está vigente.',
+      ];
+      // Issue #633: fuera de la ventana de renovación no se ofrece pagar.
+      if (status.canRenew === false) {
+        lines.push(
+          status.renewableFrom
+            ? `Podrás renovarla desde el ${formatChileDateOnly(status.renewableFrom)}, 5 días antes de su vencimiento.`
+            : 'Podrás renovarla desde 5 días antes de su vencimiento.',
+        );
+        return { lines, payLabel: null };
+      }
+      return { lines, payLabel: 'Pagar un mes más' };
+    }
     case 'GRACE':
       return {
         lines: [

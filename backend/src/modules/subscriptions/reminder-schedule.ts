@@ -23,7 +23,7 @@ const dayFormatter = new Intl.DateTimeFormat('en-CA', {
 
 // Número de día calendario en Santiago (independiente de la hora y del
 // horario de verano), para comparar días y no milisegundos.
-function santiagoDayNumber(date: Date): number {
+export function santiagoDayNumber(date: Date): number {
   const parts = dayFormatter.formatToParts(date);
   const part = (type: string) =>
     Number(parts.find((p) => p.type === type)?.value);

@@ -15,6 +15,11 @@ export interface SubscriptionStatus {
   state: SubscriptionAccessState;
   periodEnd: string | null;
   graceEnd: string | null;
+  // Issue #633: false = vigente y aún fuera de los últimos 5 días del período;
+  // `renewableFrom` es desde cuándo se podrá pagar. Opcionales: un backend
+  // anterior no los envía y la pantalla ofrece pagar como siempre.
+  canRenew?: boolean;
+  renewableFrom?: string | null;
   // Issue #653: el último pago de la cuenta terminó rechazado.
   lastPaymentFailed?: boolean;
   priceClp: number;

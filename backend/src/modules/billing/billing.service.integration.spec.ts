@@ -214,6 +214,65 @@ describe('BillingService (integration, real Prisma, Flow simulado)', () => {
     ).toBe(0);
   }, 30000);
 
+  describe('ventana de renovación (issue #633)', () => {
+    const NOW = new Date('2026-12-01T15:00:00Z');
+    const DAY = 24 * 60 * 60 * 1000;
+
+    const withPeriodEnd = async (tag: string, periodEnd: Date) => {
+      const userId = await createUser(tag);
+      await subscriptions.ensureSubscription(userId, NOW);
+      await prisma.subscription.update({
+        where: { userId },
+        data: { currentPeriodEnd: periodEnd },
+      });
+      return userId;
+    };
+    const paymentCount = (userId: string) =>
+      prisma.subscriptionPayment.count({
+        where: { subscription: { userId } },
+      });
+
+    it('vigente con más de 5 días por delante responde 403 y no crea pago', async () => {
+      const userId = await withPeriodEnd(
+        'win-closed',
+        new Date(NOW.getTime() + 20 * DAY),
+      );
+
+      await expect(service.createCheckout(userId, NOW)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(flow.createOrder).not.toHaveBeenCalled();
+      expect(await paymentCount(userId)).toBe(0);
+    }, 30000);
+
+    it('vigente dentro de los últimos 5 días crea el pago', async () => {
+      const userId = await withPeriodEnd(
+        'win-open',
+        new Date(NOW.getTime() + 4 * DAY),
+      );
+      flow.createOrder.mockResolvedValueOnce({
+        token: `tok-win-open-${runId}`,
+        paymentUrl: 'https://flow.test/pay?token=x',
+      });
+
+      await expect(service.createCheckout(userId, NOW)).resolves.toBeDefined();
+      expect(await paymentCount(userId)).toBe(1);
+    }, 30000);
+
+    it('en gracia crea el pago aunque el vencimiento sea reciente', async () => {
+      const userId = await withPeriodEnd(
+        'win-grace',
+        new Date(NOW.getTime() - 2 * DAY),
+      );
+      flow.createOrder.mockResolvedValueOnce({
+        token: `tok-win-grace-${runId}`,
+        paymentUrl: 'https://flow.test/pay?token=y',
+      });
+
+      await expect(service.createCheckout(userId, NOW)).resolves.toBeDefined();
+    }, 30000);
+  });
+
   it('checkout sin credenciales de la plataforma responde 503 y no crea nada', async () => {
     env.SUBSCRIPTION_FLOW_API_KEY = undefined;
     const userId = await createUser('nocreds');

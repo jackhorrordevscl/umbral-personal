@@ -325,6 +325,39 @@ describe('SubscriptionsService', () => {
         expect(after.nextPriceClp).toBeNull();
       });
 
+      it('getStatusView informa si se puede renovar y desde cuándo (issue #633)', async () => {
+        prisma.user.findUnique.mockResolvedValue({
+          email: 'a@b.cl',
+          subscription: { currentPeriodEnd: new Date('2026-12-20T15:00:00Z') },
+        });
+        prisma.subscriptionGrant.findUnique.mockResolvedValue(null);
+        prisma.subscription = { findUnique: jest.fn().mockResolvedValue(sub) };
+
+        const closed = await service.getStatusView(
+          'u1',
+          new Date('2026-12-01T15:00:00Z'),
+        );
+        expect(closed.canRenew).toBe(false);
+        // 00:00 de Santiago del 15 dic (UTC-3): 5 días calendario antes del 20.
+        expect(closed.renewableFrom?.toISOString()).toBe(
+          '2026-12-15T03:00:00.000Z',
+        );
+
+        const open = await service.getStatusView(
+          'u1',
+          new Date('2026-12-16T15:00:00Z'),
+        );
+        expect(open.canRenew).toBe(true);
+        expect(open.renewableFrom).toBeNull();
+
+        const grace = await service.getStatusView(
+          'u1',
+          new Date('2026-12-21T15:00:00Z'),
+        );
+        expect(grace.canRenew).toBe(true);
+        expect(grace.renewableFrom).toBeNull();
+      });
+
       it('sin suscripción, la vista usa el precio vigente y no anuncia cambio', async () => {
         prisma.user.findUnique.mockResolvedValue(null);
         prisma.subscriptionGrant.findUnique.mockResolvedValue(null);
