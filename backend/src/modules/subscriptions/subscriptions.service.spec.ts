@@ -338,8 +338,9 @@ describe('SubscriptionsService', () => {
           new Date('2026-12-01T15:00:00Z'),
         );
         expect(closed.canRenew).toBe(false);
+        // 00:00 de Santiago del 15 dic (UTC-3): 5 días calendario antes del 20.
         expect(closed.renewableFrom?.toISOString()).toBe(
-          '2026-12-15T15:00:00.000Z',
+          '2026-12-15T03:00:00.000Z',
         );
 
         const open = await service.getStatusView(
