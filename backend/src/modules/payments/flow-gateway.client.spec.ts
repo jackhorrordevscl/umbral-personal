@@ -233,6 +233,30 @@ describe('FlowPaymentGatewayClient', () => {
       } as Partial<PaymentGatewayError>);
     });
 
+    // Issue #634: un 2xx sin token o url no puede guardarse como enlace válido.
+    it.each([
+      ['sin token', { url: 'https://sandbox.flow.cl/app/web/pay.php' }],
+      ['con token vacío', { token: '', url: 'https://sandbox.flow.cl/pay' }],
+      ['sin url', { token: 'tok' }],
+      ['con url vacía', { token: 'tok', url: '' }],
+      ['con un token que no es texto', { token: 123, url: 'https://f.cl/p' }],
+    ])(
+      'un 200 %s en createOrder es indeterminate: la orden pudo crearse',
+      async (_label, body) => {
+        (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: jest.fn().mockResolvedValue(body),
+        });
+
+        await expect(
+          client.createOrder(credentials, orderInput),
+        ).rejects.toMatchObject({
+          kind: 'indeterminate',
+        } as Partial<PaymentGatewayError>);
+      },
+    );
+
     it('un 200 con cuerpo que no es JSON en un GET es invalid_response, no transient', async () => {
       (globalThis.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,

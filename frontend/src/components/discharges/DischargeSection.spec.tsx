@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { AxiosError } from 'axios'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import DischargeSection from './DischargeSection'
 import api from '../../api/client'
@@ -8,7 +9,7 @@ import type { TreatmentDischarge } from '../../types/discharge'
 import type { TreatmentStatus } from '../../types/patient'
 
 vi.mock('../../api/client', () => ({
-  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
+  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
 }))
 
 const mockedApi = vi.mocked(api)
@@ -107,6 +108,55 @@ describe('DischargeSection', () => {
     expect(screen.getAllByRole('button', { name: /Registrar entrega/ })).toHaveLength(1)
     expect(mockedApi.get).toHaveBeenCalledWith('/discharges/d1/deliveries')
     expect(mockedApi.get).not.toHaveBeenCalledWith('/discharges/d2/deliveries')
+  })
+
+  it('el borrador de una corrección se descarta tras confirmar (issue #634)', async () => {
+    const user = userEvent.setup()
+    const issued = build({ id: 'd1', version: 1 })
+    const draft = build({
+      id: 'd2',
+      version: 2,
+      status: 'DRAFT',
+      correctsId: 'd1',
+      issuedAt: null,
+      documentId: null,
+    })
+    mockedApi.delete.mockResolvedValue({ data: undefined })
+    renderSection([issued, draft], 'DISCHARGED')
+
+    await user.click(await screen.findByRole('button', { name: 'Descartar el borrador de la versión 2' }))
+    expect(mockedApi.delete).not.toHaveBeenCalled()
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Descartar' }))
+
+    expect(mockedApi.delete).toHaveBeenCalledWith('/discharges/d2')
+    expect(await screen.findByRole('status')).toHaveTextContent('Borrador descartado')
+  })
+
+  it('si el descarte falla cierra el diálogo y muestra el error (issue #634)', async () => {
+    const user = userEvent.setup()
+    const draft = build({ id: 'd2', version: 2, status: 'DRAFT', correctsId: 'd1', issuedAt: null, documentId: null })
+    mockedApi.delete.mockRejectedValue(
+      new AxiosError('conflict', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 409,
+        data: { message: 'El borrador ya no existe o fue emitido: no se puede descartar.' },
+      } as never),
+    )
+    renderSection([build({ id: 'd1' }), draft], 'DISCHARGED')
+
+    await user.click(await screen.findByRole('button', { name: 'Descartar el borrador de la versión 2' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Descartar' }))
+
+    expect(await screen.findByText(/ya no existe o fue emitido/)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(mockedApi.delete).toHaveBeenCalledTimes(1)
+  })
+
+  it('un borrador inicial, que no corrige nada, no ofrece descartar (issue #634)', async () => {
+    const draft = build({ id: 'd2', status: 'DRAFT', correctsId: null, issuedAt: null, documentId: null })
+    renderSection([draft], 'ACTIVE')
+
+    await screen.findByText(/Versión 1/)
+    expect(screen.queryByRole('button', { name: /Descartar el borrador/ })).not.toBeInTheDocument()
   })
 
   it('con un paciente NNA el diálogo de entrega no ofrece "Paciente" (T4c)', async () => {

@@ -18,6 +18,11 @@ import {
   documentTextContext,
 } from '../../modules/patients/util/consent-text.util';
 import {
+  ASSENT_TEXT_FIELDS,
+  AssentTextField,
+  assentTextContext,
+} from '../../modules/patients/util/assent-text.util';
+import {
   NOTIFICATION_TEXT_FIELDS,
   NotificationTextField,
   notificationTextContext,
@@ -67,7 +72,8 @@ type ColumnModel =
   | 'treatmentDischarge'
   | 'notification'
   | 'patientConsent'
-  | 'patientDocument';
+  | 'patientDocument'
+  | 'patientAssent';
 
 // issue #486: cada texto se recifra en enc:v4 ligado a su dueño (`ownerColumn`:
 // el paciente, o el usuario en las notificaciones) y a su campo. `context` es
@@ -110,6 +116,14 @@ const COLUMN_TABLES: {
     ownerColumn: 'patientId',
     context: (ownerId, field) =>
       documentTextContext(ownerId, field as DocumentTextField),
+  },
+  {
+    table: 'assent',
+    model: 'patientAssent',
+    fields: ASSENT_TEXT_FIELDS,
+    ownerColumn: 'patientId',
+    context: (ownerId, field) =>
+      assentTextContext(ownerId, field as AssentTextField),
   },
   {
     table: 'notification',

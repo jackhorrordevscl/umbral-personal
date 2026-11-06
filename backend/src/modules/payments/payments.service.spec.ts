@@ -19,7 +19,10 @@ import { PaymentGatewayRegistry } from './payment-gateway.registry';
 import { PaymentAccountService } from './payment-account.service';
 import { MailService } from '../mail/mail.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { ORDER_OUTCOME_UNCERTAIN_ERROR } from './payments.constants';
+import {
+  ORDER_OUTCOME_UNCERTAIN_ERROR,
+  PREVIOUS_ORDER_VOID_FAILED_ERROR,
+} from './payments.constants';
 
 interface ConsultationRow {
   id: string;
@@ -1210,7 +1213,9 @@ describe('PaymentsService', () => {
       expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
     });
 
-    it('si anular la orden anterior falla, lo loguea y igual reemite', async () => {
+    // Issue #634: si el enlace viejo no se pudo anular sigue pagable en Flow;
+    // emitir otro sobrescribiría el token y lo dejaría sin rastro.
+    it('si anular la orden anterior falla, lo loguea, no reemite y conserva el token', async () => {
       arrangeWithPreviousOrder();
       gatewayAdapter.voidOrder.mockRejectedValue(
         new Error('Flow: la orden ya fue pagada'),
@@ -1224,8 +1229,20 @@ describe('PaymentsService', () => {
       expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('payment-1') as unknown,
       );
-      expect(gatewayAdapter.createOrder).toHaveBeenCalled();
       errorSpy.mockRestore();
+      expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+      expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
+      expect(prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment-1', gatewayToken: 'old-token' },
+        data: {
+          paymentUrl: null,
+          lastError: PREVIOUS_ORDER_VOID_FAILED_ERROR,
+        },
+      });
+      expect(prisma.payment.updateMany).not.toHaveBeenCalledWith({
+        where: { id: 'payment-1', gatewayToken: 'old-token' },
+        data: { paymentUrl: null, gatewayToken: null },
+      });
     });
 
     // issue #434: Flow responde 1701 al anular una orden que ya no admite
@@ -1312,7 +1329,7 @@ describe('PaymentsService', () => {
         expect(errorSpy).toHaveBeenCalledWith(
           expect.stringContaining('payment-1') as unknown,
         );
-        expect(gatewayAdapter.createOrder).toHaveBeenCalled();
+        expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
       });
 
       it('un fallo de credenciales al anular no consulta el estado de nuevo y loguea ERROR', async () => {
@@ -1368,7 +1385,7 @@ describe('PaymentsService', () => {
           );
         });
 
-        it('si la repetición también falla, loguea ERROR y reemite', async () => {
+        it('si la repetición también falla, loguea ERROR y no reemite', async () => {
           gatewayAdapter.voidOrder
             .mockRejectedValueOnce(indeterminate())
             .mockRejectedValueOnce(indeterminate());
@@ -1382,7 +1399,7 @@ describe('PaymentsService', () => {
           expect(errorSpy).toHaveBeenCalledWith(
             expect.stringContaining('payment-1') as unknown,
           );
-          expect(gatewayAdapter.createOrder).toHaveBeenCalled();
+          expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
         });
       });
     });
@@ -1590,6 +1607,24 @@ describe('PaymentsService', () => {
         expect(
           gatewayAdapter.voidOrder.mock.invocationCallOrder[0],
         ).toBeLessThan(gatewayAdapter.createOrder.mock.invocationCallOrder[0]);
+      });
+
+      it('si no se puede anular la orden anterior, responde 503 y no emite otra', async () => {
+        arrangeRetry({ gatewayToken: 'old-token', paymentUrl: null });
+        gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PENDING' });
+        gatewayAdapter.voidOrder.mockRejectedValue(
+          new PaymentGatewayError('credentials', 'apiKey/firma inválida'),
+        );
+        const errorSpy = jest
+          .spyOn(Logger.prototype, 'error')
+          .mockImplementation(() => undefined);
+
+        await expect(service.retryCharge('group-1')).rejects.toThrow(
+          ServiceUnavailableException,
+        );
+        errorSpy.mockRestore();
+        expect(gatewayAdapter.createOrder).not.toHaveBeenCalled();
+        expect(mailService.sendPaymentLinkEmail).not.toHaveBeenCalled();
       });
 
       it('si la orden anterior ya fue pagada, responde 409 y no emite otra', async () => {

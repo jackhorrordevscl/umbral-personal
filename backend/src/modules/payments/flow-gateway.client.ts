@@ -168,6 +168,20 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
       '/payment/create',
       params,
     );
+    // Issue #634: un 2xx sin token o url utilizables dejaría un enlace
+    // "undefined?token=undefined" guardado como si fuera válido. Flow pudo haber
+    // creado la orden igual, así que se trata como resultado incierto.
+    if (
+      typeof response.token !== 'string' ||
+      response.token.length === 0 ||
+      typeof response.url !== 'string' ||
+      response.url.length === 0
+    ) {
+      throw new PaymentGatewayError(
+        'indeterminate',
+        'Flow respondió 2xx (POST /payment/create) sin un token o una url válidos; la orden pudo haberse creado.',
+      );
+    }
     return {
       token: response.token,
       paymentUrl: `${response.url}?token=${response.token}`,

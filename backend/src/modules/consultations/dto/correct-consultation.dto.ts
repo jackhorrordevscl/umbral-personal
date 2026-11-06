@@ -1,6 +1,6 @@
-import { IsString, IsOptional, IsEnum } from 'class-validator';
+import { IsString, MaxLength, IsOptional, IsEnum } from 'class-validator';
 import { IsStrictDateString } from '../../../common/validators/is-strict-date-string.decorator';
-import { SessionType } from './create-consultation.dto';
+import { CONSULTATION_LIMITS, SessionType } from './create-consultation.dto';
 
 export class CorrectConsultationDto {
   @IsOptional()
@@ -9,14 +9,17 @@ export class CorrectConsultationDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(CONSULTATION_LIMITS.consultReason)
   consultReason?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(CONSULTATION_LIMITS.intervention)
   intervention?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(CONSULTATION_LIMITS.agreements)
   agreements?: string;
 
   @IsOptional()

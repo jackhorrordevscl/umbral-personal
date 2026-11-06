@@ -4,6 +4,7 @@ import {
   correctDischarge,
   correctUploadDischarge,
   createDischargeDraft,
+  discardDischargeDraft,
   downloadDischargePdf,
   getCancellationPreview,
   issueDischarge,
@@ -14,7 +15,7 @@ import {
 } from './discharges'
 
 vi.mock('./client', () => ({
-  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
+  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
 }))
 
 const mockedApi = vi.mocked(api)
@@ -25,6 +26,12 @@ describe('discharges api', () => {
     mockedApi.get.mockResolvedValue({ data: 'ok' })
     mockedApi.post.mockResolvedValue({ data: 'ok' })
     mockedApi.patch.mockResolvedValue({ data: 'ok' })
+    mockedApi.delete.mockResolvedValue({ data: undefined })
+  })
+
+  it('discards a correction draft with DELETE', async () => {
+    await discardDischargeDraft('d2')
+    expect(mockedApi.delete).toHaveBeenCalledWith('/discharges/d2')
   })
 
   it('lists the versions of a patient', async () => {

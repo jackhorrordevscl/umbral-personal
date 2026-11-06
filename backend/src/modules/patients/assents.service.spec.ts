@@ -3,6 +3,8 @@ import { AssentsService } from './assents.service';
 import { PatientsService } from './patients.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
+import { buildTestClinicalCrypto } from '../../common/crypto/clinical-text-crypto.testing';
+import { assentTextContext } from './util/assent-text.util';
 
 describe('AssentsService', () => {
   let service: AssentsService;
@@ -13,6 +15,7 @@ describe('AssentsService', () => {
     $transaction: jest.Mock;
   };
   let patientsService: { assertAccess: jest.Mock };
+  const crypto = buildTestClinicalCrypto();
 
   // Pinned clock: 2015-01-01 is 11 years old (UNDER_14), 2010-01-01 is 16
   // (AGE_14_17), 1990-01-01 is an adult.
@@ -27,7 +30,11 @@ describe('AssentsService', () => {
     prisma = {
       patientAssent: {
         findMany: jest.fn().mockResolvedValue([]),
-        create: jest.fn().mockResolvedValue({ id: 'assent-1' }),
+        create: jest.fn().mockResolvedValue({
+          id: 'assent-1',
+          patientId: 'patient-1',
+          note: null,
+        }),
       },
       patientDocument: { findFirst: jest.fn() },
       $queryRaw: jest.fn().mockResolvedValue([{ id: 'therapist-1' }]),
@@ -40,6 +47,7 @@ describe('AssentsService', () => {
     service = new AssentsService(
       prisma as unknown as PrismaService,
       patientsService as unknown as PatientsService,
+      crypto,
     );
   });
   afterEach(() => jest.useRealTimers());
@@ -66,17 +74,80 @@ describe('AssentsService', () => {
     it('indica en documentVoidedAt si el documento que respalda el evento fue anulado', async () => {
       const voidedAt = new Date('2026-10-01T10:00:00Z');
       prisma.patientAssent.findMany.mockResolvedValue([
-        { id: 'a1', documentId: 'd1', document: { voidedAt } },
-        { id: 'a2', documentId: 'd2', document: { voidedAt: null } },
-        { id: 'a3', documentId: null, document: null },
+        {
+          id: 'a1',
+          patientId: 'patient-1',
+          note: null,
+          documentId: 'd1',
+          document: { voidedAt },
+        },
+        {
+          id: 'a2',
+          patientId: 'patient-1',
+          note: null,
+          documentId: 'd2',
+          document: { voidedAt: null },
+        },
+        {
+          id: 'a3',
+          patientId: 'patient-1',
+          note: null,
+          documentId: null,
+          document: null,
+        },
       ]);
 
       const result = await service.list('patient-1', 'therapist-1');
 
       expect(result).toEqual([
-        { id: 'a1', documentId: 'd1', documentVoidedAt: voidedAt },
-        { id: 'a2', documentId: 'd2', documentVoidedAt: null },
-        { id: 'a3', documentId: null, documentVoidedAt: null },
+        {
+          id: 'a1',
+          patientId: 'patient-1',
+          note: null,
+          documentId: 'd1',
+          documentVoidedAt: voidedAt,
+        },
+        {
+          id: 'a2',
+          patientId: 'patient-1',
+          note: null,
+          documentId: 'd2',
+          documentVoidedAt: null,
+        },
+        {
+          id: 'a3',
+          patientId: 'patient-1',
+          note: null,
+          documentId: null,
+          documentVoidedAt: null,
+        },
+      ]);
+    });
+
+    it('devuelve la nota en claro, también la guardada en texto plano antes de #634', async () => {
+      prisma.patientAssent.findMany.mockResolvedValue([
+        {
+          id: 'a1',
+          patientId: 'patient-1',
+          note: crypto.encrypt(
+            'Nota cifrada',
+            assentTextContext('patient-1', 'note'),
+          ),
+          document: null,
+        },
+        {
+          id: 'a2',
+          patientId: 'patient-1',
+          note: 'Nota heredada en texto plano',
+          document: null,
+        },
+      ]);
+
+      const result = await service.list('patient-1', 'therapist-1');
+
+      expect(result.map((a) => a.note)).toEqual([
+        'Nota cifrada',
+        'Nota heredada en texto plano',
       ]);
     });
 
@@ -107,6 +178,47 @@ describe('AssentsService', () => {
       );
     });
 
+    // issue #634: la nota se guarda cifrada y ligada al paciente y al campo, y
+    // la respuesta la devuelve en claro.
+    it('guarda la nota cifrada (enc:v4, ligada al paciente) y responde con el texto en claro', async () => {
+      prisma.patientAssent.create.mockImplementation(
+        (args: { data: Record<string, unknown> }) =>
+          Promise.resolve({ id: 'assent-1', ...args.data }),
+      );
+
+      const result = await service.record(
+        'patient-1',
+        { action: 'INFORMED_AND_HEARD', note: 'Escuchado en sesión' },
+        'therapist-1',
+      );
+
+      const stored = (
+        prisma.patientAssent.create.mock.calls[0] as [
+          { data: { note: string } },
+        ]
+      )[0].data.note;
+      expect(stored).not.toContain('Escuchado');
+      expect(
+        crypto.decrypt(stored, assentTextContext('patient-1', 'note')),
+      ).toBe('Escuchado en sesión');
+      expect(() =>
+        crypto.decrypt(stored, assentTextContext('patient-2', 'note')),
+      ).toThrow();
+      expect(result.note).toBe('Escuchado en sesión');
+    });
+
+    it('sin nota guarda null y no cifra nada', async () => {
+      await service.record(
+        'patient-1',
+        { action: 'INFORMED_AND_HEARD' },
+        'therapist-1',
+      );
+
+      expect(prisma.patientAssent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ note: null }) as unknown,
+      });
+    });
+
     it('no toma el lock si la validación falla antes de insertar', async () => {
       patientsService.assertAccess.mockResolvedValue(minor('1990-01-01'));
 
@@ -133,7 +245,7 @@ describe('AssentsService', () => {
           patientId: 'patient-1',
           ageBand: 'UNDER_14',
           action: 'INFORMED_AND_HEARD',
-          note: 'Escuchado en sesión',
+          note: expect.stringMatching(/^enc:v4:/) as unknown,
           documentId: null,
           recordedById: 'therapist-1',
         },
