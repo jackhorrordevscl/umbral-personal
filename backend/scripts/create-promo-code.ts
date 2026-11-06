@@ -7,9 +7,10 @@
 //
 // Valores por defecto del issue: 30 días de prueba, 30 canjes y 60 días de
 // vigencia. El código se guarda hasheado en mayúsculas y sin espacios del
-// borde; el registro lo compara igual, sin distinguir mayúsculas. Repetir el comando con
-// el mismo código actualiza canal, tope, prueba y vigencia, pero conserva el
-// conteo de canjes ya hechos.
+// borde; el registro lo compara igual, sin distinguir mayúsculas. Repetir el
+// comando con el mismo código actualiza canal, tope, prueba y vigencia, pero
+// conserva el conteo de canjes ya hechos (también con un código creado antes de
+// la normalización, que se encuentra por su capitalización original).
 import * as dotenv from 'dotenv';
 dotenv.config();
 import { PrismaClient } from '@prisma/client';
@@ -21,7 +22,11 @@ const USAGE =
   'Uso: create-promo-code.ts <CODIGO> --channel <canal> [--max 30] [--trial-days 30] [--valid-days 60]';
 
 export interface PromoCodeArgs {
+  // Normalizado (mayúsculas, sin espacios del borde): es el que se guarda.
   code: string;
+  // Tal como se escribió (solo sin espacios del borde): sirve para encontrar
+  // un código creado antes de la normalización.
+  rawCode: string;
   channel: string;
   trialDays: number;
   maxRedemptions: number;
@@ -57,7 +62,8 @@ export function parseArgs(
   now: Date = new Date(),
 ): PromoCodeArgs {
   // Issue #633: el registro compara el código sin distinguir mayúsculas.
-  const code = (argv[0]?.trim() ?? '').toUpperCase();
+  const rawCode = argv[0]?.trim() ?? '';
+  const code = rawCode.toUpperCase();
   if (!/^[A-Za-z0-9_-]{4,40}$/.test(code)) {
     throw new Error(
       `${USAGE}\nEl código admite 4 a 40 caracteres: letras sin tilde, números, guion y guion bajo.`,
@@ -71,6 +77,7 @@ export function parseArgs(
   const validDays = readPositiveInt(argv, '--valid-days', 60, 1);
   return {
     code,
+    rawCode,
     channel,
     trialDays,
     maxRedemptions,
@@ -82,22 +89,38 @@ export function buildSignupPath(code: string): string {
   return `/signup?promo=${encodeURIComponent(code)}`;
 }
 
+// Issue #633: un código creado antes de la normalización se guardó con su
+// capitalización original. Si existe, se actualiza esa fila (conserva su
+// conteo de canjes) en vez de crear una segunda con el tope en cero.
+export async function upsertPromoCode(
+  client: Pick<PrismaClient, 'promoCode'>,
+  args: PromoCodeArgs,
+) {
+  const { code, rawCode, channel, trialDays, maxRedemptions, expiresAt } = args;
+  const data = { channel, trialDays, maxRedemptions, expiresAt };
+  const normalizedHash = hashInvitationCode(code);
+  let existing = await client.promoCode.findUnique({
+    where: { codeHash: normalizedHash },
+  });
+  if (!existing && rawCode !== code) {
+    existing = await client.promoCode.findUnique({
+      where: { codeHash: hashInvitationCode(rawCode) },
+    });
+  }
+  if (existing) {
+    return client.promoCode.update({ where: { id: existing.id }, data });
+  }
+  return client.promoCode.create({
+    data: { codeHash: normalizedHash, ...data },
+  });
+}
+
 export async function main(argv: string[]): Promise<void> {
-  const { code, channel, trialDays, maxRedemptions, expiresAt } =
-    parseArgs(argv);
+  const args = parseArgs(argv);
+  const { code } = args;
   const prisma = new PrismaClient({ adapter: createPrismaAdapter() });
   try {
-    const promo = await prisma.promoCode.upsert({
-      where: { codeHash: hashInvitationCode(code) },
-      create: {
-        codeHash: hashInvitationCode(code),
-        channel,
-        trialDays,
-        maxRedemptions,
-        expiresAt,
-      },
-      update: { channel, trialDays, maxRedemptions, expiresAt },
-    });
+    const promo = await upsertPromoCode(prisma, args);
     const baseUrl = (process.env.FRONTEND_URL ?? '').replace(/\/+$/, '');
     console.log(
       `✅ Código ${code} (canal ${promo.channel}): ${promo.trialDays} días de prueba, ${promo.redemptionCount}/${promo.maxRedemptions} canjes, vence ${promo.expiresAt.toISOString()}`,

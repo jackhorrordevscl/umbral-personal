@@ -23,7 +23,10 @@ export const PROMO_CODE_INVALID = 'Código promocional inválido o vencido';
 // mayúscula que pone el teclado no deben invalidarlo. Se busca primero el
 // código normalizado (sin espacios del borde y en mayúsculas) y, si no está,
 // el código tal cual se creó antes de la normalización, para no romper los
-// códigos que ya existen.
+// códigos que ya existen. Si existen dos códigos que solo difieren en la
+// capitalización, gana siempre el normalizado (el de mayúsculas) aunque esté
+// vencido o agotado, y el otro queda inalcanzable; create-promo-code.ts no
+// crea esa colisión porque actualiza el código existente.
 export function normalizePromoCode(code: string): string {
   return code.trim().toUpperCase();
 }
