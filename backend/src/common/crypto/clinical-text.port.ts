@@ -10,6 +10,14 @@ import {
   dischargeTextContext,
 } from '../../modules/discharges/util/discharge-text.util';
 import {
+  CONSENT_TEXT_FIELDS,
+  ConsentTextField,
+  DOCUMENT_TEXT_FIELDS,
+  DocumentTextField,
+  consentTextContext,
+  documentTextContext,
+} from '../../modules/patients/util/consent-text.util';
+import {
   NOTIFICATION_TEXT_FIELDS,
   NotificationTextField,
   notificationTextContext,
@@ -54,7 +62,12 @@ interface ColumnDelegate {
   }): Promise<{ count: number }>;
 }
 
-type ColumnModel = 'consultation' | 'treatmentDischarge' | 'notification';
+type ColumnModel =
+  | 'consultation'
+  | 'treatmentDischarge'
+  | 'notification'
+  | 'patientConsent'
+  | 'patientDocument';
 
 // issue #486: cada texto se recifra en enc:v4 ligado a su dueño (`ownerColumn`:
 // el paciente, o el usuario en las notificaciones) y a su campo. `context` es
@@ -81,6 +94,22 @@ const COLUMN_TABLES: {
     ownerColumn: 'patientId',
     context: (ownerId, field) =>
       dischargeTextContext(ownerId, field as DischargeTextField),
+  },
+  {
+    table: 'consent',
+    model: 'patientConsent',
+    fields: CONSENT_TEXT_FIELDS,
+    ownerColumn: 'patientId',
+    context: (ownerId, field) =>
+      consentTextContext(ownerId, field as ConsentTextField),
+  },
+  {
+    table: 'document',
+    model: 'patientDocument',
+    fields: DOCUMENT_TEXT_FIELDS,
+    ownerColumn: 'patientId',
+    context: (ownerId, field) =>
+      documentTextContext(ownerId, field as DocumentTextField),
   },
   {
     table: 'notification',

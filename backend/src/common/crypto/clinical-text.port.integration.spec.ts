@@ -27,6 +27,8 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
   let historyId: string;
   let dischargeId: string;
   let notificationId: string;
+  let consentId: string;
+  let documentId: string;
 
   beforeAll(async () => {
     prisma = new PrismaService();
@@ -112,9 +114,37 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
         },
       })
     ).id;
+    // issue #634: evidencia y motivo de anulación heredados en texto plano.
+    documentId = (
+      await prisma.patientDocument.create({
+        data: {
+          patientId,
+          type: 'OTHER',
+          fileName: 'anulado.pdf',
+          storagePath: `clinical-port/${runId}/anulado.pdf`,
+          uploadedBy: therapistId,
+          voidedAt: new Date('2026-01-20T12:00:00.000Z'),
+          voidedById: therapistId,
+          voidReason: 'Motivo de anulación plano',
+        },
+      })
+    ).id;
+    consentId = (
+      await prisma.patientConsent.create({
+        data: {
+          patientId,
+          purpose: 'TREATMENT',
+          action: 'GRANT',
+          recordedById: therapistId,
+          evidence: 'Evidencia de consentimiento plana',
+        },
+      })
+    ).id;
   }, 30000);
 
   afterAll(async () => {
+    await prisma.patientConsent.deleteMany({ where: { id: consentId } });
+    await prisma.patientDocument.deleteMany({ where: { id: documentId } });
     await prisma.notification.deleteMany({ where: { userId: therapistId } });
     await prisma.consultationHistory.deleteMany({ where: { id: historyId } });
     await prisma.treatmentDischarge.deleteMany({ where: { id: dischargeId } });
@@ -127,7 +157,14 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
   const scoped = (port: DatasetPort): DatasetPort => ({
     ...port,
     async *list() {
-      const mine = [consultationId, historyId, dischargeId, notificationId];
+      const mine = [
+        consultationId,
+        historyId,
+        dischargeId,
+        notificationId,
+        consentId,
+        documentId,
+      ];
       for await (const row of port.list()) {
         if (mine.some((id) => row.id.includes(id))) yield row;
       }
@@ -140,7 +177,7 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
     const port = () => scoped(buildClinicalPort(prisma, keyring));
 
     const dry = await runReencrypt([port()], { apply: false });
-    expect(dry.datasets[0].wouldReencrypt).toBe(11);
+    expect(dry.datasets[0].wouldReencrypt).toBe(13);
     const untouched = await prisma.consultation.findUniqueOrThrow({
       where: { id: consultationId },
     });
@@ -148,7 +185,7 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
 
     const applied = await runReencrypt([port()], { apply: true });
     expect(applied.datasets[0].failed).toBe(0);
-    expect(applied.datasets[0].reencrypted).toBe(11);
+    expect(applied.datasets[0].reencrypted).toBe(13);
 
     const consultation = await prisma.consultation.findUniqueOrThrow({
       where: { id: consultationId },
@@ -190,14 +227,24 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
     expect(notification.body).toMatch(/^enc:v4:0:/);
     expect(JSON.stringify(notification)).not.toContain('Paciente Recifrado');
 
+    const consent = await prisma.patientConsent.findUniqueOrThrow({
+      where: { id: consentId },
+    });
+    expect(consent.evidence).toMatch(/^enc:v4:0:/);
+    const document = await prisma.patientDocument.findUniqueOrThrow({
+      where: { id: documentId },
+    });
+    expect(document.voidReason).toMatch(/^enc:v4:0:/);
+    expect(JSON.stringify([consent, document])).not.toContain('plana');
+
     const lines: string[] = [];
     const again = await runReencrypt([port()], {
       apply: true,
       log: (line) => lines.push(line),
     });
     expect(again.datasets[0].failed).toBe(0);
-    expect(again.datasets[0].scanned).toBe(11);
-    expect(again.datasets[0].upToDate).toBe(11);
+    expect(again.datasets[0].scanned).toBe(13);
+    expect(again.datasets[0].upToDate).toBe(13);
     expect(again.datasets[0].reencrypted).toBe(0);
     expect(lines).toEqual([]);
   }, 30000);

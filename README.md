@@ -610,8 +610,9 @@ umbral-personal/
   (responde 429; acertar el código limpia el contador, issue #487)
 - Cifrado en reposo con AES-256-GCM y llaveros versionados: documentos de
   pacientes, refresh token de Google, credenciales de Flow, secreto TOTP y
-  textos clínicos libres (notas de consulta, informe de alta, y el título y
-  cuerpo de las notificaciones internas) usan cada uno su propia clave, y
+  textos clínicos libres (notas de consulta, informe de alta, evidencia del
+  consentimiento, motivo de anulación de documentos, y el título y cuerpo de las
+  notificaciones internas) usan cada uno su propia clave, y
   pueden rotarse sin perder datos (issue #382, ver
   [`docs/rotacion-y-respaldo-de-claves.md`](docs/rotacion-y-respaldo-de-claves.md))
 - Defensa contra CSRF en profundidad: una petición `POST`/`PUT`/`PATCH`/

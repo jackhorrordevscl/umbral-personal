@@ -127,6 +127,17 @@ Se adopta la alternativa **B**, con esta secuencia:
   del backend no la descifra y mostraría `enc:v3:…` en la campanita. Revertir
   no deshace esas filas, así que ante un problema se corrige hacia adelante.
 
+## Ampliación: evidencia del consentimiento y motivo de anulación (2026-11-06, issue #634)
+
+- **Qué se cifra:** `PatientConsent.evidence` (lo que el terapeuta anota como
+  respaldo de un consentimiento, incluida la que el sistema arma al anular un
+  documento) y `PatientDocument.voidReason`. Ambos son texto libre que puede
+  nombrar al paciente o a su familia. Van en `enc:v4` con los contextos
+  `patient/<patientId>/consent.evidence` y `patient/<patientId>/document.voidReason`;
+  la API los devuelve siempre en claro.
+- **Datos existentes:** los valores guardados antes se leen tal cual (texto plano
+  heredado) y se recifran con `npm run crypto:reencrypt -- --only clinical --apply`.
+
 ## Fuera de alcance: entregas del informe (2026-10-26, issue #492)
 
 - **Qué queda en texto plano:** `DischargeDelivery.purpose` (hasta 200

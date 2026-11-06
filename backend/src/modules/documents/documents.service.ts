@@ -18,6 +18,12 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PatientsService } from '../patients/patients.service';
 import { VoidDocumentDto } from './dto/void-document.dto';
 import { DocumentEncryptionService } from './document-encryption.service';
+import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
+import {
+  decryptDocumentRow,
+  encryptConsentEvidence,
+  encryptDocumentVoidReason,
+} from '../patients/util/consent-text.util';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { getAgeBand } from '../../common/utils/age.util';
 import { sanitizeAttachmentFileName } from '../../common/utils/attachment-file-name.util';
@@ -58,6 +64,7 @@ export class DocumentsService {
     private prisma: PrismaService,
     private patientsService: PatientsService,
     private encryption: DocumentEncryptionService,
+    private clinicalCrypto: ClinicalTextCryptoService,
   ) {}
 
   // Issue #158: el archivo llega en memoria (memoryStorage en el
@@ -339,12 +346,14 @@ export class DocumentsService {
 
     // El listado no necesita la clave del objeto en B2 ni quién anuló: la
     // descarga resuelve `storagePath` por id en el servidor.
-    return this.prisma.patientDocument.findMany({
+    const documents = await this.prisma.patientDocument.findMany({
       where: { patientId },
       orderBy: { uploadedAt: 'desc' },
       take: UNPAGINATED_SAFETY_LIMIT,
       omit: { storagePath: true, voidedById: true },
     });
+    // issue #634: el motivo de anulación se guarda cifrado y sale en claro.
+    return documents.map((d) => decryptDocumentRow(d, this.clinicalCrypto));
   }
 
   async getDocument(id: string, userId: string) {
@@ -429,16 +438,21 @@ export class DocumentsService {
         data: {
           voidedAt: new Date(),
           voidedById: userId,
-          voidReason: dto.reason,
+          voidReason: encryptDocumentVoidReason(
+            dto.reason,
+            this.clinicalCrypto,
+            existing.patientId,
+          ),
         },
       });
       if (count === 0) {
         throw new ConflictException('El documento ya está anulado.');
       }
 
-      const doc = await tx.patientDocument.findUniqueOrThrow({
-        where: { id },
-      });
+      const doc = decryptDocumentRow(
+        await tx.patientDocument.findUniqueOrThrow({ where: { id } }),
+        this.clinicalCrypto,
+      );
       const purpose = CONSENT_DOCUMENT_PURPOSE[doc.type];
       if (purpose) {
         await this.revokeConsentIfOrphaned(tx, doc, purpose, userId);
@@ -501,7 +515,11 @@ export class DocumentsService {
         documentId: doc.id,
         grantedBy: latest.grantedBy,
         guardianId: latest.guardianId,
-        evidence: `Documento anulado: ${doc.fileName} (id ${doc.id}). Motivo: ${doc.voidReason}`,
+        evidence: encryptConsentEvidence(
+          `Documento anulado: ${doc.fileName} (id ${doc.id}). Motivo: ${doc.voidReason}`,
+          this.clinicalCrypto,
+          doc.patientId,
+        ),
       },
     });
   }

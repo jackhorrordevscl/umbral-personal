@@ -3,9 +3,10 @@ import { DocumentsService } from './documents.service';
 import { DocumentsController } from './documents.controller';
 import { DocumentEncryptionService } from './document-encryption.service';
 import { PatientsModule } from '../patients/patients.module';
+import { ClinicalTextCryptoModule } from '../../common/crypto/clinical-text-crypto.module';
 
 @Module({
-  imports: [PatientsModule],
+  imports: [PatientsModule, ClinicalTextCryptoModule],
   controllers: [DocumentsController],
   providers: [DocumentsService, DocumentEncryptionService],
   // T3: el módulo discharges guarda y lee el PDF del informe de alta.
