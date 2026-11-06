@@ -20,6 +20,7 @@ import {
   type RecipientPatient,
 } from '../../common/utils/resolve-patient-recipient';
 import { isMinor } from '../../common/utils/age.util';
+import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import {
   CANCELLABLE_STATUSES,
   ORDER_OUTCOME_UNCERTAIN_ERROR,
@@ -86,6 +87,10 @@ class OrderSupersededException extends ConflictException {
     super('El cobro cambió mientras se procesaba. Intenta de nuevo.');
   }
 }
+
+// Vueltas máximas de cancelOpenChargesForDisconnect (cada una trae hasta
+// UNPAGINATED_SAFETY_LIMIT cobros abiertos).
+const MAX_DISCONNECT_ROUNDS = 20;
 
 const MINOR_WITHOUT_GUARDIAN_EMAIL_ERROR =
   'Falta el email de un representante legal para emitir el cobro de este paciente NNA.';
@@ -774,6 +779,63 @@ export class PaymentsService {
     });
   }
 
+  // issue #634: paso previo a desconectar la cuenta de pago. Al desconectar se
+  // borran las credenciales y los enlaces ya enviados seguirían vivos en la
+  // pasarela: un paciente podría pagar sin que Umbral pueda verificarlo, y el
+  // cobro terminaría en LATE con un correo de "vencido". Debe correr ANTES de
+  // PaymentAccountService.disconnect, porque anular una orden exige esas
+  // credenciales. Cada cargo PENDING/LATE con enlace se cancela localmente
+  // (mismo claim por conteo de cancelPaymentRow: uno ya pagado no se toca) y
+  // luego se anula su orden; si la pasarela no la anula el cargo queda
+  // cancelado igual y su groupId se informa. Sin cuenta conectada no hay nada
+  // que anular y no se cambia ningún cargo.
+  async cancelOpenChargesForDisconnect(
+    therapistId: string,
+  ): Promise<{ cancelled: number; unvoidedGroupIds: string[] }> {
+    const context =
+      await this.paymentAccountService.resolveGatewayContext(therapistId);
+    if (!context) return { cancelled: 0, unvoidedGroupIds: [] };
+
+    const contextCache = new Map<string, Promise<GatewayContext | null>>([
+      [therapistId, Promise.resolve(context)],
+    ]);
+    let cancelled = 0;
+    // Un cobro que revienta a mitad del bucle puede haber quedado cancelado sin
+    // que se sepa si su orden se anuló: se informa igual (por precaución) y se
+    // excluye de las tandas siguientes para no reintentarlo sin fin.
+    const unvoided = new Set<string>();
+    const failedIds: string[] = [];
+    // Las filas canceladas salen del conjunto PENDING/LATE, así que cada tanda
+    // trae las que faltan; el tope de vueltas evita un bucle sin salida.
+    for (let round = 0; round < MAX_DISCONNECT_ROUNDS; round++) {
+      const payments = await this.prisma.payment.findMany({
+        where: {
+          therapistId,
+          status: { in: [...CANCELLABLE_STATUSES] },
+          gatewayToken: { not: null },
+          ...(failedIds.length > 0 ? { id: { notIn: failedIds } } : {}),
+        },
+        take: UNPAGINATED_SAFETY_LIMIT,
+      });
+      for (const payment of payments) {
+        try {
+          const outcome = await this.cancelPaymentRow(payment, contextCache);
+          if (!outcome.cancelled) continue;
+          cancelled += 1;
+          if (!outcome.voided) unvoided.add(payment.groupId);
+        } catch (err) {
+          failedIds.push(payment.id);
+          unvoided.add(payment.groupId);
+          this.logger.error(
+            `Fallo al cancelar el cargo al desconectar la cuenta (paymentId=${payment.id}, groupId=${payment.groupId}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      if (payments.length < UNPAGINATED_SAFETY_LIMIT) break;
+    }
+    return { cancelled, unvoidedGroupIds: [...unvoided] };
+  }
+
   // Shared by cancelUnpaid/cancelUnpaidForPatient: flips the row to
   // CANCELLED locally (same count-gated updateMany guarantee as the rest of
   // this module -- a PAID charge is never in this where) and only THEN
@@ -797,7 +859,7 @@ export class PaymentsService {
   private async cancelPaymentRow(
     payment: Payment,
     contextCache: Map<string, Promise<GatewayContext | null>>,
-  ): Promise<void> {
+  ): Promise<{ cancelled: boolean; voided: boolean }> {
     const result = await this.prisma.payment.updateMany({
       where: { id: payment.id, status: { in: [...CANCELLABLE_STATUSES] } },
       data: { status: 'CANCELLED', cancelledAt: new Date() },
@@ -807,7 +869,7 @@ export class PaymentsService {
       this.logger.debug(
         `cancelPaymentRow: paymentId=${payment.id} ya no estaba en un estado cancelable (probablemente confirmado por un webhook concurrente); no se anula nada en la pasarela.`,
       );
-      return;
+      return { cancelled: false, voided: true };
     }
 
     // ensureCharge puede guardar el token entre la lectura de `payment` y esta
@@ -818,7 +880,7 @@ export class PaymentsService {
       select: { gatewayToken: true },
     });
     const gatewayToken = latest?.gatewayToken ?? payment.gatewayToken;
-    if (!gatewayToken) return;
+    if (!gatewayToken) return { cancelled: true, voided: true };
 
     // design.md Decision 2 (reconcilePendingPayments): same run-scoped memo
     // cache reuse -- a patient with several stale charges under the same
@@ -827,9 +889,13 @@ export class PaymentsService {
       payment.therapistId,
       contextCache,
     );
-    if (!context) return;
+    if (!context) return { cancelled: true, voided: true };
 
-    await this.voidGatewayOrder(context, { ...payment, gatewayToken });
+    const voided = await this.voidGatewayOrder(context, {
+      ...payment,
+      gatewayToken,
+    });
+    return { cancelled: true, voided };
   }
 
   // issue #111: anula la orden en la pasarela sin dejar que un fallo
@@ -839,12 +905,13 @@ export class PaymentsService {
   private async voidGatewayOrder(
     context: GatewayContext,
     payment: Pick<Payment, 'id' | 'groupId' | 'gatewayToken'>,
-  ): Promise<void> {
-    if (!payment.gatewayToken) return;
+  ): Promise<boolean> {
+    if (!payment.gatewayToken) return true;
     try {
       await this.gatewayRegistry
         .get(context.provider)
         .voidOrder(context.credentials, payment.gatewayToken);
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (
@@ -856,7 +923,7 @@ export class PaymentsService {
           payment.gatewayToken,
         ))
       ) {
-        return;
+        return true;
       }
       // issue #434: Flow responde 1701 tanto para una orden ya pagada como
       // para una ya rechazada, así que el código solo no basta. Si el estado
@@ -871,7 +938,7 @@ export class PaymentsService {
         this.logger.warn(
           `La orden ya estaba rechazada en la pasarela, no hay nada que anular (paymentId=${payment.id}, groupId=${payment.groupId}): ${message}`,
         );
-        return;
+        return true;
       }
       // issue #111: this IS the operator-visibility gap -- log loudly
       // instead of swallowing silently. Callers never roll back their own
@@ -881,6 +948,7 @@ export class PaymentsService {
       this.logger.error(
         `Fallo al anular la orden en la pasarela de pago (paymentId=${payment.id}, groupId=${payment.groupId}): ${message}`,
       );
+      return false;
     }
   }
 

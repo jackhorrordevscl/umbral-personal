@@ -31,6 +31,7 @@ describe('PaymentsController', () => {
     confirm: jest.Mock;
     findByToken: jest.Mock;
     resolveReturnRedirectUrl: jest.Mock;
+    cancelOpenChargesForDisconnect: jest.Mock;
   };
   let paymentAccountService: {
     status: jest.Mock;
@@ -67,6 +68,9 @@ describe('PaymentsController', () => {
       resolveReturnRedirectUrl: jest
         .fn()
         .mockReturnValue('http://localhost:5173/pago-recibido'),
+      cancelOpenChargesForDisconnect: jest
+        .fn()
+        .mockResolvedValue({ cancelled: 0, unvoidedGroupIds: [] }),
     };
     paymentAccountService = {
       status: jest.fn(),
@@ -263,6 +267,41 @@ describe('PaymentsController', () => {
         'therapist-1',
         { apiKey: 'a'.repeat(32), secretKey: 'b'.repeat(32) },
       );
+    });
+  });
+
+  // issue #634: los enlaces abiertos se anulan ANTES de borrar las credenciales.
+  describe('account (DELETE /payments/account)', () => {
+    it('anula los enlaces abiertos y recién después desconecta, e informa el resultado', async () => {
+      paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
+        cancelled: 2,
+        unvoidedGroupIds: ['group-1'],
+      });
+      paymentAccountService.disconnect.mockResolvedValue({
+        status: 'DISCONNECTED',
+      });
+
+      const result = await controller.disconnect({
+        id: 'therapist-1',
+        email: '',
+        role: '',
+        name: '',
+      });
+
+      expect(
+        paymentsService.cancelOpenChargesForDisconnect,
+      ).toHaveBeenCalledWith('therapist-1');
+      expect(
+        paymentsService.cancelOpenChargesForDisconnect.mock
+          .invocationCallOrder[0],
+      ).toBeLessThan(
+        paymentAccountService.disconnect.mock.invocationCallOrder[0],
+      );
+      expect(result).toEqual({
+        status: 'DISCONNECTED',
+        cancelledCharges: 2,
+        unvoidedGroupIds: ['group-1'],
+      });
     });
   });
 

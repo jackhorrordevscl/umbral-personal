@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PaymentProvider } from '@prisma/client';
+import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { PaymentsService } from './payments.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -2187,6 +2188,226 @@ describe('PaymentsService', () => {
 
       debugSpy.mockRestore();
       errorSpy.mockRestore();
+    });
+  });
+
+  // issue #634: al desconectar la cuenta se borran las credenciales y los
+  // enlaces ya emitidos seguirían vivos en la pasarela; este paso corre ANTES
+  // de la desconexión para poder anular las órdenes con esas credenciales.
+  describe('cancelOpenChargesForDisconnect', () => {
+    it('cancela los cargos PENDING/LATE con enlace del terapeuta y anula cada orden en la pasarela', async () => {
+      prisma.payment.findMany.mockResolvedValue([
+        buildPayment({
+          id: 'payment-1',
+          groupId: 'group-1',
+          gatewayToken: 'flow-token-1',
+        }),
+        buildPayment({
+          id: 'payment-2',
+          groupId: 'group-2',
+          gatewayToken: 'flow-token-2',
+        }),
+      ]);
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.payment.findUnique.mockResolvedValue({
+        gatewayToken: 'flow-token-1',
+      });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+
+      const result =
+        await service.cancelOpenChargesForDisconnect('therapist-1');
+
+      expect(prisma.payment.findMany).toHaveBeenCalledWith({
+        where: {
+          therapistId: 'therapist-1',
+          status: { in: ['PENDING', 'LATE'] },
+          gatewayToken: { not: null },
+        },
+        take: expect.any(Number) as unknown,
+      });
+      expect(prisma.payment.updateMany).toHaveBeenCalledTimes(2);
+      expect(gatewayAdapter.voidOrder).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({ cancelled: 2, unvoidedGroupIds: [] });
+    });
+
+    it('si la pasarela no anula una orden, el cargo igual queda cancelado y se informa su groupId', async () => {
+      prisma.payment.findMany.mockResolvedValue([
+        buildPayment({
+          id: 'payment-1',
+          groupId: 'group-1',
+          gatewayToken: 'flow-token-1',
+        }),
+        buildPayment({
+          id: 'payment-2',
+          groupId: 'group-2',
+          gatewayToken: 'flow-token-2',
+        }),
+      ]);
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.payment.findUnique.mockImplementation(
+        ({ where }: { where: { id: string } }) =>
+          Promise.resolve({
+            gatewayToken:
+              where.id === 'payment-1' ? 'flow-token-1' : 'flow-token-2',
+          }),
+      );
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.voidOrder
+        .mockRejectedValueOnce(new Error('Flow caído'))
+        .mockResolvedValueOnce(undefined);
+
+      const result =
+        await service.cancelOpenChargesForDisconnect('therapist-1');
+
+      expect(prisma.payment.updateMany).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({
+        cancelled: 2,
+        unvoidedGroupIds: ['group-1'],
+      });
+    });
+
+    // Hallazgo de la revisión: si algo revienta a mitad del bucle, los cobros ya
+    // cancelados cuya orden no se anuló no pueden perderse del informe.
+    it('si un cobro del medio revienta, los demás se procesan y su groupId se informa como no anulado', async () => {
+      prisma.payment.findMany.mockResolvedValue([
+        buildPayment({
+          id: 'payment-1',
+          groupId: 'group-1',
+          gatewayToken: 'flow-token-1',
+        }),
+        buildPayment({
+          id: 'payment-2',
+          groupId: 'group-2',
+          gatewayToken: 'flow-token-2',
+        }),
+        buildPayment({
+          id: 'payment-3',
+          groupId: 'group-3',
+          gatewayToken: 'flow-token-3',
+        }),
+      ]);
+      prisma.payment.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockRejectedValueOnce(new Error('DB caída'))
+        .mockResolvedValueOnce({ count: 1 });
+      prisma.payment.findUnique.mockResolvedValue({
+        gatewayToken: 'flow-token-1',
+      });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+
+      const result =
+        await service.cancelOpenChargesForDisconnect('therapist-1');
+
+      expect(prisma.payment.updateMany).toHaveBeenCalledTimes(3);
+      expect(result).toEqual({
+        cancelled: 2,
+        unvoidedGroupIds: ['group-2'],
+      });
+    });
+
+    // La pasarela dice que la orden ya estaba pagada: no se puede anular, así que
+    // no debe contarse como anulada (el cobro local ya quedó CANCELLED y el
+    // terapeuta tiene que conciliarlo).
+    it('una orden ya pagada en la pasarela no cuenta como anulada: su groupId se informa', async () => {
+      prisma.payment.findMany.mockResolvedValue([
+        buildPayment({
+          id: 'payment-1',
+          groupId: 'group-1',
+          gatewayToken: 'flow-token-1',
+        }),
+      ]);
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.payment.findUnique.mockResolvedValue({
+        gatewayToken: 'flow-token-1',
+      });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+      gatewayAdapter.voidOrder.mockRejectedValue(
+        new PaymentGatewayError('indeterminate', 'Timeout hacia Flow'),
+      );
+      gatewayAdapter.getOrderStatus.mockResolvedValue({ status: 'PAID' });
+
+      const result =
+        await service.cancelOpenChargesForDisconnect('therapist-1');
+
+      expect(result).toEqual({
+        cancelled: 1,
+        unvoidedGroupIds: ['group-1'],
+      });
+    });
+
+    it('con más cobros abiertos que el tamaño de una tanda, sigue hasta procesarlos todos', async () => {
+      const batch = Array.from({ length: UNPAGINATED_SAFETY_LIMIT }, (_, i) =>
+        buildPayment({
+          id: `payment-${i}`,
+          groupId: `group-${i}`,
+          gatewayToken: `flow-token-${i}`,
+        }),
+      );
+      prisma.payment.findMany
+        .mockResolvedValueOnce(batch)
+        .mockResolvedValueOnce([
+          buildPayment({
+            id: 'payment-last',
+            groupId: 'group-last',
+            gatewayToken: 'flow-token-last',
+          }),
+        ]);
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.payment.findUnique.mockResolvedValue({
+        gatewayToken: 'flow-token-x',
+      });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+
+      const result =
+        await service.cancelOpenChargesForDisconnect('therapist-1');
+
+      expect(prisma.payment.findMany).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({
+        cancelled: UNPAGINATED_SAFETY_LIMIT + 1,
+        unvoidedGroupIds: [],
+      });
+    });
+
+    it('sin cuenta conectada no cancela nada ni toca la pasarela', async () => {
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(null);
+
+      const result =
+        await service.cancelOpenChargesForDisconnect('therapist-1');
+
+      expect(prisma.payment.findMany).not.toHaveBeenCalled();
+      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+      expect(gatewayAdapter.voidOrder).not.toHaveBeenCalled();
+      expect(result).toEqual({ cancelled: 0, unvoidedGroupIds: [] });
+    });
+
+    it('un cargo que un webhook concurrente ya pagó no se cuenta como cancelado ni se anula', async () => {
+      prisma.payment.findMany.mockResolvedValue([
+        buildPayment({
+          id: 'payment-1',
+          groupId: 'group-1',
+          gatewayToken: 'flow-token-1',
+        }),
+      ]);
+      prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+
+      const result =
+        await service.cancelOpenChargesForDisconnect('therapist-1');
+
+      expect(gatewayAdapter.voidOrder).not.toHaveBeenCalled();
+      expect(result).toEqual({ cancelled: 0, unvoidedGroupIds: [] });
     });
   });
 
