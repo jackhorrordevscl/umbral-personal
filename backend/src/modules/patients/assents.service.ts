@@ -6,6 +6,8 @@ import { getAgeBand } from '../../common/utils/age.util';
 import { lockTherapistForWrite } from '../../common/utils/lock-therapist.util';
 import { PatientsService } from './patients.service';
 import { RecordAssentDto } from './dto/record-assent.dto';
+import { ClinicalTextCryptoService } from '../../common/crypto/clinical-text-crypto.service';
+import { decryptAssentRow, encryptAssentNote } from './util/assent-text.util';
 
 // Append-only ledger of the assent of a patient under 18 (informed and heard
 // under 14, express assent from 14 to 17). It never replaces the guardian's
@@ -17,6 +19,7 @@ export class AssentsService {
   constructor(
     private prisma: PrismaService,
     private patientsService: PatientsService,
+    private clinicalCrypto: ClinicalTextCryptoService,
   ) {}
 
   async list(patientId: string, therapistId: string) {
@@ -33,7 +36,7 @@ export class AssentsService {
     // Anular el documento no agrega un evento al ledger (no es un retiro del
     // NNA): el listado solo indica que el respaldo fue anulado.
     return assents.map(({ document, ...assent }) => ({
-      ...assent,
+      ...decryptAssentRow(assent, this.clinicalCrypto),
       documentVoidedAt: document?.voidedAt ?? null,
     }));
   }
@@ -81,19 +84,24 @@ export class AssentsService {
     // issue #502 / #634: el insert toma KEY SHARE sobre User y Patient; sin
     // fijar antes el orden User -> Patient puede cruzarse con consultations.
     // create y quedar en deadlock (40P01).
-    const assent = await this.prisma.$transaction(async (tx) => {
+    const stored = await this.prisma.$transaction(async (tx) => {
       await lockTherapistForWrite(tx, therapistId);
       return tx.patientAssent.create({
         data: {
           patientId,
           ageBand,
           action: dto.action,
-          note: dto.note?.trim() || null,
+          note: encryptAssentNote(
+            dto.note?.trim() || null,
+            this.clinicalCrypto,
+            patientId,
+          ),
           documentId: dto.documentId ?? null,
           recordedById: therapistId,
         },
       });
     });
+    const assent = decryptAssentRow(stored, this.clinicalCrypto);
     this.logger.log(
       `Asentimiento registrado: id=${assent.id} patientId=${patientId} action=${dto.action} therapistId=${therapistId}`,
     );

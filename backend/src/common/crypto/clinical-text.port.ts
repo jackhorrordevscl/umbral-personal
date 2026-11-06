@@ -10,6 +10,11 @@ import {
   dischargeTextContext,
 } from '../../modules/discharges/util/discharge-text.util';
 import {
+  ASSENT_TEXT_FIELDS,
+  AssentTextField,
+  assentTextContext,
+} from '../../modules/patients/util/assent-text.util';
+import {
   NOTIFICATION_TEXT_FIELDS,
   NotificationTextField,
   notificationTextContext,
@@ -54,7 +59,11 @@ interface ColumnDelegate {
   }): Promise<{ count: number }>;
 }
 
-type ColumnModel = 'consultation' | 'treatmentDischarge' | 'notification';
+type ColumnModel =
+  | 'consultation'
+  | 'treatmentDischarge'
+  | 'notification'
+  | 'patientAssent';
 
 // issue #486: cada texto se recifra en enc:v4 ligado a su dueño (`ownerColumn`:
 // el paciente, o el usuario en las notificaciones) y a su campo. `context` es
@@ -81,6 +90,14 @@ const COLUMN_TABLES: {
     ownerColumn: 'patientId',
     context: (ownerId, field) =>
       dischargeTextContext(ownerId, field as DischargeTextField),
+  },
+  {
+    table: 'assent',
+    model: 'patientAssent',
+    fields: ASSENT_TEXT_FIELDS,
+    ownerColumn: 'patientId',
+    context: (ownerId, field) =>
+      assentTextContext(ownerId, field as AssentTextField),
   },
   {
     table: 'notification',
