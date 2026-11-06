@@ -162,12 +162,22 @@ export class PaymentReconciliationService {
         `Cobro vencido sin enlace de pago: correo al paciente omitido (paymentId=${payment.id})`,
       );
     } else if (recipient.email) {
-      if (recipient.kind === 'GUARDIAN') {
+      // Issue #634: el correo dice "la sesión del ...", así que lleva la fecha
+      // de la sesión vigente y no el vencimiento (sesión + gracia).
+      const consultation = await this.prisma.consultation.findFirst({
+        where: { groupId: payment.groupId, correctedBy: null, deletedAt: null },
+        select: { sessionDate: true },
+      });
+      if (!consultation) {
+        this.logger.warn(
+          `Cobro vencido sin sesión vigente: correo al paciente omitido (paymentId=${payment.id})`,
+        );
+      } else if (recipient.kind === 'GUARDIAN') {
         await this.mailService.sendLatePaymentEmail(
           recipient.email,
           recipient.recipientName,
           payment.amount,
-          payment.dueDate,
+          consultation.sessionDate,
           { patientName: recipient.patientName, isGuardian: true },
         );
       } else {
@@ -175,7 +185,7 @@ export class PaymentReconciliationService {
           recipient.email,
           recipient.recipientName,
           payment.amount,
-          payment.dueDate,
+          consultation.sessionDate,
         );
       }
     } else if (recipient.kind === 'GUARDIAN') {

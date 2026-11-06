@@ -25,6 +25,9 @@ function buildContext(overrides: Partial<GatewayContext> = {}): GatewayContext {
   };
 }
 
+// Distinta de dueDate (sesión + gracia): el correo debe llevar esta (issue #634).
+const SESSION_DATE = new Date('2026-09-09T15:00:00.000Z');
+
 function buildPayment(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: 'payment-1',
@@ -47,6 +50,7 @@ describe('PaymentReconciliationService', () => {
   let service: PaymentReconciliationService;
   let prisma: {
     patient: { findUnique: jest.Mock };
+    consultation: { findFirst: jest.Mock };
     payment: {
       findMany: jest.Mock;
       updateMany: jest.Mock;
@@ -88,6 +92,9 @@ describe('PaymentReconciliationService', () => {
     pass2Candidates = [];
     prisma = {
       patient: { findUnique: jest.fn() },
+      consultation: {
+        findFirst: jest.fn().mockResolvedValue({ sessionDate: SESSION_DATE }),
+      },
       payment: {
         findMany: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -226,7 +233,7 @@ describe('PaymentReconciliationService', () => {
         'paciente@example.com',
         'Juan Soto',
         30000,
-        duePayment.dueDate,
+        SESSION_DATE,
       );
       expect(notificationsService.create).toHaveBeenCalledTimes(1);
       expect(notificationsService.create).toHaveBeenCalledWith(
@@ -375,9 +382,32 @@ describe('PaymentReconciliationService', () => {
           'apoderada@example.com',
           'Ana Soto',
           30000,
-          payment.dueDate,
+          SESSION_DATE,
           { patientName: 'Juan Soto', isGuardian: true },
         );
+        expect(notificationsService.create).toHaveBeenCalledTimes(1);
+      });
+
+      it('sin sesión vigente no envía el correo (no hay fecha que mostrar) pero notifica al terapeuta', async () => {
+        pass1Candidates = [duePayment()];
+        prisma.consultation.findFirst.mockResolvedValue(null);
+        prisma.patient.findUnique.mockResolvedValue({
+          email: 'menor@example.com',
+          fullName: 'Juan Soto',
+          birthDate: MINOR_BIRTH_DATE,
+          guardians: [
+            {
+              fullName: 'Ana Soto',
+              email: 'apoderada@example.com',
+              isPayer: true,
+              receivesCommunications: true,
+            },
+          ],
+        });
+
+        await service.sweep();
+
+        expect(mailService.sendLatePaymentEmail).not.toHaveBeenCalled();
         expect(notificationsService.create).toHaveBeenCalledTimes(1);
       });
 
