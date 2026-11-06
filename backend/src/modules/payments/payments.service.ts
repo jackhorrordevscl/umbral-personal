@@ -24,6 +24,7 @@ import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import {
   CANCELLABLE_STATUSES,
   ORDER_OUTCOME_UNCERTAIN_ERROR,
+  PREVIOUS_ORDER_VOID_FAILED_ERROR,
   PAYMENT_DUE_GRACE_MS,
   PAYMENT_CONFIRM_PATH,
   PAYMENT_RETURN_PATH,
@@ -488,7 +489,20 @@ export class PaymentsService {
       // viejo (y el mismo commerceOrder = groupId); se anula ANTES de
       // reemitir para que el paciente no pueda pagarlo.
       if (payment.gatewayToken) {
-        await this.voidGatewayOrder(context, payment);
+        const voided = await this.voidGatewayOrder(context, payment);
+        if (!voided) {
+          // Issue #634: el enlace viejo sigue pagable en Flow. Emitir otro
+          // sobrescribiría el token y lo dejaría sin rastro, así que se
+          // conserva el token, se descarta el enlace y retryCharge reintenta.
+          await this.prisma.payment.updateMany({
+            where: { id: payment.id, gatewayToken: payment.gatewayToken },
+            data: {
+              paymentUrl: null,
+              lastError: PREVIOUS_ORDER_VOID_FAILED_ERROR,
+            },
+          });
+          return this.prisma.payment.findUniqueOrThrow({ where: { groupId } });
+        }
       }
       const order = await this.issueOrder({
         paymentId: payment.id,
@@ -574,7 +588,11 @@ export class PaymentsService {
         id: payment.id,
         gatewayToken: payment.gatewayToken,
       });
-      await this.voidGatewayOrder(context, payment);
+      const voided = await this.voidGatewayOrder(context, payment);
+      if (!voided) {
+        // Issue #634: sin poder anular la orden anterior no se emite otra.
+        throw new ServiceUnavailableException(PREVIOUS_ORDER_VOID_FAILED_ERROR);
+      }
     }
     const order = await this.issueOrder({
       paymentId: payment.id,
