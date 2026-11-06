@@ -3,6 +3,7 @@ import { AssentAction } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
 import { getAgeBand } from '../../common/utils/age.util';
+import { lockTherapistForWrite } from '../../common/utils/lock-therapist.util';
 import { PatientsService } from './patients.service';
 import { RecordAssentDto } from './dto/record-assent.dto';
 
@@ -77,15 +78,21 @@ export class AssentsService {
       }
     }
 
-    const assent = await this.prisma.patientAssent.create({
-      data: {
-        patientId,
-        ageBand,
-        action: dto.action,
-        note: dto.note?.trim() || null,
-        documentId: dto.documentId ?? null,
-        recordedById: therapistId,
-      },
+    // issue #502 / #634: el insert toma KEY SHARE sobre User y Patient; sin
+    // fijar antes el orden User -> Patient puede cruzarse con consultations.
+    // create y quedar en deadlock (40P01).
+    const assent = await this.prisma.$transaction(async (tx) => {
+      await lockTherapistForWrite(tx, therapistId);
+      return tx.patientAssent.create({
+        data: {
+          patientId,
+          ageBand,
+          action: dto.action,
+          note: dto.note?.trim() || null,
+          documentId: dto.documentId ?? null,
+          recordedById: therapistId,
+        },
+      });
     });
     this.logger.log(
       `Asentimiento registrado: id=${assent.id} patientId=${patientId} action=${dto.action} therapistId=${therapistId}`,
