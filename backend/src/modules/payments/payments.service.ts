@@ -156,6 +156,7 @@ export class PaymentsService {
             id: true,
             defaultSessionAmount: true,
             deletedAt: true,
+            treatmentStatus: true,
             email: true,
             fullName: true,
             birthDate: true,
@@ -179,6 +180,12 @@ export class PaymentsService {
       await this.moveDueDateIfNeeded(existing, consultation.sessionDate);
       return;
     }
+
+    // issue #634: con el tratamiento cerrado no nace un cargo nuevo (p. ej. al
+    // corregir una consulta pasada que nunca tuvo cobro): el paciente no
+    // recibiría un enlace de pago por un tratamiento que ya terminó. Un cargo
+    // existente sí sigue su curso (arriba).
+    if (consultation.patient.treatmentStatus !== 'ACTIVE') return;
 
     const context = await this.paymentAccountService.resolveGatewayContext(
       consultation.therapistId,
