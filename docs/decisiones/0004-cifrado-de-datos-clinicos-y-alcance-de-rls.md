@@ -127,6 +127,16 @@ Se adopta la alternativa **B**, con esta secuencia:
   del backend no la descifra y mostraría `enc:v3:…` en la campanita. Revertir
   no deshace esas filas, así que ante un problema se corrige hacia adelante.
 
+## Ampliación: nota del asentimiento del NNA (2026-11-06, issue #634)
+
+- **Qué se cifra:** `PatientAssent.note`, la nota libre que el terapeuta escribe al
+  registrar el asentimiento de un NNA. Es un texto clínico igual que los de la
+  consulta: va en `enc:v4` con el contexto `patient/<patientId>/assent.note` y la
+  API la devuelve siempre en claro.
+- **Datos existentes:** las notas guardadas antes se leen tal cual (texto plano
+  heredado) y se recifran con `npm run crypto:reencrypt -- --only clinical --apply`,
+  que ya incluye esta tabla.
+
 ## Fuera de alcance: entregas del informe (2026-10-26, issue #492)
 
 - **Qué queda en texto plano:** `DischargeDelivery.purpose` (hasta 200

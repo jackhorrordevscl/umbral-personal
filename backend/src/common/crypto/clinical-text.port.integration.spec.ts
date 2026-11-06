@@ -27,6 +27,7 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
   let historyId: string;
   let dischargeId: string;
   let notificationId: string;
+  let assentId: string;
 
   beforeAll(async () => {
     prisma = new PrismaService();
@@ -112,9 +113,22 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
         },
       })
     ).id;
+    // issue #634: nota de asentimiento heredada en texto plano.
+    assentId = (
+      await prisma.patientAssent.create({
+        data: {
+          patientId,
+          ageBand: 'AGE_14_17',
+          action: 'GRANTED',
+          note: 'Nota de asentimiento plana',
+          recordedById: therapistId,
+        },
+      })
+    ).id;
   }, 30000);
 
   afterAll(async () => {
+    await prisma.patientAssent.deleteMany({ where: { id: assentId } });
     await prisma.notification.deleteMany({ where: { userId: therapistId } });
     await prisma.consultationHistory.deleteMany({ where: { id: historyId } });
     await prisma.treatmentDischarge.deleteMany({ where: { id: dischargeId } });
@@ -127,7 +141,13 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
   const scoped = (port: DatasetPort): DatasetPort => ({
     ...port,
     async *list() {
-      const mine = [consultationId, historyId, dischargeId, notificationId];
+      const mine = [
+        consultationId,
+        historyId,
+        dischargeId,
+        notificationId,
+        assentId,
+      ];
       for await (const row of port.list()) {
         if (mine.some((id) => row.id.includes(id))) yield row;
       }
@@ -140,7 +160,7 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
     const port = () => scoped(buildClinicalPort(prisma, keyring));
 
     const dry = await runReencrypt([port()], { apply: false });
-    expect(dry.datasets[0].wouldReencrypt).toBe(11);
+    expect(dry.datasets[0].wouldReencrypt).toBe(12);
     const untouched = await prisma.consultation.findUniqueOrThrow({
       where: { id: consultationId },
     });
@@ -148,7 +168,7 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
 
     const applied = await runReencrypt([port()], { apply: true });
     expect(applied.datasets[0].failed).toBe(0);
-    expect(applied.datasets[0].reencrypted).toBe(11);
+    expect(applied.datasets[0].reencrypted).toBe(12);
 
     const consultation = await prisma.consultation.findUniqueOrThrow({
       where: { id: consultationId },
@@ -190,14 +210,20 @@ describe('clinical text reencrypt port (integration, real Prisma)', () => {
     expect(notification.body).toMatch(/^enc:v4:0:/);
     expect(JSON.stringify(notification)).not.toContain('Paciente Recifrado');
 
+    const assent = await prisma.patientAssent.findUniqueOrThrow({
+      where: { id: assentId },
+    });
+    expect(assent.note).toMatch(/^enc:v4:0:/);
+    expect(JSON.stringify(assent)).not.toContain('asentimiento plana');
+
     const lines: string[] = [];
     const again = await runReencrypt([port()], {
       apply: true,
       log: (line) => lines.push(line),
     });
     expect(again.datasets[0].failed).toBe(0);
-    expect(again.datasets[0].scanned).toBe(11);
-    expect(again.datasets[0].upToDate).toBe(11);
+    expect(again.datasets[0].scanned).toBe(12);
+    expect(again.datasets[0].upToDate).toBe(12);
     expect(again.datasets[0].reencrypted).toBe(0);
     expect(lines).toEqual([]);
   }, 30000);
