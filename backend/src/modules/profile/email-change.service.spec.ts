@@ -546,6 +546,9 @@ describe('EmailChangeService', () => {
           emailVerified: true,
           pendingEmail: null,
           pendingEmailTokenIssuedAt: null,
+          // Un enlace de restablecimiento ya enviado al correo viejo no debe
+          // seguir sirviendo tras el cambio (judgment-day #636).
+          passwordResetTokenIssuedAt: null,
         },
       });
       expect(auditService.log).toHaveBeenCalledWith({
