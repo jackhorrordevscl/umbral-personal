@@ -93,13 +93,13 @@ export default function DischargeSection({
   const handleDiscard = (d: TreatmentDischarge) => {
     setError("");
     setNotice("");
+    // El diálogo se cierra al confirmar: un segundo clic no manda otro DELETE.
+    setToDiscard(null);
     discard.mutate(d.id, {
       onSuccess: () => {
-        setToDiscard(null);
         setNotice("Borrador descartado. El informe emitido sigue vigente.");
       },
       onError: (err) => {
-        setToDiscard(null);
         setError(getApiErrorMessage(err, "No se pudo descartar el borrador"));
       },
     });

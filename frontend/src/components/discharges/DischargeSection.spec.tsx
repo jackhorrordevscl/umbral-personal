@@ -131,6 +131,22 @@ describe('DischargeSection', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Borrador descartado')
   })
 
+  it('si el descarte falla cierra el diálogo y muestra el error (issue #634)', async () => {
+    const user = userEvent.setup()
+    const draft = build({ id: 'd2', version: 2, status: 'DRAFT', correctsId: 'd1', issuedAt: null, documentId: null })
+    mockedApi.delete.mockRejectedValue({
+      response: { data: { message: 'El borrador ya no existe o fue emitido: no se puede descartar.' } },
+    })
+    renderSection([build({ id: 'd1' }), draft], 'DISCHARGED')
+
+    await user.click(await screen.findByRole('button', { name: 'Descartar el borrador de la versión 2' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Descartar' }))
+
+    expect(await screen.findByText(/ya no existe o fue emitido/)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(mockedApi.delete).toHaveBeenCalledTimes(1)
+  })
+
   it('un borrador inicial, que no corrige nada, no ofrece descartar (issue #634)', async () => {
     const draft = build({ id: 'd2', status: 'DRAFT', correctsId: null, issuedAt: null, documentId: null })
     renderSection([draft], 'ACTIVE')
