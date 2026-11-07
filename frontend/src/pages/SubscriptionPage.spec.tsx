@@ -3,6 +3,7 @@ import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
+import { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { SubscriptionScreen } from './SubscriptionPage'
 import api from '../api/client'
 import type { SubscriptionStatus } from '../hooks/useSubscription'
@@ -248,6 +249,33 @@ describe('SubscriptionPage (issue #611)', () => {
     await user.click(await screen.findByRole('button', { name: /pagar suscripción/i }))
 
     expect(await screen.findByText(/no se pudo iniciar el pago/i)).toBeInTheDocument()
+    expect(assign).not.toHaveBeenCalled()
+  })
+
+  it('si Flow rechaza el correo (422) muestra el mensaje del servidor y no el genérico (issue #630)', async () => {
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, assign })
+    const serverMessage =
+      'El procesador de pagos no aceptó el correo de tu cuenta. Revisa que sea un correo válido en tu perfil e intenta de nuevo.'
+    mockedApi.get.mockResolvedValue({
+      data: buildStatus({ state: 'READ_ONLY', periodEnd: null }),
+    })
+    mockedApi.post.mockRejectedValue(
+      new AxiosError('Request failed with status code 422', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 422,
+        statusText: 'Unprocessable Entity',
+        headers: {},
+        config: {} as InternalAxiosRequestConfig,
+        data: { statusCode: 422, message: serverMessage },
+      }),
+    )
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /pagar suscripción/i }))
+
+    expect(await screen.findByText(serverMessage)).toBeInTheDocument()
+    expect(screen.queryByText(/no se pudo iniciar el pago/i)).not.toBeInTheDocument()
     expect(assign).not.toHaveBeenCalled()
   })
 
