@@ -260,6 +260,27 @@ Los e2e de Playwright necesitan el backend levantado (`npm run start:dev` o
 a correr sin `E2E_SEED_CONFIRM=1`, `E2E_TEST_PASSWORD` y `E2E_TEST_MFA_SECRET`,
 y nunca en producción) y con `PUBLIC_SCHEDULING_ENABLED=true`. Playwright
 levanta por su cuenta el frontend (`npm run dev`) y el Flow simulado.
+
+#### Pruebas de integración del backend (`*.integration.spec.ts`)
+
+Se ejecutan con `cd backend && npm test` y escriben en la base a la que apunte
+`DATABASE_URL`; algunas recorren tablas completas. Por eso se niegan a correr
+(issue #629) si el nombre de esa base no termina en `_test` o `_ci` (el CI usa
+`umbral_ci`). Tu base de desarrollo (`umbral_db`) y la de producción quedan
+protegidas.
+
+Para correrlas en local, con el Postgres de Docker ya levantado, crea una base
+aparte, aplica las migraciones y apunta `DATABASE_URL` a ella (bash):
+
+```bash
+docker exec umbral-postgres-local psql -U umbral_user -d umbral_db -c "CREATE DATABASE umbral_test"
+export DATABASE_URL="postgresql://umbral_user:<password>@127.0.0.1:5432/umbral_test"
+export DIRECT_URL="$DATABASE_URL"
+cd backend && npx prisma migrate deploy && npm test
+```
+
+Sin `DATABASE_URL`, o con una base con otro nombre, esas suites fallan con un
+mensaje que lo explica; el resto de las pruebas unitarias no se ven afectadas.
 `frontend/playwright.config.ts` define dos proyectos: escritorio (`*.e2e.ts`)
 y móvil, con el viewport de un Pixel 7 (`*.mobile.e2e.ts`, issue #419). En
 local usan el navegador Brave instalado (ruta por defecto de Windows,
