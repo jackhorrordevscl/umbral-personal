@@ -121,6 +121,67 @@ describe('session-cookie (issue #387)', () => {
     });
   });
 
+  // Issue #627: en producción el nombre lleva __Host-, que el navegador solo
+  // acepta con Secure, Path=/ y sin Domain; un subdominio hermano no puede
+  // fijar una cookie con ese nombre.
+  describe('prefijo __Host- en producción (issue #627)', () => {
+    beforeEach(() => {
+      process.env.NODE_ENV = 'production';
+    });
+
+    it('emite __Host-umbral_session con Secure, Path=/ y sin Domain', () => {
+      const res = fakeRes();
+
+      setSessionCookie(
+        res as never,
+        fakeJwt(Math.floor(Date.now() / 1000) + 60),
+      );
+
+      const [name, , options] = res.cookie.mock.calls[0];
+      expect(name).toBe('__Host-umbral_session');
+      expect(options).toMatchObject({ secure: true, path: '/' });
+      expect(options).not.toHaveProperty('domain');
+    });
+
+    it('lee solo la cookie con prefijo y no la anterior sin prefijo', () => {
+      const reqWith = (cookie: string) => ({ headers: { cookie } }) as never;
+
+      expect(
+        extractSessionCookie(reqWith('__Host-umbral_session=nueva.jwt.firma')),
+      ).toBe('nueva.jwt.firma');
+      expect(
+        extractSessionCookie(reqWith('umbral_session=impuesta.por.hermano')),
+      ).toBeNull();
+      expect(
+        extractSessionCookie(
+          reqWith(
+            'umbral_session=impuesta.por.hermano; __Host-umbral_session=real.jwt.firma',
+          ),
+        ),
+      ).toBe('real.jwt.firma');
+    });
+
+    it('al cerrar sesión limpia la cookie con prefijo y la anterior sin prefijo', () => {
+      const res = fakeRes();
+
+      clearSessionCookie(res as never);
+
+      const names = res.clearCookie.mock.calls.map(
+        (call: unknown[]) => call[0] as string,
+      );
+      expect(names).toEqual(['__Host-umbral_session', 'umbral_session']);
+    });
+  });
+
+  it('fuera de producción conserva el nombre sin prefijo', () => {
+    process.env.NODE_ENV = 'development';
+    const res = fakeRes();
+
+    setSessionCookie(res as never, fakeJwt(Math.floor(Date.now() / 1000) + 60));
+
+    expect(res.cookie.mock.calls[0][0]).toBe(SESSION_COOKIE_NAME);
+  });
+
   describe('applySessionCookie', () => {
     it('emite la cookie cuando el resultado trae accessToken y devuelve el resultado intacto', () => {
       const res = fakeRes();

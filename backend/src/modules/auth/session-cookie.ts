@@ -7,7 +7,24 @@ import type { CookieOptions, Request, Response } from 'express';
 // la API (host-only). El dominio de producción es temporal; al cambiarlo no
 // hay nada que reconfigurar, pero el frontend y la API deben seguir siendo
 // same-site (mismo dominio registrable) para que SameSite=Strict la envíe.
+//
+// Issue #627: en producción (donde la cookie es Secure) el nombre lleva el
+// prefijo `__Host-`. El navegador solo acepta ese prefijo con Secure, Path=/ y
+// sin Domain, así que un subdominio hermano no puede fijar una cookie con el
+// mismo nombre (cookie tossing) y hacer que se lea la suya. En desarrollo la
+// cookie no es Secure (http) y se queda con el nombre sin prefijo. Sin lectura
+// del nombre anterior en producción: aceptarlo reabriría el hueco; las
+// sesiones previas (8 h) simplemente piden iniciar sesión otra vez.
 export const SESSION_COOKIE_NAME = 'umbral_session';
+export const HOST_SESSION_COOKIE_NAME = `__Host-${SESSION_COOKIE_NAME}`;
+
+function isSecure(): boolean {
+  return process.env.NODE_ENV === 'production';
+}
+
+export function sessionCookieName(): string {
+  return isSecure() ? HOST_SESSION_COOKIE_NAME : SESSION_COOKIE_NAME;
+}
 
 const DEFAULT_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 
@@ -15,7 +32,7 @@ function baseOptions(): CookieOptions {
   return {
     httpOnly: true,
     sameSite: 'strict',
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecure(),
     path: '/',
   };
 }
@@ -37,14 +54,17 @@ function maxAgeFromToken(token: string): number {
 }
 
 export function setSessionCookie(res: Response, accessToken: string): void {
-  res.cookie(SESSION_COOKIE_NAME, accessToken, {
+  res.cookie(sessionCookieName(), accessToken, {
     ...baseOptions(),
     maxAge: maxAgeFromToken(accessToken),
   });
 }
 
 export function clearSessionCookie(res: Response): void {
-  res.clearCookie(SESSION_COOKIE_NAME, baseOptions());
+  res.clearCookie(sessionCookieName(), baseOptions());
+  // Cierra también la cookie sin prefijo que dejó una sesión anterior al
+  // cambio de nombre: no se lee, pero no debe quedar viva en el navegador.
+  if (isSecure()) res.clearCookie(SESSION_COOKIE_NAME, baseOptions());
 }
 
 // Extractor para passport-jwt. Parseo manual del header para no sumar
@@ -52,10 +72,11 @@ export function clearSessionCookie(res: Response): void {
 export function extractSessionCookie(req: Request): string | null {
   const header = req?.headers?.cookie;
   if (!header) return null;
+  const name = sessionCookieName();
   for (const part of header.split(';')) {
     const index = part.indexOf('=');
     if (index === -1) continue;
-    if (part.slice(0, index).trim() !== SESSION_COOKIE_NAME) continue;
+    if (part.slice(0, index).trim() !== name) continue;
     const value = part.slice(index + 1).trim();
     if (!value) return null;
     try {
