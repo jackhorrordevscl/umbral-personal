@@ -328,12 +328,19 @@ export class RemindersService {
   }
 
   private async retryDispatch(row: RetryCandidate, now: Date): Promise<void> {
+    // issue #661: sin versión vigente, o con la sesión reprogramada, la fila
+    // ya no puede enviarse nunca. Se cierra como SKIPPED para que el cron no
+    // la reconsulte en cada pasada ni desplace reintentos reales del lote.
     const consultation = await this.resolveCurrentVersion(row, now);
-    if (!consultation) return;
+    if (!consultation) {
+      await this.skipDispatch(row);
+      return;
+    }
 
     // Si la sesión se reprogramó, esta fila corresponde a la fecha vieja:
     // los offsets de la nueva fecha los reclama el scan normal.
     if (row.sessionDate.getTime() !== consultation.sessionDate.getTime()) {
+      await this.skipDispatch(row);
       return;
     }
 
@@ -346,10 +353,7 @@ export class RemindersService {
       consultation.sessionDate,
     );
     if (currentOffset !== row.offsetKind) {
-      await this.prisma.reminderDispatch.updateMany({
-        where: { id: row.id, status: row.status, attempts: row.attempts },
-        data: { status: 'SKIPPED', error: null },
-      });
+      await this.skipDispatch(row);
       return;
     }
 
@@ -371,6 +375,15 @@ export class RemindersService {
       );
     }
     await this.sendAndMark(row.id, consultation, row.offsetKind, row.channel);
+  }
+
+  // Cierra la fila como SKIPPED (terminal) con el mismo candado optimista del
+  // re-claim: si otra instancia ya la tocó, no pisa su resultado.
+  private async skipDispatch(row: RetryCandidate): Promise<void> {
+    await this.prisma.reminderDispatch.updateMany({
+      where: { id: row.id, status: row.status, attempts: row.attempts },
+      data: { status: 'SKIPPED', error: null },
+    });
   }
 
   // La consulta del dispatch puede haber sido corregida: las versiones

@@ -644,7 +644,12 @@ describe('RemindersService.scan', () => {
 
       await service.scan();
 
-      expect(prisma.reminderDispatch.updateMany).not.toHaveBeenCalled();
+      // issue #661: la fila de la fecha vieja se cierra, no se reenvía.
+      expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledTimes(1);
+      expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledWith({
+        where: { id: 'dispatch-retry-1', status: 'FAILED', attempts: 1 },
+        data: { status: 'SKIPPED', error: null },
+      });
       expect(mailService.sendSessionReminderEmail).not.toHaveBeenCalled();
     });
 
@@ -657,7 +662,13 @@ describe('RemindersService.scan', () => {
 
       await service.scan();
 
-      expect(prisma.reminderDispatch.updateMany).not.toHaveBeenCalled();
+      // issue #661: la fila queda SKIPPED (terminal) con su candado
+      // optimista, para que el cron deje de reconsultarla.
+      expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledTimes(1);
+      expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledWith({
+        where: { id: 'dispatch-retry-1', status: 'FAILED', attempts: 1 },
+        data: { status: 'SKIPPED', error: null },
+      });
       expect(mailService.sendSessionReminderEmail).not.toHaveBeenCalled();
     });
 
@@ -883,8 +894,15 @@ describe('RemindersService.scan', () => {
 
       await service.scan();
 
-      expect(prisma.reminderDispatch.updateMany).not.toHaveBeenCalled();
+      // issue #661: la fila de la fecha vieja se cierra como SKIPPED; los
+      // offsets de la fecha nueva los reclama el scan normal.
+      expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledTimes(1);
+      expect(prisma.reminderDispatch.updateMany).toHaveBeenCalledWith({
+        where: { id: 'dispatch-retry-1', status: 'FAILED', attempts: 1 },
+        data: { status: 'SKIPPED', error: null },
+      });
       expect(mailService.sendSessionReminderEmail).not.toHaveBeenCalled();
+      expect(notificationsService.create).not.toHaveBeenCalled();
     });
 
     it('un error inesperado al reintentar una fila no impide reintentar las siguientes', async () => {

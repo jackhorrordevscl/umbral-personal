@@ -224,6 +224,43 @@ describe('RemindersService (integration, real Prisma)', () => {
     expect(notRetried.attempts).toBe(REMINDER_MAX_ATTEMPTS);
   }, 30000);
 
+  it('un EMAIL FAILED de la fecha vieja de una sesión reprogramada queda SKIPPED y deja de reconsultarse (#661)', async () => {
+    const newDate = new Date(Date.now() + 10 * 60 * 60 * 1000);
+    const oldDate = new Date(Date.now() + 30 * 60 * 60 * 1000);
+    const consultation = await createConsultation(newDate);
+    const row = await prisma.reminderDispatch.create({
+      data: {
+        groupId: consultation.id,
+        sessionDate: oldDate,
+        offsetKind: 'H24',
+        channel: 'EMAIL',
+        consultationId: consultation.id,
+        therapistId,
+        status: 'FAILED',
+        error: 'proveedor caído',
+        attempts: 1,
+        claimedAt: new Date(Date.now() - 60 * 60 * 1000),
+      },
+    });
+
+    await service.scan();
+
+    const closed = await prisma.reminderDispatch.findUniqueOrThrow({
+      where: { id: row.id },
+    });
+    expect(closed.status).toBe('SKIPPED');
+    expect(closed.error).toBeNull();
+    expect(closed.attempts).toBe(1);
+    expect(closed.resendMessageId).toBeNull();
+
+    // Un segundo scan ya no la toma como candidata: la fila queda intacta.
+    await service.scan();
+    const after = await prisma.reminderDispatch.findUniqueOrThrow({
+      where: { id: row.id },
+    });
+    expect(after).toEqual(closed);
+  }, 30000);
+
   it('un EMAIL FAILED de H24 cuando ya solo falta 1 h queda SKIPPED y no se reenvía; el H2 vigente sí sale', async () => {
     const inOneHour = new Date(Date.now() + 60 * 60 * 1000);
     const consultation = await createConsultation(inOneHour);
