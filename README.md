@@ -314,7 +314,8 @@ invitación:
   /auth/invitations` (requiere sesión), pero solo lo acepta si quien está
   logueado tiene el email configurado en `INVITE_CREATOR_EMAIL`; sin esa
   variable definida, nadie puede generar invitaciones y el signup público
-  queda efectivamente cerrado. Sin `RESEND_API_KEY` configurada en local, el
+  queda efectivamente cerrado (salvo con `SUBSCRIPTIONS_ENFORCED=true`, que
+  abre el registro y deja de exigir la invitación). Sin `RESEND_API_KEY` configurada en local, el
   email de verificación no se envía de verdad: `MailService` lo omite con
   un warning en el log del backend (revísalo ahí para obtener el enlace mientras
   pruebas en dev).
@@ -462,7 +463,11 @@ copia offsite de backups en **Backblaze B2** (ver
    las variables de Google Calendar, pagos y auto-agenda pública
    (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/`GOOGLE_REDIRECT_URI`,
    `PAYMENTS_ENABLED`, `PUBLIC_SCHEDULING_ENABLED`) si se activan esas
-   funciones (ver Variables de Entorno). Para rotar claves de cifrado, el
+   funciones (ver Variables de Entorno). `render.yaml` no declara las
+   variables de la suscripción (`SUBSCRIPTIONS_ENFORCED`,
+   `SUBSCRIPTION_FLOW_API_KEY`, `SUBSCRIPTION_FLOW_SECRET_KEY`,
+   `SUBSCRIPTION_PRICE_CLP`, `SUBSCRIPTION_RENEWAL_PRICE_CLP`): si se activa
+   el cobro hay que agregarlas a mano en el dashboard de Render. Para rotar claves de cifrado, el
    `render.yaml` también declara las variables `*_KEYRING` y
    `*_ACTIVE_KEY_ID` (ver
    [`docs/rotacion-y-respaldo-de-claves.md`](docs/rotacion-y-respaldo-de-claves.md)).
@@ -531,6 +536,7 @@ umbral-personal/
 │   │   │   ├── middleware/       # IP real del cliente (TRUSTED_PROXY_HOPS) y NoStore (cabeceras de no cachear)
 │   │   │   ├── filters/          # Filtros de excepciones (AllExceptions, Prisma)
 │   │   │   ├── crypto/           # AES-256-GCM compartido, llaveros versionados y recifrado (issue #382)
+│   │   │   ├── testing/          # Guardia de las pruebas de integración: exige una base descartable (_test o _ci, issue #629)
 │   │   │   ├── dto/              # DTOs compartidos (paginación)
 │   │   │   ├── validators/       # Validadores de class-validator propios
 │   │   │   └── utils/            # Storage B2, sanitizado de notas, hora de Chile, edad/NNA, RUT, slug, máscara de emails, etc.
@@ -546,6 +552,8 @@ umbral-personal/
 │   │   │   ├── calendar-integration/ # OAuth + sync push-only con Google Calendar (issue #78)
 │   │   │   ├── availability/     # Horario semanal, bloqueos y cálculo de horarios libres (sdd/patient-self-scheduling)
 │   │   │   ├── payments/         # Cuenta Flow por terapeuta, cargos y webhook de confirmación (sdd/online-payment-integration)
+│   │   │   ├── billing/          # Cobro de la suscripción mensual con Flow: checkout, webhook, retorno y barrido (issue #611)
+│   │   │   ├── subscriptions/    # Dominio de la suscripción: estado de acceso, solo lectura, códigos promocionales, exenciones y avisos (issue #611)
 │   │   │   ├── public-scheduling/ # Portal público de auto-agenda sin autenticación (sdd/patient-self-scheduling)
 │   │   │   ├── mail/             # Envío de emails transaccionales (Resend)
 │   │   │   ├── webhooks/         # Webhook de Resend (tracking de entrega/apertura de emails)
@@ -554,7 +562,7 @@ umbral-personal/
 │   │   ├── shared-files/         # Biblioteca personal (plantillas, protocolos) -- privada por usuario
 │   │   └── prisma/               # Servicio Prisma
 │   ├── test/                     # Tests e2e del backend (Jest + Supertest, contra Postgres real)
-│   ├── scripts/                  # Scripts manuales (seed-holidays, notify-document-reupload, reencrypt-keys; este último con `npm run crypto:reencrypt`)
+│   ├── scripts/                  # Scripts manuales (seed-holidays, notify-document-reupload, create-promo-code, grant-subscription, reencrypt-keys; este último con `npm run crypto:reencrypt`)
 │   └── .env.example
 ├── frontend/
 │   ├── src/
@@ -568,7 +576,7 @@ umbral-personal/
 │       │                         # y subcarpetas por dominio: availability/,
 │       │                         # booking/, calendar/, consultations/,
 │       │                         # discharges/, notifications/, patients/,
-│       │                         # payments/, reminders/, ui/ (Modal,
+│       │                         # payments/, reminders/, subscription/, ui/ (Modal,
 │       │                         # ConfirmDialog, ErrorBanner, EmptyState,
 │       │                         # FormField, PasswordInput, RichTextEditor)
 │       ├── hooks/                # Un hook de TanStack Query por dominio
@@ -584,7 +592,8 @@ umbral-personal/
 │                                  # Dashboard, Patients, Consultations, Calendar,
 │                                  # Payments, PaymentReturn, PublicBooking,
 │                                  # Profile (datos de cuenta), Security (MFA,
-│                                  # conexión Google Calendar), SharedFiles
+│                                  # conexión Google Calendar), SharedFiles,
+│                                  # Subscription, SubscriptionReturn
 │   ├── e2e/                      # Tests e2e de Playwright (*.e2e.ts, *.mobile.e2e.ts) y helpers
 │   ├── playwright.config.ts      # Proyectos de escritorio y móvil (Pixel 7)
 │   ├── vitest.config.ts          # Configuración de Vitest (jsdom, cobertura)
@@ -793,7 +802,10 @@ umbral-personal/
   que se copian al informe de alta al emitirlo
 - Cambio de nombre inmediato; cambio de email diferido hasta confirmarlo
   desde un enlace de un solo uso enviado a la casilla nueva (`POST
-  /profile/email-change/confirm`), con aviso a la casilla antigua
+  /profile/email-change/confirm`), con aviso a la casilla antigua. Si algún
+  aviso no sale (Resend lo rechaza), el pedido se cancela y `PATCH /profile`
+  responde 503; al confirmar el cambio se invalidan los enlaces de
+  restablecimiento de contraseña pendientes (issue #636)
 - Cambiar la contraseña invalida la sesión en **todos** los dispositivos,
   no solo el actual (`passwordChangedAt` comparado contra el `iat` del
   JWT en cada request)
@@ -843,6 +855,7 @@ umbral-personal/
   (`defaultSessionAmount`) en su ficha, para no perder ese cargo en silencio
   (`PATIENT_MISSING_SESSION_AMOUNT`)
 - Tipos de notificación (`NotificationType`): `SESSION_REMINDER`,
+  `SUBSCRIPTION_EXPIRING`, `SUBSCRIPTION_PRICE_CHANGE`,
   `GOOGLE_CALENDAR_DISCONNECTED`, `PAYMENT_LATE`,
   `PATIENT_MISSING_SESSION_AMOUNT`, `PATIENT_DOCUMENT_REUPLOAD_REQUIRED` (aviso
   único de un script de mantenimiento) y `PAYMENT_ANOMALY` (la pasarela
@@ -923,6 +936,40 @@ umbral-personal/
 - Desactivable por completo con `PAYMENTS_ENABLED=false` sin necesitar un
   deploy/revert; sin una cuenta Flow conectada, agendar sesiones se
   comporta exactamente igual que sin este módulo
+
+### Suscripción mensual (issue #611, ADR 0009)
+- Todo el control de acceso va detrás de `SUBSCRIPTIONS_ENFORCED` (opt-in,
+  `=== 'true'`). Apagado, la app se comporta como antes: registro por
+  invitación, sin cobro, sin solo lectura y sin avisos
+- Cobro manual por período de 30 días con Flow, con credenciales de la propia
+  plataforma (`SUBSCRIPTION_FLOW_API_KEY`/`SUBSCRIPTION_FLOW_SECRET_KEY`), no
+  las de cada terapeuta. Plan único: `SUBSCRIPTION_PRICE_CLP` (6990 CLP por
+  defecto) congelado por cuenta durante 12 meses y luego
+  `SUBSCRIPTION_RENEWAL_PRICE_CLP` (12990 CLP por defecto, nunca menos que el
+  precio congelado). Cada pago confirmado suma 30 días a partir del mayor
+  entre ahora y el vencimiento actual
+- El acceso se concede solo cuando `getStatus` de Flow confirma el pago por el
+  monto cobrado, de forma idempotente. Hay tres vías: el webhook
+  (`POST /billing/confirm`), la consulta al volver de Flow
+  (`POST /billing/refresh`) y un barrido de respaldo cada 30 minutos
+- El estado de la cuenta se calcula al consultar (`EXEMPT`, `ACTIVE`, `GRACE`
+  o `READ_ONLY`): 7 días de gracia tras el vencimiento y luego solo lectura.
+  En solo lectura las lecturas y la exportación PDF siguen disponibles y una
+  escritura fuera de la lista de permitidas responde `402`
+  (`SUBSCRIPTION_REQUIRED`); la agenda pública de esa cuenta responde 503
+- Avisos de vencimiento a los 5, 1 y 0 días, y un aviso único desde 30 días
+  antes de que termine el precio de lanzamiento, por notificación y email
+  (crons diarios a las 12:00 hora del servidor; no corren con el interruptor
+  apagado)
+- Registro abierto (`GET /auth/signup-config` informa `openSignup`) con código
+  promocional opcional que otorga un período de prueba; sin código, la cuenta
+  nace en solo lectura. Los códigos se crean con
+  `npx ts-node scripts/create-promo-code.ts <CODIGO> --channel <canal>
+  [--max 30] [--trial-days 30] [--valid-days 60]` y las cuentas exentas se
+  cargan con `npx ts-node scripts/grant-subscription.ts <email> [--until
+  YYYY-MM-DD]` (desde `backend/`, ejecución manual, sin rol ADMIN)
+- En el frontend: `/suscripcion` (estado, pago y cambio de precio pendiente) y
+  `/suscripcion/retorno` (consulta el pago al volver de Flow)
 
 ### Auto-agenda pública de pacientes (sdd/patient-self-scheduling)
 - Portal público sin autenticación (`/book/:therapistId`) donde el paciente
@@ -1210,8 +1257,10 @@ sin sesión, porque es el portal que usa el paciente para autoagendarse. `profil
 y `avatar` (issue #155) no dependen de ese flag y quedan siempre públicas.
 En todas estas rutas `:therapistId` acepta el slug del terapeuta o su UUID;
 un valor desconocido responde igual que antes (`404`, o lista vacía en
-`availability`). El rate limit por `ip:therapistId` usa el valor tal cual
-viene en la ruta, así que slug y UUID cuentan en buckets separados.
+`availability`). Los límites de tasa resuelven la referencia al id del
+terapeuta, así que slug y UUID del mismo terapeuta comparten bucket (issue
+#496); todas las referencias desconocidas de una IP comparten un único bucket
+(issue #635).
 
 ### Cobro en línea (sdd/online-payment-integration, sdd/payments-multigateway-redesign)
 ```
@@ -1252,7 +1301,13 @@ GET /api/v1/          (sin auth, respuesta de texto fija de `AppController`, sin
 > 🔒 Requiere sesión: el JWT viaja en la cookie `umbral_session` (HttpOnly,
 > `SameSite=Strict`, `Secure` en producción) que el backend emite al iniciar
 > sesión, o en el header `Authorization: Bearer <token>`, que sigue siendo
-> válido (`JwtStrategy` acepta ambos; issue #387, ADR 0003).
+> válido (`JwtStrategy` acepta ambos; issue #387, ADR 0003). En producción
+> la cookie se llama `__Host-umbral_session` (sin atributo `Domain`, issue
+> #627); no se lee el nombre sin prefijo.
+>
+> Con `SUBSCRIPTIONS_ENFORCED=true`, una cuenta en solo lectura recibe `402`
+> con `code: "SUBSCRIPTION_REQUIRED"` en cualquier escritura que no esté en la
+> lista de permitidas (ver [Suscripción mensual](#suscripción-mensual-issue-611-adr-0009)).
 
 ---
 
@@ -1556,7 +1611,7 @@ proveedor definido (Backblaze B2 + `rclone`); ver
 | `REMINDERS_ENABLED` | Si es `false`, desactiva el cron de recordatorios de sesión (`RemindersService`, cada 5 min) sin necesitar un deploy/revert | `false` en CI/e2e |
 | `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar la credencial del merchant Flow de cada terapeuta en reposo, distinta de `DOCUMENT_ENCRYPTION_KEY`/`GOOGLE_TOKEN_ENCRYPTION_KEY` (sdd/online-payment-integration) | Generar con `openssl rand -base64 32` |
 | `MFA_SECRET_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar el secreto TOTP de cada usuario (`User.mfaSecret`) en reposo, distinta de las demás claves de cifrado (issue #302). Los secretos guardados en texto plano antes de este cambio siguen funcionando y se re-cifran solos en el siguiente login con MFA. **No reemplazar el valor sin usar el llavero**: cambiarla directamente deja ilegibles los secretos ya cifrados (para rotarla, ver `*_KEYRING` más abajo) | Generar con `openssl rand -base64 32` |
-| `CLINICAL_TEXT_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar en reposo los textos clínicos libres (notas de consulta e informe de alta), distinta de las demás claves de cifrado (ADR 0004, opción B). Obligatoria en producción: sin ella el arranque falla, y sin una copia de la clave el texto cifrado es irrecuperable | Generar con `openssl rand -base64 32` |
+| `CLINICAL_TEXT_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) para cifrar en reposo los textos clínicos libres (notas de consulta, informe de alta, nota del asentimiento del NNA, evidencia del consentimiento, motivo de anulación de documentos y título y cuerpo de las notificaciones), distinta de las demás claves de cifrado (ADR 0004, opción B). Obligatoria en producción: sin ella el arranque falla, y sin una copia de la clave el texto cifrado es irrecuperable | Generar con `openssl rand -base64 32` |
 | `DOCUMENT_ENCRYPTION_KEY_KEYRING` / `GOOGLE_TOKEN_ENCRYPTION_KEY_KEYRING` / `PAYMENT_CREDENTIALS_ENCRYPTION_KEY_KEYRING` / `MFA_SECRET_ENCRYPTION_KEY_KEYRING` / `CLINICAL_TEXT_ENCRYPTION_KEY_KEYRING` | Opcionales (issue #382, ADR 0005). Agregan claves de cifrado al llavero del dato correspondiente con el formato `id:base64,id:base64` (ids enteros de 1 a 255, sin repetir, cada clave de 32 bytes en base64). La variable original sigue siendo la clave id 0. Solo se usan al rotar una clave | Ver [docs/rotacion-y-respaldo-de-claves.md](docs/rotacion-y-respaldo-de-claves.md) |
 | `DOCUMENT_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `GOOGLE_TOKEN_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `PAYMENT_CREDENTIALS_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `MFA_SECRET_ENCRYPTION_KEY_ACTIVE_KEY_ID` / `CLINICAL_TEXT_ENCRYPTION_KEY_ACTIVE_KEY_ID` | Opcionales (issue #382). Id de la clave con la que se cifran los datos nuevos; debe ser `0` o existir en el `_KEYRING` correspondiente. Si falta, se usa la id 0. Un valor mal formado hace fallar el arranque | Ver [docs/rotacion-y-respaldo-de-claves.md](docs/rotacion-y-respaldo-de-claves.md) |
 | `PAYMENTS_ENABLED` | Si es `false`, desactiva por completo la creación de cargos, el checkout, los emails de pago y el cron de vencimiento sin necesitar un deploy/revert | `true` en el job `backend` de CI (lo necesita `payments.e2e-spec.ts`) y en el e2e de Playwright (contra un Flow simulado) |
