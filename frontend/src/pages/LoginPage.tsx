@@ -403,11 +403,11 @@ export default function LoginPage() {
             "El cuidado del paciente comienza con el cuidado del registro."
           </blockquote>
           <p className="text-slate-400 text-sm mt-4">
-            Sistema de gestión clínica conforme a Ley 20.584
+            Sistema de gestión clínica diseñado para alinearse con la Ley 20.584
           </p>
         </div>
         <div className="text-slate-400 text-xs">
-          © 2026 Umbral - RCE — Datos protegidos bajo Ley 19.628
+          © 2026 Umbral - RCE
         </div>
       </div>
 
