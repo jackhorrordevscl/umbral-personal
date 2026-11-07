@@ -36,7 +36,7 @@ anterior no lee `enc:v4`, y el piso es el build `3514277` (#609).
 | Secreto MFA | `MFA_SECRET_ENCRYPTION_KEY` | `User.mfaSecret` | Nadie valida el MFA. `recoverMfa` borra el secreto para volver a enrolar |
 | Tokens de Google | `GOOGLE_TOKEN_ENCRYPTION_KEY` | `GoogleCalendarConnection.refreshTokenEncrypted` | Hay que reconectar Google (no probado en producción) |
 | Credenciales de pago | `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` | `PaymentAccount.credentialEncrypted` | Hay que volver a cargar las credenciales de Flow (no probado en producción) |
-| Textos clínicos | `CLINICAL_TEXT_ENCRYPTION_KEY` | `Consultation` (motivo, intervención, acuerdos), `TreatmentDischarge` (siete textos libres), los textos de `ConsultationHistory.snapshot` y `Notification` (título y cuerpo) | **Irrecuperables.** Las notas y los textos del informe quedan ilegibles, también en los respaldos. Solo sirve recuperar la clave desde el gestor de contraseñas |
+| Textos clínicos | `CLINICAL_TEXT_ENCRYPTION_KEY` | `Consultation` (motivo, intervención, acuerdos), `TreatmentDischarge` (siete textos libres), `PatientConsent.evidence`, `PatientDocument.voidReason`, `PatientAssent.note`, los textos de `ConsultationHistory.snapshot` y `Notification` (título y cuerpo) | **Irrecuperables.** Las notas y los textos del informe quedan ilegibles, también en los respaldos. Solo sirve recuperar la clave desde el gestor de contraseñas |
 
 Un documento solo se puede leer con **dos cosas juntas**: la clave de cifrado y
 las credenciales del bucket (`B2_PATIENT_DOCUMENTS_ENDPOINT`, `_REGION`,
@@ -48,7 +48,7 @@ Alcance de cada dato, según el código:
   los informes de alta en PDF (`DISCHARGE_REPORT`) y las autorizaciones de
   entrega (`DELIVERY_AUTHORIZATION`), y también los documentos anulados.
 - El dataset `clinical` cubre las columnas de texto libre de `Consultation` y
-  `TreatmentDischarge`, los textos dentro de `ConsultationHistory.snapshot` y el
+  `TreatmentDischarge`, la evidencia de `PatientConsent`, el motivo de anulación de `PatientDocument`, la nota de `PatientAssent`, los textos dentro de `ConsultationHistory.snapshot` y el
   título y cuerpo de `Notification`, incluidas las filas borradas o canceladas
   (ADR 0004, opción B).
 - No se cifran con estas claves: los avatares y los archivos personales

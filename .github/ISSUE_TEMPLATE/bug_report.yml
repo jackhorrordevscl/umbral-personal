@@ -50,6 +50,6 @@ body:
     id: recommendation
     attributes:
       label: Recomendación
-      description: Si tenés una idea concreta de cómo resolverlo.
+      description: Si hay una idea concreta de cómo resolverlo.
     validations:
       required: false

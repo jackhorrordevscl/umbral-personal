@@ -10,7 +10,7 @@ Tu trabajo hoy no es "usar la app": es **tratar de romperla a propósito**, de l
 
 Un detalle importante: Umbral es una app **individual**, tu cuenta es tuya y solo tuya, sin roles ni jerarquías. No vas a tener una segunda cuenta "de otro tipo" para probar; todo lo que hagas hoy es con la única cuenta que crees.
 
-Menú lateral que vas a usar: **Dashboard**, **Pacientes**, **Consultas**, **Calendario**, **Repositorio**, **Pagos**, **Perfil** y **Seguridad**.
+Menú lateral que vas a usar: **Dashboard**, **Pacientes**, **Consultas**, **Calendario**, **Repositorio**, **Pagos**, **Perfil** y **Seguridad** (más **Suscripción**, solo si la instancia tiene el cobro de suscripción activo).
 
 ---
 
@@ -20,9 +20,9 @@ Vas a encarnar a una terapeuta ficticia. Sigue la historia paso a paso, en el or
 
 ### 8:45 · Antes de empezar: crea tu cuenta
 
-Si todavía no tienes una cuenta, créala ahora: en el login, haz clic en "Regístrate", completa nombre completo, email, contraseña (mínimo 8 caracteres), confirmación de la contraseña y el código de invitación que te compartieron (sin él el registro se rechaza, issue #124), y confirma el enlace que te llega por correo (revisa spam si no aparece en unos minutos). Sin este paso no vas a poder loguear.
+Si todavía no tienes una cuenta, créala ahora: en el login, haz clic en "Regístrate", completa nombre completo, email y el código de invitación que te compartieron (sin él el registro se rechaza, issue #124; si la instancia tiene el cobro de suscripción activo, el registro es abierto y en su lugar aparece un "Código promocional (opcional)"). El formulario no pide contraseña: abre el enlace que te llega por correo (revisa spam si no aparece en unos minutos), elige ahí tu contraseña (mínimo 8 caracteres, con confirmación) y pulsa "Verificar y activar cuenta". Sin este paso no vas a poder loguear.
 
-> 📝 Anota: ¿el mensaje de "revisa tu email" te dejó claro qué esperar? ¿el enlace de verificación funcionó al primer clic?
+> 📝 Anota: ¿el mensaje de "revisa tu email" te dejó claro qué esperar (incluido que la contraseña se elige después)? ¿el enlace de verificación funcionó al primer clic?
 
 ### 9:00 · Llegas a trabajar
 
@@ -276,7 +276,7 @@ Usa a **Jorge Luis Ramírez Peña**, que ya tiene consentimiento. Para que la pr
 - Elige el motivo de cierre (Alta, Derivado o Deserción; con Deserción debe pedirte un motivo de una lista) y pulsa "Emitir informe". Antes de confirmar, la app debería mostrarte la lista de consultas futuras que se cancelarán y advertir que no se puede deshacer.
 - Tras emitir: el paciente debería mostrar la etiqueta del estado (por ejemplo "Alta"), la consulta futura debería haber desaparecido del Calendario y de la lista de consultas, los horarios deberían volver a estar libres en la agenda pública, y una reserva pública de Jorge debería rechazarse con el mensaje genérico. Si Jorge tiene email, debería recibir un correo avisando que sus consultas se cancelaron, sin el motivo del cierre.
 - En el informe emitido, descarga el PDF (debería llevar la huella SHA-256 en el pie) y pulsa el ícono de verificar: debería indicar que el informe coincide con la huella original.
-- Prueba "Corregir": debería crearse una versión nueva y la anterior quedar como "Reemplazada".
+- Prueba "Corregir": debería crearse una versión nueva y la anterior quedar como "Reemplazada". Si dejas el borrador de la corrección sin emitir, prueba también descartarlo con el ícono de papelera: el informe anterior debería seguir vigente.
 - Pulsa "Registrar entrega" en el bloque **Entregas** y registra la entrega al paciente (canal y finalidad, sin datos clínicos). Intenta luego una entrega a un **Tercero** sin haber subido antes un documento de tipo "Autorización de entrega de informe": no debería dejarte avanzar. Sube el documento y repite: ahora debe pedirte marcar la casilla de que revisaste la autorización.
 - Por último, registra una nueva consulta para Jorge: la app debería pedirte confirmar con "Reabrir y agendar", y el informe anterior debería quedar como "Histórico · Paciente reabierto".
 
