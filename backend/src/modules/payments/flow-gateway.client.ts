@@ -148,6 +148,17 @@ export class FlowPaymentGatewayClient extends PaymentGatewayClient {
     credentials: GatewayCredentials,
     input: OrderInput,
   ): Promise<{ token: string; paymentUrl: string }> {
+    // Issue #652: el puerto acepta cualquier llamador; un timeout que no sea un
+    // entero positivo no debe llegar a Flow.
+    if (
+      input.timeoutSeconds !== undefined &&
+      (!Number.isInteger(input.timeoutSeconds) || input.timeoutSeconds <= 0)
+    ) {
+      throw new PaymentGatewayError(
+        'rejected',
+        `timeoutSeconds debe ser un entero positivo (recibido: ${input.timeoutSeconds}).`,
+      );
+    }
     const params: Record<string, string> = {
       apiKey: credentials.apiKey,
       commerceOrder: input.externalId,
