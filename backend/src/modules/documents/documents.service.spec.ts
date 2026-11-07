@@ -929,6 +929,16 @@ describe('DocumentsService', () => {
       expect(tx.patientDocument.updateMany).not.toHaveBeenCalled();
     });
 
+    // Issue #627: un documento ajeno responde el mismo 404 que uno inexistente.
+    it('un documento ajeno responde "Documento no encontrado", igual que uno inexistente', async () => {
+      patientsService.assertAccess.mockRejectedValue(
+        new NotFoundException('Paciente no encontrado'),
+      );
+      await expect(
+        service.voidDocument('doc-1', dto, 'therapist-1'),
+      ).rejects.toThrow('Documento no encontrado');
+    });
+
     describe('documentos DISCHARGE_REPORT (T3)', () => {
       const dischargeDoc = {
         ...consentDoc,

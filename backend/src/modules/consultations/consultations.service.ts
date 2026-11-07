@@ -487,8 +487,16 @@ export class ConsultationsService {
     });
     if (!consultation) throw new NotFoundException('Consulta no encontrada');
 
-    // Lanza NotFoundException si el usuario no tiene acceso al paciente dueño de esta consulta
-    await this.patientsService.assertAccess(consultation.patientId, userId);
+    // Issue #627: una consulta ajena responde el mismo 404 que una inexistente
+    // (no 'Paciente no encontrado'), así no se puede confirmar que un id existe.
+    try {
+      await this.patientsService.assertAccess(consultation.patientId, userId);
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        throw new NotFoundException('Consulta no encontrada');
+      }
+      throw err;
+    }
 
     const history = await this.getHistory(
       consultation.groupId,

@@ -356,6 +356,20 @@ export class DocumentsService {
     return documents.map((d) => decryptDocumentRow(d, this.clinicalCrypto));
   }
 
+  private async assertDocumentAccess(
+    patientId: string,
+    userId: string,
+  ): Promise<void> {
+    try {
+      await this.patientsService.assertAccess(patientId, userId);
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        throw new NotFoundException('Documento no encontrado');
+      }
+      throw err;
+    }
+  }
+
   async getDocument(id: string, userId: string) {
     const doc = await this.prisma.patientDocument.findUnique({
       where: { id },
@@ -363,8 +377,9 @@ export class DocumentsService {
 
     if (!doc) throw new NotFoundException('Documento no encontrado');
 
-    // Lanza NotFoundException si el usuario no tiene acceso al paciente dueño del documento
-    await this.patientsService.assertAccess(doc.patientId, userId);
+    // Issue #627: un documento ajeno responde el mismo 404 que uno inexistente
+    // (no 'Paciente no encontrado'), así no se puede confirmar que un id existe.
+    await this.assertDocumentAccess(doc.patientId, userId);
 
     return doc;
   }
@@ -399,8 +414,8 @@ export class DocumentsService {
     });
     if (!existing) throw new NotFoundException('Documento no encontrado');
 
-    // Mismo 404 uniforme que el resto del módulo si el documento es ajeno.
-    await this.patientsService.assertAccess(existing.patientId, userId);
+    // Mismo 404 uniforme que un documento inexistente si el documento es ajeno.
+    await this.assertDocumentAccess(existing.patientId, userId);
 
     const isDischargeReport = existing.type === DocumentType.DISCHARGE_REPORT;
     if (caller === 'generic' && isDischargeReport) {

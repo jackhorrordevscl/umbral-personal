@@ -819,6 +819,31 @@ describe('ConsultationsService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
+    // Issue #627: ajena e inexistente responden el mismo 404, sin delatar que el
+    // id existe.
+    it('una consulta ajena responde el mismo 404 que una inexistente', async () => {
+      prisma.consultation.findFirst.mockResolvedValueOnce(null);
+      const inexistente = await service
+        .findOne('consultation-1', 'therapist-1')
+        .catch((err: unknown) => err as NotFoundException);
+
+      prisma.consultation.findFirst.mockResolvedValueOnce(buildConsultation());
+      patientsService.assertAccess.mockRejectedValueOnce(
+        new NotFoundException('Paciente no encontrado'),
+      );
+      const ajena = await service
+        .findOne('consultation-1', 'therapist-2')
+        .catch((err: unknown) => err as NotFoundException);
+
+      expect(ajena).toBeInstanceOf(NotFoundException);
+      expect((ajena as NotFoundException).message).toBe(
+        (inexistente as NotFoundException).message,
+      );
+      expect((ajena as NotFoundException).message).toBe(
+        'Consulta no encontrada',
+      );
+    });
+
     it('valida acceso al paciente dueño de la consulta', async () => {
       prisma.consultation.findFirst.mockResolvedValue(buildConsultation());
 
