@@ -277,4 +277,4 @@ The system MUST expose a backend endpoint (`GET` and `POST /payments/return`) th
 
 ## Open Questions
 
-- Charges created while an account was still `CONNECTED` but left pending when the account later flips to `RECONNECT_REQUIRED` (mid-flight charges): the code leaves them pending, and their confirmation and reconciliation are skipped or rejected while the account is not `CONNECTED`. Whether they should be cancelled or block reconnection is not defined. A voluntary disconnection no longer leaves such charges: it cancels the open ones and voids their orders (see the `payment-gateway-connection` spec).
+- Charges created while an account was still `CONNECTED` but left pending when the account later flips to `RECONNECT_REQUIRED` (mid-flight charges): the code leaves them pending, and their confirmation and reconciliation are skipped or rejected while the account is not `CONNECTED`. Whether they should be cancelled or block reconnection is not defined. A voluntary disconnection no longer leaves such charges when they have a gateway token: it cancels the open ones and voids their orders (see the `payment-gateway-connection` spec).
