@@ -22,6 +22,9 @@ describe('isWriteAllowedInReadOnly', () => {
     ['PATCH', '/api/v1/notifications/read-all'],
     ['PATCH', '/api/v1/notifications/:id/read'],
     ['PATCH', '/api/v1/profile'],
+    // Issue #627: retirar el acceso de terceros no exige suscripción.
+    ['POST', '/api/v1/calendar-integration/disconnect'],
+    ['DELETE', '/api/v1/payments/account'],
   ])('permite %s %s', (method, path) => {
     expect(isWriteAllowedInReadOnly(method, path)).toBe(true);
   });
@@ -40,6 +43,11 @@ describe('isWriteAllowedInReadOnly', () => {
     ['POST', '/api/v1/documents/upload'],
     ['POST', '/api/v1/shared-files/upload'],
     ['POST', '/api/v1/profile/avatar'],
+    // Issue #627: conectar sigue bloqueado; solo se permite retirar accesos.
+    ['POST', '/api/v1/payments/account'],
+    ['POST', '/api/v1/payments/account/validate'],
+    ['PUT', '/api/v1/calendar-integration/disconnect'],
+    ['PATCH', '/api/v1/payments/account'],
     // Mismo ruta que una permitida, otro método.
     ['PATCH', '/api/v1/billing/checkout'],
     ['PATCH', '/api/v1/billing/refresh'],

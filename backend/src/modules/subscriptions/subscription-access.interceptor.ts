@@ -34,6 +34,11 @@ const ALLOWED_WRITES: ReadonlyArray<{ method?: string; pattern: RegExp }> = [
   { method: 'POST', pattern: /^\/patients\/:patientId\/assents$/ },
   // Entrega de un informe de alta ya emitido.
   { method: 'POST', pattern: /^\/discharges\/:id\/deliveries$/ },
+  // Issue #627: retirar el acceso de terceros nunca debe exigir pagar. Una
+  // cuenta vencida puede desconectar Google Calendar y la cuenta de pago de
+  // Flow (conectar o reconectar sigue bloqueado).
+  { method: 'POST', pattern: /^\/calendar-integration\/disconnect$/ },
+  { method: 'DELETE', pattern: /^\/payments\/account$/ },
   // Marcar notificaciones como leídas y datos de la cuenta (contraseña).
   { method: 'PATCH', pattern: /^\/notifications\/(read-all|:id\/read)$/ },
   { method: 'PATCH', pattern: /^\/profile$/ },

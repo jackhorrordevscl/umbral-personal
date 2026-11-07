@@ -154,6 +154,24 @@ describe('Subscription access (e2e, SUBSCRIPTIONS_ENFORCED=true)', () => {
         .expect(200);
     });
 
+    // Issue #627: una cuenta vencida puede retirar el acceso de terceros, pero
+    // no conectarlo de nuevo.
+    it('una cuenta en solo lectura puede desconectar Google y la cuenta de pago, no conectarlas', async () => {
+      const disconnect = await request(app.getHttpServer())
+        .post('/api/v1/calendar-integration/disconnect')
+        .set(as(readOnly.token));
+      expect(disconnect.status).not.toBe(402);
+      const removeAccount = await request(app.getHttpServer())
+        .delete('/api/v1/payments/account')
+        .set(as(readOnly.token));
+      expect(removeAccount.status).not.toBe(402);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/calendar-integration/authorize')
+        .set(as(readOnly.token))
+        .expect(402);
+    });
+
     it('una cuenta con período vigente puede escribir (llega a la validación del cuerpo)', async () => {
       await request(app.getHttpServer())
         .post('/api/v1/patients')
