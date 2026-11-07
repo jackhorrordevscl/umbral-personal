@@ -2,7 +2,8 @@
 
 - **Estado:** aceptada
 - **Fecha:** 2026-11-03
-- **Ramas:** PR 1 a 5 de la issue #611 (#613 a #618 y el PR 5)
+- **Ramas:** PR 1 a 5 de la issue #611 (#613, #614, #615, #616, #618 y #619)
+- **Nota de estado (2026-11-07):** la decisión sigue vigente. Los cambios posteriores (#627, #633, #652, #653) se resumen en la sección "Actualización (2026-11-07)" al final; el texto de las secciones anteriores describe el estado a la fecha de la decisión.
 
 ## Contexto
 
@@ -132,3 +133,33 @@ primero.
 - Pendientes fuera del código antes de cobrar de verdad: inicio de actividades
   y modelo de emisión de boletas en el SII, cuenta de Flow de Umbral en
   producción, términos del servicio y los correos de las cuentas exentas.
+
+## Actualización (2026-11-07)
+
+Cambios posteriores a la decisión, verificados contra el código de main
+(`8798deb`). No alteran la decisión; precisan su comportamiento.
+
+- **Checkout (#633, #652).** `POST /billing/checkout` responde 403 si
+  `SUBSCRIPTIONS_ENFORCED` está apagado, si la cuenta está exenta o si la
+  suscripción sigue vigente y faltan más de 5 días para vencer (los días se
+  cuentan por calendario de Santiago, igual que los avisos); en gracia o solo
+  lectura se puede pagar siempre. Cada orden se crea en Flow con
+  `timeoutSeconds` de 24 horas y una cuenta no puede tener más de 5 pagos
+  pendientes dentro de esa ventana (429). La ventana del barrido de respaldo se
+  deriva de ese timeout más 2 días, por lo que sigue siendo de 3 días y una orden
+  pagable nunca queda fuera del barrido (`billing.service.ts`).
+- **Estado (#633, #653).** `GET /billing/status` informa además `canRenew`,
+  `renewableFrom` (desde cuándo se podrá renovar) y `lastPaymentFailed`.
+- **Solo lectura (#627).** Además de lo listado en el punto 4, una cuenta
+  vencida puede desconectar Google Calendar (`POST /calendar-integration/disconnect`)
+  y la cuenta de pago de Flow (`DELETE /payments/account`), marcar notificaciones
+  como leídas y editar el perfil (`PATCH /profile`); conectar o reconectar sigue
+  bloqueado. La agenda pública de una cuenta en solo lectura responde 503.
+- **Registro (#627).** El registro ya no recibe contraseña: la elige quien
+  verifica el correo (`POST /auth/verify-email`).
+- **Configuración (#633).** Al arrancar se valida que `SUBSCRIPTIONS_ENFORCED`
+  sea exactamente `true` o `false`, que `SUBSCRIPTION_PRICE_CLP` y
+  `SUBSCRIPTION_RENEWAL_PRICE_CLP`, si existen, sean enteros positivos, y que en
+  producción con el interruptor encendido estén definidas
+  `SUBSCRIPTION_FLOW_API_KEY` y `SUBSCRIPTION_FLOW_SECRET_KEY` y `FLOW_API_BASE_URL`
+  (`env.validation.ts`).

@@ -6,6 +6,7 @@
 - **Nota de estado (2026-10-13):** la Content-Security-Policy del punto 2 de la decisión ya está en `frontend/vercel.json` (issue #386, PR #389 y #390), por lo que la afirmación "hoy no hay Content-Security-Policy" de la sección Contexto describe el estado del 2026-10-07. La migración a cookie `HttpOnly` sigue abierta en el issue #387.
 - **Nota de estado (2026-10-14):** la migración a cookie `HttpOnly` del issue #387 está implementada; ver la sección "Implementación de #387" al final. Las secciones anteriores describen el estado y el razonamiento a la fecha de la decisión.
 - **Nota de estado (2026-10-27):** el `Bearer` sigue siendo aceptado junto a la cookie (`JwtStrategy`); no se ha retirado. El CSRF ya no depende solo de `SameSite=Strict`: ver la nota en "Implementación de #387".
+- **Nota de estado (2026-11-07):** desde el issue #627 (PR #679) la cookie lleva el prefijo `__Host-` en producción: se llama `__Host-umbral_session` (el navegador solo acepta ese prefijo con `Secure`, `Path=/` y sin `Domain`, lo que impide que un subdominio hermano fije una cookie con el mismo nombre). En desarrollo, donde la cookie no es `Secure`, sigue como `umbral_session`. En producción el backend ya no lee el nombre anterior y `logout` limpia ambos (`backend/src/modules/auth/session-cookie.ts`); las sesiones previas al cambio piden iniciar sesión de nuevo. El resto de "Implementación de #387" sigue vigente, incluido el `Bearer` aceptado junto a la cookie.
 
 ## Contexto
 
