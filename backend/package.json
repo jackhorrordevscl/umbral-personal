@@ -121,6 +121,9 @@
         "lines": 80
       }
     },
+    "setupFilesAfterEnv": [
+      "<rootDir>/common/testing/integration-database-guard.ts"
+    ],
     "testEnvironment": "node"
   },
   "allowScripts": {
