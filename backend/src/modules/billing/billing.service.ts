@@ -31,7 +31,6 @@ export const BILLING_FRONTEND_RETURN_PATH = '/suscripcion/retorno';
 
 // Barrido de respaldo: un webhook perdido no deja a la cuenta sin acceso.
 const SWEEP_MIN_AGE_MS = 15 * 60 * 1000;
-const SWEEP_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 const SWEEP_BATCH_LIMIT = 200;
 // Tope de checkouts abiertos por cuenta: una cuenta que abandona pagos no puede
 // llenar el lote del barrido ni gastar llamadas a Flow con la clave de la
@@ -43,6 +42,10 @@ const MAX_OPEN_CHECKOUTS = 5;
 // un pago hecho justo antes de vencer y con webhook perdido igual se acredita.
 const CHECKOUT_TIMEOUT_SECONDS = 24 * 60 * 60;
 const CHECKOUT_TIMEOUT_MS = CHECKOUT_TIMEOUT_SECONDS * 1000;
+// Issue #652: la ventana del barrido se deriva del timeout de la orden (más un
+// margen de 2 días para un webhook perdido), así ambas no pueden divergir: una
+// orden pagable nunca queda fuera del barrido. Hoy equivale a los 3 días de siempre.
+const SWEEP_MAX_AGE_MS = CHECKOUT_TIMEOUT_MS + 2 * 24 * 60 * 60 * 1000;
 // Flow responde 400 con code 1620 ("The userEmail: ... is not valid.") cuando no
 // acepta el correo del pagador. Verificado en el sandbox el 3 nov 2026 con
 // dominio inexistente, formato inválido y correo vacío. Reintentar no lo arregla.

@@ -135,6 +135,20 @@ describe('FlowPaymentGatewayClient', () => {
       expect(s).toBe(referenceSign(params, 'test-secret-key'));
     });
 
+    it.each([0, -5, 1.5, NaN, Infinity])(
+      'con timeoutSeconds inválido (%s) rechaza antes de llamar a Flow (issue #652)',
+      async (timeoutSeconds) => {
+        await expect(
+          client.createOrder(credentials, { ...baseOrder, timeoutSeconds }),
+        ).rejects.toMatchObject({
+          name: 'PaymentGatewayError',
+          kind: 'rejected',
+        });
+
+        expect(global.fetch).not.toHaveBeenCalled();
+      },
+    );
+
     it('sin timeoutSeconds no envía timeout (comportamiento de siempre)', async () => {
       mockFetchOnce({ ok: true, status: 200 }, { token: 't', url: 'u' });
 
