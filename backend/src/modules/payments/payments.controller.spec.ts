@@ -380,6 +380,29 @@ describe('PaymentsController', () => {
       warn.mockRestore();
     });
 
+    it('parte el log de groupIds sin anular en líneas de 50', async () => {
+      const warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+      paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
+        cancelled: 120,
+        unvoidedGroupIds: Array.from({ length: 120 }, (_, i) => `group-${i}`),
+      });
+      paymentAccountService.disconnect.mockResolvedValue({
+        status: 'DISCONNECTED',
+      });
+
+      await controller.disconnect({
+        id: 'therapist-1',
+        email: '',
+        role: '',
+        name: '',
+      });
+
+      expect(warn).toHaveBeenCalledTimes(3);
+      warn.mockRestore();
+    });
+
     it('no informa openChargesSweepFailed cuando el barrido funciona', async () => {
       paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
         cancelled: 0,

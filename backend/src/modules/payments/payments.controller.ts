@@ -33,6 +33,8 @@ import { ConfirmValidationLoggingInterceptor } from './confirm-validation-loggin
 import type { GatewayOrderStatus } from './payment-gateway.client';
 
 const CONFIRM_REJECTED_ERROR = 'Confirmación de pago rechazada.';
+// groupIds por línea de log al desconectar con órdenes sin anular.
+const UNVOIDED_LOG_CHUNK = 50;
 
 // Issue #133: throttlers ajenos que POST /confirm y GET|POST /return deben
 // saltear -- los de AuthModule/ProfileModule más el otro nombre propio de
@@ -152,9 +154,11 @@ export class PaymentsController {
     // Cancelar y desconectar no son atómicos: si disconnect falla, un reintento
     // ya no ve estos cobros (no están PENDING/LATE). Se deja el rastro en el log
     // antes de desconectar para poder conciliarlos a mano.
-    if (unvoidedGroupIds.length > 0) {
+    // En tandas para que ninguna línea de log crezca sin límite (hasta 10.000
+    // grupos si la pasarela estuvo caída durante todo el barrido).
+    for (let i = 0; i < unvoidedGroupIds.length; i += UNVOIDED_LOG_CHUNK) {
       this.logger.warn(
-        `Al desconectar quedaron órdenes sin anular en la pasarela (therapistId=${user.id}, groupIds=${unvoidedGroupIds.join(',')}).`,
+        `Al desconectar quedaron órdenes sin anular en la pasarela (therapistId=${user.id}, groupIds=${unvoidedGroupIds.slice(i, i + UNVOIDED_LOG_CHUNK).join(',')}).`,
       );
     }
     const result = await this.paymentAccountService.disconnect(user.id);

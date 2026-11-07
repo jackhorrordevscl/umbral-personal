@@ -2453,6 +2453,9 @@ describe('PaymentsService', () => {
     });
 
     it('si el tope de vueltas se agota con tandas llenas, lo informa como incompleto', async () => {
+      const loggerError = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
       const batch = Array.from({ length: UNPAGINATED_SAFETY_LIMIT }, (_, i) =>
         buildPayment({
           id: `payment-${i}`,
@@ -2476,6 +2479,10 @@ describe('PaymentsService', () => {
         MAX_DISCONNECT_ROUNDS,
       );
       expect(result.incomplete).toBe(true);
+      expect(loggerError).toHaveBeenCalledWith(
+        expect.stringContaining('se agotó el tope'),
+      );
+      loggerError.mockRestore();
     });
 
     it('un cobro que revienta se excluye de las tandas siguientes para no reintentarlo', async () => {
