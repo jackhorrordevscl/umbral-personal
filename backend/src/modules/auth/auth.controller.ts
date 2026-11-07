@@ -48,6 +48,9 @@ export class AuthController {
   // además del propio.
   @UseGuards(ThrottlerGuard)
   @SkipThrottle({
+    'profile-update': true,
+    'email-change-confirm': true,
+    'reports-export': true,
     'mfa-verify': true,
     signup: true,
     'mfa-setup': true,
@@ -84,6 +87,9 @@ export class AuthController {
   // códigos válidos) emitía un JWT real sin ningún límite de intentos.
   @UseGuards(ThrottlerGuard)
   @SkipThrottle({
+    'profile-update': true,
+    'email-change-confirm': true,
+    'reports-export': true,
     login: true,
     signup: true,
     'mfa-setup': true,
@@ -125,6 +131,9 @@ export class AuthController {
   // para no compartir presupuesto con login/mfa-verify.
   @UseGuards(ThrottlerGuard)
   @SkipThrottle({
+    'profile-update': true,
+    'email-change-confirm': true,
+    'reports-export': true,
     login: true,
     'mfa-verify': true,
     'mfa-setup': true,
@@ -155,6 +164,9 @@ export class AuthController {
   // bruta igual que login/mfa-verify/signup.
   @UseGuards(ThrottlerGuard)
   @SkipThrottle({
+    'profile-update': true,
+    'email-change-confirm': true,
+    'reports-export': true,
     login: true,
     'mfa-verify': true,
     signup: true,
@@ -183,6 +195,9 @@ export class AuthController {
   // que ninguna de las dos lo refleje.
   @UseGuards(ThrottlerGuard)
   @SkipThrottle({
+    'profile-update': true,
+    'email-change-confirm': true,
+    'reports-export': true,
     login: true,
     'mfa-verify': true,
     signup: true,
@@ -211,6 +226,9 @@ export class AuthController {
   // comparten el throttler 'mfa-setup' por ser dos pasos de un mismo flujo.
   @UseGuards(ThrottlerGuard)
   @SkipThrottle({
+    'profile-update': true,
+    'email-change-confirm': true,
+    'reports-export': true,
     login: true,
     'mfa-verify': true,
     signup: true,
@@ -231,6 +249,9 @@ export class AuthController {
 
   @UseGuards(ThrottlerGuard)
   @SkipThrottle({
+    'profile-update': true,
+    'email-change-confirm': true,
+    'reports-export': true,
     login: true,
     'mfa-verify': true,
     signup: true,
@@ -265,6 +286,9 @@ export class AuthController {
   // protege esta ruta, no el guard. ThrottlerGuard propio (issue #37).
   @UseGuards(ThrottlerGuard)
   @SkipThrottle({
+    'profile-update': true,
+    'email-change-confirm': true,
+    'reports-export': true,
     login: true,
     'mfa-verify': true,
     signup: true,
@@ -294,6 +318,9 @@ export class AuthController {
   // el resto de las rutas sin sesión de este controller.
   @UseGuards(ThrottlerGuard)
   @SkipThrottle({
+    'profile-update': true,
+    'email-change-confirm': true,
+    'reports-export': true,
     login: true,
     'mfa-verify': true,
     signup: true,
@@ -314,6 +341,9 @@ export class AuthController {
 
   @UseGuards(ThrottlerGuard)
   @SkipThrottle({
+    'profile-update': true,
+    'email-change-confirm': true,
+    'reports-export': true,
     login: true,
     'mfa-verify': true,
     signup: true,
@@ -345,6 +375,9 @@ export class AuthController {
   // necesita el mismo tipo de límite de intentos que login/mfa-verify.
   @UseGuards(ThrottlerGuard)
   @SkipThrottle({
+    'profile-update': true,
+    'email-change-confirm': true,
+    'reports-export': true,
     login: true,
     'mfa-verify': true,
     signup: true,
@@ -389,6 +422,9 @@ export class AuthController {
   // va antes que JwtAuthGuard para que también cuenten los intentos sin sesión.
   @UseGuards(ThrottlerGuard, JwtAuthGuard)
   @SkipThrottle({
+    'profile-update': true,
+    'email-change-confirm': true,
+    'reports-export': true,
     login: true,
     'mfa-verify': true,
     signup: true,
@@ -418,6 +454,9 @@ export class AuthController {
 
   @UseGuards(ThrottlerGuard, JwtAuthGuard)
   @SkipThrottle({
+    'profile-update': true,
+    'email-change-confirm': true,
+    'reports-export': true,
     login: true,
     'mfa-verify': true,
     signup: true,

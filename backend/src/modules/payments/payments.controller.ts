@@ -54,6 +54,7 @@ export const PAYMENT_CONFIRM_SKIP = {
   'public-booking': true,
   'profile-update': true,
   'email-change-confirm': true,
+  'reports-export': true,
   'payment-return': true,
 } as const;
 
@@ -71,6 +72,7 @@ export const PAYMENT_RETURN_SKIP = {
   'public-booking': true,
   'profile-update': true,
   'email-change-confirm': true,
+  'reports-export': true,
   'payment-confirm': true,
 } as const;
 
