@@ -135,13 +135,26 @@ export class PaymentsController {
     let cancelled = 0;
     let unvoidedGroupIds: string[] = [];
     let openChargesSweepFailed = false;
+    let openChargesSweepIncomplete = false;
     try {
-      ({ cancelled, unvoidedGroupIds } =
-        await this.paymentsService.cancelOpenChargesForDisconnect(user.id));
+      const sweep = await this.paymentsService.cancelOpenChargesForDisconnect(
+        user.id,
+      );
+      cancelled = sweep.cancelled;
+      unvoidedGroupIds = sweep.unvoidedGroupIds;
+      openChargesSweepIncomplete = sweep.incomplete === true;
     } catch (err) {
       openChargesSweepFailed = true;
       this.logger.error(
         `No se pudieron anular los enlaces de pago abiertos al desconectar; se desconecta igual (therapistId=${user.id}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    // Cancelar y desconectar no son atómicos: si disconnect falla, un reintento
+    // ya no ve estos cobros (no están PENDING/LATE). Se deja el rastro en el log
+    // antes de desconectar para poder conciliarlos a mano.
+    if (unvoidedGroupIds.length > 0) {
+      this.logger.warn(
+        `Al desconectar quedaron órdenes sin anular en la pasarela (therapistId=${user.id}, groupIds=${unvoidedGroupIds.join(',')}).`,
       );
     }
     const result = await this.paymentAccountService.disconnect(user.id);
@@ -150,6 +163,9 @@ export class PaymentsController {
       cancelledCharges: cancelled,
       unvoidedGroupIds,
       ...(openChargesSweepFailed ? { openChargesSweepFailed: true } : {}),
+      ...(openChargesSweepIncomplete
+        ? { openChargesSweepIncomplete: true }
+        : {}),
     };
   }
 

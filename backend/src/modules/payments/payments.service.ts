@@ -91,7 +91,7 @@ class OrderSupersededException extends ConflictException {
 
 // Vueltas máximas de cancelOpenChargesForDisconnect (cada una trae hasta
 // UNPAGINATED_SAFETY_LIMIT cobros abiertos).
-const MAX_DISCONNECT_ROUNDS = 20;
+export const MAX_DISCONNECT_ROUNDS = 20;
 
 const MINOR_WITHOUT_GUARDIAN_EMAIL_ERROR =
   'Falta el email de un representante legal para emitir el cobro de este paciente NNA.';
@@ -814,9 +814,11 @@ export class PaymentsService {
   // luego se anula su orden; si la pasarela no la anula el cargo queda
   // cancelado igual y su groupId se informa. Sin cuenta conectada no hay nada
   // que anular y no se cambia ningún cargo.
-  async cancelOpenChargesForDisconnect(
-    therapistId: string,
-  ): Promise<{ cancelled: number; unvoidedGroupIds: string[] }> {
+  async cancelOpenChargesForDisconnect(therapistId: string): Promise<{
+    cancelled: number;
+    unvoidedGroupIds: string[];
+    incomplete?: true;
+  }> {
     const context =
       await this.paymentAccountService.resolveGatewayContext(therapistId);
     if (!context) return { cancelled: 0, unvoidedGroupIds: [] };
@@ -830,6 +832,9 @@ export class PaymentsService {
     // excluye de las tandas siguientes para no reintentarlo sin fin.
     const unvoided = new Set<string>();
     const failedIds: string[] = [];
+    // Si el tope de vueltas se agota sin ver una tanda corta, pueden quedar
+    // cobros abiertos sin tocar: se informa en vez de callarlo.
+    let swept = false;
     // Las filas canceladas salen del conjunto PENDING/LATE, así que cada tanda
     // trae las que faltan; el tope de vueltas evita un bucle sin salida.
     for (let round = 0; round < MAX_DISCONNECT_ROUNDS; round++) {
@@ -856,9 +861,21 @@ export class PaymentsService {
           );
         }
       }
-      if (payments.length < UNPAGINATED_SAFETY_LIMIT) break;
+      if (payments.length < UNPAGINATED_SAFETY_LIMIT) {
+        swept = true;
+        break;
+      }
     }
-    return { cancelled, unvoidedGroupIds: [...unvoided] };
+    if (!swept) {
+      this.logger.error(
+        `Al desconectar la cuenta se agotó el tope de ${MAX_DISCONNECT_ROUNDS} tandas de cobros abiertos; pueden quedar enlaces sin anular (therapistId=${therapistId}).`,
+      );
+    }
+    return {
+      cancelled,
+      unvoidedGroupIds: [...unvoided],
+      ...(swept ? {} : { incomplete: true as const }),
+    };
   }
 
   // Shared by cancelUnpaid/cancelUnpaidForPatient: flips the row to

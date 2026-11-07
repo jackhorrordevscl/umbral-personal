@@ -330,6 +330,56 @@ describe('PaymentsController', () => {
       });
     });
 
+    it('informa openChargesSweepIncomplete cuando el barrido agotó su tope', async () => {
+      paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
+        cancelled: 10000,
+        unvoidedGroupIds: [],
+        incomplete: true,
+      });
+      paymentAccountService.disconnect.mockResolvedValue({
+        status: 'DISCONNECTED',
+      });
+
+      const result = await controller.disconnect({
+        id: 'therapist-1',
+        email: '',
+        role: '',
+        name: '',
+      });
+
+      expect(result).toEqual({
+        status: 'DISCONNECTED',
+        cancelledCharges: 10000,
+        unvoidedGroupIds: [],
+        openChargesSweepIncomplete: true,
+      });
+    });
+
+    it('deja en el log los groupIds sin anular antes de desconectar, aunque disconnect falle', async () => {
+      const warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+      paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
+        cancelled: 2,
+        unvoidedGroupIds: ['group-1', 'group-2'],
+      });
+      paymentAccountService.disconnect.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        controller.disconnect({
+          id: 'therapist-1',
+          email: '',
+          role: '',
+          name: '',
+        }),
+      ).rejects.toThrow('db down');
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('group-1,group-2'),
+      );
+      warn.mockRestore();
+    });
+
     it('no informa openChargesSweepFailed cuando el barrido funciona', async () => {
       paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
         cancelled: 0,
