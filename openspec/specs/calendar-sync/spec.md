@@ -8,7 +8,7 @@ Google Calendar integration for therapists: OAuth lifecycle, encrypted token cus
 
 ### Requirement: OAuth Connection Lifecycle
 
-The system MUST let a therapist connect their Google account via OAuth 2.0 authorization-code flow requesting only `calendar.events` with `access_type=offline`, and MUST let them disconnect anytime. Connection is account-level, never per session. The authorization `state` MUST be a signed, single-use token valid for 10 minutes and bound to the therapist; a callback with a missing, tampered, expired or already used `state`, or without a refresh token from Google, MUST NOT create or change a connection. Connecting and disconnecting MUST be audited (`CALENDAR_CONNECTED`, `CALENDAR_DISCONNECTED`). When `GOOGLE_CLIENT_ID` or `GOOGLE_CLIENT_SECRET` is not configured, starting the authorization MUST fail with `503`.
+The system MUST let a therapist connect their Google account via OAuth 2.0 authorization-code flow requesting only `calendar.events` with `access_type=offline`, and MUST let them disconnect anytime. Connection is account-level, never per session. The authorization `state` MUST be a signed, single-use token valid for 10 minutes and bound to the therapist; a callback with a missing, tampered, expired or already used `state`, or without a refresh token from Google, MUST NOT create or change a connection. Connecting and disconnecting MUST be audited (`CALENDAR_CONNECTED`, `CALENDAR_DISCONNECTED`). When `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` or `GOOGLE_REDIRECT_URI` is not configured, starting the authorization MUST fail with `503` (a missing redirect URI would otherwise only surface as a Google error page). Two simultaneous authorizations from a therapist without a connection MUST both succeed: the loser of the row-creation race claims the row the other just created, and only a connection that is really active answers `409`.
 
 #### Scenario: Therapist connects Google account
 
@@ -164,7 +164,7 @@ A scheduled reconciler MUST run every 15 minutes over every active (`CONNECTED`)
 
 ### Requirement: Degraded Connection on Revoked or Expired Grant
 
-When Google returns `invalid_grant` or 401, the system MUST mark the connection disconnected (reason `INVALID_GRANT`), discard the stored token, remove the therapist's cached busy blocks, record a `CALENDAR_DISCONNECTED` audit entry, MUST emit one in-app notification via the existing `notifications` capability, and MUST NOT retry or keep syncing it. The transition MUST be atomic so concurrent failures notify only once.
+When Google returns `invalid_grant` or a 401 that does not name another error code, the system MUST mark the connection disconnected (reason `INVALID_GRANT`), discard the stored token, remove the therapist's cached busy blocks, record a `CALENDAR_DISCONNECTED` audit entry, MUST emit one in-app notification via the existing `notifications` capability, and MUST NOT retry or keep syncing it. A rejection from the token endpoint that names any other error (`invalid_client`, `unauthorized_client`, `invalid_request`) says nothing about the therapist's permission but about the application's own configuration (for example a rotated client secret): it MUST be classified as a transient failure, so it neither disconnects the therapist nor deletes the refresh token. The transition MUST be atomic so concurrent failures notify only once.
 
 #### Scenario: Revoked token disconnects and notifies once
 

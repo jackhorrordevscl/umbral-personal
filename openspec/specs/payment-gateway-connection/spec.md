@@ -40,13 +40,19 @@ The system MUST store `{apiKey, secretKey}` encrypted with AES-256-GCM, using a 
 
 ### Requirement: Self-Service Disconnection
 
-The system MUST let a therapist disconnect a `CONNECTED` account on demand (responding `404` when none is connected). Disconnection MUST delete the stored encrypted credentials, record a `PAYMENT_ACCOUNT_DISCONNECTED` audit entry, stop automatic charge creation for consultations created afterward, and MUST NOT alter charges already created before disconnection.
+The system MUST let a therapist disconnect a `CONNECTED` account on demand (responding `404` when none is connected). Before deleting the credentials, disconnection MUST cancel the therapist's open charges (status `PENDING` or `LATE` that have a gateway token) and void their Flow orders, because once the credentials are gone a link already sent could still be paid without Umbral being able to verify it. If voiding an order fails, that charge stays cancelled and its `groupId` is reported; if the sweep itself fails or hits its round cap, the account is still disconnected (revoking the credentials takes priority) and the response says so (`cancelledCharges`, `unvoidedGroupIds`, `openChargesSweepFailed`, `openChargesSweepIncomplete`). Disconnection MUST then delete the stored encrypted credentials, record a `PAYMENT_ACCOUNT_DISCONNECTED` audit entry and stop automatic charge creation for consultations created afterward. It MUST NOT alter charges that are not open, such as ones already `PAID`.
 
-#### Scenario: Disconnecting stops future automatic charges only
+#### Scenario: Disconnecting cancels open charges and stops future automatic charges
 
-- GIVEN a therapist with a `CONNECTED` account and an existing pending charge
+- GIVEN a therapist with a `CONNECTED` account, an open pending charge with a payment link, and a charge already `PAID`
 - WHEN the therapist disconnects
-- THEN the account status becomes `DISCONNECTED`, the stored credentials are deleted, the existing pending charge is untouched, and no new consultation for that therapist gets an automatic charge until they reconnect
+- THEN the pending charge is cancelled and its Flow order is voided, the `PAID` charge is untouched, the account status becomes `DISCONNECTED`, the stored credentials are deleted, and no new consultation for that therapist gets an automatic charge until they reconnect
+
+#### Scenario: A failing sweep does not block the disconnection
+
+- GIVEN a therapist with a `CONNECTED` account whose open charges cannot be swept (for example a transient database error)
+- WHEN the therapist disconnects
+- THEN the account is still disconnected and the credentials deleted, and the response carries `openChargesSweepFailed: true`
 
 ### Requirement: Reconnection of Legacy-Invalidated Accounts
 
