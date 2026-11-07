@@ -272,6 +272,9 @@ describe('PaymentsController', () => {
 
   // issue #634: los enlaces abiertos se anulan ANTES de borrar las credenciales.
   describe('account (DELETE /payments/account)', () => {
+    let warn: jest.SpyInstance | undefined;
+    afterEach(() => warn?.mockRestore());
+
     it('anula los enlaces abiertos y recién después desconecta, e informa el resultado', async () => {
       paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
         cancelled: 2,
@@ -356,7 +359,7 @@ describe('PaymentsController', () => {
     });
 
     it('deja en el log los groupIds sin anular antes de desconectar, aunque disconnect falle', async () => {
-      const warn = jest
+      warn = jest
         .spyOn(Logger.prototype, 'warn')
         .mockImplementation(() => undefined);
       paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
@@ -377,11 +380,10 @@ describe('PaymentsController', () => {
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining('group-1,group-2'),
       );
-      warn.mockRestore();
     });
 
     it('parte el log de groupIds sin anular en líneas de 50', async () => {
-      const warn = jest
+      warn = jest
         .spyOn(Logger.prototype, 'warn')
         .mockImplementation(() => undefined);
       paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
@@ -400,7 +402,14 @@ describe('PaymentsController', () => {
       });
 
       expect(warn).toHaveBeenCalledTimes(3);
-      warn.mockRestore();
+      const lines = (warn as jest.SpyInstance<void, [string]>).mock.calls.map(
+        (call) => call[0],
+      );
+      expect(lines[0]).toContain('group-0,group-1,');
+      expect(lines[0]).toContain('group-49)');
+      expect(lines[0]).not.toContain('group-50');
+      expect(lines[2]).toContain('group-100,');
+      expect(lines[2]).toContain('group-119)');
     });
 
     it('no informa openChargesSweepFailed cuando el barrido funciona', async () => {
