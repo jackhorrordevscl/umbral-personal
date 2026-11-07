@@ -50,7 +50,7 @@ A successful password change through `PATCH /profile` MUST store the new hash, s
 
 ### Requirement: Deferred Email Change via pendingEmail
 
-The system MUST NOT replace the active `email` immediately. On a valid email-change request it MUST normalize the requested address, reject it with `409` when another account already uses it, store it in `User.pendingEmail`, leave `email` and `emailVerified` unchanged, and send a verification link to the pending address (signed single-purpose token, 24h expiry, linking to the frontend confirmation page). Only when the user opens that link, and the frontend calls the unauthenticated `POST /profile/email-change/confirm` with a valid, unexpired token that still matches the stored pending address and request timestamp, MUST the system set `email = pendingEmail`, `pendingEmail = null`, and `emailVerified = true`. A token MUST NOT be usable twice.
+The system MUST NOT replace the active `email` immediately. On a valid email-change request it MUST normalize the requested address, store it in `User.pendingEmail` and leave `email` and `emailVerified` unchanged. When another account already uses the address, the request MUST NOT answer `409` (that would let an authenticated caller probe which addresses are registered): it is accepted exactly like any other request (`pendingEmail` and its timestamp are stored in the same way), and the address receives a notice that the address is already in use instead of a verification link. Otherwise it MUST send a verification link to the pending address (signed single-purpose token, 24h expiry, linking to the frontend confirmation page). If Resend rejects any of the emails of the request (verification link or in-use notice to the new address, or the notice to the current address), the request MUST be cancelled: `pendingEmail` is cleared (only if it is still this request's), nothing is audited and the response is `503`. Only when the user opens that link, and the frontend calls the unauthenticated `POST /profile/email-change/confirm` with a valid, unexpired token that still matches the stored pending address and request timestamp, MUST the system set `email = pendingEmail`, `pendingEmail = null`, and `emailVerified = true`, and discard any password-reset token already issued (`passwordResetTokenIssuedAt = null`), so a reset link sent to the old address stops working. A token MUST NOT be usable twice.
 
 #### Scenario: Email change request does not swap the login email
 
@@ -86,11 +86,17 @@ The system MUST NOT replace the active `email` immediately. On a valid email-cha
 
 - GIVEN another account already uses the requested address
 - WHEN the user requests the change
-- THEN the response is `409` and no pending change is stored
+- THEN the response is the same as for a free address, no verification link is issued, and the requested address receives the in-use notice
+
+#### Scenario: Resend rejects an email of the request
+
+- GIVEN Resend rejects the verification email (or either notice)
+- WHEN the user requests the change
+- THEN the response is `503`, `pendingEmail` is cleared and no `EMAIL_CHANGE_REQUESTED` row is written
 
 ### Requirement: Old-Email Notification
 
-The system MUST send an informational notification to the CURRENT active email address whenever a new email-change request is accepted, independent of and not blocking the verification flow on the new address.
+The system MUST send an informational notification to the CURRENT active email address whenever a new email-change request is accepted, independent of the verification flow on the new address. A failure to deliver it is not silent: Resend rejecting it cancels the request (see above).
 
 #### Scenario: Old address is notified of a pending change
 

@@ -3,6 +3,11 @@
 - **Estado:** aceptada
 - **Fecha:** 2026-10-17
 - **Ramas:** `worktree-fix-jd-oraculo-reserva-publica` (PR #503, issue #502)
+- **Nota de estado (2026-11-07):** verificada contra el código. La decisión sigue vigente; la auditoría del issue #635 (PR #637 a #647) precisó cuatro puntos del texto anterior:
+  - **El rechazo sí deja un rastro en la agenda.** Para que el horario de una reserva rechazada se vea ocupado igual que el de una real, `PublicSchedulingService.holdSlotAfterRejection` crea un bloqueo común (`AvailabilityBlockout`, motivo «Intento de reserva pública no completado») que el terapeuta ve y puede borrar. Sigue sin crearse consulta, `BookedSlot`, paciente, representante ni notificación. Ese bloqueo cuenta para el tope diario de reservas públicas junto con las reservas reales (`PUBLIC_BOOKING_DAILY_LIMIT`, 100 por defecto en 24 horas).
+  - **El `checkout` de la respuesta es siempre `NOT_APPLICABLE`**, también en una reserva real: ya no depende del paciente ni de la cuenta de pago, porque el valor `PENDING` revelaba que el RUT y el correo eran de un paciente.
+  - **El aviso por correo se envía a lo más una vez por destinatario cada 24 horas** (el control vive en memoria, con la clave guardada como hash del email, y se vacía al reiniciar el proceso). Un aviso omitido no cambia la respuesta.
+  - **Limitadores.** El tope de 10 solicitudes por hora por IP y terapeuta de la sección Consecuencias sigue vigente (`PUBLIC_BOOKING_IP_THROTTLE_LIMIT`); además hay un límite por visitante (IP, terapeuta e identidad) de 5 solicitudes por minuto por defecto (`PUBLIC_BOOKING_THROTTLE_LIMIT`). Una referencia de terapeuta desconocida comparte un solo bucket por IP.
 
 ## Contexto
 

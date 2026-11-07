@@ -128,7 +128,7 @@ Encabezado sugerido para el subpunto nuevo en ambos documentos:
 - [ ] **Otros proveedores.** Resend (email), Google (Calendar), Flow (cobro) y
       Sentry (registro de errores, opcional) no están cubiertos por esta
       cláusula; se tratan en el RAT (`docs/registro-actividades-tratamiento.md`,
-      filas 4, 11, 13 y 20, y sección "Transferencia internacional de
+      filas 4, 11, 13, 20 y 29, y sección "Transferencia internacional de
       datos"), donde quedan pendientes de revisión legal.
 - [ ] **No incluido todavía: sincronización con Google Calendar**
       (sdd/google-calendar-integration, issue #78). El RAT

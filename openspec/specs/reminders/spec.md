@@ -108,7 +108,7 @@ The email and in-app channels MUST be dispatched and tracked independently; a fa
 
 ### Requirement: Bounded Retry of Failed or Abandoned Dispatches
 
-On each scan the system MUST retry dispatches that are `FAILED` for more than 5 minutes, or `PENDING` (claimed but never completed) for more than 10 minutes, up to 3 attempts in total and at most 100 per run. A retry MUST re-claim the row atomically (so only one scan retries it) and MUST be skipped when the consultation is no longer current or its `sessionDate` differs from the one recorded in the dispatch.
+On each scan the system MUST retry dispatches that are `FAILED` for more than 5 minutes, or `PENDING` (claimed but never completed) for more than 10 minutes, up to 3 attempts in total and at most 100 per run. A retry MUST re-claim the row atomically (so only one scan retries it) and MUST NOT be sent when the consultation is no longer current or its `sessionDate` differs from the one recorded in the dispatch: such a row is closed as `SKIPPED` (terminal), so later scans do not re-query it or let it displace real retries within the batch.
 
 #### Scenario: Failed email is retried once the backoff elapses
 

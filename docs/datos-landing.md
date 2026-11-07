@@ -1,6 +1,6 @@
 # Datos verificados para la landing page
 
-Fecha de verificación: 2026-10-27. Fuente: código del repositorio (`main` en `3514277`, posterior a `959a5a8`, etiquetado como `v1.0.0` el 2026-10-16), README y estado de GitHub. Las cifras cambian con cada PR; vuelve a contarlas antes de publicar.
+Fecha de verificación: 2026-11-07. Fuente: código del repositorio (`main` en `8798deb`, posterior a `959a5a8`, etiquetado como `v1.0.0` el 2026-10-16), README y estado de GitHub. Las cifras cambian con cada PR; vuelve a contarlas antes de publicar.
 
 Nota del 2026-10-17: el cifrado de los textos clínicos libres quedó activo en producción ese día con el recifrado de los datos existentes terminado (ADR 0004, `docs/evaluacion-v1.md` A3).
 
@@ -11,7 +11,7 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 - **Nombre:** Umbral (en el repositorio y en la documentación técnica también aparece como "Umbral - RCE", sigla de registro clínico electrónico).
 - **Descripción corta:** sistema de fichas clínicas para profesionales de salud mental que atienden por su cuenta, con agenda, cobro en línea y recordatorios, diseñado para alinearse con la normativa chilena de datos personales y de salud.
 - **Descripción larga:** cada profesional tiene su propia cuenta y es dueño exclusivo de sus pacientes; no hay roles jerárquicos ni panel administrativo. El sistema reúne ficha clínica, consultas con historial de correcciones, documentos, calendario, agenda pública para que los pacientes reserven, cobro con Flow, recordatorios por email, cierre de tratamiento con informe de alta y registro de representante legal para pacientes niños, niñas y adolescentes (NNA).
-- **Público objetivo:** psicólogas, psicólogos y terapeutas independientes en Chile. El registro es solo por invitación (código de un solo uso).
+- **Público objetivo:** psicólogas, psicólogos y terapeutas independientes en Chile. Mientras el cobro de la suscripción mensual no esté encendido en producción (`SUBSCRIPTIONS_ENFORCED`), el registro es solo por invitación (código de un solo uso); con el cobro encendido el registro es abierto, con código promocional opcional. Ver "Suscripción mensual".
 - **Estado:** `v1.0.0` etiquetada el 2026-10-16, con condiciones de salida abiertas (ver `docs/evaluacion-v1.md`).
 
 ## Funcionalidades reales
@@ -84,19 +84,29 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 - Cobro automático por sesión (si el paciente tiene monto configurado), con enlace de pago enviado por email.
 - Reenvío del enlace de pago, reintento de cobro cuando no se pudo generar y corrección del monto.
 - Conciliación periódica de pagos y aviso de cobros vencidos.
+- Al desconectar la cuenta Flow, los cobros pendientes o vencidos con enlace se cancelan y se anulan sus órdenes en Flow antes de borrar las credenciales.
 - Umbral no custodia el dinero: el pago va directo a la cuenta Flow del terapeuta.
+
+### Suscripción mensual (del terapeuta a Umbral)
+
+- Disponible en el código desde el 2026-10-27 (issue #611, ADR 0009), detrás de un interruptor de despliegue (`SUBSCRIPTIONS_ENFORCED`, apagado por defecto). El cobro real todavía no está en marcha: queda abierto el issue #632 (puesta en marcha) y, antes de cobrar, el papeleo tributario y legal (#628). No afirmar que Umbral ya cobra suscripciones.
+- Plan mensual único, pagado con Flow con las credenciales de la plataforma (no las del terapeuta). Cada pago suma 30 días; renovar antes de vencer no pierde días y la renovación se habilita en los últimos 5 días del período.
+- Al vencer hay 7 días de gracia con aviso fijo en la app; pasada la gracia la cuenta queda en solo lectura (puede consultar y exportar, no registrar cambios). La agenda pública de una cuenta en solo lectura no está disponible.
+- Avisos de vencimiento a los 5 días, 1 día y el día del vencimiento (notificación y email), y un aviso único 30 días antes de que termine el precio de lanzamiento.
+- Precio de lanzamiento congelado por 12 meses por cuenta. Valores por defecto del código: 6990 CLP al mes de lanzamiento y 12990 CLP después (`SUBSCRIPTION_PRICE_CLP` y `SUBSCRIPTION_RENEWAL_PRICE_CLP`). **Pendiente del responsable del proyecto:** los precios publicados deben salir de la configuración real de producción, que no se puede verificar desde el repositorio.
+- Códigos promocionales (30 días de prueba, 30 canjes y 60 días de vigencia por defecto del script `backend/scripts/create-promo-code.ts`) y cuentas exentas de cobro por email (`backend/scripts/grant-subscription.ts`), ambos cargados a mano por quien administra.
 
 ### Recordatorios y notificaciones
 
 - Recordatorios de sesión 24 horas y 2 horas antes, por notificación en la app y por email al terapeuta.
 - Notificaciones en la app con contador de no leídas y marcado como leídas; las leídas se purgan a los 30 días y las no leídas a los 90 días de generadas; el título y el cuerpo se guardan cifrados.
-- Avisos de Google Calendar desconectado, cobro vencido, anomalías de cobro y paciente autoagendado sin monto de sesión.
+- Avisos de Google Calendar desconectado, cobro vencido, anomalías de cobro, paciente autoagendado sin monto de sesión y, con la suscripción encendida, vencimiento de la suscripción y cambio de precio.
 
 ### Seguridad de la cuenta
 
 - MFA (TOTP) obligatorio para toda cuenta, con 10 códigos de recuperación de un solo uso.
 - Recuperación de contraseña y de acceso por email y códigos, sin intervención manual.
-- Sesión en cookie `HttpOnly` (no legible por scripts), contraseñas con Argon2, sesiones revocables, cierre de todas las sesiones al cambiar la contraseña, cierre por inactividad a los 8 minutos (corregido en móvil, issue #367).
+- Sesión en cookie `HttpOnly` (no legible por scripts; en producción con el prefijo `__Host-`), contraseñas con Argon2, la contraseña se elige al verificar el correo (el registro no la recibe), sesiones revocables, cierre de todas las sesiones al cambiar la contraseña, cierre por inactividad a los 8 minutos (corregido en móvil, issue #367).
 - Límite de intentos por ruta sensible y, además, por cuenta para el código del segundo factor (bloqueo temporal tras 5 intentos fallidos).
 - Los códigos de invitación se guardan con hash.
 
@@ -105,23 +115,23 @@ Regla general: afirma solo lo que está en la sección "Funcionalidades reales".
 - Bitácora de auditoría append-only (la base impide modificarla o borrarla).
 - Exportación en PDF de la ficha clínica completa con historial y pie de página con referencia a la Ley 20.584.
 
-## Cifras (verificadas el 2026-10-27)
+## Cifras (verificadas el 2026-11-07)
 
 | Dato | Valor | Cómo se verificó |
 |---|---|---|
-| Módulos de backend | 16 | carpetas de `backend/src/modules/` (además de `health` y `shared-files` en `backend/src/`) |
-| Modelos de base de datos | 27 | `model` en `backend/prisma/schema.prisma` |
-| Migraciones | 77 | carpetas de `backend/prisma/migrations/` |
-| Endpoints HTTP | unos 104 | conteo de decoradores de ruta en `backend/src` |
-| Tests unitarios backend | 140 specs | archivos `*.spec.ts` en `backend/src` |
-| Tests e2e backend | 33 specs | archivos `*.e2e-spec.ts` en `backend/test` |
-| Tests frontend | 84 specs + 4 e2e Playwright (corren en el job `e2e` de CI) | `frontend/src` y `frontend/e2e` |
-| Páginas del frontend | 17 | archivos de página (sin contar specs) en `frontend/src/pages/` |
-| Commits | 819 | `git rev-list --count HEAD` |
-| Pull requests mergeados | 364 | `gh pr list --state merged` |
-| Issues | 240 cerrados, 5 abiertos | `gh issue list` |
-| Días de desarrollo | 86 | desde el primer commit, 2026-08-02, hasta 2026-10-27 |
-| Vulnerabilidades de producción | Sin hallazgos de nivel high o critical | `npm audit --omit=dev --audit-level=high` en CI; el CI de `main` pasó el 2026-10-27. Con `npm audit --omit=dev` el backend tiene 1 moderate (`sanitize-html`) y el frontend 0 |
+| Módulos de backend | 18 | carpetas de `backend/src/modules/` (además de `health` y `shared-files` en `backend/src/`) |
+| Modelos de base de datos | 34 | `model` en `backend/prisma/schema.prisma` |
+| Migraciones | 81 | carpetas de `backend/prisma/migrations/` |
+| Endpoints HTTP | unos 112 | conteo de decoradores de ruta en `backend/src` |
+| Tests unitarios backend | 158 specs | archivos `*.spec.ts` en `backend/src` |
+| Tests e2e backend | 36 specs | archivos `*.e2e-spec.ts` en `backend/test` |
+| Tests frontend | 86 specs + 4 e2e Playwright (corren en el job `e2e` de CI) | `frontend/src` y `frontend/e2e` |
+| Páginas del frontend | 19 | archivos de página (sin contar specs) en `frontend/src/pages/` |
+| Commits | 880 | `git rev-list --count HEAD` |
+| Pull requests mergeados | 425 | `gh pr list --state merged` |
+| Issues | 253 cerrados, 9 abiertos | `gh issue list` |
+| Días de desarrollo | 97 | desde el primer commit, 2026-08-02, hasta 2026-11-07 |
+| Vulnerabilidades de producción | Sin hallazgos de nivel high o critical | `npm audit --omit=dev --audit-level=high` en CI; el CI de `main` pasó el 2026-11-07. Con `npm audit --omit=dev` el backend tiene 6 (1 low y 5 moderate: `@sentry/node`, `glob`, `minimatch`, `sanitize-html` y `deepmerge`) y el frontend 0 |
 
 ## Stack
 
@@ -177,7 +187,7 @@ Reglas:
 - Transcripción de sesiones con IA (#162): pospuesto, no existe.
 - Varios tipos de servicio con precio distinto en la agenda pública (#156): no existe.
 - Email de confirmación de la reserva al paciente o al terapeuta: no se envía hoy; la reserva queda en la lista de consultas.
-- Registro libre: el alta requiere código de invitación.
+- Registro libre o cobro de suscripción en marcha: hoy el alta requiere código de invitación; el registro abierto con cobro existe en el código pero está apagado hasta poner en marcha el cobro real (#632).
 - App móvil nativa: no existe (es una aplicación web).
 - Envío del informe de alta por el sistema: no existe; el informe se descarga y la entrega se registra a mano.
 
@@ -185,9 +195,10 @@ Reglas:
 
 | Issue | Tema | Estado |
 |---|---|---|
-| #156 | Múltiples tipos de servicio con precio en la agenda pública | Abierto |
+| #156 | Múltiples tipos de servicio con precio en la agenda pública | Pospuesto |
+| #612 | Correo de confirmación al paciente y aviso al terapeuta en reservas de la agenda pública | Pospuesto |
 | #160 | Boleta electrónica automática al confirmar pago (SII) | Pospuesto |
 | #161 | Recordatorios de sesión por WhatsApp | Pospuesto |
 | #162 | Transcriptor de sesiones a notas automáticas | Pospuesto |
 
-El otro issue abierto es de infraestructura (#63, plan de Render) y no debe presentarse como funcionalidad. Los issues #486 (ligar el cifrado de textos clínicos al paciente y al campo, resuelto y desplegado) y #123 (verificación de la app OAuth de Google) están cerrados.
+Los otros issues abiertos no son funcionalidad y no deben presentarse como tal: #63 (plan de Render) y #632 (puesta en marcha del cobro real de la suscripción) son de infraestructura, #628 es de papeleo tributario y legal previo al cobro real y #630 es una verificación con Flow real del mensaje de correo inválido en el checkout de suscripción. Los issues #486 (ligar el cifrado de textos clínicos al paciente y al campo, resuelto y desplegado) y #123 (verificación de la app OAuth de Google) están cerrados.

@@ -62,7 +62,7 @@ The system MUST store one `sessionDurationMinutes` value per therapist (between 
 
 ### Requirement: Availability Blockouts
 
-The system MUST let a therapist declare a full-day, partial-day time-range, or date-range blockout (`startsAt` before `endsAt`) that removes matching time from computed availability, and delete their own blockouts (a blockout of another therapist MUST be reported as not found). A blockout MUST take precedence over the recurring weekly schedule.
+The system MUST let a therapist declare a full-day, partial-day time-range, or date-range blockout (`startsAt` before `endsAt`) that removes matching time from computed availability, and delete their own blockouts (a blockout of another therapist MUST be reported as not found). A blockout MUST take precedence over the recurring weekly schedule. The system itself also creates an ordinary blockout (reason `Intento de reserva pública no completado`) on the requested slot when a public booking attempt is rejected, so that the slot looks occupied as after a real booking (see `public-scheduling`); the therapist sees it in the list and can delete it like any other.
 
 #### Scenario: Full-day blockout removes the whole day
 

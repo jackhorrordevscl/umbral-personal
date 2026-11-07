@@ -90,6 +90,15 @@ es un PDF subido, su documento se anula con el mecanismo existente sin borrado
 físico. Las acciones quedan en `AuditLog` como `DISCHARGE_ISSUE` y
 `DISCHARGE_CORRECT`.
 
+- *Nota (2026-11-07):* desde el PR #674 (issue #634) el borrador de una
+  corrección se puede descartar con `DELETE /discharges/:id`
+  (`DischargesService.discardDraft`). Borra solo ese borrador, que nunca tuvo PDF
+  ni entregas, y deja vigente la versión emitida; sin esa salida, un borrador de
+  corrección dejaba el informe emitido como reemplazado y bloqueaba registrar su
+  entrega (ver el punto 7). Un informe emitido no se descarta (409): se corrige;
+  un borrador inicial, sin informe previo, se edita o se emite (409 al intentar
+  descartarlo).
+
 ### 5. Verificación
 
 `GET /discharges/:id/verify` recalcula el hash desde lo que hay en la base y lo

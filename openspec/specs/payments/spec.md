@@ -24,7 +24,7 @@ The system MUST key each `Payment` by `Consultation.groupId`, MUST update the sa
 
 ### Requirement: Automatic Charge Creation Gated by Gateway Connection
 
-The system MUST create a pending charge automatically after a consultation is created (by the therapist or through a public booking), with no manual step, as a non-blocking side effect, only when the owning therapist's `PaymentAccount.status` is `CONNECTED` and the patient has a `defaultSessionAmount`. For any other account status (`PENDING`, `DISCONNECTED`, or `RECONNECT_REQUIRED`), for a patient without a default amount, or for a soft-deleted patient, no charge MUST be created and scheduling MUST succeed exactly as without payments. A failure while creating the charge or its gateway order MUST NOT fail or delay the consultation write.
+The system MUST create a pending charge automatically after a consultation is created (by the therapist or through a public booking), with no manual step, as a non-blocking side effect, only when the owning therapist's `PaymentAccount.status` is `CONNECTED` and the patient has a `defaultSessionAmount`. For any other account status (`PENDING`, `DISCONNECTED`, or `RECONNECT_REQUIRED`), for a patient without a default amount, for a soft-deleted patient, or for a patient whose treatment is not active (`Patient.treatmentStatus` other than `ACTIVE`, for example when correcting a past consultation of a closed treatment that never had a charge), no charge MUST be created and scheduling MUST succeed exactly as without payments. A charge that already exists keeps following its normal course. A failure while creating the charge or its gateway order MUST NOT fail or delay the consultation write.
 
 #### Scenario: Connected therapist gets an automatic charge
 
@@ -52,7 +52,7 @@ The system MUST create a pending charge automatically after a consultation is cr
 
 ### Requirement: Charge Amount Resolution and Snapshot
 
-The system MUST source a charge's amount from `Patient.defaultSessionAmount` and MUST snapshot that amount at creation, independent of later edits to `Patient.defaultSessionAmount`. The therapist MUST be able to change the amount of a `PENDING` or `LATE` charge afterwards (integer CLP between 0 and 100,000,000); doing so MUST void the previous gateway order, issue a new order and resend the link, and MUST be rejected for a paid or cancelled charge. A `defaultSessionAmount` of `0` means "no charge" and MUST be treated like an unset amount: no `Payment` record is created. An amount below the gateway minimum (350 CLP for Flow) MUST NOT produce a gateway order: at creation the charge is kept with an explanatory error, and an amount update below the minimum MUST be rejected with `400`, provided the therapist has a `CONNECTED` Flow account with v2 credentials (without one there is no gateway context and the amount is saved without that check).
+The system MUST source a charge's amount from `Patient.defaultSessionAmount` and MUST snapshot that amount at creation, independent of later edits to `Patient.defaultSessionAmount`. The therapist MUST be able to change the amount of a `PENDING` or `LATE` charge afterwards (integer CLP between 0 and 100,000,000); doing so MUST void the previous gateway order, issue a new order and resend the link, and MUST be rejected for a paid or cancelled charge. If the previous order cannot be voided (the old link would remain payable), the system MUST NOT issue a new order: it keeps the old token, discards the stored payment link and records an explanatory error on the charge, and `retry-charge` retries the voiding before issuing a new order (answering `503` while the voiding still fails). A `defaultSessionAmount` of `0` means "no charge" and MUST be treated like an unset amount: no `Payment` record is created. An amount below the gateway minimum (350 CLP for Flow) MUST NOT produce a gateway order: at creation the charge is kept with an explanatory error, and an amount update below the minimum MUST be rejected with `400`, provided the therapist has a `CONNECTED` Flow account with v2 credentials (without one there is no gateway context and the amount is saved without that check).
 
 #### Scenario: Snapshot is independent of later edits to the default amount
 
@@ -203,7 +203,7 @@ A scheduled sweep running every 30 minutes MUST re-query the gateway for `PENDIN
 
 ### Requirement: Cancellation Preserves Paid Charges and Voids Pending Ones
 
-When a patient is soft-deleted, or a treatment closure (discharge) cancels the patient's future consultations, the system MUST cancel the still-pending or late charges concerned and void their gateway orders (a gateway failure MUST NOT undo the local cancellation), and MUST preserve a paid charge untouched, with no automatic refund. A closure MUST resolve the cancellations before answering, with each charge isolated so one failure does not stop the others.
+When a patient is soft-deleted, or a treatment closure (discharge) cancels the patient's future consultations, the system MUST cancel the still-pending or late charges concerned and void their gateway orders (a gateway failure MUST NOT undo the local cancellation), and MUST preserve a paid charge untouched, with no automatic refund. Disconnecting the therapist's payment account applies the same rule to all of the therapist's open charges that have a gateway token (see the `payment-gateway-connection` spec). A closure MUST resolve the cancellations before answering, with each charge isolated so one failure does not stop the others.
 
 #### Scenario: Cancelling a session with a pending charge voids it
 
@@ -219,7 +219,7 @@ When a patient is soft-deleted, or a treatment closure (discharge) cancels the p
 
 ### Requirement: One-Shot Late-Payment Notification
 
-On the pending-to-late transition, the system MUST send one late-payment email to the patient (or the guardian of a minor) when a recipient email exists and the charge has a payment link, and MUST create exactly one in-app notification of a `PAYMENT_LATE` type for the therapist, and MUST NOT repeat either on later checks. A charge that never had a payment link (amount below the gateway minimum, order not issued, or link discarded) still transitions to `LATE` and notifies the therapist, but MUST NOT email the patient: they were never asked to pay. This is a single alert, not a recurring reminder cadence.
+On the pending-to-late transition, the system MUST send one late-payment email to the patient (or the guardian of a minor) when a recipient email exists and the charge has a payment link, and MUST create exactly one in-app notification of a `PAYMENT_LATE` type for the therapist, and MUST NOT repeat either on later checks. A charge that never had a payment link (amount below the gateway minimum, order not issued, or link discarded) still transitions to `LATE` and notifies the therapist, but MUST NOT email the patient: they were never asked to pay. The email names the date of the current version of the session (not the due date, which includes the grace period); when the group has no current consultation the patient email is omitted. This is a single alert, not a recurring reminder cadence.
 
 #### Scenario: Late transition fires exactly one alert of each kind, once
 
@@ -239,7 +239,7 @@ The system MUST expose `PAYMENTS_ENABLED` following the existing `X_ENABLED !== 
 
 ### Requirement: Checkout URL Exposure to the Public Booking
 
-A public booking response MUST NOT wait for a charge or checkout URL to be created: when `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` is on it carries only a checkout hint (`PENDING` or `NOT_APPLICABLE`), and the checkout URL MUST be exposed through the unauthenticated `GET /public/therapists/:therapistId/availability/book/:groupId/checkout` endpoint, which returns the payment URL and amount once the charge has one and a `null` URL otherwise. A booking without a checkout URL MUST still represent a successful booking.
+A public booking response MUST NOT wait for a charge or checkout URL to be created: when `PUBLIC_BOOKING_CHECKOUT_INLINE_ENABLED` is on it carries only a checkout hint, which the server always sets to `NOT_APPLICABLE` (a `PENDING` hint would reveal that the submitted RUT and email belong to an existing patient; the type still allows `PENDING`), and the checkout URL MUST be exposed through the unauthenticated `GET /public/therapists/:therapistId/availability/book/:groupId/checkout` endpoint, which returns the payment URL and amount once the charge has one and a `null` URL otherwise. A booking without a checkout URL MUST still represent a successful booking.
 
 #### Scenario: Checkout endpoint returns the URL once available
 
@@ -277,4 +277,4 @@ The system MUST expose a backend endpoint (`GET` and `POST /payments/return`) th
 
 ## Open Questions
 
-- Charges created while an account was still `CONNECTED` but left pending when the account later flips to `RECONNECT_REQUIRED` or `DISCONNECTED` (mid-flight charges): the code leaves them pending, and their confirmation and reconciliation are skipped or rejected while the account is not `CONNECTED`. Whether they should be cancelled or block reconnection is not defined.
+- Charges created while an account was still `CONNECTED` but left pending when the account later flips to `RECONNECT_REQUIRED` (mid-flight charges): the code leaves them pending, and their confirmation and reconciliation are skipped or rejected while the account is not `CONNECTED`. Whether they should be cancelled or block reconnection is not defined. A voluntary disconnection no longer leaves such charges when they have a gateway token: it cancels the open ones and voids their orders (see the `payment-gateway-connection` spec).

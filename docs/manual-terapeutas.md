@@ -8,28 +8,39 @@ administras únicamente tus propios pacientes, nadie más tiene acceso a
 tu información ni tú a la de otro profesional que también use la app.
 
 Menú lateral: **Dashboard**, **Pacientes**, **Consultas**, **Calendario**,
-**Repositorio**, **Pagos**, **Perfil** y **Seguridad**.
+**Repositorio**, **Pagos**, **Perfil** y **Seguridad**. Cuando la suscripción mensual
+está activa en la instancia (ver sección 15), se suma la entrada
+**Suscripción** al final del menú.
 
 ---
 
 ## 1. Crear tu cuenta y primer acceso
 
-No hay un administrador que te dé de alta, pero el registro público requiere
-un **código de invitación**: no cualquiera con el link de la app puede
-crearse una cuenta, dado que se manejan fichas clínicas. El código lo emite
-quien administra la instancia (ver sección 9, "Generar invitación") y se
-comparte contigo por fuera de la app (email, mensaje, etc.).
+No hay un administrador que te dé de alta. Mientras la suscripción mensual no
+esté activa en la instancia, el registro público requiere un **código de
+invitación**: no cualquiera con el link de la app puede crearse una cuenta,
+dado que se manejan fichas clínicas. El código lo emite quien administra la
+instancia (ver sección 9, "Generar invitación") y se comparte contigo por
+fuera de la app (email, mensaje, etc.). Con la suscripción mensual activa el
+registro es abierto, sin invitación, y admite un **código promocional**
+opcional (ver sección 15).
 
-1. **Registro**: desde la pantalla de login, "Regístrate". Pide nombre
-   completo, email, contraseña (mínimo 8 caracteres), confirmación de la
-   contraseña y el **código de invitación** recibido. Un código inválido, ya
-   usado, o expirado (vence a los 7 días de generado) rechaza el registro.
-   La cuenta queda creada pero **no puedes loguear todavía**. Si el email ya
+1. **Registro**: desde la pantalla de login, "Regístrate" (pantalla "Crear
+   cuenta"). Pide nombre completo, email y un código: el **código de
+   invitación** recibido o, con el registro abierto, un "Código promocional
+   (opcional)". **No pide contraseña**: la eliges al verificar tu email (paso
+   siguiente). Un código de invitación inválido, ya usado, o expirado (vence a
+   los 7 días de generado) rechaza el registro; un código promocional inválido
+   o vencido también. La cuenta queda creada pero **no puedes loguear todavía**.
+   Si el email ya
    tenía una cuenta, la pantalla responde igual que en un registro nuevo (para
    no revelar qué emails están registrados), no se gasta el código y el titular
    de ese email recibe un aviso de que alguien intentó registrarse con él.
-2. **Verificación de email**: te llega un correo con un enlace (válido 24
-   horas). Haz clic ahí para activar la cuenta. Sin esto, un intento de login
+2. **Verificación de email y contraseña**: te llega un correo con un enlace
+   (válido 24 horas). Al abrirlo, la pantalla "Elige tu contraseña" te pide la
+   contraseña (mínimo 8 caracteres) y su confirmación; al pulsar "Verificar y
+   activar cuenta" el email queda verificado y la cuenta activa. Sin esto, un
+   intento de login
    rechaza con "Debes verificar tu email antes de iniciar sesión", aunque la
    contraseña sea correcta.
 3. **Activación de MFA obligatoria**: en tu primer login exitoso (con
@@ -173,7 +184,7 @@ Cuando termina el proceso con un paciente, la sección **Cierre del tratamiento*
 **Antes de empezar.** Para el informe generado por la app necesitas tu **RUT** en el perfil (si falta, el formulario te lo avisa y te lleva a "Datos profesionales" de la pantalla Perfil); el registro profesional es opcional. También necesitas el consentimiento de tratamiento vigente del paciente, igual que para agendar consultas.
 
 **Cómo se emite.** Pulsa **Dar de alta** y elige uno de los dos caminos:
-- **Generar con el sistema.** Se crea un borrador prellenado con la fecha de ingreso, la fecha de cierre y el número de sesiones. Tú completas el motivo de consulta, el resumen de evolución, el estado al cierre y las recomendaciones (el diagnóstico es opcional), puedes **guardar el borrador** y seguirlo después, y al terminar pulsas **Emitir informe**.
+- **Generar con el sistema.** Se crea un borrador prellenado con la fecha de ingreso, la fecha de cierre y el número de sesiones. Tú completas el motivo de consulta, el resumen de evolución, el estado al cierre y las recomendaciones (el diagnóstico es opcional), puedes **guardar el borrador** y seguirlo después, y al terminar pulsas **Emitir informe**. El borrador de una corrección (ver más abajo) se puede **descartar** con el ícono de papelera: se pierde lo escrito y el informe emitido anterior sigue vigente.
 - **Subir mi propio PDF.** Si ya tienes tu epicrisis en PDF, la subes y el sistema solo pide el motivo de cierre, la fecha de cierre y el archivo. Debe ser un PDF real y pesar hasta 25 MB. El sistema **no firma** ese archivo ni lo presenta como firmado por él: lo guarda tal cual y calcula su huella para detectar cambios.
 
 **Motivo de cierre.** Puede ser **Alta**, **Derivado** o **Deserción**. Para Derivado puedes indicar el destino de forma breve. Para Deserción eliges un motivo principal de una lista cerrada (por ejemplo "Costo" o "Sin contacto o sin información") y, si eliges "Otro", una nota breve. No escribas datos sensibles, de salud tuya o de familiares, ni de terceros en esos textos. La lista es una síntesis propia a partir de la literatura, no un estándar validado.
@@ -264,8 +275,13 @@ Desde "Pagos", un asistente de 5 pasos te guía para conectar tu cuenta:
    cobros.
 
 Desde la misma pantalla puedes desconectar la cuenta cuando quieras
-("Desconectar cuenta"): los cargos ya generados no se ven afectados, pero no
-se crean cargos nuevos hasta que vuelvas a conectarla. Si la pantalla te avisa
+("Desconectar cuenta"). Antes de borrar las credenciales, la app cancela tus
+cobros pendientes o vencidos que tienen link de pago y anula sus órdenes en
+Flow, para que ningún link antiguo quede vivo sin que Umbral pueda verificar
+el pago; los cobros ya pagados no se tocan. Si Flow no alcanza a anular alguna
+orden, el cobro queda cancelado igual y la desconexión sigue adelante. Una
+cuenta con la suscripción en solo lectura también puede desconectarse. No se
+crean cobros nuevos hasta que vuelvas a conectarla. Si la pantalla te avisa
 que la cuenta necesita reconectarse (el modelo anterior de pagos ya no está
 disponible), vuelve a ingresar tus credenciales de Flow para retomar el cobro
 automático.
@@ -498,6 +514,11 @@ Estos tipos de notificación llegan hoy:
   un pago con un monto distinto al del cobro), te llega un aviso para que
   revises tu cuenta de la pasarela. El cobro no se marca como pagado
   automáticamente en esos casos.
+- **Vencimiento de la suscripción**: con la suscripción mensual activa (ver
+  sección 15), avisos a los 5 días, 1 día y el día del vencimiento, con
+  enlace a la pantalla Suscripción (también llegan por email).
+- **Cambio de precio de la suscripción**: un aviso único, 30 días antes de
+  que termine el precio de lanzamiento de tu cuenta (ver sección 15).
 - **Aviso único sobre documentos legales**: un anuncio puntual, enviado a todas
   las cuentas, pidiendo volver a subir documentos legales perdidos por un
   problema de almacenamiento antes del 23/09. No se repite.
@@ -507,8 +528,8 @@ no leídas, pasados 90 días desde que se generaron.
 
 Además de las notificaciones, la app envía correos de seguridad y de cuenta:
 verificación de email, restablecimiento de contraseña, cambio de email (a la
-casilla nueva y un aviso a la antigua) y aviso de desactivación del MFA con
-código de recuperación.
+casilla nueva y un aviso a la antigua), aviso de desactivación del MFA con
+código de recuperación y los avisos de vencimiento de la suscripción.
 
 > 📝 Observaciones UX: (¿el contador de no leídas se nota fácil? ¿los recordatorios llegan con tiempo suficiente para prepararte?)
 >
@@ -657,6 +678,50 @@ sesión**, que abre el mismo formulario de consulta de la sección 4 con la
 fecha elegida. Arriba a la derecha, una etiqueta indica el estado de Google
 Calendar ("conectado", "desconectado" o "sin configurar") y enlaza a
 "Seguridad".
+
+> 📝 Observaciones UX:
+>
+>
+
+---
+
+## 15. Suscripción mensual
+
+Esta sección aplica solo cuando quien administra la instancia enciende el cobro
+de la suscripción (`SUBSCRIPTIONS_ENFORCED`). Mientras esté apagado, la
+entrada **Suscripción** no aparece en el menú, no se cobra y el acceso no
+cambia; el registro sigue siendo por invitación.
+
+- **Plan mensual.** En **Suscripción** pagas con Flow; cada pago suma 30 días
+  a tu vencimiento y, si pagas antes de vencer, no pierdes días. Una
+  suscripción vigente solo se puede renovar en los últimos 5 días de su
+  período: antes, la pantalla indica desde qué fecha podrás hacerlo. Al volver
+  de Flow, la pantalla de retorno confirma el pago (consulta el estado cada 5
+  segundos durante un minuto) o avisa que el pago fue rechazado.
+- **Precio.** El precio se congela al crearse tu suscripción y se mantiene
+  durante 12 meses (precio de lanzamiento). Pasado ese plazo se cobra el precio
+  posterior, que nunca es menor al tuyo; 30 días antes te llega un aviso y la
+  pantalla muestra el cambio pendiente. Los montos los define quien administra
+  la instancia (`SUBSCRIPTION_PRICE_CLP` y `SUBSCRIPTION_RENEWAL_PRICE_CLP`); la
+  pantalla siempre muestra el vigente.
+- **Prueba.** Al registrarte con un **código promocional** obtienes los días de
+  prueba de ese código (30 por defecto al crearlo). Sin código no hay prueba:
+  la cuenta nueva queda en solo lectura hasta el primer pago.
+- **Estados.** Vigente (escritura normal); **gracia**, 7 días desde el
+  vencimiento, con un aviso fijo arriba y enlace "Renovar"; y **solo lectura**,
+  pasada la gracia: puedes consultar fichas y sesiones y exportar PDF, pero no
+  registrar cambios (la app responde 402 `SUBSCRIPTION_REQUIRED`). En solo
+  lectura siguen permitidos cambiar la contraseña y el MFA, cerrar sesión,
+  pagar, eliminar un paciente, registrar o revocar consentimientos y
+  asentimientos, entregar un informe de alta ya emitido, marcar notificaciones
+  como leídas, desconectar Google Calendar y la cuenta de pago, y editar el
+  perfil. Mientras tu cuenta esté en solo lectura, tu agenda pública (sección
+  13) responde "La agenda pública no está disponible." y los pacientes no
+  pueden reservar.
+- **Cuentas exentas.** Quien administra puede dejar una cuenta sin cobro,
+  permanente o hasta una fecha, por email; se puede cargar antes de que la
+  persona se registre y rige al verificar el email. La pantalla indica "acceso
+  sin costo", sin botón de pago.
 
 > 📝 Observaciones UX:
 >
