@@ -407,7 +407,7 @@ export default function LoginPage() {
           </p>
         </div>
         <div className="text-slate-400 text-xs">
-          © 2026 Umbral - RCE — Diseñado para alinearse con la Ley 19.628
+          © 2026 Umbral - RCE
         </div>
       </div>
 
