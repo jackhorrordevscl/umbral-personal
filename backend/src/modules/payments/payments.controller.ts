@@ -125,14 +125,32 @@ export class PaymentsController {
   }
 
   // issue #634: antes de borrar las credenciales se anulan los enlaces de pago
-  // abiertos; después no habría con qué anularlos en la pasarela.
+  // abiertos; después no habría con qué anularlos en la pasarela. Si ese
+  // barrido falla (p. ej. error transitorio de base de datos) la cuenta se
+  // desconecta igual -- revocar las credenciales es lo prioritario -- y la
+  // respuesta lo informa con openChargesSweepFailed.
   @UseGuards(JwtAuthGuard)
   @Delete('account')
   async disconnect(@CurrentUser() user: RequestUser) {
-    const { cancelled, unvoidedGroupIds } =
-      await this.paymentsService.cancelOpenChargesForDisconnect(user.id);
+    let cancelled = 0;
+    let unvoidedGroupIds: string[] = [];
+    let openChargesSweepFailed = false;
+    try {
+      ({ cancelled, unvoidedGroupIds } =
+        await this.paymentsService.cancelOpenChargesForDisconnect(user.id));
+    } catch (err) {
+      openChargesSweepFailed = true;
+      this.logger.error(
+        `No se pudieron anular los enlaces de pago abiertos al desconectar; se desconecta igual (therapistId=${user.id}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     const result = await this.paymentAccountService.disconnect(user.id);
-    return { ...result, cancelledCharges: cancelled, unvoidedGroupIds };
+    return {
+      ...result,
+      cancelledCharges: cancelled,
+      unvoidedGroupIds,
+      ...(openChargesSweepFailed ? { openChargesSweepFailed: true } : {}),
+    };
   }
 
   // T5.5/T7.7/T7.8: assertOwnership FIRST -- therapist B requesting

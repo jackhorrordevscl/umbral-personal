@@ -303,6 +303,51 @@ describe('PaymentsController', () => {
         unvoidedGroupIds: ['group-1'],
       });
     });
+
+    it('desconecta igual cuando el barrido previo falla e informa que no se pudo hacer', async () => {
+      paymentsService.cancelOpenChargesForDisconnect.mockRejectedValue(
+        new Error('db down'),
+      );
+      paymentAccountService.disconnect.mockResolvedValue({
+        status: 'DISCONNECTED',
+      });
+
+      const result = await controller.disconnect({
+        id: 'therapist-1',
+        email: '',
+        role: '',
+        name: '',
+      });
+
+      expect(paymentAccountService.disconnect).toHaveBeenCalledWith(
+        'therapist-1',
+      );
+      expect(result).toEqual({
+        status: 'DISCONNECTED',
+        cancelledCharges: 0,
+        unvoidedGroupIds: [],
+        openChargesSweepFailed: true,
+      });
+    });
+
+    it('no informa openChargesSweepFailed cuando el barrido funciona', async () => {
+      paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
+        cancelled: 0,
+        unvoidedGroupIds: [],
+      });
+      paymentAccountService.disconnect.mockResolvedValue({
+        status: 'DISCONNECTED',
+      });
+
+      const result = await controller.disconnect({
+        id: 'therapist-1',
+        email: '',
+        role: '',
+        name: '',
+      });
+
+      expect(result).not.toHaveProperty('openChargesSweepFailed');
+    });
   });
 
   describe('updateAmount (PATCH /payments/:groupId)', () => {
