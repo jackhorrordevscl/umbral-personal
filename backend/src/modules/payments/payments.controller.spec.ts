@@ -272,6 +272,9 @@ describe('PaymentsController', () => {
 
   // issue #634: los enlaces abiertos se anulan ANTES de borrar las credenciales.
   describe('account (DELETE /payments/account)', () => {
+    let warn: jest.SpyInstance | undefined;
+    afterEach(() => warn?.mockRestore());
+
     it('anula los enlaces abiertos y recién después desconecta, e informa el resultado', async () => {
       paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
         cancelled: 2,
@@ -302,6 +305,130 @@ describe('PaymentsController', () => {
         cancelledCharges: 2,
         unvoidedGroupIds: ['group-1'],
       });
+    });
+
+    it('desconecta igual cuando el barrido previo falla e informa que no se pudo hacer', async () => {
+      paymentsService.cancelOpenChargesForDisconnect.mockRejectedValue(
+        new Error('db down'),
+      );
+      paymentAccountService.disconnect.mockResolvedValue({
+        status: 'DISCONNECTED',
+      });
+
+      const result = await controller.disconnect({
+        id: 'therapist-1',
+        email: '',
+        role: '',
+        name: '',
+      });
+
+      expect(paymentAccountService.disconnect).toHaveBeenCalledWith(
+        'therapist-1',
+      );
+      expect(result).toEqual({
+        status: 'DISCONNECTED',
+        cancelledCharges: 0,
+        unvoidedGroupIds: [],
+        openChargesSweepFailed: true,
+      });
+    });
+
+    it('informa openChargesSweepIncomplete cuando el barrido agotó su tope', async () => {
+      paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
+        cancelled: 10000,
+        unvoidedGroupIds: [],
+        incomplete: true,
+      });
+      paymentAccountService.disconnect.mockResolvedValue({
+        status: 'DISCONNECTED',
+      });
+
+      const result = await controller.disconnect({
+        id: 'therapist-1',
+        email: '',
+        role: '',
+        name: '',
+      });
+
+      expect(result).toEqual({
+        status: 'DISCONNECTED',
+        cancelledCharges: 10000,
+        unvoidedGroupIds: [],
+        openChargesSweepIncomplete: true,
+      });
+    });
+
+    it('deja en el log los groupIds sin anular antes de desconectar, aunque disconnect falle', async () => {
+      warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+      paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
+        cancelled: 2,
+        unvoidedGroupIds: ['group-1', 'group-2'],
+      });
+      paymentAccountService.disconnect.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        controller.disconnect({
+          id: 'therapist-1',
+          email: '',
+          role: '',
+          name: '',
+        }),
+      ).rejects.toThrow('db down');
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('group-1,group-2'),
+      );
+    });
+
+    it('parte el log de groupIds sin anular en líneas de 50', async () => {
+      warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+      paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
+        cancelled: 120,
+        unvoidedGroupIds: Array.from({ length: 120 }, (_, i) => `group-${i}`),
+      });
+      paymentAccountService.disconnect.mockResolvedValue({
+        status: 'DISCONNECTED',
+      });
+
+      await controller.disconnect({
+        id: 'therapist-1',
+        email: '',
+        role: '',
+        name: '',
+      });
+
+      expect(warn).toHaveBeenCalledTimes(3);
+      const lines = (warn as jest.SpyInstance<void, [string]>).mock.calls.map(
+        (call) => call[0],
+      );
+      expect(lines[0]).toContain('group-0,group-1,');
+      expect(lines[0]).toContain('group-49)');
+      expect(lines[0]).not.toContain('group-50');
+      expect(lines[2]).toContain('group-100,');
+      expect(lines[2]).toContain('group-119)');
+    });
+
+    it('no informa openChargesSweepFailed cuando el barrido funciona', async () => {
+      paymentsService.cancelOpenChargesForDisconnect.mockResolvedValue({
+        cancelled: 0,
+        unvoidedGroupIds: [],
+      });
+      paymentAccountService.disconnect.mockResolvedValue({
+        status: 'DISCONNECTED',
+      });
+
+      const result = await controller.disconnect({
+        id: 'therapist-1',
+        email: '',
+        role: '',
+        name: '',
+      });
+
+      expect(result).not.toHaveProperty('openChargesSweepFailed');
     });
   });
 

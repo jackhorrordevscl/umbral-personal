@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PaymentProvider, TreatmentStatus } from '@prisma/client';
 import { UNPAGINATED_SAFETY_LIMIT } from '../../common/dto/pagination.dto';
-import { PaymentsService } from './payments.service';
+import { MAX_DISCONNECT_ROUNDS, PaymentsService } from './payments.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   GatewayContext,
@@ -2450,6 +2450,73 @@ describe('PaymentsService', () => {
         cancelled: UNPAGINATED_SAFETY_LIMIT + 1,
         unvoidedGroupIds: [],
       });
+    });
+
+    it('si el tope de vueltas se agota con tandas llenas, lo informa como incompleto', async () => {
+      const loggerError = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      const batch = Array.from({ length: UNPAGINATED_SAFETY_LIMIT }, (_, i) =>
+        buildPayment({
+          id: `payment-${i}`,
+          groupId: `group-${i}`,
+          gatewayToken: `flow-token-${i}`,
+        }),
+      );
+      prisma.payment.findMany.mockResolvedValue(batch);
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.payment.findUnique.mockResolvedValue({
+        gatewayToken: 'flow-token-x',
+      });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+
+      const result =
+        await service.cancelOpenChargesForDisconnect('therapist-1');
+
+      expect(prisma.payment.findMany).toHaveBeenCalledTimes(
+        MAX_DISCONNECT_ROUNDS,
+      );
+      expect(result.incomplete).toBe(true);
+      expect(loggerError).toHaveBeenCalledWith(
+        expect.stringContaining('se agotó el tope'),
+      );
+      loggerError.mockRestore();
+    });
+
+    it('un cobro que revienta se excluye de las tandas siguientes para no reintentarlo', async () => {
+      const batch = Array.from({ length: UNPAGINATED_SAFETY_LIMIT }, (_, i) =>
+        buildPayment({
+          id: `payment-${i}`,
+          groupId: `group-${i}`,
+          gatewayToken: `flow-token-${i}`,
+        }),
+      );
+      prisma.payment.findMany
+        .mockResolvedValueOnce(batch)
+        .mockResolvedValueOnce([]);
+      prisma.payment.updateMany
+        .mockRejectedValueOnce(new Error('DB caída'))
+        .mockResolvedValue({ count: 1 });
+      prisma.payment.findUnique.mockResolvedValue({
+        gatewayToken: 'flow-token-x',
+      });
+      paymentAccountService.resolveGatewayContext.mockResolvedValue(
+        buildContext(),
+      );
+
+      const result =
+        await service.cancelOpenChargesForDisconnect('therapist-1');
+
+      expect(prisma.payment.findMany).toHaveBeenNthCalledWith(2, {
+        where: expect.objectContaining({
+          id: { notIn: ['payment-0'] },
+        }) as unknown,
+        take: UNPAGINATED_SAFETY_LIMIT,
+      });
+      expect(result.unvoidedGroupIds).toEqual(['group-0']);
+      expect(result.incomplete).toBeUndefined();
     });
 
     it('sin cuenta conectada no cancela nada ni toca la pasarela', async () => {

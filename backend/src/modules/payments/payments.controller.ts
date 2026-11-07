@@ -33,6 +33,8 @@ import { ConfirmValidationLoggingInterceptor } from './confirm-validation-loggin
 import type { GatewayOrderStatus } from './payment-gateway.client';
 
 const CONFIRM_REJECTED_ERROR = 'Confirmación de pago rechazada.';
+// groupIds por línea de log al desconectar con órdenes sin anular.
+const UNVOIDED_LOG_CHUNK = 50;
 
 // Issue #133: throttlers ajenos que POST /confirm y GET|POST /return deben
 // saltear -- los de AuthModule/ProfileModule más el otro nombre propio de
@@ -125,14 +127,50 @@ export class PaymentsController {
   }
 
   // issue #634: antes de borrar las credenciales se anulan los enlaces de pago
-  // abiertos; después no habría con qué anularlos en la pasarela.
+  // abiertos; después no habría con qué anularlos en la pasarela. Si ese
+  // barrido falla (p. ej. error transitorio de base de datos) la cuenta se
+  // desconecta igual -- revocar las credenciales es lo prioritario -- y la
+  // respuesta lo informa con openChargesSweepFailed.
   @UseGuards(JwtAuthGuard)
   @Delete('account')
   async disconnect(@CurrentUser() user: RequestUser) {
-    const { cancelled, unvoidedGroupIds } =
-      await this.paymentsService.cancelOpenChargesForDisconnect(user.id);
+    let cancelled = 0;
+    let unvoidedGroupIds: string[] = [];
+    let openChargesSweepFailed = false;
+    let openChargesSweepIncomplete = false;
+    try {
+      const sweep = await this.paymentsService.cancelOpenChargesForDisconnect(
+        user.id,
+      );
+      cancelled = sweep.cancelled;
+      unvoidedGroupIds = sweep.unvoidedGroupIds;
+      openChargesSweepIncomplete = sweep.incomplete === true;
+    } catch (err) {
+      openChargesSweepFailed = true;
+      this.logger.error(
+        `No se pudieron anular los enlaces de pago abiertos al desconectar; se desconecta igual (therapistId=${user.id}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    // Cancelar y desconectar no son atómicos: si disconnect falla, un reintento
+    // ya no ve estos cobros (no están PENDING/LATE). Se deja el rastro en el log
+    // antes de desconectar para poder conciliarlos a mano.
+    // En tandas para que ninguna línea de log crezca sin límite (hasta 10.000
+    // grupos si la pasarela estuvo caída durante todo el barrido).
+    for (let i = 0; i < unvoidedGroupIds.length; i += UNVOIDED_LOG_CHUNK) {
+      this.logger.warn(
+        `Al desconectar quedaron órdenes sin anular en la pasarela (therapistId=${user.id}, groupIds=${unvoidedGroupIds.slice(i, i + UNVOIDED_LOG_CHUNK).join(',')}).`,
+      );
+    }
     const result = await this.paymentAccountService.disconnect(user.id);
-    return { ...result, cancelledCharges: cancelled, unvoidedGroupIds };
+    return {
+      ...result,
+      cancelledCharges: cancelled,
+      unvoidedGroupIds,
+      ...(openChargesSweepFailed ? { openChargesSweepFailed: true } : {}),
+      ...(openChargesSweepIncomplete
+        ? { openChargesSweepIncomplete: true }
+        : {}),
+    };
   }
 
   // T5.5/T7.7/T7.8: assertOwnership FIRST -- therapist B requesting
