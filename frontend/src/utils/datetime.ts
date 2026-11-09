@@ -37,19 +37,27 @@ export function buildLocalISO(date: string, time: string): string {
   return `${date}T${time}:00${sign}${hh}:${mm}`;
 }
 
+// Con `hour24` la hora sale en formato de 24 horas ("13:00") en vez de "01:00 p. m.".
+// Es opt-in: sin la opción, el formato de siempre no cambia para las demás pantallas.
+export interface ChileDateFormatOptions {
+  hour24?: boolean;
+}
+
 // Formatea fecha para mostrar en Chile
-export function formatChileDateTime(dateStr: string): string {
+export function formatChileDateTime(dateStr: string, opts: ChileDateFormatOptions = {}): string {
   return new Date(dateStr).toLocaleString('es-CL', {
     weekday: 'long', year: 'numeric', month: 'long',
     day: 'numeric', hour: '2-digit', minute: '2-digit',
+    ...(opts.hour24 ? { hourCycle: 'h23' as const } : {}),
     timeZone: 'America/Santiago',
   });
 }
 
-export function formatChileDate(dateStr: string): string {
+export function formatChileDate(dateStr: string, opts: ChileDateFormatOptions = {}): string {
   return new Date(dateStr).toLocaleString('es-CL', {
     year: 'numeric', month: 'long', day: 'numeric',
     hour: '2-digit', minute: '2-digit',
+    ...(opts.hour24 ? { hourCycle: 'h23' as const } : {}),
     timeZone: 'America/Santiago',
   });
 }

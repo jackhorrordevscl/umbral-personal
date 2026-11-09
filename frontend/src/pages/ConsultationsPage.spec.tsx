@@ -232,6 +232,25 @@ describe('ConsultationsPage', () => {
     expect(screen.getByText('Intervención realizada')).toBeInTheDocument()
   })
 
+  it('muestra la fecha de la sesión en minúscula y con la hora en formato de 24 horas', async () => {
+    mockedApi.get.mockImplementation((url: string) => {
+      if (url === '/patients') return Promise.resolve({ data: { data: [buildPatient()], total: 1, page: 1, pageSize: 50 } })
+      if (url.startsWith('/consultations/patient/'))
+        return Promise.resolve({
+          data: [buildConsultation({ sessionDate: '2026-11-03T13:00:00-03:00' })],
+        })
+      return Promise.resolve({ data: [] })
+    })
+    const user = userEvent.setup()
+
+    renderConsultationsPage()
+    await selectFirstPatient(user)
+
+    const date = await screen.findByText('martes, 3 de noviembre de 2026, 13:00')
+    // Sin la clase "capitalize" no se convierte en "De Noviembre De".
+    expect(date).not.toHaveClass('capitalize')
+  })
+
   // Issue #159: el backend ya sanitiza consultReason/intervention/agreements
   // (whitelist p/br/strong/em/u/ul/ol/li), pero el frontend sanitiza de
   // nuevo con DOMPurify antes de dangerouslySetInnerHTML -- defensa en
