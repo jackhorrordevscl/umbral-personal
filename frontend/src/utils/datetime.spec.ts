@@ -12,6 +12,8 @@ import {
   todayInChile,
   formatChileShortDateTimeNoSeconds,
   formatChileDateOnly,
+  formatChileDateTime,
+  formatChileDate,
 } from './datetime'
 
 // PR4 (session-calendar-view, tasks 5.1): estos helpers alimentan el
@@ -171,5 +173,28 @@ describe('todayInChile y formatChileShortDateTimeNoSeconds (issue #444)', () => 
   it('formatChileShortDateTimeNoSeconds omite los segundos y nunca produce hora 24', () => {
     expect(formatChileShortDateTimeNoSeconds('2026-11-03T13:00:00.000Z')).toBe('03-11-2026, 10:00')
     expect(formatChileShortDateTimeNoSeconds('2026-08-16T04:00:00.000Z')).toContain('00:00')
+  })
+})
+
+describe('formatChileDateTime y formatChileDate con hour24', () => {
+  // 2026-11-03T16:00:00Z es martes 3 de noviembre, 13:00 en Chile (-03:00).
+  const INSTANT = '2026-11-03T16:00:00.000Z'
+
+  it('con hour24 muestra la hora en formato de 24 horas', () => {
+    expect(formatChileDateTime(INSTANT, { hour24: true })).toBe('martes, 3 de noviembre de 2026, 13:00')
+  })
+
+  it('con hour24 la medianoche sale como 00:00 y no como 24:00', () => {
+    // 2026-11-04T03:00:00Z es el 4 de noviembre a las 00:00 en Chile.
+    expect(formatChileDateTime('2026-11-04T03:00:00.000Z', { hour24: true })).toContain('00:00')
+  })
+
+  it('sin opciones conserva el formato de siempre (12 horas)', () => {
+    expect(formatChileDateTime(INSTANT)).toMatch(/01:00\s*p\.\s*m\./)
+    expect(formatChileDate(INSTANT)).toMatch(/01:00\s*p\.\s*m\./)
+  })
+
+  it('formatChileDate con hour24 muestra 13:00 sin día de la semana', () => {
+    expect(formatChileDate(INSTANT, { hour24: true })).toBe('3 de noviembre de 2026 a las 13:00')
   })
 })

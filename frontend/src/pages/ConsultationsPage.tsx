@@ -751,8 +751,8 @@ export default function ConsultationsPage() {
                   <div className="card">
                     <div className="flex items-start justify-between mb-3">
                       <div>
-                        <p className="font-medium text-slate-800 text-sm md:text-base capitalize">
-                          {formatChileDateTime(c.sessionDate)}
+                        <p className="font-medium text-slate-800 text-sm md:text-base">
+                          {formatChileDateTime(c.sessionDate, { hour24: true })}
                         </p>
                         <div className="flex flex-wrap gap-2 mt-1">
                           <span className={`text-xs px-2 py-0.5 rounded-full ${
@@ -800,7 +800,7 @@ export default function ConsultationsPage() {
                         disabled={!!c.unreadableFields?.length}
                         className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         title={c.unreadableFields?.length ? 'No se puede corregir: hay textos que no se pueden leer' : 'Corregir sesión'}
-                        aria-label={`Corregir sesión del ${formatChileDateTime(c.sessionDate)}`}>
+                        aria-label={`Corregir sesión del ${formatChileDateTime(c.sessionDate, { hour24: true })}`}>
                         <Pencil size={14} />
                       </button>
                     </div>
@@ -823,7 +823,7 @@ export default function ConsultationsPage() {
                         <div className="pt-2 border-t border-slate-100">
                           <p className="text-xs text-slate-500">
                             Próxima sesión: <span className="font-medium text-slate-600">
-                              {formatChileDate(c.nextSessionDate)}
+                              {formatChileDate(c.nextSessionDate, { hour24: true })}
                             </span>
                           </p>
                         </div>
@@ -848,10 +848,10 @@ export default function ConsultationsPage() {
                     <div key={h.id} className="card mt-2 ml-4 opacity-60 border-dashed border-amber-200 bg-amber-50/30">
                       <div className="mb-2">
                         <p className="text-xs font-medium text-slate-600">
-                          {formatChileDateTime(h.snapshot.sessionDate)}
+                          {formatChileDateTime(h.snapshot.sessionDate, { hour24: true })}
                         </p>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          Corregido el {formatChileDateTime(h.editedAt)} por {h.editedBy.name}
+                          Corregido el {formatChileDateTime(h.editedAt, { hour24: true })} por {h.editedBy.name}
                         </p>
                       </div>
                       <div className="space-y-2 text-xs text-slate-600">
