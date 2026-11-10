@@ -139,7 +139,7 @@ export default function Layout() {
           >
             <Menu size={22} />
           </button>
-          <img src="/favicon.svg" alt="Umbral" className="lg:hidden h-9 w-9 rounded-sm" />
+          <img src="/favicon.svg" alt="Umbral" className="lg:hidden h-9 w-9 rounded-full dark:ring-1 dark:ring-slate-600" />
           <div className="flex-1" />
           <NotificationBell />
         </header>

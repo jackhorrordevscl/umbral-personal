@@ -156,3 +156,34 @@ layer(base);
     @apply font-display;
   }
 }
+/* Dark mode: native unchecked checkboxes render as a filled grey square. Draw an
+   explicit outlined box so the unchecked and checked states are distinguishable. */
+.dark input[type="checkbox"] {
+  appearance: none;
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  border: 1.5px solid var(--color-slate-400);
+  border-radius: 0.25rem;
+  background-color: transparent;
+  cursor: pointer;
+}
+.dark input[type="checkbox"]:checked {
+  border-color: var(--color-sage-500);
+  background-color: var(--color-sage-500);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5l3 3 6-6.5'/%3E%3C/svg%3E");
+  background-size: 100% 100%;
+}
+.dark input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--color-sage-400);
+  outline-offset: 2px;
+}
+
+/* Scroll cue: soft shadow at the edge that still has hidden content. */
+.scroll-hint {
+  background:
+    linear-gradient(var(--color-surface) 30%, transparent) top / 100% 24px no-repeat local,
+    linear-gradient(transparent, var(--color-surface) 70%) bottom / 100% 24px no-repeat local,
+    linear-gradient(rgb(0 0 0 / 0.14), transparent) top / 100% 10px no-repeat scroll,
+    linear-gradient(transparent, rgb(0 0 0 / 0.14)) bottom / 100% 10px no-repeat scroll;
+}

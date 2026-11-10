@@ -701,7 +701,7 @@ export default function ConsultationsPage() {
                     value={search} onChange={e => setSearch(e.target.value)} />
                 </div>
               </div>
-              <div className="divide-y divide-slate-50 max-h-64 lg:max-h-96 overflow-auto">
+              <div className="divide-y divide-slate-50 max-h-64 lg:max-h-96 overflow-auto scroll-hint">
                 {patients.map((p: Patient) => (
                   <button key={p.id}
                     onClick={() => { setSelectedPatientId(p.id); setShowPatientList(false); }}

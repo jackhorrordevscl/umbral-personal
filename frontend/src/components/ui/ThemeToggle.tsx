@@ -14,8 +14,8 @@ export default function ThemeToggle({ variant = "icon", className = "" }: ThemeT
   const { theme, toggle } = useTheme();
   const isDark = theme === "dark";
   const label = isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro";
-  // The icon shows the current mode (sun = light, moon = dark), like the landing.
-  const Icon = isDark ? Moon : Sun;
+  // The icon shows the action, matching the label (moon = switch to dark, sun = switch to light).
+  const Icon = isDark ? Sun : Moon;
 
   if (variant === "sidebar") {
     return (

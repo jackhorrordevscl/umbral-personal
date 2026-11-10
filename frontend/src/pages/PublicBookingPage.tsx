@@ -213,7 +213,7 @@ export default function PublicBookingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-cream-100 px-3 py-6 sm:px-6 lg:flex lg:items-center lg:py-12">
+    <div className="min-h-screen bg-cream-100 px-3 pb-6 pt-16 sm:px-6 sm:py-6 lg:flex lg:items-center lg:py-12">
       <div
         className={
           profile

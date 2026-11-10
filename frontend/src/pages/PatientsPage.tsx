@@ -689,7 +689,7 @@ export default function PatientsPage() {
       </div>
 
       {/* Cards móvil */}
-      <div className="md:hidden">
+      <div className="relative md:hidden">
         {patientsLoading ? (
           <div className="card text-center py-8 text-slate-500 text-sm">
             Cargando pacientes...
@@ -708,6 +708,9 @@ export default function PatientsPage() {
             overscanCount={4}
             style={{ height: PATIENT_LIST_HEIGHT }}
           />
+        )}
+        {!patientsLoading && filtered.length > 0 && (
+          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-linear-to-t from-cream-100 to-transparent" />
         )}
       </div>
 
