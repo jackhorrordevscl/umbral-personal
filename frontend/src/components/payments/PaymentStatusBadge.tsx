@@ -7,16 +7,16 @@ interface PaymentStatusBadgeProps {
 type BadgeKey = 'PENDING' | 'PAID' | 'LATE' | 'CANCELLED' | 'SKIPPED_NO_EMAIL';
 
 const BADGE_STYLES: Record<BadgeKey, string> = {
-  PENDING: 'bg-blue-50 text-blue-600',
-  PAID: 'bg-emerald-50 text-emerald-700',
-  LATE: 'bg-red-50 text-red-600',
+  PENDING: 'bg-blue-50 text-blue-600 dark:text-blue-400',
+  PAID: 'bg-emerald-50 text-emerald-700 dark:text-emerald-300',
+  LATE: 'bg-red-50 text-red-600 dark:text-red-400',
   CANCELLED: 'bg-slate-100 text-slate-500',
   // design.md "Link delivery has an explicit persisted state and never
   // blocks the charge" -- SKIPPED_NO_EMAIL es un estado terapeuta-visible
   // distinto de "pendiente de pago" (mismo status PENDING, distinto matiz
   // visual): el cargo existe y es cobrable, pero el paciente nunca recibió
   // el link automáticamente.
-  SKIPPED_NO_EMAIL: 'bg-amber-50 text-amber-700',
+  SKIPPED_NO_EMAIL: 'bg-amber-50 text-amber-700 dark:text-amber-300',
 };
 
 const BADGE_LABELS: Record<BadgeKey, string> = {

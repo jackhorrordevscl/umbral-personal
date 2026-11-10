@@ -138,7 +138,7 @@ export default function DischargeSection({
       {notice && (
         <p
           role="status"
-          className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-emerald-700 text-sm mb-3"
+          className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-emerald-700 dark:text-emerald-300 text-sm mb-3"
         >
           {notice}
         </p>

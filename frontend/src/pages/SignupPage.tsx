@@ -78,7 +78,7 @@ export default function SignupPage() {
 
   if (done) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+      <div className="min-h-screen bg-ink flex items-center justify-center p-8">
         <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md text-center">
           <h2 className="font-display text-2xl text-slate-900 mb-2">Revisa tu email</h2>
           <p className="text-slate-500 text-sm mb-6">
@@ -96,7 +96,7 @@ export default function SignupPage() {
   // configuración en vez de mostrar un formulario que podría ser el equivocado.
   if (!config.data) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+      <div className="min-h-screen bg-ink flex items-center justify-center p-8">
         <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md">
           {config.isError ? (
             <ErrorBanner
@@ -113,7 +113,7 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+    <div className="min-h-screen bg-ink flex items-center justify-center p-8">
       <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md">
         <div className="mb-8">
           <h2 className="font-display text-3xl text-slate-900">Crear cuenta</h2>
@@ -126,7 +126,7 @@ export default function SignupPage() {
           <div>
             <label htmlFor="signup-name" className="block text-sm font-medium text-slate-700 mb-1">Nombre completo</label>
             <input {...register('name')} id="signup-name" type="text" className="input-field" />
-            {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
+            {errors.name && <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.name.message}</p>}
           </div>
 
           <div>
@@ -138,7 +138,7 @@ export default function SignupPage() {
               placeholder="tu@email.com"
               className="input-field"
             />
-            {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>}
+            {errors.email && <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.email.message}</p>}
           </div>
 
           {openSignup ? (
@@ -164,7 +164,7 @@ export default function SignupPage() {
                 className="input-field"
               />
               {errors.inviteCode && (
-                <p className="text-red-500 text-xs mt-1">{errors.inviteCode.message}</p>
+                <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.inviteCode.message}</p>
               )}
             </div>
           )}

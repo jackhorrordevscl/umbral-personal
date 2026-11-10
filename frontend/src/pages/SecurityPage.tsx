@@ -127,7 +127,7 @@ function MfaCard({
     <div className="card mb-6 break-inside-avoid">
       <div className="flex items-center gap-3 mb-6">
         <div className="bg-sage-50 p-3 rounded-lg">
-          <ShieldCheck size={22} className="text-sage-600" />
+          <ShieldCheck size={22} className="text-sage-600 dark:text-sage-400" />
         </div>
         <div>
           <h3 className="font-medium text-slate-800">Autenticación de dos factores</h3>
@@ -210,7 +210,7 @@ function MfaCard({
 
       {step === 'done' && !recoveryCodes && (
         <div className="space-y-4">
-          <div className="flex items-center gap-2 text-emerald-600">
+          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
             <ShieldCheck size={18} />
             <p className="text-sm font-medium">MFA activo</p>
           </div>
@@ -281,7 +281,7 @@ function InviteCard() {
     <div className="card mb-6 break-inside-avoid">
       <div className="flex items-center gap-3 mb-6">
         <div className="bg-sage-50 p-3 rounded-lg">
-          <UserPlus size={22} className="text-sage-600" />
+          <UserPlus size={22} className="text-sage-600 dark:text-sage-400" />
         </div>
         <div>
           <h3 className="font-medium text-slate-800">Generar invitación</h3>
@@ -344,8 +344,8 @@ function InviteCard() {
 function CalendarSyncWarning({ message }: { message: string }) {
   return (
     <div className="flex items-start gap-2">
-      <AlertCircle size={14} className="text-amber-600 shrink-0 mt-0.5" />
-      <p className="text-xs text-amber-700">{message}</p>
+      <AlertCircle size={14} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+      <p className="text-xs text-amber-700 dark:text-amber-300">{message}</p>
     </div>
   );
 }
@@ -475,7 +475,7 @@ export default function SecurityPage() {
         <div className="card mb-6 break-inside-avoid">
           <div className="flex items-center gap-3 mb-6">
             <div className="bg-sage-50 p-3 rounded-lg">
-              <Calendar size={22} className="text-sage-600" />
+              <Calendar size={22} className="text-sage-600 dark:text-sage-400" />
             </div>
             <div>
               <h3 className="font-medium text-slate-800">Google Calendar</h3>
@@ -512,7 +512,7 @@ export default function SecurityPage() {
             />
           ) : calendarStatus.status === 'CONNECTED' ? (
             <div className="space-y-4">
-              <div className="flex items-center gap-2 text-emerald-600">
+              <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                 <ShieldCheck size={18} />
                 <p className="text-sm font-medium">Conectado</p>
               </div>

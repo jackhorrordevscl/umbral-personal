@@ -50,7 +50,7 @@ export default function SlotList({
                 FOCUS_RING,
                 selectedStart === slot.start
                   ? 'bg-sage-600 text-white border-sage-600'
-                  : 'bg-white border-slate-200 text-slate-700 hover:border-sage-400 hover:bg-sage-50',
+                  : 'bg-surface border-slate-200 text-slate-700 hover:border-sage-400 hover:bg-sage-50',
               ].join(' ')}
             >
               {formatSlotTimeRange(slot.start, slot.end)}

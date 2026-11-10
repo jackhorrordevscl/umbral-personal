@@ -62,12 +62,12 @@ export default function VerifyDischargeDialog({
 
       {result && pdf && (
         <div role="status" className="space-y-3 text-sm text-slate-700">
-          <p className={result.valid ? "text-emerald-700" : "text-red-600"}>
+          <p className={result.valid ? "text-emerald-700 dark:text-emerald-300" : "text-red-600 dark:text-red-400"}>
             {result.valid
               ? "El registro del informe coincide con su huella digital."
               : "El registro del informe no coincide con su huella digital."}
           </p>
-          <p className={pdf.ok ? "text-emerald-700" : "text-amber-700"}>{pdf.text}</p>
+          <p className={pdf.ok ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}>{pdf.text}</p>
           {result.providedByTherapist || result.source === "UPLOADED" ? (
             <p className="bg-slate-50 rounded-lg p-3 text-xs text-slate-600">
               Documento aportado por el terapeuta. El sistema registra su huella para detectar

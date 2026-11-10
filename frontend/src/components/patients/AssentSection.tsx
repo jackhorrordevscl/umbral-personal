@@ -72,8 +72,8 @@ export default function AssentSection({
           role="alert"
           className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2 mb-3"
         >
-          <AlertCircle size={14} className="text-amber-500 shrink-0 mt-0.5" />
-          <p className="text-amber-700 text-xs">
+          <AlertCircle size={14} className="text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
+          <p className="text-amber-700 dark:text-amber-300 text-xs">
             El último registro indica que el paciente rechazó el tratamiento.
             Conviene revisarlo con el paciente y su representante antes de
             continuar. Esto no bloquea la ficha.
@@ -82,7 +82,7 @@ export default function AssentSection({
       )}
 
       {assentsQuery.isError && (
-        <p className="text-red-500 text-xs mb-3 flex items-center gap-1">
+        <p className="text-red-500 dark:text-red-400 text-xs mb-3 flex items-center gap-1">
           <AlertCircle size={11} /> No se pudo cargar el registro de
           asentimiento.
         </p>
@@ -111,7 +111,7 @@ export default function AssentSection({
               </p>
               {a.note && <p className="italic">"{a.note}"</p>}
               {a.documentVoidedAt && (
-                <p className="text-amber-700">
+                <p className="text-amber-700 dark:text-amber-300">
                   Documento de respaldo anulado el {formatChileShortDateTime(a.documentVoidedAt)}
                 </p>
               )}
@@ -143,7 +143,7 @@ export default function AssentSection({
           </select>
         </FormField>
         {action === "REFUSED" && (
-          <p className="text-xs text-amber-700">
+          <p className="text-xs text-amber-700 dark:text-amber-300">
             Registrar un rechazo deja constancia y avisa al terapeuta; no impide
             continuar.
           </p>

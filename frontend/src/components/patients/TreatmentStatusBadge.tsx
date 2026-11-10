@@ -2,10 +2,10 @@ import type { TreatmentStatus } from "../../types/patient";
 import { TREATMENT_STATUS_LABELS } from "../../types/discharge";
 
 const STYLES: Record<TreatmentStatus, string> = {
-  ACTIVE: "bg-emerald-50 text-emerald-700",
+  ACTIVE: "bg-emerald-50 text-emerald-700 dark:text-emerald-300",
   DISCHARGED: "bg-slate-100 text-slate-600",
-  REFERRED: "bg-blue-50 text-blue-700",
-  DROPPED_OUT: "bg-amber-50 text-amber-700",
+  REFERRED: "bg-blue-50 text-blue-700 dark:text-blue-300",
+  DROPPED_OUT: "bg-amber-50 text-amber-700 dark:text-amber-300",
 };
 
 // Informe de alta (T5b): estado del tratamiento del paciente.

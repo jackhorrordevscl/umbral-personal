@@ -157,7 +157,7 @@ export default function DeliveryDialog({
               ))}
             </select>
             {missingGuardians && (
-              <p className="text-xs text-amber-700 mt-1">
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
                 Ningún representante tiene autorizado el acceso a informes. Actualiza su ficha
                 para poder entregarle el informe.
               </p>
@@ -169,7 +169,7 @@ export default function DeliveryDialog({
           <>
             <div
               role="note"
-              className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 space-y-1"
+              className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 dark:text-amber-300 space-y-1"
             >
               <p className="font-medium">Antes de entregar a un tercero</p>
               <p>
@@ -223,7 +223,7 @@ export default function DeliveryDialog({
                 ))}
               </select>
               {missingAuthorizations && (
-                <p className="text-xs text-amber-700 mt-1">
+                <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
                   Primero sube la autorización en Documentos legales (tipo «Autorización de entrega
                   de informe»): puede ser la autorización del paciente o de su representante, o el
                   oficio de un tribunal.

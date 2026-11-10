@@ -40,7 +40,7 @@ function cellClasses(
   if (hasSlots && isSelected) {
     tone = 'bg-sage-600 text-white font-semibold';
   } else if (hasSlots) {
-    tone = 'bg-sage-50 text-sage-700 font-medium hover:bg-sage-100';
+    tone = 'bg-sage-50 text-sage-700 dark:text-sage-300 font-medium hover:bg-sage-100';
   } else {
     tone = `${isToday ? 'text-slate-500' : 'text-slate-300'} cursor-not-allowed`;
   }
@@ -49,7 +49,7 @@ function cellClasses(
     tone,
     !isCurrentMonth && !hasSlots ? 'opacity-60' : '',
     isToday
-      ? `${TODAY_MARK} ${hasSlots && isSelected ? 'after:bg-white' : 'after:bg-sage-500'}`
+      ? `${TODAY_MARK} ${hasSlots && isSelected ? 'after:bg-surface' : 'after:bg-sage-500'}`
       : '',
   ]
     .filter(Boolean)
@@ -156,7 +156,7 @@ export default function BookingCalendar({
               {hasSlots && (
                 <span
                   aria-hidden="true"
-                  className={`absolute right-1 top-1 text-[10px] leading-none font-normal ${isSelected ? 'text-white' : 'text-sage-700'}`}
+                  className={`absolute right-1 top-1 text-[10px] leading-none font-normal ${isSelected ? 'text-white' : 'text-sage-700 dark:text-sage-300'}`}
                 >
                   {slotsByDay[day].length > 9 ? '9+' : slotsByDay[day].length}
                 </span>

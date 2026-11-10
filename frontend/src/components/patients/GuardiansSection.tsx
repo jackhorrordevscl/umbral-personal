@@ -113,7 +113,7 @@ export default function GuardiansSection({
       </div>
 
       {guardiansQuery.isError && (
-        <p className="text-red-500 text-xs mb-3 flex items-center gap-1">
+        <p className="text-red-500 dark:text-red-400 text-xs mb-3 flex items-center gap-1">
           <AlertCircle size={11} /> No se pudieron cargar los representantes.
         </p>
       )}
@@ -169,7 +169,7 @@ export default function GuardiansSection({
                 <button
                   type="button"
                   onClick={() => setToDelete(g)}
-                  className="p-1.5 hover:bg-red-50 rounded-lg text-red-500"
+                  className="p-1.5 hover:bg-red-50 rounded-lg text-red-500 dark:text-red-400"
                   aria-label={`Quitar a ${g.fullName}`}
                 >
                   <Trash2 size={13} />
@@ -221,7 +221,7 @@ function Tag({
   return (
     <span
       className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-        warn ? "bg-amber-50 text-amber-700" : "bg-slate-200 text-slate-600"
+        warn ? "bg-amber-50 text-amber-700 dark:text-amber-300" : "bg-slate-200 text-slate-600"
       }`}
     >
       {children}

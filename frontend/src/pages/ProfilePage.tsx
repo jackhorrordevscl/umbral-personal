@@ -50,7 +50,7 @@ function PublicBookingLinkCard({ profile }: { profile: Profile | undefined }) {
     <div className="card mb-6 break-inside-avoid">
       <div className="flex items-center gap-3 mb-4">
         <div className="bg-sage-50 p-3 rounded-lg">
-          <CalendarDays size={22} className="text-sage-600" />
+          <CalendarDays size={22} className="text-sage-600 dark:text-sage-400" />
         </div>
         <div>
           <h3 className="font-medium text-slate-800">Link de auto-agenda</h3>
@@ -268,7 +268,7 @@ function PublicProfileCard({ profile }: { profile: Profile | undefined }) {
             Opcional. Se muestra públicamente en tu autoagenda.
           </p>
           {websiteError && (
-            <p role="alert" className="text-xs text-red-600 mt-1">
+            <p role="alert" className="text-xs text-red-600 dark:text-red-400 mt-1">
               {websiteError}
             </p>
           )}
@@ -384,7 +384,7 @@ function ProfessionalDataCard({ profile }: { profile: Profile | undefined }) {
             className="input-field"
           />
           {rutError && (
-            <p id="professional-rut-error" role="alert" className="text-xs text-red-600 mt-1">
+            <p id="professional-rut-error" role="alert" className="text-xs text-red-600 dark:text-red-400 mt-1">
               {rutError}
             </p>
           )}
@@ -647,7 +647,7 @@ function AvatarPreview({ avatarUpdatedAt }: { avatarUpdatedAt: string | null }) 
 
   if (error) {
     return (
-      <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center text-xs text-red-500 text-center px-1">
+      <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center text-xs text-red-500 dark:text-red-400 text-center px-1">
         Error
       </div>
     );

@@ -30,9 +30,9 @@ const ALLOWED_EXTENSIONS = [
 
 const categoryIcon = (cat: string) => {
   switch (cat) {
-    case 'LIBRO': return <BookOpen className="w-5 h-5 text-indigo-500" />;
+    case 'LIBRO': return <BookOpen className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />;
     case 'IMAGEN': return <Image className="w-5 h-5 text-pink-500" />;
-    case 'PLANTILLA': return <FileText className="w-5 h-5 text-green-500" />;
+    case 'PLANTILLA': return <FileText className="w-5 h-5 text-green-500 dark:text-green-400" />;
     default: return <File className="w-5 h-5 text-slate-400" />;
   }
 };
@@ -251,7 +251,7 @@ export default function SharedFilesPage() {
               className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
                 category === c.value
                   ? 'bg-sage-600 text-white border-sage-600'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  : 'bg-surface text-slate-600 border-slate-200 hover:bg-slate-50'
               }`}
             >
               {c.label}
@@ -290,7 +290,7 @@ export default function SharedFilesPage() {
                 }}
                 title={isPreviewable(file.mimetype) ? 'Clic para abrir en nueva pestaña' : 'Clic para descargar'}
               >
-                <p className="font-medium text-slate-800 truncate hover:text-sage-600 transition-colors flex items-center gap-1">
+                <p className="font-medium text-slate-800 truncate hover:text-sage-600 dark:hover:text-sage-400 transition-colors flex items-center gap-1">
                   {file.name}
                   {isPreviewable(file.mimetype) && (
                     <ExternalLink className="w-3 h-3 text-slate-300 inline shrink-0" />
@@ -313,12 +313,12 @@ export default function SharedFilesPage() {
                   <Pencil className="w-4 h-4" />
                 </button>
                 <button onClick={() => handleDownload(file)}
-                  className="p-2 rounded-lg hover:bg-sage-50 text-sage-600 transition-colors" title="Descargar"
+                  className="p-2 rounded-lg hover:bg-sage-50 text-sage-600 dark:text-sage-400 transition-colors" title="Descargar"
                   aria-label={`Descargar ${file.name}`}>
                   <Download className="w-4 h-4" />
                 </button>
                 <button onClick={() => setFileToDelete(file)}
-                  className="p-2 rounded-lg hover:bg-red-50 text-red-500 transition-colors" title="Eliminar"
+                  className="p-2 rounded-lg hover:bg-red-50 text-red-500 dark:text-red-400 transition-colors" title="Eliminar"
                   aria-label={`Eliminar ${file.name}`}>
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -353,7 +353,7 @@ export default function SharedFilesPage() {
               onKeyDown={(e) => activateOnKey(() => fileInputRef.current?.click())(e)}
             >
               {form.file ? (
-                <p className="text-sm text-sage-600 font-medium">{form.file.name}</p>
+                <p className="text-sm text-sage-600 dark:text-sage-400 font-medium">{form.file.name}</p>
               ) : (
                 <>
                   <Upload className="w-8 h-8 text-slate-300 mx-auto mb-2" />
@@ -382,7 +382,7 @@ export default function SharedFilesPage() {
               <p className="text-xs text-slate-500 font-medium mb-1">Formatos admitidos:</p>
               <div className="flex flex-wrap gap-1">
                 {ALLOWED_EXTENSIONS.map(ext => (
-                  <span key={ext} className="text-xs bg-white border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded-sm">
+                  <span key={ext} className="text-xs bg-surface border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded-sm">
                     .{ext.toLowerCase()}
                   </span>
                 ))}
@@ -392,7 +392,7 @@ export default function SharedFilesPage() {
             <div className="space-y-3">
               <div>
                 <label htmlFor="upload-name" className="block text-xs font-medium text-slate-600 mb-1">
-                  Nombre del archivo <span className="text-red-500">*</span>
+                  Nombre del archivo <span className="text-red-500 dark:text-red-400">*</span>
                 </label>
                 <input
                   id="upload-name"
@@ -425,8 +425,8 @@ export default function SharedFilesPage() {
 
             {uploadError && (
               <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-100 rounded-lg p-3">
-                <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                <p className="text-red-600 text-xs">{uploadError}</p>
+                <AlertCircle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0 mt-0.5" />
+                <p className="text-red-600 dark:text-red-400 text-xs">{uploadError}</p>
               </div>
             )}
 
@@ -470,7 +470,7 @@ export default function SharedFilesPage() {
             <div className="space-y-3">
               <div>
                 <label htmlFor="edit-file-name" className="block text-xs font-medium text-slate-600 mb-1">
-                  Nombre <span className="text-red-500">*</span>
+                  Nombre <span className="text-red-500 dark:text-red-400">*</span>
                 </label>
                 <input
                   id="edit-file-name"
@@ -507,8 +507,8 @@ export default function SharedFilesPage() {
 
             {editError && (
               <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-100 rounded-lg p-3">
-                <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                <p className="text-red-600 text-xs">{editError}</p>
+                <AlertCircle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0 mt-0.5" />
+                <p className="text-red-600 dark:text-red-400 text-xs">{editError}</p>
               </div>
             )}
 

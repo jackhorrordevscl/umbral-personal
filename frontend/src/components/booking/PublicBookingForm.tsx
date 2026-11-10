@@ -342,7 +342,7 @@ export default function PublicBookingForm({
           href={PRIVACY_POLICY_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className={`text-sage-700 underline ${LINK_FOCUS_RING}`}
+          className={`text-sage-700 dark:text-sage-300 underline ${LINK_FOCUS_RING}`}
         >
           política de privacidad
         </a>

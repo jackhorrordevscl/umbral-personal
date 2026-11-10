@@ -238,7 +238,7 @@ export default function ConsultationForm({
               <div
                 role="listbox"
                 aria-label="Resultados de la búsqueda de pacientes"
-                className="absolute left-0 right-0 top-full z-20 mt-1.5 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
+                className="absolute left-0 right-0 top-full z-20 mt-1.5 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-surface p-1 shadow-lg"
               >
                 {searchResults.length > 0 ? (
                   <div className={searchPending ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
@@ -346,7 +346,7 @@ export default function ConsultationForm({
             onKeyDown={(e) => activateOnKey(() => fileInputRef.current?.click())(e)}
           >
             {summaryFile ? (
-              <p className="text-sm text-sage-600 font-medium">{summaryFile.name}</p>
+              <p className="text-sm text-sage-600 dark:text-sage-400 font-medium">{summaryFile.name}</p>
             ) : (
               <>
                 <Upload size={20} className="text-slate-300 mx-auto mb-1" />

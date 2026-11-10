@@ -28,7 +28,7 @@ export default function NotificationList({
 
   if (isError) {
     return (
-      <p className="text-red-600 text-sm text-center py-6">
+      <p className="text-red-600 dark:text-red-400 text-sm text-center py-6">
         No se pudieron cargar las notificaciones.
       </p>
     );
@@ -56,7 +56,7 @@ export default function NotificationList({
           type="button"
           onClick={() => onOpen(notification)}
           className={`w-full text-left px-4 py-3 flex flex-col gap-1 transition-colors ${
-            isUnread ? 'bg-sage-50 hover:bg-sage-100' : 'bg-white hover:bg-cream-50'
+            isUnread ? 'bg-sage-50 hover:bg-sage-100' : 'bg-surface hover:bg-cream-50'
           }`}
           aria-label={notification.title}
         >

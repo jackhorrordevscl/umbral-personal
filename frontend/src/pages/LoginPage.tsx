@@ -243,7 +243,7 @@ export default function LoginPage() {
 
   if (recoveryCodes && pendingAuth) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+      <div className="min-h-screen bg-ink flex items-center justify-center p-8">
         <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md">
           <RecoveryCodesReveal
             codes={recoveryCodes}
@@ -260,7 +260,7 @@ export default function LoginPage() {
 
   if (passwordChangeRequired) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+      <div className="min-h-screen bg-ink flex items-center justify-center p-8">
         <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md">
           <h2 className="font-display text-3xl text-slate-900 mb-2">Cambio de contraseña requerido</h2>
           <p className="text-slate-500 text-sm mb-6">
@@ -299,7 +299,7 @@ export default function LoginPage() {
 
   if (mfaSetupRequired) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+      <div className="min-h-screen bg-ink flex items-center justify-center p-8">
         <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md">
           <h2 className="font-display text-3xl text-slate-900 mb-2">Activación de MFA requerida</h2>
           <p className="text-slate-500 text-sm mb-6">
@@ -355,7 +355,7 @@ export default function LoginPage() {
 
   if (mfaRequired) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+      <div className="min-h-screen bg-ink flex items-center justify-center p-8">
         <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md">
           <h2 className="font-display text-3xl text-slate-900 mb-2">Verificación MFA</h2>
           <p className="text-slate-500 text-sm mb-6">
@@ -392,7 +392,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 flex">
+    <div className="min-h-screen bg-ink flex">
       <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12"
         style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1a2e1a 50%, #0f2318 100%)' }}>
         <div>
@@ -411,15 +411,17 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-slate-900 lg:bg-cream-50">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-cream-50">
         <div className="w-full max-w-md">
           <div className="mb-[37px] flex justify-center lg:hidden">
-            <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="w-[246px] h-auto" />
+            <div className="rounded-2xl bg-ink px-6 py-5">
+              <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="w-[246px] h-auto" />
+            </div>
           </div>
 
           <div className="mb-10 text-center">
-            <h2 className="font-display text-3xl text-white lg:text-slate-900">Te damos la bienvenida</h2>
-            <p className="text-slate-400 lg:text-slate-500 text-sm mt-2">
+            <h2 className="font-display text-3xl text-slate-900">Te damos la bienvenida</h2>
+            <p className="text-slate-500 text-sm mt-2">
               Ingresa tus credenciales para acceder al sistema
             </p>
           </div>
@@ -430,7 +432,7 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             <div>
-              <label htmlFor="login-email" className="block text-sm font-medium text-slate-300 lg:text-slate-700 mb-1">Email</label>
+              <label htmlFor="login-email" className="block text-sm font-medium text-slate-700 mb-1">Email</label>
               <input
                 {...register('email')}
                 id="login-email"
@@ -439,14 +441,14 @@ export default function LoginPage() {
                 className="input-field"
               />
               {errors.email && (
-                <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>
+                <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.email.message}</p>
               )}
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label htmlFor="login-password" className="block text-sm font-medium text-slate-300 lg:text-slate-700">Contraseña</label>
-                <Link to="/forgot-password" className="text-xs text-slate-400 lg:text-slate-500 hover:underline">
+                <label htmlFor="login-password" className="block text-sm font-medium text-slate-700">Contraseña</label>
+                <Link to="/forgot-password" className="text-xs text-slate-500 hover:underline">
                   ¿Olvidaste tu contraseña?
                 </Link>
               </div>
@@ -457,7 +459,7 @@ export default function LoginPage() {
                 className="input-field"
               />
               {errors.password && (
-                <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>
+                <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.password.message}</p>
               )}
             </div>
 
@@ -472,7 +474,7 @@ export default function LoginPage() {
                     type="button"
                     onClick={onResendVerification}
                     disabled={resendLoading}
-                    className="text-xs text-slate-400 lg:text-slate-500 hover:underline disabled:opacity-50"
+                    className="text-xs text-slate-500 hover:underline disabled:opacity-50"
                   >
                     {resendLoading ? 'Reenviando...' : 'Reenviar email de verificación'}
                   </button>
@@ -488,14 +490,14 @@ export default function LoginPage() {
               {loading ? 'Ingresando...' : 'Ingresar'}
             </button>
 
-            <p className="text-center text-sm text-slate-400 lg:text-slate-500">
+            <p className="text-center text-sm text-slate-500">
               ¿No tienes cuenta?{' '}
-              <Link to="/signup" className="text-white lg:text-slate-900 font-medium hover:underline">
+              <Link to="/signup" className="text-slate-900 font-medium hover:underline">
                 Regístrate
               </Link>
             </p>
 
-            <p className="text-center text-xs text-slate-400 lg:text-slate-500">
+            <p className="text-center text-xs text-slate-500">
               <a
                 href={PRIVACY_POLICY_URL}
                 target="_blank"

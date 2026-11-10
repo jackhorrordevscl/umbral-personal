@@ -127,7 +127,7 @@ export function SubscriptionScreen({
       <div className="card max-w-lg mx-auto">
         <div className="flex items-center gap-3 mb-6">
           <div className="bg-sage-50 p-3 rounded-lg">
-            <Wallet size={22} className="text-sage-600" />
+            <Wallet size={22} className="text-sage-600 dark:text-sage-400" />
           </div>
           <div>
             <h3 className="font-medium text-slate-800">Plan mensual</h3>
@@ -139,7 +139,7 @@ export function SubscriptionScreen({
 
         {afterPayment && !paymentConfirmed && (
           status?.lastPaymentFailed ? (
-            <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+            <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:text-amber-300">
               Tu pago fue rechazado. Puedes intentar de nuevo.
             </p>
           ) : (

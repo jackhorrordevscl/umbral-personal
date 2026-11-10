@@ -185,7 +185,7 @@ export default function PatientForm({
         {isMinorOnChileDay(form.birthDate) && (
           <p
             role="note"
-            className="md:col-span-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700"
+            className="md:col-span-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
           >
             El paciente es NNA. El representante legal se agrega desde su ficha,
             después de guardarla. Hasta entonces no se registrará el consentimiento ni se

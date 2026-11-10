@@ -58,7 +58,7 @@ export default function DeliverySection({ dischargeId, patientId, isMinor }: Del
               </p>
               <p>{d.purpose}</p>
               {d.authorizationVoidedAt && (
-                <p className="text-amber-700">
+                <p className="text-amber-700 dark:text-amber-300">
                   Autorización anulada después, el {formatChileShortDateTime(d.authorizationVoidedAt)}
                 </p>
               )}

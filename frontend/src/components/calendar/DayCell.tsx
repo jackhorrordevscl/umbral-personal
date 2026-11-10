@@ -25,7 +25,7 @@ export default function DayCell({ day, isCurrentMonth, sessions, onClick }: DayC
       data-testid={`day-cell-${day}`}
       onClick={onClick}
       className={`min-h-24 p-1.5 border border-slate-100 text-left flex flex-col gap-1 hover:bg-cream-50 transition-colors ${
-        isCurrentMonth ? 'bg-white' : 'bg-slate-50 text-slate-400'
+        isCurrentMonth ? 'bg-surface' : 'bg-slate-50 text-slate-400'
       }`}
     >
       <span className={`text-xs font-medium ${isCurrentMonth ? 'text-slate-700' : 'text-slate-500'}`}>
@@ -35,7 +35,7 @@ export default function DayCell({ day, isCurrentMonth, sessions, onClick }: DayC
         {visible.map((s) => (
           <span
             key={s.id}
-            className="text-[10px] leading-tight px-1 py-0.5 rounded-sm bg-sage-50 text-sage-700 truncate"
+            className="text-[10px] leading-tight px-1 py-0.5 rounded-sm bg-sage-50 text-sage-700 dark:text-sage-300 truncate"
           >
             {formatChileTime(s.sessionDate)} {s.patientName}
           </span>

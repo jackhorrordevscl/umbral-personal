@@ -78,10 +78,10 @@ export default function IdleWarningModal({
         aria-labelledby="idle-warning-title"
         aria-describedby="idle-warning-desc"
         tabIndex={-1}
-        className="bg-white rounded-2xl shadow-2xl w-full focus:outline-hidden max-w-sm p-6 text-center"
+        className="bg-surface rounded-2xl shadow-2xl w-full focus:outline-hidden max-w-sm p-6 text-center"
       >
         <div className="flex items-center justify-center w-12 h-12 bg-amber-100 rounded-full mx-auto mb-4">
-          <AlertTriangle size={24} className="text-amber-500" />
+          <AlertTriangle size={24} className="text-amber-500 dark:text-amber-400" />
         </div>
         <h3 id="idle-warning-title" className="font-display text-xl text-slate-900 mb-2">
           Sesión por expirar
@@ -93,7 +93,7 @@ export default function IdleWarningModal({
           role="timer"
           aria-live="polite"
           aria-atomic="true"
-          className="text-4xl font-mono font-bold text-amber-500 mb-6"
+          className="text-4xl font-mono font-bold text-amber-500 dark:text-amber-400 mb-6"
         >
           {countdown}
         </div>

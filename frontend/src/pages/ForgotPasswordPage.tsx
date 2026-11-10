@@ -42,7 +42,7 @@ export default function ForgotPasswordPage() {
 
   if (done) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+      <div className="min-h-screen bg-ink flex items-center justify-center p-8">
         <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md text-center">
           <h2 className="font-display text-2xl text-slate-900 mb-2">Revisa tu email</h2>
           <p className="text-slate-500 text-sm mb-6">
@@ -58,7 +58,7 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+    <div className="min-h-screen bg-ink flex items-center justify-center p-8">
       <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md">
         <div className="mb-8">
           <h2 className="font-display text-3xl text-slate-900">¿Olvidaste tu contraseña?</h2>
@@ -78,7 +78,7 @@ export default function ForgotPasswordPage() {
               className="input-field"
             />
             {errors.email && (
-              <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>
+              <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.email.message}</p>
             )}
           </div>
 

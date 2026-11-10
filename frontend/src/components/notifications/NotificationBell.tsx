@@ -125,7 +125,7 @@ export default function NotificationBell() {
             aria-modal="true"
             aria-label="Notificaciones"
             onKeyDown={handlePanelKeyDown}
-            className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-100 z-40 overflow-hidden"
+            className="absolute right-0 mt-2 w-80 bg-surface rounded-xl shadow-xl border border-slate-100 z-40 overflow-hidden"
           >
             <div className="px-4 py-3 border-b border-slate-100">
               <h3 className="text-sm font-semibold text-slate-900">Notificaciones</h3>

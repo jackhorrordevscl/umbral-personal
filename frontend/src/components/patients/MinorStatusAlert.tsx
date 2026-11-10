@@ -31,8 +31,8 @@ export default function MinorStatusAlert({
       role="alert"
       className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2"
     >
-      <AlertCircle size={14} className="text-amber-500 shrink-0 mt-0.5" />
-      <p className="text-amber-700 text-xs">{message}</p>
+      <AlertCircle size={14} className="text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
+      <p className="text-amber-700 dark:text-amber-300 text-xs">{message}</p>
     </div>
   );
 }

@@ -89,7 +89,7 @@ export default function DashboardPage() {
       value: summary?.total ?? 0,
       state: patientsState,
       icon: Users,
-      color: "text-sage-600",
+      color: "text-sage-600 dark:text-sage-400",
       bg: "bg-sage-50",
       route: "/patients",
     },
@@ -98,7 +98,7 @@ export default function DashboardPage() {
       value: consultationStats?.total ?? 0,
       state: consultationsState,
       icon: ClipboardList,
-      color: "text-blue-600",
+      color: "text-blue-600 dark:text-blue-400",
       bg: "bg-blue-50",
       route: "/consultations",
     },
@@ -114,7 +114,7 @@ export default function DashboardPage() {
       value: summary?.withConsent ?? 0,
       state: patientsState,
       icon: FileText,
-      color: "text-emerald-600",
+      color: "text-emerald-600 dark:text-emerald-400",
       bg: "bg-emerald-50",
       route: "/patients",
     },
@@ -123,7 +123,7 @@ export default function DashboardPage() {
       value: consultationStats?.upcoming ?? 0,
       state: consultationsState,
       icon: Calendar,
-      color: "text-amber-600",
+      color: "text-amber-600 dark:text-amber-400",
       bg: "bg-amber-50",
       route: "/consultations",
     },
@@ -143,8 +143,8 @@ export default function DashboardPage() {
 
       {hasLoadError && (
         <div className="mb-6 flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          <AlertCircle size={14} className="text-red-500 shrink-0" />
-          <p className="text-red-600 text-sm">
+          <AlertCircle size={14} className="text-red-500 dark:text-red-400 shrink-0" />
+          <p className="text-red-600 dark:text-red-400 text-sm">
             No se pudieron cargar algunas estadísticas. Reintenta más tarde.
           </p>
         </div>
@@ -194,7 +194,7 @@ export default function DashboardPage() {
               </h3>
               <button
                 onClick={() => navigate("/patients")}
-                className="text-xs text-sage-600 hover:underline"
+                className="text-xs text-sage-600 dark:text-sage-400 hover:underline"
               >
                 Ver todos →
               </button>
@@ -230,11 +230,11 @@ export default function DashboardPage() {
                     </div>
                     <div className="shrink-0">
                       {p.consents?.TREATMENT || p.consents?.TELEMEDICINE ? (
-                        <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full">
+                        <span className="text-xs bg-emerald-50 text-emerald-700 dark:text-emerald-300 px-2 py-1 rounded-full">
                           ✓
                         </span>
                       ) : (
-                        <span className="text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded-full">
+                        <span className="text-xs bg-amber-50 text-amber-700 dark:text-amber-300 px-2 py-1 rounded-full">
                           Pendiente
                         </span>
                       )}
