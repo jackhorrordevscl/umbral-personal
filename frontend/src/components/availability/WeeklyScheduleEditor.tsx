@@ -148,7 +148,7 @@ export default function WeeklyScheduleEditor() {
               className="input-field max-w-40"
             />
             {errors.sessionDurationMinutes && (
-              <p className="text-red-500 text-xs mt-1">
+              <p className="text-red-500 dark:text-red-400 text-xs mt-1">
                 {errors.sessionDurationMinutes.message}
               </p>
             )}
@@ -198,12 +198,12 @@ export default function WeeklyScheduleEditor() {
                             type="button"
                             onClick={() => remove(index)}
                             aria-label={`Quitar horario de ${DAY_LABELS[day]} ${index}`}
-                            className="text-red-400 hover:text-red-600 text-xs"
+                            className="text-red-400 hover:text-red-600 dark:hover:text-red-400 text-xs"
                           >
                             Quitar
                           </button>
                           {errors.entries?.[index]?.endTime && (
-                            <p className="text-red-500 text-xs w-full">
+                            <p className="text-red-500 dark:text-red-400 text-xs w-full">
                               {errors.entries[index]?.endTime?.message}
                             </p>
                           )}

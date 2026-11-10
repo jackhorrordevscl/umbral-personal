@@ -42,7 +42,7 @@ export default function RecoveryCodesReveal({
         lugar seguro.
       </p>
 
-      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4 grid grid-cols-2 gap-2 font-mono text-sm text-slate-700">
+      <div className="bg-surface border border-slate-200 rounded-lg p-4 mb-4 grid grid-cols-2 gap-2 font-mono text-sm text-slate-700">
         {codes.map((code) => (
           <span key={code}>{code}</span>
         ))}
@@ -56,12 +56,12 @@ export default function RecoveryCodesReveal({
       </button>
       <div className="mb-4 min-h-5 text-sm">
         {copyStatus === 'ok' && (
-          <p role="status" className="text-emerald-700">
+          <p role="status" className="text-emerald-700 dark:text-emerald-300">
             Códigos copiados
           </p>
         )}
         {copyStatus === 'error' && (
-          <p role="alert" className="text-red-600">
+          <p role="alert" className="text-red-600 dark:text-red-400">
             No se pudo copiar. Selecciona los códigos y cópialos manualmente.
           </p>
         )}

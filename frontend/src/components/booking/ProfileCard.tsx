@@ -28,14 +28,14 @@ export default function ProfileCard({ profile, avatarUrl }: ProfileCardProps) {
           className="h-auto min-h-28 w-28 self-stretch lg:min-h-0 lg:w-full lg:self-auto lg:aspect-square short:lg:w-24 short:lg:self-start rounded-xl object-cover shrink-0"
         />
       ) : (
-        <div className="h-auto min-h-28 w-28 self-stretch lg:min-h-0 lg:w-full lg:self-auto lg:aspect-square short:lg:w-24 short:lg:self-start rounded-xl bg-sage-100 text-sage-700 font-display text-2xl lg:text-7xl short:lg:text-4xl flex items-center justify-center shrink-0">
+        <div className="h-auto min-h-28 w-28 self-stretch lg:min-h-0 lg:w-full lg:self-auto lg:aspect-square short:lg:w-24 short:lg:self-start rounded-xl bg-sage-100 text-sage-700 dark:text-sage-300 font-display text-2xl lg:text-7xl short:lg:text-4xl flex items-center justify-center shrink-0">
           {initials(profile.name)}
         </div>
       )}
       <div className="min-w-0">
         <h1 className="font-display text-2xl lg:text-3xl leading-tight text-slate-900">{profile.name}</h1>
         {profile.specialty && (
-          <span className="inline-block mt-1 lg:mt-2 text-xs lg:text-sm bg-sage-50 text-sage-700 px-2 py-0.5 lg:px-3 lg:py-1 rounded-full">
+          <span className="inline-block mt-1 lg:mt-2 text-xs lg:text-sm bg-sage-50 text-sage-700 dark:text-sage-300 px-2 py-0.5 lg:px-3 lg:py-1 rounded-full">
             {profile.specialty}
           </span>
         )}
@@ -49,7 +49,7 @@ export default function ProfileCard({ profile, avatarUrl }: ProfileCardProps) {
             href={website.href}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-3 lg:mt-4 inline-flex items-center gap-1.5 text-sm lg:text-base text-sage-700 hover:underline break-all rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sage-400"
+            className="mt-3 lg:mt-4 inline-flex items-center gap-1.5 text-sm lg:text-base text-sage-700 dark:text-sage-300 hover:underline break-all rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sage-400"
           >
             <Globe size={14} aria-hidden="true" />
             {website.label}

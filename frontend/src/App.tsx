@@ -14,6 +14,7 @@ import { setUnauthorizedHandler } from "./api/client";
 import { toFromPath } from "./utils/redirect";
 import IdleManager from "./components/IdleManager";
 import Layout from "./components/Layout";
+import ThemeToggle from "./components/ui/ThemeToggle";
 import { lazyWithRetry } from "./utils/lazy-with-retry";
 
 // Issue #43: code-splitting por ruta -- sin esto, las 9 páginas (incluidas
@@ -99,9 +100,34 @@ function SessionExpiredHandler() {
   return null;
 }
 
+// #693: pantallas fuera del Layout (sin barra lateral): el botón de tema va
+// en una esquina. Dentro del Layout vive en el pie de la barra lateral.
+const PUBLIC_THEME_TOGGLE_PATHS = [
+  "/login",
+  "/signup",
+  "/verify-email",
+  "/confirm-email-change",
+  "/forgot-password",
+  "/reset-password",
+  "/mfa/recover",
+  "/pago-recibido",
+  "/book/",
+];
+
+function PublicThemeToggle() {
+  const { pathname } = useLocation();
+  if (!PUBLIC_THEME_TOGGLE_PATHS.some((p) => pathname.startsWith(p))) return null;
+  return (
+    <div className="fixed top-3 right-3 z-40">
+      <ThemeToggle />
+    </div>
+  );
+}
+
 function AppRoutes() {
   return (
     <Suspense fallback={<RouteFallback />}>
+      <PublicThemeToggle />
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />

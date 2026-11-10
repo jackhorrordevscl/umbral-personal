@@ -39,7 +39,7 @@ export default function ConfirmEmailChangePage() {
   }, [token]);
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+    <div className="min-h-screen bg-ink flex items-center justify-center p-8">
       <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md text-center">
         {status === 'confirming' && (
           <p className="text-slate-500 text-sm">Confirmando tu nuevo email...</p>

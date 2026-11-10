@@ -49,7 +49,7 @@ export default function VerifyEmailPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+    <div className="min-h-screen bg-ink flex items-center justify-center p-8">
       <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md">
         {!token && (
           <div className="text-center">
@@ -89,7 +89,7 @@ export default function VerifyEmailPage() {
                   className="input-field"
                 />
                 {errors.password && (
-                  <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>
+                  <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.password.message}</p>
                 )}
               </div>
 
@@ -102,7 +102,7 @@ export default function VerifyEmailPage() {
                   className="input-field"
                 />
                 {errors.confirmPassword && (
-                  <p className="text-red-500 text-xs mt-1">{errors.confirmPassword.message}</p>
+                  <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.confirmPassword.message}</p>
                 )}
               </div>
 

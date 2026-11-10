@@ -54,7 +54,7 @@ export default function ResetPasswordPage() {
 
   if (!resetToken) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+      <div className="min-h-screen bg-ink flex items-center justify-center p-8">
         <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md text-center">
           <h2 className="font-display text-2xl text-slate-900 mb-2">Enlace inválido</h2>
           <ErrorBanner
@@ -71,7 +71,7 @@ export default function ResetPasswordPage() {
 
   if (done) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+      <div className="min-h-screen bg-ink flex items-center justify-center p-8">
         <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md text-center">
           <h2 className="font-display text-2xl text-slate-900 mb-2">Contraseña actualizada</h2>
           <p className="text-slate-500 text-sm mb-6">
@@ -86,7 +86,7 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+    <div className="min-h-screen bg-ink flex items-center justify-center p-8">
       <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md">
         <div className="mb-8">
           <h2 className="font-display text-3xl text-slate-900">Restablecer contraseña</h2>
@@ -107,7 +107,7 @@ export default function ResetPasswordPage() {
               className="input-field"
             />
             {errors.newPassword && (
-              <p className="text-red-500 text-xs mt-1">{errors.newPassword.message}</p>
+              <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.newPassword.message}</p>
             )}
           </div>
 
@@ -122,7 +122,7 @@ export default function ResetPasswordPage() {
               className="input-field"
             />
             {errors.confirmPassword && (
-              <p className="text-red-500 text-xs mt-1">{errors.confirmPassword.message}</p>
+              <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.confirmPassword.message}</p>
             )}
           </div>
 

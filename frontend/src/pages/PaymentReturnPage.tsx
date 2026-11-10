@@ -33,7 +33,7 @@ export default function PaymentReturnPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+    <div className="min-h-screen bg-ink flex items-center justify-center p-8">
       <div className="bg-cream-50 rounded-2xl p-8 w-full max-w-md text-center">
         <h2 className="font-display text-2xl text-slate-900 mb-2">{title}</h2>
         <p className="text-slate-500 text-sm">{message}</p>

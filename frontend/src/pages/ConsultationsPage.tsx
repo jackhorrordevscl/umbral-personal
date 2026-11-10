@@ -46,13 +46,13 @@ function SessionAttachment({ groupId, documents }: { groupId: string; documents:
       <button
         type="button"
         onClick={() => void handleDownload()}
-        className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700"
+        className="flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300"
       >
         <FileText size={13} />
         {attachment.fileName}
         <Download size={12} />
       </button>
-      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+      {error && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{error}</p>}
     </div>
   );
 }
@@ -266,7 +266,7 @@ function ExpandableText({ text }: { text: string | null }) {
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
-          className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 mt-1"
+          className="flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 mt-1"
         >
           {expanded ? (
             <>
@@ -558,8 +558,8 @@ export default function ConsultationsPage() {
               </button>
             </div>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex gap-2">
-              <AlertCircle size={14} className="text-amber-600 shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-700">
+              <AlertCircle size={14} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-700 dark:text-amber-300">
                 Por normativa clínica las sesiones no se eliminan ni sobreescriben. Esta corrección actualiza el registro y guarda un snapshot de la versión anterior para trazabilidad.
               </p>
             </div>
@@ -629,7 +629,7 @@ export default function ConsultationsPage() {
                   onKeyDown={(e) => activateOnKey(() => editFileInputRef.current?.click())(e)}
                 >
                   {editSummaryFile ? (
-                    <p className="text-sm text-sage-600 font-medium">{editSummaryFile.name}</p>
+                    <p className="text-sm text-sage-600 dark:text-sage-400 font-medium">{editSummaryFile.name}</p>
                   ) : (
                     <>
                       <Upload size={20} className="text-slate-300 mx-auto mb-1" />
@@ -756,7 +756,7 @@ export default function ConsultationsPage() {
                         </p>
                         <div className="flex flex-wrap gap-2 mt-1">
                           <span className={`text-xs px-2 py-0.5 rounded-full ${
-                            c.sessionType === 'TELEMED' ? 'bg-blue-50 text-blue-600' : 'bg-sage-50 text-sage-600'
+                            c.sessionType === 'TELEMED' ? 'bg-blue-50 text-blue-600 dark:text-blue-400' : 'bg-sage-50 text-sage-600 dark:text-sage-400'
                           }`}>
                             {c.sessionType === 'TELEMED' ? 'Telemedicina' : 'Presencial'}
                           </span>
@@ -774,7 +774,7 @@ export default function ConsultationsPage() {
                             (c.payment.status === 'PENDING' || c.payment.status === 'LATE') && (
                             <>
                               <span
-                                className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 max-w-full truncate"
+                                className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 dark:text-red-400 max-w-full truncate"
                                 title={c.payment.lastError ?? undefined}
                               >
                                 {c.payment.orderOutcomeUncertain

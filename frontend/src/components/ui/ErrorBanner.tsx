@@ -20,14 +20,14 @@ const VARIANT_STYLES = {
   error: {
     bg: "bg-red-50",
     border: "border-red-200",
-    text: "text-red-600",
-    icon: "text-red-500",
+    text: "text-red-600 dark:text-red-400",
+    icon: "text-red-500 dark:text-red-400",
   },
   success: {
     bg: "bg-emerald-50",
     border: "border-emerald-200",
-    text: "text-emerald-700",
-    icon: "text-emerald-600",
+    text: "text-emerald-700 dark:text-emerald-300",
+    icon: "text-emerald-600 dark:text-emerald-400",
   },
 } as const;
 

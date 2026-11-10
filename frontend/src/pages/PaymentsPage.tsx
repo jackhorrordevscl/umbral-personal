@@ -269,7 +269,7 @@ function ConnectionWizard({ reconnect }: { reconnect: boolean }) {
 
       {step === 'confirmation' && validation && (
         <div className="space-y-4">
-          <div className="flex items-center gap-2 text-emerald-600">
+          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
             <CheckCircle2 size={18} />
             <p className="text-sm font-medium">Flow validó tus credenciales</p>
           </div>
@@ -357,7 +357,7 @@ export default function PaymentsPage() {
       <div className="card max-w-lg mx-auto">
         <div className="flex items-center gap-3 mb-6">
           <div className="bg-sage-50 p-3 rounded-lg">
-            <CreditCard size={22} className="text-sage-600" />
+            <CreditCard size={22} className="text-sage-600 dark:text-sage-400" />
           </div>
           <div>
             <h3 className="font-medium text-slate-800">Cuenta de pagos (Flow)</h3>
@@ -379,7 +379,7 @@ export default function PaymentsPage() {
           />
         ) : isConnected ? (
           <div className="space-y-4">
-            <div className="flex items-center gap-2 text-emerald-600">
+            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
               <ShieldCheck size={18} />
               <p className="text-sm font-medium">
                 Cuenta conectada

@@ -8,6 +8,7 @@ import { useAuth } from '../context/useAuth';
 import NotificationBell from './notifications/NotificationBell';
 import SubscriptionBanner from './subscription/SubscriptionBanner';
 import SubscriptionNavLink from './subscription/SubscriptionNavLink';
+import ThemeToggle from './ui/ThemeToggle';
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -60,7 +61,7 @@ export default function Layout() {
     <div className="flex h-dvh bg-cream-100">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-sm focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-sage-700 focus:outline-hidden focus:ring-2 focus:ring-sage-400"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-sm focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-sage-700 dark:focus:text-sage-300 focus:outline-hidden focus:ring-2 focus:ring-sage-400"
       >
         Saltar al contenido
       </a>
@@ -75,13 +76,13 @@ export default function Layout() {
         aria-hidden={asideHidden || undefined}
         className={`
         fixed lg:static inset-y-0 left-0 z-30
-        w-64 bg-slate-900 flex flex-col
+        w-64 bg-ink flex flex-col
         transform transition-transform duration-300
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         lg:translate-x-0
       `}
       >
-        <div className="px-6 py-8 short:py-3 border-b border-slate-800 flex items-center justify-between">
+        <div className="px-6 py-8 short:py-3 border-b border-ink-hover flex items-center justify-between">
           <div className="flex-1 flex justify-center">
             <img src="/logo.svg" alt="Umbral — Registro Clínico Electrónico" className="h-[83px] short:h-12 w-auto" />
           </div>
@@ -113,10 +114,11 @@ export default function Layout() {
           ))}
           <SubscriptionNavLink onClick={closeSidebar} />
         </nav>
-        <div className="px-3 py-4 short:py-2 border-t border-slate-800">
+        <div className="px-3 py-4 short:py-2 border-t border-ink-hover">
           <div className="px-4 py-2 mb-2 short:py-1 short:mb-1">
             <p className="text-white text-sm font-medium truncate">{user?.email}</p>
           </div>
+          <ThemeToggle variant="sidebar" />
           <button
             onClick={handleLogout}
             className="sidebar-link w-full text-left text-red-400 hover:text-red-300 hover:bg-red-950"
@@ -127,7 +129,7 @@ export default function Layout() {
         </div>
       </aside>
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-3">
+        <header className="bg-surface border-b border-slate-100 px-4 py-3 flex items-center gap-3">
           <button
             ref={openButtonRef}
             onClick={() => setSidebarOpen(true)}

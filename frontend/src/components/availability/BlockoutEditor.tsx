@@ -186,7 +186,7 @@ export default function BlockoutEditor() {
               Fecha
             </label>
             <input id="blockout-date" type="date" {...register('date')} className="input-field" />
-            {errors.date && <p className="text-red-500 text-xs mt-1">{errors.date.message}</p>}
+            {errors.date && <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.date.message}</p>}
           </div>
         )}
 
@@ -197,7 +197,7 @@ export default function BlockoutEditor() {
                 Fecha
               </label>
               <input id="blockout-date" type="date" {...register('date')} className="input-field" />
-              {errors.date && <p className="text-red-500 text-xs mt-1">{errors.date.message}</p>}
+              {errors.date && <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.date.message}</p>}
             </div>
             <div>
               <label htmlFor="blockout-startTime" className="block text-sm font-medium text-slate-700 mb-1">
@@ -210,7 +210,7 @@ export default function BlockoutEditor() {
                 className="input-field"
               />
               {errors.startTime && (
-                <p className="text-red-500 text-xs mt-1">{errors.startTime.message}</p>
+                <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.startTime.message}</p>
               )}
             </div>
             <div>
@@ -224,7 +224,7 @@ export default function BlockoutEditor() {
                 className="input-field"
               />
               {errors.endTime && (
-                <p className="text-red-500 text-xs mt-1">{errors.endTime.message}</p>
+                <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.endTime.message}</p>
               )}
             </div>
           </div>
@@ -243,7 +243,7 @@ export default function BlockoutEditor() {
                 className="input-field"
               />
               {errors.startDate && (
-                <p className="text-red-500 text-xs mt-1">{errors.startDate.message}</p>
+                <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.startDate.message}</p>
               )}
             </div>
             <div>
@@ -257,7 +257,7 @@ export default function BlockoutEditor() {
                 className="input-field"
               />
               {errors.endDate && (
-                <p className="text-red-500 text-xs mt-1">{errors.endDate.message}</p>
+                <p className="text-red-500 dark:text-red-400 text-xs mt-1">{errors.endDate.message}</p>
               )}
             </div>
           </div>
@@ -310,7 +310,7 @@ export default function BlockoutEditor() {
                 type="button"
                 onClick={() => handleDelete(blockout.id)}
                 aria-label={`Quitar bloqueo ${blockout.id}`}
-                className="text-red-400 hover:text-red-600 text-xs"
+                className="text-red-400 hover:text-red-600 dark:hover:text-red-400 text-xs"
               >
                 Quitar
               </button>

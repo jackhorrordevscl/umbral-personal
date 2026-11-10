@@ -9,7 +9,7 @@ const LABELS: Record<Exclude<AgeBand, "ADULT">, string> = {
 export default function AgeBandBadge({ ageBand }: { ageBand?: AgeBand }) {
   if (!ageBand || ageBand === "ADULT") return null;
   return (
-    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 dark:text-blue-300">
       {LABELS[ageBand]}
     </span>
   );

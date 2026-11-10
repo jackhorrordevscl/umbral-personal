@@ -7,10 +7,10 @@ interface ReminderEmailStatusBadgeProps {
 type BadgeKey = 'FAILED' | 'SENT' | 'DELIVERED' | 'OPENED';
 
 const BADGE_STYLES: Record<BadgeKey, string> = {
-  FAILED: 'bg-red-50 text-red-600',
+  FAILED: 'bg-red-50 text-red-600 dark:text-red-400',
   SENT: 'bg-slate-100 text-slate-500',
-  DELIVERED: 'bg-emerald-50 text-emerald-700',
-  OPENED: 'bg-emerald-50 text-emerald-700',
+  DELIVERED: 'bg-emerald-50 text-emerald-700 dark:text-emerald-300',
+  OPENED: 'bg-emerald-50 text-emerald-700 dark:text-emerald-300',
 };
 
 const BADGE_LABELS: Record<BadgeKey, string> = {

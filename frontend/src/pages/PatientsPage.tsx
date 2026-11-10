@@ -68,7 +68,7 @@ const needsMinorAttention = (p: Patient) =>
 function MinorStatusBadge({ patient }: { patient: Patient }) {
   if (!needsMinorAttention(patient)) return null;
   return (
-    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 whitespace-nowrap">
+    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:text-amber-300 whitespace-nowrap">
       {patient.minorStatus === "MISSING_GUARDIAN"
         ? "NNA sin representante"
         : "NNA: consentimiento por regularizar"}
@@ -148,7 +148,7 @@ function PatientTableRow({
       <div role="cell">
         <span
           className={`text-xs px-2 py-1 rounded-full ${
-            hasAnyConsent(p) ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+            hasAnyConsent(p) ? "bg-emerald-50 text-emerald-700 dark:text-emerald-300" : "bg-amber-50 text-amber-700 dark:text-amber-300"
           }`}
         >
           {hasAnyConsent(p) ? "Consentimiento ✓" : "Sin consentimiento"}
@@ -173,7 +173,7 @@ function PatientTableRow({
         </button>
         <button
           onClick={() => onDownload(p)}
-          className="p-1.5 hover:bg-sage-50 rounded-lg text-sage-600 transition-colors"
+          className="p-1.5 hover:bg-sage-50 rounded-lg text-sage-600 dark:text-sage-400 transition-colors"
           title="Descargar PDF"
           aria-label={`Descargar ficha PDF de ${p.fullName}`}
         >
@@ -227,7 +227,7 @@ function PatientCardRow({
           </div>
           <span
             className={`text-xs px-2 py-1 rounded-full shrink-0 ${
-              hasAnyConsent(p) ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+              hasAnyConsent(p) ? "bg-emerald-50 text-emerald-700 dark:text-emerald-300" : "bg-amber-50 text-amber-700 dark:text-amber-300"
             }`}
           >
             {hasAnyConsent(p) ? "✓" : "Pendiente"}
@@ -256,7 +256,7 @@ function PatientCardRow({
           </button>
           <button
             onClick={() => onEdit(p)}
-            className="btn-secondary text-xs py-1 flex items-center gap-1 text-blue-500"
+            className="btn-secondary text-xs py-1 flex items-center gap-1 text-blue-500 dark:text-blue-400"
           >
             <Pencil size={13} /> Editar
           </button>
@@ -592,24 +592,24 @@ export default function PatientsPage() {
           antes de que el terapeuta llegue a leerlo. */}
       {bulkError && (
         <div className="mb-4 flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          <AlertCircle size={14} className="text-red-500 shrink-0" />
-          <p className="text-red-600 text-sm">{bulkError}</p>
+          <AlertCircle size={14} className="text-red-500 dark:text-red-400 shrink-0" />
+          <p className="text-red-600 dark:text-red-400 text-sm">{bulkError}</p>
         </div>
       )}
 
       {visibleSelectedIds.length > 0 && (
         <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
-          <p className="text-sm font-medium text-amber-900 mb-1">
+          <p className="text-sm font-medium text-amber-900 dark:text-amber-300 mb-1">
             Declarar consentimiento retroactivo para {visibleSelectedIds.length} paciente(s)
           </p>
-          <p className="text-sm text-amber-800 mb-1">
+          <p className="text-sm text-amber-800 dark:text-amber-300 mb-1">
             <span className="font-medium">¿Por qué aparece esto?</span> El sistema exige un consentimiento
             informado vigente para poder registrar consultas. Estos pacientes ya estaban en tratamiento
             antes de que ese control existiera, o fueron autoagendados por la web pública, así que no
             tienen el registro digital — aunque el consentimiento sí exista en papel, en el expediente
             físico.
           </p>
-          <p className="text-sm text-amber-800 mb-2">
+          <p className="text-sm text-amber-800 dark:text-amber-300 mb-2">
             <span className="font-medium">¿Para qué sirve declararlo?</span> Esta acción no reemplaza el
             consentimiento en papel: deja constancia en el sistema de que ya fue obtenido, para poder
             seguir registrando consultas de estos pacientes sin quedar bloqueado. Declarar solo si el

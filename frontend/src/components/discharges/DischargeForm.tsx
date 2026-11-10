@@ -520,7 +520,7 @@ export default function DischargeForm({
 function RutWarning() {
   return (
     <div role="alert" className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-      <p className="text-amber-800 text-sm">
+      <p className="text-amber-800 dark:text-amber-300 text-sm">
         Falta tu RUT en el perfil. Es obligatorio para emitir el informe generado por el
         sistema.{" "}
         <a href="/profile" className="font-medium underline">

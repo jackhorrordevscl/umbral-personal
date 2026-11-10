@@ -154,7 +154,7 @@ function ToolbarButton({
       aria-label={label}
       aria-pressed={active}
       className={`p-1.5 rounded transition-colors ${
-        active ? "bg-sage-100 text-sage-700" : "text-slate-500 hover:bg-slate-100"
+        active ? "bg-sage-100 text-sage-700 dark:text-sage-300" : "text-slate-500 hover:bg-slate-100"
       }`}
     >
       {children}

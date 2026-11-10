@@ -25,10 +25,70 @@ layer(base);
   --color-cream-50: #fdfcf8;
   --color-cream-100: #faf8f0;
   --color-cream-200: #f5f0e4;
+
+  /* Tokens semánticos para el tema oscuro (#693). `surface` reemplaza a
+     `bg-white` (la superficie de tarjetas, inputs y cabecera) y `ink*` son las
+     zonas que siempre son oscuras (barra lateral, fondo de las pantallas de
+     autenticación): no cambian con el tema. */
+  --color-surface: #ffffff;
+  --color-ink: #0f172a;
+  --color-ink-hover: #1e293b;
+  --color-ink-fg: #cbd5e1;
 }
 
 /* #533: viewports bajos (1366x768 con barras, o escala de Windows de 125 %). */
 @custom-variant short (@media (max-height: 760px));
+
+/* #693: tema oscuro por clase `dark` en <html>, como la landing. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+  Tema oscuro (#693). Se redefinen las variables de la paleta: las utilidades de
+  Tailwind 4 leen `var(--color-*)`, así que casi toda la interfaz cambia sin
+  tocar cada clase. Va SIN @layer a propósito: lo que está fuera de capas le
+  gana a la capa `theme` de Tailwind. Reglas de la paleta:
+  - slate, cream, sage-50/100 y los tintes 50-200 de red/amber/emerald/blue se
+    invierten (fondos y bordes oscuros, textos claros).
+  - Los tonos sólidos (sage-500+, red-500/600, etc.) NO se tocan: llevan texto
+    blanco. Los textos de estado que necesitan aclararse llevan su propia
+    variante `dark:` en el componente.
+*/
+.dark {
+  color-scheme: dark;
+
+  --color-surface: #131c31;
+
+  --color-slate-50: #19233a;
+  --color-slate-100: #1f2a44;
+  --color-slate-200: #2b3856;
+  --color-slate-300: #3b4a6b;
+  --color-slate-400: #7d8ba6;
+  --color-slate-500: #9aa8bf;
+  --color-slate-600: #aeb9cc;
+  --color-slate-700: #c5cedd;
+  --color-slate-800: #dde3ee;
+  --color-slate-900: #f1f4f9;
+
+  --color-cream-50: #101828;
+  --color-cream-100: #0b1120;
+  --color-cream-200: #1b2640;
+
+  --color-sage-50: #14261d;
+  --color-sage-100: #1a3226;
+
+  --color-red-50: #2a1416;
+  --color-red-100: #3a1a1d;
+  --color-red-200: #5b2428;
+  --color-amber-50: #2a2112;
+  --color-amber-100: #3a2d14;
+  --color-amber-200: #5a4318;
+  --color-emerald-50: #10261f;
+  --color-emerald-100: #14342a;
+  --color-emerald-200: #1d4d3d;
+  --color-blue-50: #122038;
+  --color-blue-100: #16294a;
+  --color-blue-200: #1f3d6b;
+}
 
 /*
   The default border color has changed to `currentcolor` in Tailwind CSS v4,
@@ -49,8 +109,8 @@ layer(base);
 }
 
 @utility sidebar-link {
-  @apply flex items-center gap-3 px-4 py-3 rounded-lg text-slate-300 
-           hover:bg-slate-800 hover:text-white transition-all duration-200 
+  @apply flex items-center gap-3 px-4 py-3 rounded-lg text-ink-fg
+           hover:bg-ink-hover hover:text-white transition-all duration-200
            text-sm font-medium;
 
   @variant short {
@@ -73,14 +133,14 @@ layer(base);
 }
 
 @utility input-field {
-  @apply w-full px-3 py-2 bg-white border border-slate-200 rounded-lg 
+  @apply w-full px-3 py-2 bg-surface border border-slate-200 rounded-lg 
            text-sm text-slate-800 placeholder:text-slate-400
            focus:outline-hidden focus:ring-2 focus:ring-sage-400 focus:border-transparent
            transition-all duration-200;
 }
 
 @utility card {
-  @apply bg-white rounded-xl border border-slate-100 shadow-xs p-6;
+  @apply bg-surface rounded-xl border border-slate-100 shadow-xs p-6;
 
   @variant short {
     @apply p-4;

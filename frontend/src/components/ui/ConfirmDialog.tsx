@@ -59,10 +59,10 @@ export default function ConfirmDialog({
         aria-labelledby="confirm-dialog-title"
         aria-describedby="confirm-dialog-desc"
         tabIndex={-1}
-        className="bg-white rounded-2xl shadow-2xl w-full focus:outline-hidden max-w-sm p-6 text-center"
+        className="bg-surface rounded-2xl shadow-2xl w-full focus:outline-hidden max-w-sm p-6 text-center"
       >
         <div className="flex items-center justify-center w-12 h-12 bg-red-100 rounded-full mx-auto mb-4">
-          <AlertTriangle size={24} className="text-red-500" />
+          <AlertTriangle size={24} className="text-red-500 dark:text-red-400" />
         </div>
         <h3 id="confirm-dialog-title" className="font-display text-xl text-slate-900 mb-2">
           {title}

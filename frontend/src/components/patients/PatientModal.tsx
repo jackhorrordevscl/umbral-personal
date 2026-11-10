@@ -374,7 +374,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
             onClick={handleOpenEdit}
             className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${
               modalTab === "edit"
-                ? "text-blue-600 border-b-2 border-blue-600 -mb-px"
+                ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 -mb-px"
                 : "text-slate-400 hover:text-slate-600"
             }`}
           >
@@ -384,7 +384,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
             onClick={() => setModalTab("history")}
             className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${
               modalTab === "history"
-                ? "text-amber-600 border-b-2 border-amber-600 -mb-px"
+                ? "text-amber-600 dark:text-amber-400 border-b-2 border-amber-600 -mb-px"
                 : "text-slate-400 hover:text-slate-600"
             }`}
           >
@@ -442,8 +442,8 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                       key={purpose}
                       className={`text-xs px-2 py-1 rounded-full ${
                         selected.consents?.[purpose]
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-amber-50 text-amber-700"
+                          ? "bg-emerald-50 text-emerald-700 dark:text-emerald-300"
+                          : "bg-amber-50 text-amber-700 dark:text-amber-300"
                       }`}
                     >
                       {CONSENT_PURPOSE_LABELS[purpose]}: {selected.consents?.[purpose] ? "✓" : "Pendiente"}
@@ -466,12 +466,12 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
               <div className="mt-4 pt-4 border-t border-slate-100">
                 <p className="font-medium text-slate-700 text-sm mb-3">Documentos legales</p>
                 {docError && (
-                  <p className="text-red-500 text-xs mb-3 flex items-center gap-1">
+                  <p className="text-red-500 dark:text-red-400 text-xs mb-3 flex items-center gap-1">
                     <AlertCircle size={11} /> {docError}
                   </p>
                 )}
                 {documentsQuery.isError && (
-                  <p className="text-red-500 text-xs mb-3 flex items-center gap-1">
+                  <p className="text-red-500 dark:text-red-400 text-xs mb-3 flex items-center gap-1">
                     <AlertCircle size={11} /> No se pudieron cargar los documentos.
                   </p>
                 )}
@@ -524,7 +524,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                             {!isVoided && !NON_VOIDABLE_DOC_TYPES.includes(doc.type) && (
                               <button
                                 onClick={() => openVoid(doc)}
-                                className="p-1.5 hover:bg-red-50 rounded-lg text-red-500"
+                                className="p-1.5 hover:bg-red-50 rounded-lg text-red-500 dark:text-red-400"
                                 aria-label={`Anular ${doc.fileName}`}
                                 title="Anular"
                               >
@@ -533,7 +533,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                             )}
                             <button
                               onClick={() => handleDownloadDoc(doc.id, doc.fileName)}
-                              className="p-1.5 hover:bg-sage-50 rounded-lg text-sage-600"
+                              className="p-1.5 hover:bg-sage-50 rounded-lg text-sage-600 dark:text-sage-400"
                               aria-label={`Descargar ${doc.fileName}`}
                             >
                               <Download size={13} />
@@ -547,7 +547,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                 {needsGuardianForUpload && (
                   <div className="mb-2">
                     {consentingGuardians.length === 0 ? (
-                      <p className="text-amber-700 text-xs">
+                      <p className="text-amber-700 dark:text-amber-300 text-xs">
                         Este documento otorga consentimiento: agrega primero un representante
                         legal con facultad para consentir.
                       </p>
@@ -619,8 +619,8 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
           {modalTab === "edit" && (
             <form className="space-y-4" onSubmit={handleSubmitEdit}>
               <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
-                <AlertCircle size={14} className="text-amber-500 shrink-0 mt-0.5" />
-                <p className="text-amber-700 text-xs">
+                <AlertCircle size={14} className="text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-amber-700 dark:text-amber-300 text-xs">
                   Toda modificación queda registrada con motivo y autor según normativa MINSAL.
                 </p>
               </div>
@@ -777,7 +777,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
 
               <div className="pt-2 border-t border-slate-100">
                 <label htmlFor="edit-reason" className="block text-xs font-medium text-slate-700 mb-1">
-                  Motivo de la modificación <span className="text-red-500">*</span>
+                  Motivo de la modificación <span className="text-red-500 dark:text-red-400">*</span>
                 </label>
                 <textarea
                   id="edit-reason"
@@ -818,7 +818,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
               {historyQuery.isLoading ? (
                 <p className="text-sm text-slate-500 py-4">Cargando historial...</p>
               ) : historyQuery.isError ? (
-                <p className="text-sm text-red-500 py-4 flex items-center gap-1">
+                <p className="text-sm text-red-500 dark:text-red-400 py-4 flex items-center gap-1">
                   <AlertCircle size={12} /> No se pudo cargar el historial.
                 </p>
               ) : history.length === 0 ? (
@@ -839,7 +839,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                         </p>
                       </div>
                       <div className="bg-amber-50 rounded-lg px-3 py-2 mb-3">
-                        <p className="text-xs text-amber-700 italic">"{entry.reason}"</p>
+                        <p className="text-xs text-amber-700 dark:text-amber-300 italic">"{entry.reason}"</p>
                       </div>
                       <div className="space-y-1">
                         {Object.entries(entry.diff).map(([key, { from, to }]) => (
@@ -851,7 +851,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
                               {formatFieldValue(key, from)}
                             </span>
                             <ChevronRight size={12} className="text-slate-300 shrink-0" />
-                            <span className="text-emerald-600 font-medium">
+                            <span className="text-emerald-600 dark:text-emerald-400 font-medium">
                               {formatFieldValue(key, to)}
                             </span>
                           </div>
@@ -879,7 +879,7 @@ export default function PatientModal({ patient, initialTab, onClose }: PatientMo
           </p>
           <div>
             <label htmlFor="void-reason" className="block text-xs font-medium text-slate-700 mb-1">
-              Motivo de la anulación <span className="text-red-500">*</span>
+              Motivo de la anulación <span className="text-red-500 dark:text-red-400">*</span>
             </label>
             <textarea
               id="void-reason"

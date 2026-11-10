@@ -76,7 +76,7 @@ export default function FormField({
       {error && (
         <p
           id={errorId}
-          className="text-red-500 text-xs mt-1 flex items-center gap-1"
+          className="text-red-500 dark:text-red-400 text-xs mt-1 flex items-center gap-1"
         >
           <AlertCircle size={11} /> {error}
         </p>
