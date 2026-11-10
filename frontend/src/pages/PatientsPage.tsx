@@ -93,13 +93,16 @@ const hasAnyConsent = (p: Patient) => Boolean(p.consents?.TREATMENT || p.consent
 // resto de las filas (bug conocido, no es específico de esta librería). En
 // vez de eso, tabla y filas comparten el mismo `grid-template-columns`
 // inline (una sola fuente de verdad) con roles ARIA de tabla.
-const PATIENT_TABLE_COLUMNS = "minmax(200px,2fr) 130px minmax(140px,1fr) 150px 110px 150px";
+const PATIENT_TABLE_COLUMNS = "minmax(200px,2fr) 130px minmax(140px,1fr) 150px 150px 110px";
 const PATIENT_TABLE_ROW_HEIGHT = 76;
 // Altura estimada inicial de una card; la altura real se mide por fila
 // (useDynamicRowHeight) porque un valor fijo recortaba los botones de acción
 // cuando el nombre/email envolvía a varias líneas o con zoom de texto (#298).
 const PATIENT_CARD_ROW_HEIGHT = 208;
 const PATIENT_LIST_HEIGHT = 560;
+// Tabla desktop: múltiplo exacto de la altura de fila para que ninguna fila
+// quede partida por el borde inferior de la lista.
+const PATIENT_TABLE_LIST_HEIGHT = PATIENT_TABLE_ROW_HEIGHT * 6;
 
 interface PatientRowSharedProps {
   items: Patient[];
@@ -151,16 +154,6 @@ function PatientTableRow({
           {hasAnyConsent(p) ? "Consentimiento ✓" : "Sin consentimiento"}
         </span>
       </div>
-      <div role="cell">
-        {!hasAnyConsent(p) && (
-          <input
-            type="checkbox"
-            checked={selectedForConsent.has(p.id)}
-            onChange={() => onToggleConsent(p.id)}
-            aria-label={`Declarar consentimiento retroactivo de ${p.fullName}`}
-          />
-        )}
-      </div>
       <div role="cell" className="flex items-center gap-2">
         <button
           onClick={() => onView(p)}
@@ -194,6 +187,16 @@ function PatientTableRow({
         >
           <Trash2 size={15} />
         </button>
+      </div>
+      <div role="cell">
+        {!hasAnyConsent(p) && (
+          <input
+            type="checkbox"
+            checked={selectedForConsent.has(p.id)}
+            onChange={() => onToggleConsent(p.id)}
+            aria-label={`Declarar consentimiento retroactivo de ${p.fullName}`}
+          />
+        )}
       </div>
     </div>
   );
@@ -664,8 +667,8 @@ export default function PatientsPage() {
           <div role="columnheader" className="py-3 text-xs font-medium text-slate-500">RUT</div>
           <div role="columnheader" className="py-3 text-xs font-medium text-slate-500">Contacto</div>
           <div role="columnheader" className="py-3 text-xs font-medium text-slate-500">Estado</div>
-          <div role="columnheader" className="py-3 text-xs font-medium text-slate-500">Retroactivo</div>
           <div role="columnheader" className="py-3 text-xs font-medium text-slate-500">Acciones</div>
+          <div role="columnheader" className="py-3 text-xs font-medium text-slate-500">Retroactivo</div>
         </div>
         {patientsLoading ? (
           <div className="text-center py-12 text-slate-500">Cargando pacientes...</div>
@@ -680,7 +683,7 @@ export default function PatientsPage() {
             rowProps={sharedRowProps}
             rowKey={patientRowKey}
             overscanCount={6}
-            style={{ height: PATIENT_LIST_HEIGHT }}
+            style={{ height: PATIENT_TABLE_LIST_HEIGHT }}
           />
         )}
       </div>

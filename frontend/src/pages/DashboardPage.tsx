@@ -176,7 +176,7 @@ export default function DashboardPage() {
                       {stat.state === "error" ? "—" : stat.value}
                     </p>
                   )}
-                  <p className="text-xs text-slate-500 truncate">{stat.label}</p>
+                  <p className="text-xs text-slate-500 leading-tight">{stat.label}</p>
                 </div>
               </div>
             ))}
